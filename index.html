@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 사업계획서 자동 생성기</title>
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* CSS 설정 - 세련되고 모던한 UI 디자인 */
+        :root {
+            --primary-color: #4F46E5;
+            --primary-hover: #4338CA;
+            --bg-color: #F8FAFC;
+            --card-bg: #FFFFFF;
+            --text-main: #1E293B;
+            --text-muted: #64748B;
+            --border-color: #E2E8F0;
+            --radius: 12px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Pretendard', -apple-system, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            line-height: 1.6;
+            padding: 2rem;
+            min-height: 100vh;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        header h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--text-main);
+            margin-bottom: 0.5rem;
+        }
+
+        header p {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            height: calc(100vh - 150px);
+            min-height: 700px;
+        }
+
+        /* 공통 카드 스타일 */
+        .panel {
+            background: var(--card-bg);
+            border-radius: var(--radius);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+            border: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* 좌측 패널: 탭 시스템 */
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border-color);
+            background-color: #F1F5F9;
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 1rem;
+            border: none;
+            background: none;
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.2s;
+            border-bottom: 3px solid transparent;
+        }
+
+        .tab-btn:hover {
+            color: var(--primary-color);
+        }
+
+        .tab-btn.active {
+            color: var(--primary-color);
+            border-bottom-color: var(--primary-color);
+            background-color: var(--card-bg);
+        }
+
+        .tab-content {
+            display: none;
+            padding: 2rem;
+            flex-grow: 1;
+            overflow-y: auto;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* 파일 업로드 박스 스타일 */
+        .file-upload-box {
+            border: 2px dashed #CBD5E1;
+            border-radius: 8px;
+            padding: 1.5rem;
+            text-align: center;
+            background-color: #F8FAFC;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 1rem;
+        }
+
+        .file-upload-box:hover {
+            border-color: var(--primary-color);
+            background-color: #EEF2FF;
+        }
+
+        .file-upload-box p {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            margin-bottom: 0;
+        }
+
+        #file-status {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--primary-color);
+            margin-top: 0.5rem;
+            display: none;
+        }
+
+        /* 폼 요소 스타일 */
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: var(--text-main);
+        }
+
+        input[type="text"], select, textarea {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        input[type="text"]:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        .generate-btn {
+            width: 100%;
+            padding: 1rem;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-top: 1rem;
+        }
+
+        .generate-btn:hover {
+            background-color: var(--primary-hover);
+        }
+
+        .generate-btn:disabled {
+            background-color: #94A3B8;
+            cursor: not-allowed;
+        }
+
+        /* 우측 패널: 결과 출력 */
+        .output-header {
+            padding: 1.5rem 2rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .output-header h2 {
+            font-size: 1.25rem;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .action-btn {
+            padding: 0.5rem 1rem;
+            border: 1px solid var(--border-color);
+            background-color: white;
+            color: var(--text-main);
+            border-radius: 6px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .action-btn:hover {
+            background-color: #F1F5F9;
+            border-color: #CBD5E1;
+        }
+
+        .output-body {
+            padding: 2rem;
+            flex-grow: 1;
+            overflow-y: auto;
+            background-color: #FAFAFA;
+        }
+
+        /* 결과 문서 스타일링 */
+        .document-view {
+            background: white;
+            padding: 3rem;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            min-height: 100%;
+            display: none;
+        }
+
+        .document-view h3 {
+            color: var(--primary-color);
+            margin-top: 1.5rem;
+            margin-bottom: 0.75rem;
+            font-size: 1.3rem;
+            border-bottom: 2px solid #E2E8F0;
+            padding-bottom: 0.5rem;
+        }
+
+        .document-view h4 {
+            margin-top: 1rem;
+            margin-bottom: 0.5rem;
+            font-size: 1.1rem;
+        }
+
+        .document-view p, .document-view ul {
+            margin-bottom: 1rem;
+            color: #334155;
+        }
+
+        .document-view ul {
+            padding-left: 1.5rem;
+        }
+
+        .document-view li {
+            margin-bottom: 0.25rem;
+        }
+
+        /* 초기 빈 상태 가이드 */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text-muted);
+            text-align: center;
+        }
+
+        .empty-state svg {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+
+        /* 로딩 스피너 */
+        .spinner {
+            border: 3px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top: 3px solid white;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: none;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* 반응형 */
+        @media (max-width: 900px) {
+            .container {
+                grid-template-columns: 1fr;
+                height: auto;
+            }
+            .panel {
+                min-height: 600px;
+            }
+        }
+
+        /* 비밀번호 오버레이 스타일 */
+        #password-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(248, 250, 252, 0.95); /* 배경색과 비슷하게 설정 */
+            backdrop-filter: blur(5px);
+            z-index: 9999;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+        }
+
+        .password-box {
+            background: white;
+            padding: 3rem;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            text-align: center;
+            max-width: 400px;
+            width: 90%;
+        }
+
+        .password-box h2 {
+            margin-bottom: 1rem;
+            color: var(--text-main);
+        }
+
+        .password-box p {
+            color: var(--text-muted);
+            margin-bottom: 2rem;
+        }
+
+        .password-box input {
+            width: 100%;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 1.2rem;
+            text-align: center;
+            letter-spacing: 0.2rem;
+        }
+
+        .password-box input:focus {
+            border-color: var(--primary-color);
+            outline: none;
+        }
+
+        .password-box button {
+            width: 100%;
+            padding: 1rem;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .password-box button:hover {
+            background-color: var(--primary-hover);
+        }
+
+        #error-msg {
+            color: #EF4444;
+            font-size: 0.9rem;
+            margin-top: 1rem;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 비밀번호 입력 오버레이 -->
+    <div id="password-overlay">
+        <div class="password-box">
+            <h2>🔒 보안 접속</h2>
+            <p>프로그램을 사용하려면 팀 비밀번호를 입력하세요.</p>
+            <input type="password" id="access-password" placeholder="비밀번호 입력">
+            <button onclick="checkPassword()">접속하기</button>
+            <div id="error-msg">비밀번호가 일치하지 않습니다.</div>
+        </div>
+    </div>
+
+    <header>
+        <h1>🚀 1분 완성 AI 사업계획서 생성기</h1>
+        <p>당신의 멋진 아이디어를 입력하세요. AI가 논리적인 사업계획서로 완성해 드립니다.</p>
+    </header>
+
+    <div class="container">
+        <!-- 좌측 패널: 정보 입력 -->
+        <div class="panel">
+            <!-- 탭 버튼 -->
+            <div class="tabs">
+                <button class="tab-btn active" onclick="switchTab('general')">일반 창업/아이디어용</button>
+                <button class="tab-btn" onclick="switchTab('contest')">지원사업/공모전 맞춤형</button>
+            </div>
+
+            <!-- 탭 1: 일반 창업용 -->
+            <div id="tab-general" class="tab-content active">
+                <div class="form-group">
+                    <label for="g-itemName">아이템/서비스 이름</label>
+                    <input type="text" id="g-itemName" placeholder="예: 스마트 자세 교정 방석">
+                </div>
+                <div class="form-group">
+                    <label for="g-target">타겟 고객 (Target Audience)</label>
+                    <input type="text" id="g-target" placeholder="예: 장시간 앉아서 일하는 3040 직장인">
+                </div>
+                <div class="form-group">
+                    <label for="g-features">주요 기능 및 핵심 차별성</label>
+                    <textarea id="g-features" placeholder="예: 압력 센서를 통한 실시간 자세 분석, 스마트폰 앱 연동 거북목 경고 알림 등"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="g-revenue">수익 모델 (선택)</label>
+                    <select id="g-revenue">
+                        <option value="제품/기기 단품 판매">제품/기기 단품 판매</option>
+                        <option value="월 정기 구독 모델 (SaaS 등)">월 정기 구독 모델 (SaaS 등)</option>
+                        <option value="플랫폼 중개 수수료">플랫폼 중개 수수료</option>
+                        <option value="광고 수익">광고 수익</option>
+                        <option value="프리미엄(Freemium) 모델">프리미엄(Freemium) 모델</option>
+                    </select>
+                </div>
+                <button class="generate-btn" id="btn-generate-g" onclick="generateBusinessPlan('general')">
+                    <span class="btn-text">사업계획서 생성하기</span>
+                    <div class="spinner"></div>
+                </button>
+            </div>
+
+            <!-- 탭 2: 공모전 맞춤형 -->
+            <div id="tab-contest" class="tab-content">
+                <div class="form-group">
+                    <label for="c-agency">공모 기관 / 지원사업명</label>
+                    <input type="text" id="c-agency" placeholder="예: 2026년 예비창업패키지, XX기관 해커톤">
+                </div>
+                
+                <!-- URL 입력 기능 추가 (신규) -->
+                <div class="form-group">
+                    <label for="c-url">공고문 URL 주소 입력 (자동 스크래핑)</label>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" id="c-url" placeholder="https://www.k-startup.go.kr/..." style="flex: 1;">
+                        <button type="button" class="action-btn" id="btn-fetch-url" onclick="fetchUrlData()" style="white-space: nowrap; background-color: #E0E7FF; color: var(--primary-color); border-color: #C7D2FE;">
+                            URL로 불러오기
+                        </button>
+                    </div>
+                </div>
+
+                <div class="form-group" style="text-align: center; margin: 10px 0;">
+                    <span style="color: var(--text-muted); font-size: 0.9rem; font-weight: bold;">--- 또는 ---</span>
+                </div>
+
+                <!-- 기존 파일 업로드 영역 -->
+                <div class="form-group">
+                    <label>제안요청서(RFP) 파일 업로드</label>
+                    <div class="file-upload-box" id="file-drop-area" onclick="document.getElementById('c-file').click()">
+                        <p>📁 이곳을 클릭하여 공고문 파일을 업로드하세요<br>(PDF, TXT, HWP 등)</p>
+                        <input type="file" id="c-file" style="display:none;" accept=".pdf,.txt,.doc,.docx,.hwp">
+                    </div>
+                    <div id="file-status"></div>
+                </div>
+
+                <div class="form-group">
+                    <label for="c-rfp">평가 기준 및 필수 요구사항 (자동 입력 / 수정 가능)</label>
+                    <textarea id="c-rfp" placeholder="파일을 업로드하면 AI가 분석하여 이곳에 핵심 내용을 채워줍니다.&#10;직접 입력하셔도 됩니다." style="min-height: 120px;"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="c-summary">내 아이템 핵심 요약</label>
+                    <textarea id="c-summary" placeholder="지원할 아이템이 무엇인지 간단히 설명해주세요." style="min-height: 120px;"></textarea>
+                </div>
+                <button class="generate-btn" id="btn-generate-c" onclick="generateBusinessPlan('contest')">
+                    <span class="btn-text">맞춤형 제안서 생성하기</span>
+                    <div class="spinner"></div>
+                </button>
+            </div>
+        </div>
+
+        <!-- 우측 패널: 결과 출력 -->
+        <div class="panel">
+            <div class="output-header">
+                <h2>생성된 사업계획서</h2>
+                <div class="action-buttons">
+                    <button class="action-btn" onclick="copyToClipboard()">📋 텍스트 복사</button>
+                    <button class="action-btn" onclick="downloadTxt()">💾 파일로 다운로드</button>
+                </div>
+            </div>
+            
+            <div class="output-body">
+                <!-- 초기 빈 상태 -->
+                <div class="empty-state" id="empty-state">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    <p>좌측에서 정보를 입력하고 생성 버튼을 누르면<br>이곳에 사업계획서가 표시됩니다.</p>
+                </div>
+                
+                <!-- 결과 문서 영역 -->
+                <div class="document-view" id="document-view">
+                    <!-- JavaScript로 내용이 주입됩니다 -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript 로직 -->
+    <script>
+        // 1. 탭 전환 기능
+        function switchTab(tabId) {
+            // 모든 탭 버튼 및 콘텐츠 비활성화
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+
+            // 선택된 탭 활성화
+            if (tabId === 'general') {
+                document.querySelectorAll('.tab-btn')[0].classList.add('active');
+                document.getElementById('tab-general').classList.add('active');
+            } else {
+                document.querySelectorAll('.tab-btn')[1].classList.add('active');
+                document.getElementById('tab-contest').classList.add('active');
+            }
+        }
+
+        // 2. 사업계획서 텍스트 생성 시뮬레이션 (실제 프로덕션에서는 AI API 연동 필요)
+        function generateBusinessPlan(type) {
+            const btn = type === 'general' ? document.getElementById('btn-generate-g') : document.getElementById('btn-generate-c');
+            const spinner = btn.querySelector('.spinner');
+            const btnText = btn.querySelector('.btn-text');
+            
+            // 로딩 UI 처리
+            btn.disabled = true;
+            spinner.style.display = 'block';
+            btnText.textContent = 'AI가 문서를 작성 중입니다...';
+            
+            // 1.5초 후 생성 완료 처리 (AI 응답 시간 시뮬레이션)
+            setTimeout(() => {
+                let generatedHtml = '';
+
+                if (type === 'general') {
+                    // 일반 창업용 데이터 가져오기
+                    const itemName = document.getElementById('g-itemName').value || '[아이템 명 미입력]';
+                    const target = document.getElementById('g-target').value || '[타겟 고객 미입력]';
+                    const features = document.getElementById('g-features').value || '[주요 기능 미입력]';
+                    const revenue = document.getElementById('g-revenue').value;
+
+                    // 일반용 템플릿 렌더링
+                    generatedHtml = `
+                        <h2>사업계획서: ${itemName}</h2>
+                        
+                        <h3>1. [서론] 사업 기획 배경 및 필요성</h3>
+                        <p>현대 사회에서 <strong>${target}</strong>층이 겪고 있는 페인포인트(Pain Point)는 점차 심화되고 있습니다. 기존 시장에 존재하는 솔루션들은 사용자들의 근본적인 문제를 해결하기에 부족함이 있습니다. 이에 당사는 고객의 니즈를 정확히 반영하여 문제를 혁신적으로 해결할 수 있는 <strong>${itemName}</strong>을(를) 기획하게 되었습니다.</p>
+
+                        <h3>2. [본론] 서비스/제품 상세 소개</h3>
+                        <p>본 사업 아이템의 핵심은 다음과 같은 기술 및 서비스적 차별성을 가집니다.</p>
+                        <ul>
+                            <li><strong>주요 차별성:</strong> ${features.replace(/\n/g, '<br>')}</li>
+                        </ul>
+                        <p>이러한 기능을 통해 경쟁사 대비 압도적인 편의성과 효율성을 제공하여 초기 시장 진입 시 강력한 우위를 점할 수 있습니다.</p>
+
+                        <h3>3. [본론] 타겟 고객 및 시장 분석</h3>
+                        <p>우선적인 1차 타겟 고객은 <strong>${target}</strong>입니다. 해당 타겟층은 본 서비스에 대한 지불 의사가 높고 락인(Lock-in) 효과를 기대하기 좋은 특성을 가지고 있습니다. 초기에는 이들을 타겟으로 한 틈새시장(Niche Market)을 공략하고, 이후 인접 시장으로 점진적 확장을 도모할 계획입니다.</p>
+
+                        <h3>4. [결론] 비즈니스 모델 및 향후 계획</h3>
+                        <p>본 사업의 핵심 수익 모델은 <strong>${revenue}</strong> 방식을 채택합니다. 초기 유저 확보를 위한 프로모션 이후, 안정적인 매출 구조를 확립할 것입니다.</p>
+                        <p>향후 1년 내 프로토타입(MVP) 개발 및 베타 테스트를 완료하고, 고객 피드백을 반영하여 정식 버전을 출시함으로써 시장 점유율을 공격적으로 확대해 나갈 것입니다.</p>
+                    `;
+                } else {
+                    // 공모전 맞춤형 데이터 가져오기
+                    const agency = document.getElementById('c-agency').value || '[공모 기관 미입력]';
+                    const rfp = document.getElementById('c-rfp').value || '[RFP 내용 미입력]';
+                    const summary = document.getElementById('c-summary').value || '[아이템 요약 미입력]';
+
+                    // 공모전용 템플릿 렌더링 (RFP 평가기준을 강조하는 톤앤매너)
+                    generatedHtml = `
+                        <h2>[${agency}] 맞춤형 사업 제안서</h2>
+                        
+                        <h3>1. 제안 개요 및 문제 인식 (Problem)</h3>
+                        <p>본 제안은 <strong>${agency}</strong>에서 요구하는 사업 목적에 정확히 부합하는 솔루션을 제시합니다.</p>
+                        <p><strong>[아이템 요약]:</strong><br>${summary.replace(/\n/g, '<br>')}</p>
+                        <p>현재 시장과 타겟 고객이 직면한 명확한 문제가 존재하며, 이를 해결하기 위한 창의적이고 실현 가능한 접근법이 절실히 필요한 상황입니다.</p>
+
+                        <h3>2. 해결 방안 및 실현 가능성 (Solution)</h3>
+                        <p>당사가 제안하는 해결 방안은 다음과 같습니다. 이는 제시해주신 <strong>평가 기준(${rfp.substring(0, 30)}...)</strong>을 심도 있게 분석하여 도출된 결과입니다.</p>
+                        <ul>
+                            <li><strong>독창적 기술/서비스 접근:</strong> 기존의 방식과 차별화된 프로세스 도입</li>
+                            <li><strong>실현 가능성:</strong> 보유 기술력 및 명확한 마일스톤 설정을 통한 빠른 MVP 개발 가능</li>
+                        </ul>
+
+                        <h3>3. 성장 전략 및 사업화 방안 (Scale-up)</h3>
+                        <p>초기 시장 진입 후, 타겟 고객층을 빠르게 확대하기 위한 구체적인 GTM(Go-to-Market) 전략을 수립하였습니다. 본 사업 지원금은 핵심 기술 고도화 및 초기 마케팅 비용으로 활용되어 <strong>단기간 내 자생 가능한 수익 모델</strong>을 구축하는 데 기여할 것입니다.</p>
+
+                        <h3>4. 팀 구성 및 기대 효과 (Team & Impact)</h3>
+                        <p>본 프로젝트를 성공적으로 완수할 수 있는 전문성을 갖춘 인력으로 팀이 구성되어 있습니다.</p>
+                        <p><strong>${agency}</strong>의 지원을 통해 본 사업이 성공적으로 론칭될 경우, 경제적 가치 창출뿐만 아니라 해당 산업 내 긍정적인 사회적 임팩트를 유발할 것으로 확신합니다.</p>
+                    `;
+                }
+
+                // 결과 화면 업데이트
+                document.getElementById('empty-state').style.display = 'none';
+                const docView = document.getElementById('document-view');
+                docView.style.display = 'block';
+                docView.innerHTML = generatedHtml;
+
+                // 버튼 상태 복구
+                btn.disabled = false;
+                spinner.style.display = 'none';
+                btnText.textContent = type === 'general' ? '사업계획서 다시 생성하기' : '맞춤형 제안서 다시 생성하기';
+
+            }, 1500); // 1.5초 딜레이
+        }
+
+        // 3. 텍스트 복사 기능
+        function copyToClipboard() {
+            const docView = document.getElementById('document-view');
+            if (docView.style.display === 'none' || docView.innerHTML.trim() === '') {
+                alert('복사할 내용이 없습니다. 먼저 사업계획서를 생성해주세요.');
+                return;
+            }
+            
+            // HTML 태그를 제외한 순수 텍스트 추출
+            const textToCopy = docView.innerText;
+            
+            navigator.clipboard.writeText(textToCopy).then(() => {
+                alert('클립보드에 복사되었습니다! 원하는 곳에 붙여넣기(Ctrl+V) 하세요.');
+            }).catch(err => {
+                console.error('복사 실패:', err);
+                alert('복사에 실패했습니다.');
+            });
+        }
+
+        // 4. 파일 다운로드 (TXT) 기능
+        function downloadTxt() {
+            const docView = document.getElementById('document-view');
+            if (docView.style.display === 'none' || docView.innerHTML.trim() === '') {
+                alert('다운로드할 내용이 없습니다. 먼저 사업계획서를 생성해주세요.');
+                return;
+            }
+
+            const textToDownload = docView.innerText;
+            const blob = new Blob([textToDownload], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'AI_사업계획서.txt';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        // 5. 파일 업로드 및 AI 자동 분석 시뮬레이션
+        document.getElementById('c-file').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const statusEl = document.getElementById('file-status');
+            const rfpTextarea = document.getElementById('c-rfp');
+            
+            // UI 상태 업데이트 (분석 중)
+            statusEl.style.display = 'block';
+            statusEl.style.color = '#4F46E5';
+            statusEl.innerHTML = '🔄 AI가 <b>' + file.name + '</b> 파일을 분석하고 있습니다...';
+            rfpTextarea.value = '';
+
+            // AI 텍스트 추출 및 요약 시뮬레이션 (2초 대기)
+            setTimeout(() => {
+                let simulatedExtractedText = "";
+                
+                if (file.name.endsWith('.txt')) {
+                    // 텍스트 파일의 경우 실제 내용을 읽어옵니다.
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                         rfpTextarea.value = e.target.result;
+                         statusEl.style.color = '#10B981'; // 성공 색상 (초록)
+                         statusEl.innerHTML = '✅ 텍스트 파일 내용이 성공적으로 로드되었습니다.';
+                    };
+                    reader.readAsText(file);
+                } else {
+                    // PDF, HWP, DOC 파일의 경우 AI 분석 결과를 가상으로 생성합니다.
+                    simulatedExtractedText = `[AI 자동 분석 요약 - ${file.name}]\n\n` +
+                        `1. 필수 포함 목차:\n   - 창업 아이템의 배경 및 문제 인식\n   - 실현 가능성 및 구체화 방안\n   - 성장 전략 (스케일업)\n   - 팀 구성 및 대표자 역량\n\n` +
+                        `2. 핵심 평가 기준:\n   - 기술의 독창성 및 차별성 (30%)\n   - 시장 진입 가능성 및 사업성 (40%)\n   - 구현 가능성 (30%)\n\n` +
+                        `3. 주의사항: 최대 15페이지 이내 작성 필요.`;
+                    
+                    rfpTextarea.value = simulatedExtractedText;
+                    statusEl.style.color = '#10B981';
+                    statusEl.innerHTML = '✅ AI 분석 완료! 핵심 평가 기준이 추출되었습니다. 내용을 확인 및 수정하세요.';
+                }
+                
+                // 파일 업로드 박스 시각적 피드백
+                const uploadBox = document.getElementById('file-drop-area');
+                uploadBox.style.borderColor = '#10B981';
+                uploadBox.style.backgroundColor = '#ECFDF5';
+                
+            }, 2000); // 2초간 분석하는 척 대기
+        });
+
+        // 6. URL 스크래핑 기능 시뮬레이션 (신규 추가)
+        function fetchUrlData() {
+            const urlInput = document.getElementById('c-url').value;
+            if (!urlInput.trim()) {
+                alert('공고문 URL 주소를 입력해주세요.');
+                return;
+            }
+
+            const statusEl = document.getElementById('file-status');
+            const rfpTextarea = document.getElementById('c-rfp');
+            const fetchBtn = document.getElementById('btn-fetch-url');
+            
+            // UI 상태 업데이트 (분석 중)
+            fetchBtn.disabled = true;
+            fetchBtn.textContent = '불러오는 중...';
+            
+            statusEl.style.display = 'block';
+            statusEl.style.color = '#4F46E5';
+            statusEl.innerHTML = `🌐 <b>${urlInput.substring(0, 40)}...</b><br>해당 웹페이지의 공고문을 스크래핑하여 AI가 분석 중입니다...`;
+            rfpTextarea.value = '';
+
+            // AI 텍스트 추출 및 요약 시뮬레이션 (2.5초 대기)
+            setTimeout(() => {
+                let simulatedScrapedText = "";
+
+                // 사랑의열매 URL이 입력되었을 경우의 특별 처리 로직
+                if (urlInput.includes("chest.or.kr")) {
+                    simulatedScrapedText = `[사랑의열매 온라인배분신청 자동 분석 요약]\n\n` +
+                    `📌 출처: 사회복지공동모금회 (proposal.chest.or.kr)\n\n` +
+                    `1. 필수 포함 목차 (프로포절 핵심 항목):\n   - 사업 목적 및 필요성 (지역사회 문제 정의)\n   - 사업 내용 및 추진 전략의 적절성\n   - 목표 및 평가의 타당성 (산출 목표 및 성과 목표)\n   - 예산 편성의 합리성\n   - 사업 종료 후 지향점 및 자립 방안\n\n` +
+                    `2. 핵심 평가 기준 (심사 지표):\n   - 사업계획의 일관성 및 체계성\n   - 타겟 참여자(수혜자) 선정 기준의 명확성\n   - 지역사회 내 타 기관과의 연계 및 협력(MOU 등) 계획\n\n` +
+                    `3. AI 코멘트: 사랑의열매 배분사업은 단순 지원보다 '지역사회 문제 해결'과 '사업 종료 후의 지속 가능성'을 까다롭게 평가합니다. 합리적인 예산 편성과 명확한 성과 측정 지표(KPI)를 제안서에 강조하세요.`;
+                } else {
+                    // 일반 URL일 경우의 기본 로직
+                    simulatedScrapedText = `[웹 URL 스크래핑 및 AI 자동 분석 요약]\n\n` +
+                    `📌 출처: ${urlInput}\n\n` +
+                    `1. 필수 포함 목차:\n   - 창업 아이템의 구체성 및 필요성\n   - 시장 진입 전략 (GTM)\n   - 팀 구성 및 전문성 입증\n\n` +
+                    `2. 핵심 평가 기준 (우대 사항):\n   - AI/빅데이터 등 딥테크 활용 여부 가점 (10점)\n   - 지역 사회 문제 해결 및 일자리 창출 기여도\n   - 1년 이내 실현 가능한 명확한 마일스톤\n\n` +
+                    `3. 요약 내용: 본 공고는 단순 아이디어보다는 실제 구현 역량과 시장성을 매우 중점적으로 평가하는 성향을 보입니다.`;
+                }
+                
+                rfpTextarea.value = simulatedScrapedText;
+                
+                statusEl.style.color = '#10B981'; // 성공 색상
+                statusEl.innerHTML = '✅ URL 공고문 분석 완료! 내용을 확인 및 수정하세요.';
+                
+                fetchBtn.disabled = false;
+                fetchBtn.textContent = 'URL로 불러오기';
+                
+            }, 2500); // 2.5초간 스크래핑 및 분석하는 척 대기
+        }
+
+        // 7. 비밀번호 확인 로직 (간단한 프론트엔드 보안)
+        function checkPassword() {
+            const inputVal = document.getElementById('access-password').value;
+            const errorMsg = document.getElementById('error-msg');
+            
+            // 설정할 비밀번호 (원하는 대로 변경 가능합니다. 예: 1234)
+            const CORRECT_PASSWORD = "ms12"; 
+
+            if (inputVal === CORRECT_PASSWORD) {
+                document.getElementById('password-overlay').style.display = 'none';
+            } else {
+                errorMsg.style.display = 'block';
+                // 엔터키 쳤을 때 바로 확인할 수 있도록 편의성 추가
+                document.getElementById('access-password').value = '';
+                document.getElementById('access-password').focus();
+            }
+        }
+
+        // 비밀번호 창에서 엔터키 입력 시 접속 시도
+        document.getElementById('access-password').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                checkPassword();
+            }
+        });
+
+    </script>
+</body>
+</html>
