@@ -3,304 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI 사업계획서 자동 생성기</title>
+    <title>마인드스토리 AI 제안서 스튜디오</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        /* CSS 설정 - 세련되고 모던한 UI 디자인 */
-        :root {
-            --primary-color: #4F46E5;
-            --primary-hover: #4338CA;
-            --bg-color: #F8FAFC;
-            --card-bg: #FFFFFF;
-            --text-main: #1E293B;
-            --text-muted: #64748B;
-            --border-color: #E2E8F0;
-            --radius: 12px;
-        }
-
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-            font-family: 'Pretendard', -apple-system, sans-serif;
-        }
-
-        body {
-            background-color: var(--bg-color);
-            color: var(--text-main);
-            line-height: 1.6;
-            padding: 2rem;
-            min-height: 100vh;
-        }
-
-        header {
-            text-align: center;
-            margin-bottom: 2rem;
-        }
-
-        header h1 {
-            font-size: 2rem;
-            font-weight: 700;
-            color: var(--text-main);
-            margin-bottom: 0.5rem;
-        }
-
-        header p {
-            color: var(--text-muted);
-            font-size: 1.1rem;
-        }
-
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 2rem;
-            height: calc(100vh - 150px);
-            min-height: 700px;
-        }
-
-        /* 공통 카드 스타일 */
-        .panel {
-            background: var(--card-bg);
-            border-radius: var(--radius);
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-            border: 1px solid var(--border-color);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-
-        /* 좌측 패널: 탭 시스템 */
-        .tabs {
-            display: flex;
-            border-bottom: 1px solid var(--border-color);
-            background-color: #F1F5F9;
-        }
-
-        .tab-btn {
-            flex: 1;
-            padding: 1rem;
-            border: none;
-            background: none;
-            font-size: 1rem;
-            font-weight: 600;
-            color: var(--text-muted);
-            cursor: pointer;
-            transition: all 0.2s;
-            border-bottom: 3px solid transparent;
-        }
-
-        .tab-btn:hover {
-            color: var(--primary-color);
-        }
-
-        .tab-btn.active {
-            color: var(--primary-color);
-            border-bottom-color: var(--primary-color);
-            background-color: var(--card-bg);
-        }
-
-        .tab-content {
-            display: none;
-            padding: 2rem;
-            flex-grow: 1;
-            overflow-y: auto;
-        }
-
-        .tab-content.active {
-            display: block;
-        }
-
-        /* 파일 업로드 박스 스타일 */
-        .file-upload-box {
-            border: 2px dashed #CBD5E1;
-            border-radius: 8px;
-            padding: 1.5rem;
-            text-align: center;
-            background-color: #F8FAFC;
-            cursor: pointer;
-            transition: all 0.2s;
-            margin-bottom: 1rem;
-        }
-
-        .file-upload-box:hover {
-            border-color: var(--primary-color);
-            background-color: #EEF2FF;
-        }
-
-        .file-upload-box p {
-            color: var(--text-muted);
-            font-size: 0.95rem;
-            margin-bottom: 0;
-        }
-
-        #file-status {
-            font-size: 0.85rem;
-            font-weight: 600;
-            color: var(--primary-color);
-            margin-top: 0.5rem;
-            display: none;
-        }
-
-        /* 폼 요소 스타일 */
-        .form-group {
-            margin-bottom: 1.5rem;
-        }
-
-        label {
-            display: block;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-            color: var(--text-main);
-        }
-
-        input[type="text"], select, textarea {
-            width: 100%;
-            padding: 0.75rem 1rem;
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            font-size: 1rem;
-            transition: border-color 0.2s, box-shadow 0.2s;
-        }
-
-        input[type="text"]:focus, select:focus, textarea:focus {
-            outline: none;
-            border-color: var(--primary-color);
-            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
-        }
-
-        textarea {
-            resize: vertical;
-            min-height: 100px;
-        }
-
-        .generate-btn {
-            width: 100%;
-            padding: 1rem;
-            background-color: var(--primary-color);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 1.1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background-color 0.2s;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 10px;
-            margin-top: 1rem;
-        }
-
-        .generate-btn:hover {
-            background-color: var(--primary-hover);
-        }
-
-        .generate-btn:disabled {
-            background-color: #94A3B8;
-            cursor: not-allowed;
-        }
-
-        /* 우측 패널: 결과 출력 */
-        .output-header {
-            padding: 1.5rem 2rem;
-            border-bottom: 1px solid var(--border-color);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .output-header h2 {
-            font-size: 1.25rem;
-        }
-
-        .action-buttons {
-            display: flex;
-            gap: 0.5rem;
-        }
-
-        .action-btn {
-            padding: 0.5rem 1rem;
-            border: 1px solid var(--border-color);
-            background-color: white;
-            color: var(--text-main);
-            border-radius: 6px;
-            font-size: 0.9rem;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .action-btn:hover {
-            background-color: #F1F5F9;
-            border-color: #CBD5E1;
-        }
-
-        .output-body {
-            padding: 2rem;
-            flex-grow: 1;
-            overflow-y: auto;
-            background-color: #FAFAFA;
-        }
-
-        /* 결과 문서 스타일링 */
-        .document-view {
-            background: white;
-            padding: 3rem;
-            border-radius: 8px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            min-height: 100%;
-            display: none;
-        }
-
-        .document-view h3 {
-            color: var(--primary-color);
-            margin-top: 1.5rem;
-            margin-bottom: 0.75rem;
-            font-size: 1.3rem;
-            border-bottom: 2px solid #E2E8F0;
-            padding-bottom: 0.5rem;
-        }
-
-        .document-view h4 {
-            margin-top: 1rem;
-            margin-bottom: 0.5rem;
-            font-size: 1.1rem;
-        }
-
-        .document-view p, .document-view ul {
-            margin-bottom: 1rem;
-            color: #334155;
-        }
-
-        .document-view ul {
-            padding-left: 1.5rem;
-        }
-
-        .document-view li {
-            margin-bottom: 0.25rem;
-        }
-
-        /* 초기 빈 상태 가이드 */
-        .empty-state {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100%;
-            color: var(--text-muted);
-            text-align: center;
-        }
-
-        .empty-state svg {
-            width: 64px;
-            height: 64px;
-            margin-bottom: 1rem;
-            opacity: 0.5;
-        }
-
-        /* 로딩 스피너 */
+        body { font-family: 'Pretendard', sans-serif; }
         .spinner {
             border: 3px solid rgba(255,255,255,0.3);
             border-radius: 50%;
@@ -310,499 +17,428 @@
             animation: spin 1s linear infinite;
             display: none;
         }
-
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-
-        /* 반응형 */
-        @media (max-width: 900px) {
-            .container {
-                grid-template-columns: 1fr;
-                height: auto;
-            }
-            .panel {
-                min-height: 600px;
-            }
-        }
-
-        /* 비밀번호 오버레이 스타일 */
-        #password-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(248, 250, 252, 0.95); /* 배경색과 비슷하게 설정 */
-            backdrop-filter: blur(5px);
-            z-index: 9999;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            flex-direction: column;
-        }
-
-        .password-box {
-            background: white;
-            padding: 3rem;
-            border-radius: 12px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-            text-align: center;
-            max-width: 400px;
-            width: 90%;
-        }
-
-        .password-box h2 {
-            margin-bottom: 1rem;
-            color: var(--text-main);
-        }
-
-        .password-box p {
-            color: var(--text-muted);
-            margin-bottom: 2rem;
-        }
-
-        .password-box input {
-            width: 100%;
-            padding: 1rem;
-            margin-bottom: 1rem;
-            border: 2px solid var(--border-color);
-            border-radius: 8px;
-            font-size: 1.2rem;
-            text-align: center;
-            letter-spacing: 0.2rem;
-        }
-
-        .password-box input:focus {
-            border-color: var(--primary-color);
-            outline: none;
-        }
-
-        .password-box button {
-            width: 100%;
-            padding: 1rem;
-            background-color: var(--primary-color);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 1.1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background-color 0.2s;
-        }
-
-        .password-box button:hover {
-            background-color: var(--primary-hover);
-        }
-
-        #error-msg {
-            color: #EF4444;
-            font-size: 0.9rem;
-            margin-top: 1rem;
-            display: none;
-        }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
     </style>
 </head>
-<body>
+<body class="bg-slate-50 h-screen overflow-hidden text-slate-800">
 
-    <!-- 비밀번호 입력 오버레이 -->
-    <div id="password-overlay">
-        <div class="password-box">
-            <h2>🔒 보안 접속</h2>
-            <p>프로그램을 사용하려면 팀 비밀번호를 입력하세요.</p>
-            <input type="password" id="access-password" placeholder="비밀번호 입력">
-            <button onclick="checkPassword()">접속하기</button>
-            <div id="error-msg">비밀번호가 일치하지 않습니다.</div>
-        </div>
-    </div>
-
-    <header>
-        <h1>🚀 1분 완성 AI 사업계획서 생성기</h1>
-        <p>당신의 멋진 아이디어를 입력하세요. AI가 논리적인 사업계획서로 완성해 드립니다.</p>
-    </header>
-
-    <div class="container">
-        <!-- 좌측 패널: 정보 입력 -->
-        <div class="panel">
-            <!-- 탭 버튼 -->
-            <div class="tabs">
-                <button class="tab-btn active" onclick="switchTab('general')">일반 창업/아이디어용</button>
-                <button class="tab-btn" onclick="switchTab('contest')">지원사업/공모전 맞춤형</button>
-            </div>
-
-            <!-- 탭 1: 일반 창업용 -->
-            <div id="tab-general" class="tab-content active">
-                <div class="form-group">
-                    <label for="g-itemName">아이템/서비스 이름</label>
-                    <input type="text" id="g-itemName" placeholder="예: 스마트 자세 교정 방석">
-                </div>
-                <div class="form-group">
-                    <label for="g-target">타겟 고객 (Target Audience)</label>
-                    <input type="text" id="g-target" placeholder="예: 장시간 앉아서 일하는 3040 직장인">
-                </div>
-                <div class="form-group">
-                    <label for="g-features">주요 기능 및 핵심 차별성</label>
-                    <textarea id="g-features" placeholder="예: 압력 센서를 통한 실시간 자세 분석, 스마트폰 앱 연동 거북목 경고 알림 등"></textarea>
-                </div>
-                <div class="form-group">
-                    <label for="g-revenue">수익 모델 (선택)</label>
-                    <select id="g-revenue">
-                        <option value="제품/기기 단품 판매">제품/기기 단품 판매</option>
-                        <option value="월 정기 구독 모델 (SaaS 등)">월 정기 구독 모델 (SaaS 등)</option>
-                        <option value="플랫폼 중개 수수료">플랫폼 중개 수수료</option>
-                        <option value="광고 수익">광고 수익</option>
-                        <option value="프리미엄(Freemium) 모델">프리미엄(Freemium) 모델</option>
-                    </select>
-                </div>
-                <button class="generate-btn" id="btn-generate-g" onclick="generateBusinessPlan('general')">
-                    <span class="btn-text">사업계획서 생성하기</span>
-                    <div class="spinner"></div>
-                </button>
-            </div>
-
-            <!-- 탭 2: 공모전 맞춤형 -->
-            <div id="tab-contest" class="tab-content">
-                <div class="form-group">
-                    <label for="c-agency">공모 기관 / 지원사업명</label>
-                    <input type="text" id="c-agency" placeholder="예: 2026년 예비창업패키지, XX기관 해커톤">
-                </div>
-                
-                <!-- URL 입력 기능 추가 (신규) -->
-                <div class="form-group">
-                    <label for="c-url">공고문 URL 주소 입력 (자동 스크래핑)</label>
-                    <div style="display: flex; gap: 10px;">
-                        <input type="text" id="c-url" placeholder="https://www.k-startup.go.kr/..." style="flex: 1;">
-                        <button type="button" class="action-btn" id="btn-fetch-url" onclick="fetchUrlData()" style="white-space: nowrap; background-color: #E0E7FF; color: var(--primary-color); border-color: #C7D2FE;">
-                            URL로 불러오기
-                        </button>
-                    </div>
-                </div>
-
-                <div class="form-group" style="text-align: center; margin: 10px 0;">
-                    <span style="color: var(--text-muted); font-size: 0.9rem; font-weight: bold;">--- 또는 ---</span>
-                </div>
-
-                <!-- 기존 파일 업로드 영역 -->
-                <div class="form-group">
-                    <label>제안요청서(RFP) 파일 업로드</label>
-                    <div class="file-upload-box" id="file-drop-area" onclick="document.getElementById('c-file').click()">
-                        <p>📁 이곳을 클릭하여 공고문 파일을 업로드하세요<br>(PDF, TXT, HWP 등)</p>
-                        <input type="file" id="c-file" style="display:none;" accept=".pdf,.txt,.doc,.docx,.hwp">
-                    </div>
-                    <div id="file-status"></div>
-                </div>
-
-                <div class="form-group">
-                    <label for="c-rfp">평가 기준 및 필수 요구사항 (자동 입력 / 수정 가능)</label>
-                    <textarea id="c-rfp" placeholder="파일을 업로드하면 AI가 분석하여 이곳에 핵심 내용을 채워줍니다.&#10;직접 입력하셔도 됩니다." style="min-height: 120px;"></textarea>
-                </div>
-                <div class="form-group">
-                    <label for="c-summary">내 아이템 핵심 요약</label>
-                    <textarea id="c-summary" placeholder="지원할 아이템이 무엇인지 간단히 설명해주세요." style="min-height: 120px;"></textarea>
-                </div>
-                <button class="generate-btn" id="btn-generate-c" onclick="generateBusinessPlan('contest')">
-                    <span class="btn-text">맞춤형 제안서 생성하기</span>
-                    <div class="spinner"></div>
-                </button>
-            </div>
-        </div>
-
-        <!-- 우측 패널: 결과 출력 -->
-        <div class="panel">
-            <div class="output-header">
-                <h2>생성된 사업계획서</h2>
-                <div class="action-buttons">
-                    <button class="action-btn" onclick="copyToClipboard()">📋 텍스트 복사</button>
-                    <button class="action-btn" onclick="downloadTxt()">💾 파일로 다운로드</button>
-                </div>
+    <div id="password-overlay" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex flex-col justify-center items-center">
+        <div class="bg-white p-10 rounded-2xl shadow-2xl text-center max-w-md w-[90%] border border-slate-200">
+            <h2 class="text-2xl font-bold text-slate-800 mb-2">🔒 마인드스토리 보안 접속</h2>
+            <p class="text-slate-500 mb-4">전용 제안서 생성 프로그램입니다.</p>
+            
+            <div class="bg-blue-50 text-blue-700 font-bold text-sm py-2 px-4 rounded-lg mb-6 inline-block">
+                초기 비밀번호: ms12
             </div>
             
-            <div class="output-body">
-                <!-- 초기 빈 상태 -->
-                <div class="empty-state" id="empty-state">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-                    <p>좌측에서 정보를 입력하고 생성 버튼을 누르면<br>이곳에 사업계획서가 표시됩니다.</p>
+            <input type="password" id="access-password" value="ms12" 
+                   class="w-full px-4 py-3 mb-4 border-2 border-slate-200 rounded-lg text-xl text-center tracking-widest focus:border-indigo-500 focus:outline-none transition-colors">
+            
+            <div class="flex items-center justify-center gap-2 mb-6 text-sm text-slate-600">
+                <input type="checkbox" id="auto-login" checked class="w-4 h-4 text-indigo-600 rounded cursor-pointer">
+                <label for="auto-login" class="cursor-pointer select-none font-medium">자동 로그인 (다음부터 묻지 않음)</label>
+            </div>
+
+            <button onclick="checkPassword()" class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors shadow-lg shadow-indigo-200">
+                프로그램 시작하기 👉
+            </button>
+            <div id="error-msg" class="text-red-500 text-sm mt-4 hidden font-bold">비밀번호가 일치하지 않습니다.</div>
+        </div>
+    </div>
+
+    <div class="flex h-full w-full">
+        <!-- 좌측 사이드바 (메뉴) -->
+        <div class="w-72 bg-slate-900 text-slate-300 flex flex-col shadow-xl z-10 shrink-0">
+            <div class="p-6 border-b border-slate-800">
+                <h1 class="text-2xl font-bold text-white tracking-tight">AI 제안서 스튜디오</h1>
+                <p class="text-xs text-slate-400 mt-1">v2.5 마인드스토리 전용</p>
+            </div>
+            
+            <div class="flex-1 overflow-y-auto py-4">
+                <!-- 그룹 1: 복지 및 지원사업 -->
+                <div class="px-6 mb-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">복지 및 지원사업</div>
+                <button onclick="switchMenu('menu-chest')" class="menu-btn w-full flex items-center px-6 py-3 hover:bg-slate-800 hover:text-white transition-colors border-l-4 border-transparent focus:outline-none text-left" id="btn-menu-chest">
+                    <span class="mr-3">💖</span> 사랑의열매 (중앙/광주)
+                </button>
+                <button onclick="switchMenu('menu-family')" class="menu-btn w-full flex items-center px-6 py-3 hover:bg-slate-800 hover:text-white transition-colors border-l-4 border-transparent focus:outline-none text-left" id="btn-menu-family">
+                    <span class="mr-3">👪</span> 광주·전남 가족센터 (통합)
+                </button>
+
+                <!-- 그룹 2: 학교 및 교육기관 -->
+                <div class="px-6 mt-6 mb-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">학교 및 교육기관</div>
+                <button onclick="switchMenu('menu-edu')" class="menu-btn w-full flex items-center px-6 py-3 hover:bg-slate-800 hover:text-white transition-colors border-l-4 border-transparent focus:outline-none text-left" id="btn-menu-edu">
+                    <span class="mr-3">🏫</span> 교육청/지원청 (학맞통 등)
+                </button>
+
+                <!-- 그룹 3: 공공조달 입찰 -->
+                <div class="px-6 mt-6 mb-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">공공조달 입찰</div>
+                <button onclick="switchMenu('menu-g2b')" class="menu-btn w-full flex items-center px-6 py-3 hover:bg-slate-800 hover:text-white transition-colors border-l-4 border-transparent focus:outline-none text-left" id="btn-menu-g2b">
+                    <span class="mr-3">🏢</span> 나라장터/학교장터
+                </button>
+
+                <!-- 그룹 4: 기타 -->
+                <div class="px-6 mt-6 mb-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">기타</div>
+                <button onclick="switchMenu('menu-general')" class="menu-btn w-full flex items-center px-6 py-3 hover:bg-slate-800 hover:text-white transition-colors border-l-4 border-transparent focus:outline-none text-left" id="btn-menu-general">
+                    <span class="mr-3">💡</span> 일반 창업/아이디어
+                </button>
+            </div>
+            
+            <div class="p-4 border-t border-slate-800 text-center text-xs text-slate-500">
+                Mindstory Data Center
+            </div>
+        </div>
+
+        <!-- 우측 메인 콘텐츠 -->
+        <div class="flex-1 flex flex-col bg-slate-50 h-full overflow-hidden">
+            <div class="flex-1 flex flex-row overflow-hidden">
+                
+                <!-- 왼쪽: 폼 입력 영역 -->
+                <div class="w-1/2 flex flex-col border-r border-slate-200 bg-white">
+                    <div class="p-6 border-b border-slate-100 bg-slate-50/50">
+                        <h2 id="form-title" class="text-lg font-bold text-slate-800">제안서 정보 입력</h2>
+                    </div>
+                    
+                    <div class="flex-1 overflow-y-auto p-6">
+                        
+                        <div id="menu-chest" class="form-section hidden">
+                            <div class="mb-5">
+                                <label class="block text-sm font-semibold mb-2">사업명 (프로그램명)</label>
+                                <input type="text" id="chest-name" class="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500" placeholder="예: AI 그림책 창작을 통한 아동 메타인지 향상">
+                            </div>
+                            <div class="mb-5">
+                                <label class="block text-sm font-semibold mb-2">핵심 타겟 (수혜자)</label>
+                                <input type="text" id="chest-target" class="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500" placeholder="예: 광주광역시 북구 저소득층 아동 20명">
+                            </div>
+                            <div class="mb-5">
+                                <label class="block text-sm font-semibold mb-2">투입 프로그램 (마인드스토리 솔루션)</label>
+                                <select id="chest-program" class="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500 bg-white">
+                                    <option value="AI 동화 창작 및 디지털 문해력 교육">AI 동화 창작 및 디지털 문해력 교육</option>
+                                    <option value="4R's 메타인지 학습동기 강화">4R's 메타인지 학습동기 강화 캠프</option>
+                                    <option value="미술/놀이 심리 정서지원">미술/놀이 심리를 통한 정서 안정 지원</option>
+                                </select>
+                            </div>
+                            <div class="mb-5">
+                                <label class="block text-sm font-semibold mb-2">기대하는 성과 목표</label>
+                                <textarea id="chest-goal" class="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500 h-24" placeholder="예: 참여 아동의 자아존중감 20% 향상, 진로탐색 의지 고취"></textarea>
+                            </div>
+                            <button onclick="generateContent('chest')" class="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors flex justify-center items-center gap-2 mt-4">
+                                <span>프로포절 초안 생성하기</span><div class="spinner"></div>
+                            </button>
+                        </div>
+
+                        <div id="menu-family" class="form-section hidden">
+                            <div class="mb-5">
+                                <label class="block text-sm font-semibold mb-2">센터 선택</label>
+                                <select id="family-center" class="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500 bg-white">
+                                    <option value="광주광역시/자치구 가족센터">광주광역시 / 자치구 가족센터</option>
+                                    <option value="전라남도/시·군 가족센터">전라남도 / 시·군 가족센터</option>
+                                    <option value="무안군 가족센터">무안군 가족센터 특화</option>
+                                </select>
+                            </div>
+                            <div class="mb-5">
+                                <label class="block text-sm font-semibold mb-2">프로그램 분야</label>
+                                <select id="family-type" class="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500 bg-white">
+                                    <option value="다문화가족 자녀 언어발달 및 사회성 증진">다문화가족 자녀 언어발달 및 사회성 증진</option>
+                                    <option value="부모-자녀 관계 개선 및 소통 프로그램">부모-자녀 관계 개선 및 소통 프로그램</option>
+                                    <option value="취약·위기자가족 마음건강 회복 (미술/놀이)">취약·위기자가족 마음건강 회복 (미술/놀이)</option>
+                                    <option value="청소년 진로설계 및 집단상담">청소년 진로설계 및 집단상담 프로그램</option>
+                                </select>
+                            </div>
+                            <div class="mb-5">
+                                <label class="block text-sm font-semibold mb-2">핵심 프로그램 명칭</label>
+                                <input type="text" id="family-name" class="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500" placeholder="예: '마음 톡톡! 우리 함께 놀자' 다문화 가족 집단 프로그램">
+                            </div>
+                            <button onclick="generateContent('family')" class="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors flex justify-center items-center gap-2 mt-4">
+                                <span>가족센터 제안서 생성</span><div class="spinner"></div>
+                            </button>
+                        </div>
+
+                        <div id="menu-edu" class="form-section hidden">
+                            <div class="mb-5">
+                                <label class="block text-sm font-semibold mb-2">수신처 선택</label>
+                                <select id="edu-target" class="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500 bg-white">
+                                    <option value="광주광역시교육청">광주광역시교육청</option>
+                                    <option value="전라남도교육청">전라남도교육청</option>
+                                    <option value="동부/서부 교육지원청">동부/서부 교육지원청</option>
+                                    <option value="일선 초/중/고등학교">일선 초/중/고등학교 (학교장)</option>
+                                </select>
+                            </div>
+                            <div class="mb-5">
+                                <label class="block text-sm font-semibold mb-2">사업 분야</label>
+                                <select id="edu-type" class="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500 bg-white">
+                                    <option value="학생맞춤형통합서비스(학맞통)">학생맞춤형통합서비스 (학맞통)</option>
+                                    <option value="두드림학교(기초학력보장)">두드림학교 (기초학력 보장)</option>
+                                    <option value="위클래스(Wee) 정서지원">위클래스(Wee) 심리/정서 지원</option>
+                                    <option value="학교 특성화 / 방과후">학교 특성화 프로그램 / 방과후</option>
+                                </select>
+                            </div>
+                            <div class="mb-5">
+                                <label class="block text-sm font-semibold mb-2">사전 진단 검사 도구 (마인드스토리 강점)</label>
+                                <select id="edu-test" class="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500 bg-white">
+                                    <option value="MAAT 검사 (메타인지 학습역량)">MAAT 검사 (메타인지 학습역량 진단)</option>
+                                    <option value="M-FIT 다요인 인성검사">M-FIT 다요인 인성검사</option>
+                                    <option value="도형 심리 검사">도형 심리 검사</option>
+                                </select>
+                            </div>
+                            <button onclick="generateContent('edu')" class="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors flex justify-center items-center gap-2 mt-4">
+                                <span>학교 제출용 계획서 생성</span><div class="spinner"></div>
+                            </button>
+                        </div>
+
+                        <div id="menu-g2b" class="form-section hidden">
+                            <div class="flex gap-2 mb-4">
+                                <span class="px-3 py-1 bg-slate-100 text-xs font-semibold rounded-full text-slate-600">#심리상담</span>
+                                <span class="px-3 py-1 bg-slate-100 text-xs font-semibold rounded-full text-slate-600">#방과후위탁</span>
+                                <span class="px-3 py-1 bg-slate-100 text-xs font-semibold rounded-full text-slate-600">#캠프운영</span>
+                            </div>
+                            <div class="mb-5">
+                                <label class="block text-sm font-semibold mb-2">입찰 공고명</label>
+                                <input type="text" id="g2b-title" class="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500" placeholder="예: 2026년 OO교육청 마음건강 캠프 위탁 용역">
+                            </div>
+                            <div class="mb-5">
+                                <label class="block text-sm font-semibold mb-2">과업 지시서 핵심 요약</label>
+                                <textarea id="g2b-rfp" class="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500 h-32" placeholder="과업 목적, 필요 인력, 예산 등 주요 내용을 적어주세요."></textarea>
+                            </div>
+                            <div class="mb-5">
+                                <label class="block text-sm font-semibold mb-2">제안 차별화 전략 (강조점)</label>
+                                <select id="g2b-strategy" class="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500 bg-white">
+                                    <option value="객관적 데이터 기반 (진단검사)">객관적 데이터 진단(MAAT 등) 기반 맞춤형 처방 강조</option>
+                                    <option value="AI 및 에듀테크 활용">AI 동화창작 등 최신 에듀테크 트렌드 반영 강조</option>
+                                    <option value="전문 맨파워 및 사후관리">풍부한 지역사회 네트워크 및 전문 강사진 어필</option>
+                                </select>
+                            </div>
+                            <button onclick="generateContent('g2b')" class="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors flex justify-center items-center gap-2 mt-4">
+                                <span>입찰 과업수행계획서 생성</span><div class="spinner"></div>
+                            </button>
+                        </div>
+                        
+                        <div id="menu-general" class="form-section hidden">
+                             <div class="mb-5">
+                                <label class="block text-sm font-semibold mb-2">아이템/서비스 이름</label>
+                                <input type="text" id="gen-name" class="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500" placeholder="예: 스마트 자세 교정 방석">
+                            </div>
+                             <div class="mb-5">
+                                <label class="block text-sm font-semibold mb-2">주요 기능</label>
+                                <textarea id="gen-feat" class="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500 h-24"></textarea>
+                            </div>
+                            <button onclick="generateContent('general')" class="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors flex justify-center items-center gap-2 mt-4">
+                                <span>일반 사업계획서 생성</span><div class="spinner"></div>
+                            </button>
+                        </div>
+
+                    </div>
                 </div>
                 
-                <!-- 결과 문서 영역 -->
-                <div class="document-view" id="document-view">
-                    <!-- JavaScript로 내용이 주입됩니다 -->
+                <div class="w-1/2 flex flex-col bg-slate-100">
+                    <div class="p-6 border-b border-slate-200 bg-white flex justify-between items-center">
+                        <h2 class="text-lg font-bold text-slate-800">생성된 제안서 문서</h2>
+                        <div class="flex gap-2">
+                            <button onclick="copyContent()" class="px-4 py-2 bg-white border border-slate-300 text-slate-700 text-sm font-semibold rounded-lg hover:bg-slate-50 transition-colors shadow-sm">📋 복사</button>
+                        </div>
+                    </div>
+                    
+                    <div class="flex-1 overflow-y-auto p-8 relative">
+                        <div id="empty-state" class="absolute inset-0 flex flex-col items-center justify-center text-slate-400">
+                            <svg class="w-16 h-16 mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                            <p>좌측에서 정보를 입력하고 생성 버튼을 누르면<br>이곳에 맞춤형 제안서가 작성됩니다.</p>
+                        </div>
+                        
+                        <div id="document-view" class="bg-white p-10 rounded-xl shadow-md min-h-full hidden text-slate-700 leading-relaxed max-w-3xl mx-auto border border-slate-200">
+                        </div>
+                    </div>
                 </div>
+
             </div>
         </div>
     </div>
 
-    <!-- JavaScript 로직 -->
     <script>
-        // 1. 탭 전환 기능
-        function switchTab(tabId) {
-            // 모든 탭 버튼 및 콘텐츠 비활성화
-            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+        window.addEventListener('DOMContentLoaded', () => {
+            if (localStorage.getItem('ms12_auto_login') === 'true') {
+                document.getElementById('password-overlay').style.display = 'none';
+            }
+            switchMenu('menu-chest');
+        });
 
-            // 선택된 탭 활성화
-            if (tabId === 'general') {
-                document.querySelectorAll('.tab-btn')[0].classList.add('active');
-                document.getElementById('tab-general').classList.add('active');
+        function checkPassword() {
+            const inputVal = document.getElementById('access-password').value;
+            const autoLogin = document.getElementById('auto-login').checked;
+            
+            if (inputVal === "ms12") {
+                document.getElementById('password-overlay').style.display = 'none';
+                if (autoLogin) localStorage.setItem('ms12_auto_login', 'true');
+                else localStorage.removeItem('ms12_auto_login');
             } else {
-                document.querySelectorAll('.tab-btn')[1].classList.add('active');
-                document.getElementById('tab-contest').classList.add('active');
+                document.getElementById('error-msg').style.display = 'block';
             }
         }
+        
+        document.getElementById('access-password').addEventListener('keypress', function(e) {
+            if(e.key === 'Enter') checkPassword();
+        });
 
-        // 2. 사업계획서 텍스트 생성 시뮬레이션 (실제 프로덕션에서는 AI API 연동 필요)
-        function generateBusinessPlan(type) {
-            const btn = type === 'general' ? document.getElementById('btn-generate-g') : document.getElementById('btn-generate-c');
-            const spinner = btn.querySelector('.spinner');
-            const btnText = btn.querySelector('.btn-text');
+        function switchMenu(menuId) {
+            document.querySelectorAll('.menu-btn').forEach(btn => {
+                btn.classList.remove('bg-indigo-600', 'text-white', 'border-indigo-400');
+                btn.classList.add('text-slate-300', 'border-transparent');
+            });
             
-            // 로딩 UI 처리
-            btn.disabled = true;
-            spinner.style.display = 'block';
-            btnText.textContent = 'AI가 문서를 작성 중입니다...';
+            document.querySelectorAll('.form-section').forEach(sec => sec.classList.add('hidden'));
             
-            // 1.5초 후 생성 완료 처리 (AI 응답 시간 시뮬레이션)
-            setTimeout(() => {
-                let generatedHtml = '';
-
-                if (type === 'general') {
-                    // 일반 창업용 데이터 가져오기
-                    const itemName = document.getElementById('g-itemName').value || '[아이템 명 미입력]';
-                    const target = document.getElementById('g-target').value || '[타겟 고객 미입력]';
-                    const features = document.getElementById('g-features').value || '[주요 기능 미입력]';
-                    const revenue = document.getElementById('g-revenue').value;
-
-                    // 일반용 템플릿 렌더링
-                    generatedHtml = `
-                        <h2>사업계획서: ${itemName}</h2>
-                        
-                        <h3>1. [서론] 사업 기획 배경 및 필요성</h3>
-                        <p>현대 사회에서 <strong>${target}</strong>층이 겪고 있는 페인포인트(Pain Point)는 점차 심화되고 있습니다. 기존 시장에 존재하는 솔루션들은 사용자들의 근본적인 문제를 해결하기에 부족함이 있습니다. 이에 당사는 고객의 니즈를 정확히 반영하여 문제를 혁신적으로 해결할 수 있는 <strong>${itemName}</strong>을(를) 기획하게 되었습니다.</p>
-
-                        <h3>2. [본론] 서비스/제품 상세 소개</h3>
-                        <p>본 사업 아이템의 핵심은 다음과 같은 기술 및 서비스적 차별성을 가집니다.</p>
-                        <ul>
-                            <li><strong>주요 차별성:</strong> ${features.replace(/\n/g, '<br>')}</li>
-                        </ul>
-                        <p>이러한 기능을 통해 경쟁사 대비 압도적인 편의성과 효율성을 제공하여 초기 시장 진입 시 강력한 우위를 점할 수 있습니다.</p>
-
-                        <h3>3. [본론] 타겟 고객 및 시장 분석</h3>
-                        <p>우선적인 1차 타겟 고객은 <strong>${target}</strong>입니다. 해당 타겟층은 본 서비스에 대한 지불 의사가 높고 락인(Lock-in) 효과를 기대하기 좋은 특성을 가지고 있습니다. 초기에는 이들을 타겟으로 한 틈새시장(Niche Market)을 공략하고, 이후 인접 시장으로 점진적 확장을 도모할 계획입니다.</p>
-
-                        <h3>4. [결론] 비즈니스 모델 및 향후 계획</h3>
-                        <p>본 사업의 핵심 수익 모델은 <strong>${revenue}</strong> 방식을 채택합니다. 초기 유저 확보를 위한 프로모션 이후, 안정적인 매출 구조를 확립할 것입니다.</p>
-                        <p>향후 1년 내 프로토타입(MVP) 개발 및 베타 테스트를 완료하고, 고객 피드백을 반영하여 정식 버전을 출시함으로써 시장 점유율을 공격적으로 확대해 나갈 것입니다.</p>
-                    `;
-                } else {
-                    // 공모전 맞춤형 데이터 가져오기
-                    const agency = document.getElementById('c-agency').value || '[공모 기관 미입력]';
-                    const rfp = document.getElementById('c-rfp').value || '[RFP 내용 미입력]';
-                    const summary = document.getElementById('c-summary').value || '[아이템 요약 미입력]';
-
-                    // 공모전용 템플릿 렌더링 (RFP 평가기준을 강조하는 톤앤매너)
-                    generatedHtml = `
-                        <h2>[${agency}] 맞춤형 사업 제안서</h2>
-                        
-                        <h3>1. 제안 개요 및 문제 인식 (Problem)</h3>
-                        <p>본 제안은 <strong>${agency}</strong>에서 요구하는 사업 목적에 정확히 부합하는 솔루션을 제시합니다.</p>
-                        <p><strong>[아이템 요약]:</strong><br>${summary.replace(/\n/g, '<br>')}</p>
-                        <p>현재 시장과 타겟 고객이 직면한 명확한 문제가 존재하며, 이를 해결하기 위한 창의적이고 실현 가능한 접근법이 절실히 필요한 상황입니다.</p>
-
-                        <h3>2. 해결 방안 및 실현 가능성 (Solution)</h3>
-                        <p>당사가 제안하는 해결 방안은 다음과 같습니다. 이는 제시해주신 <strong>평가 기준(${rfp.substring(0, 30)}...)</strong>을 심도 있게 분석하여 도출된 결과입니다.</p>
-                        <ul>
-                            <li><strong>독창적 기술/서비스 접근:</strong> 기존의 방식과 차별화된 프로세스 도입</li>
-                            <li><strong>실현 가능성:</strong> 보유 기술력 및 명확한 마일스톤 설정을 통한 빠른 MVP 개발 가능</li>
-                        </ul>
-
-                        <h3>3. 성장 전략 및 사업화 방안 (Scale-up)</h3>
-                        <p>초기 시장 진입 후, 타겟 고객층을 빠르게 확대하기 위한 구체적인 GTM(Go-to-Market) 전략을 수립하였습니다. 본 사업 지원금은 핵심 기술 고도화 및 초기 마케팅 비용으로 활용되어 <strong>단기간 내 자생 가능한 수익 모델</strong>을 구축하는 데 기여할 것입니다.</p>
-
-                        <h3>4. 팀 구성 및 기대 효과 (Team & Impact)</h3>
-                        <p>본 프로젝트를 성공적으로 완수할 수 있는 전문성을 갖춘 인력으로 팀이 구성되어 있습니다.</p>
-                        <p><strong>${agency}</strong>의 지원을 통해 본 사업이 성공적으로 론칭될 경우, 경제적 가치 창출뿐만 아니라 해당 산업 내 긍정적인 사회적 임팩트를 유발할 것으로 확신합니다.</p>
-                    `;
-                }
-
-                // 결과 화면 업데이트
-                document.getElementById('empty-state').style.display = 'none';
-                const docView = document.getElementById('document-view');
-                docView.style.display = 'block';
-                docView.innerHTML = generatedHtml;
-
-                // 버튼 상태 복구
-                btn.disabled = false;
-                spinner.style.display = 'none';
-                btnText.textContent = type === 'general' ? '사업계획서 다시 생성하기' : '맞춤형 제안서 다시 생성하기';
-
-            }, 1500); // 1.5초 딜레이
-        }
-
-        // 3. 텍스트 복사 기능
-        function copyToClipboard() {
-            const docView = document.getElementById('document-view');
-            if (docView.style.display === 'none' || docView.innerHTML.trim() === '') {
-                alert('복사할 내용이 없습니다. 먼저 사업계획서를 생성해주세요.');
-                return;
+            const activeBtn = document.getElementById('btn-' + menuId);
+            if(activeBtn) {
+                activeBtn.classList.remove('text-slate-300', 'border-transparent');
+                activeBtn.classList.add('bg-slate-800', 'text-white', 'border-indigo-500');
             }
             
-            // HTML 태그를 제외한 순수 텍스트 추출
-            const textToCopy = docView.innerText;
-            
-            navigator.clipboard.writeText(textToCopy).then(() => {
-                alert('클립보드에 복사되었습니다! 원하는 곳에 붙여넣기(Ctrl+V) 하세요.');
-            }).catch(err => {
-                console.error('복사 실패:', err);
-                alert('복사에 실패했습니다.');
+            const activeForm = document.getElementById(menuId);
+            if(activeForm) activeForm.classList.remove('hidden');
+
+            const titles = {
+                'menu-chest': '사랑의열매 프로포절 폼',
+                'menu-family': '가족센터 제안서 폼',
+                'menu-edu': '학교/교육청 기안 폼',
+                'menu-g2b': '나라장터 입찰 폼',
+                'menu-general': '일반 사업계획서 폼'
+            };
+            document.getElementById('form-title').innerText = titles[menuId] || '제안서 정보 입력';
+        }
+
+        function copyContent() {
+            const doc = document.getElementById('document-view');
+            if (doc.classList.contains('hidden') || doc.innerText.trim() === '') {
+                alert('복사할 내용이 없습니다.'); return;
+            }
+            navigator.clipboard.writeText(doc.innerText).then(() => {
+                alert('클립보드에 복사되었습니다!');
             });
         }
 
-        // 4. 파일 다운로드 (TXT) 기능
-        function downloadTxt() {
-            const docView = document.getElementById('document-view');
-            if (docView.style.display === 'none' || docView.innerHTML.trim() === '') {
-                alert('다운로드할 내용이 없습니다. 먼저 사업계획서를 생성해주세요.');
-                return;
-            }
-
-            const textToDownload = docView.innerText;
-            const blob = new Blob([textToDownload], { type: 'text/plain;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
+        function generateContent(type) {
+            const activeForm = document.getElementById('menu-' + type);
+            const btn = activeForm.querySelector('button');
+            const spinner = btn.querySelector('.spinner');
+            const btnText = btn.querySelector('span');
+            const originalText = btnText.innerText;
             
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'AI_사업계획서.txt';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        }
-
-        // 5. 파일 업로드 및 AI 자동 분석 시뮬레이션
-        document.getElementById('c-file').addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if (!file) return;
-
-            const statusEl = document.getElementById('file-status');
-            const rfpTextarea = document.getElementById('c-rfp');
+            btn.disabled = true;
+            spinner.style.display = 'block';
+            btnText.innerText = 'AI 작성 중...';
             
-            // UI 상태 업데이트 (분석 중)
-            statusEl.style.display = 'block';
-            statusEl.style.color = '#4F46E5';
-            statusEl.innerHTML = '🔄 AI가 <b>' + file.name + '</b> 파일을 분석하고 있습니다...';
-            rfpTextarea.value = '';
-
-            // AI 텍스트 추출 및 요약 시뮬레이션 (2초 대기)
             setTimeout(() => {
-                let simulatedExtractedText = "";
+                let html = '';
                 
-                if (file.name.endsWith('.txt')) {
-                    // 텍스트 파일의 경우 실제 내용을 읽어옵니다.
-                    const reader = new FileReader();
-                    reader.onload = function(e) {
-                         rfpTextarea.value = e.target.result;
-                         statusEl.style.color = '#10B981'; // 성공 색상 (초록)
-                         statusEl.innerHTML = '✅ 텍스트 파일 내용이 성공적으로 로드되었습니다.';
-                    };
-                    reader.readAsText(file);
-                } else {
-                    // PDF, HWP, DOC 파일의 경우 AI 분석 결과를 가상으로 생성합니다.
-                    simulatedExtractedText = `[AI 자동 분석 요약 - ${file.name}]\n\n` +
-                        `1. 필수 포함 목차:\n   - 창업 아이템의 배경 및 문제 인식\n   - 실현 가능성 및 구체화 방안\n   - 성장 전략 (스케일업)\n   - 팀 구성 및 대표자 역량\n\n` +
-                        `2. 핵심 평가 기준:\n   - 기술의 독창성 및 차별성 (30%)\n   - 시장 진입 가능성 및 사업성 (40%)\n   - 구현 가능성 (30%)\n\n` +
-                        `3. 주의사항: 최대 15페이지 이내 작성 필요.`;
+                if (type === 'chest') {
+                    const name = document.getElementById('chest-name').value || '기본 프로그램';
+                    const target = document.getElementById('chest-target').value || '지역 아동';
+                    const prog = document.getElementById('chest-program').value;
+                    const goal = document.getElementById('chest-goal').value || '긍정적 변화 유도';
                     
-                    rfpTextarea.value = simulatedExtractedText;
-                    statusEl.style.color = '#10B981';
-                    statusEl.innerHTML = '✅ AI 분석 완료! 핵심 평가 기준이 추출되었습니다. 내용을 확인 및 수정하세요.';
+                    html = `
+                        <h1 class="text-2xl font-bold text-slate-800 mb-6 pb-2 border-b-2 border-indigo-500">배분신청서 (프로포절)</h1>
+                        <h2 class="text-lg font-bold text-indigo-700 mt-6 mb-2">1. 사업명</h2>
+                        <p class="mb-4">${name}</p>
+                        
+                        <h2 class="text-lg font-bold text-indigo-700 mt-6 mb-2">2. 사업의 필요성 및 대상</h2>
+                        <p class="mb-2">본 사업의 핵심 타겟인 <strong>${target}</strong>은(는) 최근 심리적, 교육적 지원의 사각지대에 놓여 있습니다.</p>
+                        <p class="mb-4">특히 잦은 미디어 노출과 학습 동기 저하로 인해 자아존중감이 하락하는 문제가 대두되어, 실질적이고 과학적인 개입이 절실한 상황입니다.</p>
+                        
+                        <h2 class="text-lg font-bold text-indigo-700 mt-6 mb-2">3. 세부 사업 내용</h2>
+                        <p class="mb-2">마인드스토리의 검증된 솔루션인 <strong>[${prog}]</strong>을(를) 활용하여 주 1회, 총 12회기 프로그램을 구성합니다.</p>
+                        <ul class="list-disc pl-5 mb-4 space-y-1">
+                            <li>사전 진단: 참여자 특성 파악 및 데이터 기반 맞춤형 접근</li>
+                            <li>본 프로그램: ${prog} 활동을 통한 정서 이완 및 자아 효능감 회복</li>
+                            <li>사후 관리: 사전/사후 데이터 비교 및 학부모 피드백 제공</li>
+                        </ul>
+
+                        <h2 class="text-lg font-bold text-indigo-700 mt-6 mb-2">4. 성과 목표 (Evaluation)</h2>
+                        <div class="bg-slate-50 p-4 border border-slate-200 rounded-lg mb-4">
+                            <strong>[산출 목표]</strong> 계획된 회기 100% 진행 및 참여율 90% 이상 달성<br><br>
+                            <strong>[성과 목표]</strong> ${goal}
+                        </div>
+                    `;
+                } else if (type === 'family') {
+                    const center = document.getElementById('family-center').value;
+                    const fType = document.getElementById('family-type').value;
+                    const fname = document.getElementById('family-name').value || '가족 프로그램';
+                    
+                    html = `
+                        <h1 class="text-2xl font-bold text-slate-800 mb-6 pb-2 border-b-2 border-indigo-500">[${center}] 가족센터 사업계획서</h1>
+                        <h2 class="text-lg font-bold text-indigo-700 mt-6 mb-2">1. 프로그램 명칭</h2>
+                        <p class="mb-4 font-semibold text-slate-900">${fname}</p>
+                        
+                        <h2 class="text-lg font-bold text-indigo-700 mt-6 mb-2">2. 추진 배경 및 필요성</h2>
+                        <p class="mb-2">본 프로그램은 지역 내 다문화 및 취약계층 가정의 ${fType}을(를) 목적으로 합니다.</p>
+                        <p class="mb-4">마인드스토리의 전문 심리상담사와 프로그램 운영 노하우를 결합하여 정서적 지지 기반을 형성하고 건강한 가정 환경을 조성하고자 합니다.</p>
+                        
+                        <h2 class="text-lg font-bold text-indigo-700 mt-6 mb-2">3. 세부 운영 내용</h2>
+                        <ul class="list-disc pl-5 mb-4 space-y-1">
+                            <li>진행 기간: 2026년 연중 상시 및 기수별 운영</li>
+                            <li>참여 대상: 지역 내 다문화가족 및 일반 가정 자녀·부모</li>
+                            <li>주요 활동: 예술·놀이 활동을 통한 상호작용 증진 및 심리 정서 안정</li>
+                        </ul>
+                    `;
+                } else if (type === 'edu') {
+                    const target = document.getElementById('edu-target').value;
+                    const bType = document.getElementById('edu-type').value;
+                    const test = document.getElementById('edu-test').value;
+                    
+                    html = `
+                        <h1 class="text-2xl font-bold text-slate-800 mb-6 pb-2 border-b-2 border-indigo-500">[${target} 제출용] 사업계획서</h1>
+                        <h2 class="text-lg font-bold text-slate-800 mt-6 mb-2">Ⅰ. 과업의 개요</h2>
+                        <p class="mb-2">1. 사 업 명: 2026학년도 ${bType} 위탁 운영</p>
+                        <p class="mb-4">2. 운영목적: 학생들의 기초학력 보장 및 심리/정서적 안정을 도모하여 학교 생활 적응력을 강화함.</p>
+                        
+                        <h2 class="text-lg font-bold text-slate-800 mt-6 mb-2">Ⅱ. 세부 운영 계획</h2>
+                        <p class="mb-2">본 기관(마인드스토리)은 단순 주입식 교육을 지양하고, <strong>${test}</strong>를 활용한 객관적인 데이터 기반 맞춤형 처방을 제공합니다.</p>
+                        <table class="w-full text-sm border-collapse border border-slate-300 mb-4 mt-2">
+                            <tr class="bg-slate-100">
+                                <th class="border border-slate-300 p-2">회차</th>
+                                <th class="border border-slate-300 p-2">주제</th>
+                                <th class="border border-slate-300 p-2">주요 내용</th>
+                            </tr>
+                            <tr><td class="border border-slate-300 p-2 text-center">1~2</td><td class="border border-slate-300 p-2">사전 진단</td><td class="border border-slate-300 p-2">${test} 실시 및 개별 프로파일 분석</td></tr>
+                            <tr><td class="border border-slate-300 p-2 text-center">3~8</td><td class="border border-slate-300 p-2">역량 강화</td><td class="border border-slate-300 p-2">메타인지 및 학습동기(4R's) 향상 실전 훈련</td></tr>
+                            <tr><td class="border border-slate-300 p-2 text-center">9~10</td><td class="border border-slate-300 p-2">사후 평가</td><td class="border border-slate-300 p-2">사후 검사 진행 및 변화량 측정, 수료식</td></tr>
+                        </table>
+                    `;
+                } else if (type === 'g2b') {
+                    const title = document.getElementById('g2b-title').value || '용역 입찰 과업';
+                    const strat = document.getElementById('g2b-strategy').options[document.getElementById('g2b-strategy').selectedIndex].text;
+                    
+                    html = `
+                        <h1 class="text-2xl font-bold text-slate-800 mb-6 pb-2 border-b-2 border-slate-800">과 업 수 행 계 획 서</h1>
+                        <h3 class="text-md font-semibold text-slate-600 mb-6">입찰건명: ${title}</h3>
+                        
+                        <h2 class="text-lg font-bold text-slate-800 mt-6 mb-2">제 1 장. 제안의 개요</h2>
+                        <p class="mb-4 pl-4 border-l-4 border-slate-300">당사는 본 과업지시서의 요구사항을 명확히 이해하고 있으며, 다년간의 공공기관 교육/상담 용역 수행 실적을 바탕으로 최적의 솔루션을 제안합니다.</p>
+                        
+                        <h2 class="text-lg font-bold text-slate-800 mt-6 mb-2">제 2 장. 차별화 수행 전략 ★</h2>
+                        <p class="mb-2 text-indigo-700 font-bold">▶ ${strat}</p>
+                        <p class="mb-4">단순한 과업 수행을 넘어, 당사가 보유한 전문 인프라와 진단 시스템을 총동원하여 정량적, 정성적 KPI를 120% 초과 달성할 수 있는 실행 계획을 수립하였습니다.</p>
+                        
+                        <h2 class="text-lg font-bold text-slate-800 mt-6 mb-2">제 3 장. 전담 인력 구성</h2>
+                        <p class="mb-4">사업총괄책임자(PM)를 필두로 메타인지 지도사, 미술심리상담사 등 자격증을 보유한 A급 전문 인력을 전담 배치하여 사업의 질적 우수성을 담보합니다.</p>
+                    `;
                 }
-                
-                // 파일 업로드 박스 시각적 피드백
-                const uploadBox = document.getElementById('file-drop-area');
-                uploadBox.style.borderColor = '#10B981';
-                uploadBox.style.backgroundColor = '#ECFDF5';
-                
-            }, 2000); // 2초간 분석하는 척 대기
-        });
 
-        // 6. URL 스크래핑 기능 시뮬레이션 (신규 추가)
-        function fetchUrlData() {
-            const urlInput = document.getElementById('c-url').value;
-            if (!urlInput.trim()) {
-                alert('공고문 URL 주소를 입력해주세요.');
-                return;
-            }
-
-            const statusEl = document.getElementById('file-status');
-            const rfpTextarea = document.getElementById('c-rfp');
-            const fetchBtn = document.getElementById('btn-fetch-url');
-            
-            // UI 상태 업데이트 (분석 중)
-            fetchBtn.disabled = true;
-            fetchBtn.textContent = '불러오는 중...';
-            
-            statusEl.style.display = 'block';
-            statusEl.style.color = '#4F46E5';
-            statusEl.innerHTML = `🌐 <b>${urlInput.substring(0, 40)}...</b><br>해당 웹페이지의 공고문을 스크래핑하여 AI가 분석 중입니다...`;
-            rfpTextarea.value = '';
-
-            // AI 텍스트 추출 및 요약 시뮬레이션 (2.5초 대기)
-            setTimeout(() => {
-                let simulatedScrapedText = "";
-
-                // 사랑의열매 URL이 입력되었을 경우의 특별 처리 로직
-                if (urlInput.includes("chest.or.kr")) {
-                    simulatedScrapedText = `[사랑의열매 온라인배분신청 자동 분석 요약]\n\n` +
-                    `📌 출처: 사회복지공동모금회 (proposal.chest.or.kr)\n\n` +
-                    `1. 필수 포함 목차 (프로포절 핵심 항목):\n   - 사업 목적 및 필요성 (지역사회 문제 정의)\n   - 사업 내용 및 추진 전략의 적절성\n   - 목표 및 평가의 타당성 (산출 목표 및 성과 목표)\n   - 예산 편성의 합리성\n   - 사업 종료 후 지향점 및 자립 방안\n\n` +
-                    `2. 핵심 평가 기준 (심사 지표):\n   - 사업계획의 일관성 및 체계성\n   - 타겟 참여자(수혜자) 선정 기준의 명확성\n   - 지역사회 내 타 기관과의 연계 및 협력(MOU 등) 계획\n\n` +
-                    `3. AI 코멘트: 사랑의열매 배분사업은 단순 지원보다 '지역사회 문제 해결'과 '사업 종료 후의 지속 가능성'을 까다롭게 평가합니다. 합리적인 예산 편성과 명확한 성과 측정 지표(KPI)를 제안서에 강조하세요.`;
-                } else {
-                    // 일반 URL일 경우의 기본 로직
-                    simulatedScrapedText = `[웹 URL 스크래핑 및 AI 자동 분석 요약]\n\n` +
-                    `📌 출처: ${urlInput}\n\n` +
-                    `1. 필수 포함 목차:\n   - 창업 아이템의 구체성 및 필요성\n   - 시장 진입 전략 (GTM)\n   - 팀 구성 및 전문성 입증\n\n` +
-                    `2. 핵심 평가 기준 (우대 사항):\n   - AI/빅데이터 등 딥테크 활용 여부 가점 (10점)\n   - 지역 사회 문제 해결 및 일자리 창출 기여도\n   - 1년 이내 실현 가능한 명확한 마일스톤\n\n` +
-                    `3. 요약 내용: 본 공고는 단순 아이디어보다는 실제 구현 역량과 시장성을 매우 중점적으로 평가하는 성향을 보입니다.`;
-                }
+                document.getElementById('empty-state').style.display = 'none';
+                const docView = document.getElementById('document-view');
+                docView.style.display = 'block';
+                docView.innerHTML = html;
                 
-                rfpTextarea.value = simulatedScrapedText;
-                
-                statusEl.style.color = '#10B981'; // 성공 색상
-                statusEl.innerHTML = '✅ URL 공고문 분석 완료! 내용을 확인 및 수정하세요.';
-                
-                fetchBtn.disabled = false;
-                fetchBtn.textContent = 'URL로 불러오기';
-                
-            }, 2500); // 2.5초간 스크래핑 및 분석하는 척 대기
+                btn.disabled = false;
+                spinner.style.display = 'none';
+                btnText.innerText = originalText;
+            }, 1200);
         }
-
-        // 7. 비밀번호 확인 로직 (간단한 프론트엔드 보안)
-        function checkPassword() {
-            const inputVal = document.getElementById('access-password').value;
-            const errorMsg = document.getElementById('error-msg');
-            
-            // 설정할 비밀번호 (원하는 대로 변경 가능합니다. 예: 1234)
-            const CORRECT_PASSWORD = "ms12"; 
-
-            if (inputVal === CORRECT_PASSWORD) {
-                document.getElementById('password-overlay').style.display = 'none';
-            } else {
-                errorMsg.style.display = 'block';
-                // 엔터키 쳤을 때 바로 확인할 수 있도록 편의성 추가
-                document.getElementById('access-password').value = '';
-                document.getElementById('access-password').focus();
-            }
-        }
-
-        // 비밀번호 창에서 엔터키 입력 시 접속 시도
-        document.getElementById('access-password').addEventListener('keypress', function (e) {
-            if (e.key === 'Enter') {
-                checkPassword();
-            }
-        });
-
     </script>
 </body>
 </html>
