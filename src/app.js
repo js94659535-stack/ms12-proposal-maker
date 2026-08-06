@@ -1,4 +1,3 @@
-import { organizationProfile, profileForPrompt } from './organization.js';
 import { analyzeWithAI, draftWithAI, rewriteWithAI } from './api.js';
 import { extractFiles } from './files.js';
 import { localAnalyze, localDraft } from './fallback.js';
@@ -11,25 +10,36 @@ const TYPES = [
 ];
 const STEPS = ['사업 설정', '기관 원문', '요구사항 분석', '적합성 비교', '확인 질문', '계획서 작성'];
 const initial = {
-  step: 0, project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
-  analysis: null, matches: [], answers: [], sections: [], companyFacts: [], manualCompanyFacts: '', busy: '', notice: '', error: '', aiMode: ''
+  step: 1, project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
+  analysis: null, matches: [], answers: [], sections: [], companyFacts: [], companyFactDraft: '', busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
 const app = document.querySelector('#app');
 
 function loadState() {
-  try { return { ...structuredClone(initial), ...JSON.parse(localStorage.getItem('ms12_project_v3') || '{}'), busy: '', error: '' }; }
+  try {
+    const saved = JSON.parse(localStorage.getItem('ms12_project_v3') || '{}');
+    // 이전 버전의 자유입력 회사 정보는 사용자 확인 기록이 없으므로 확정 정보로 승격하지 않는다.
+    delete saved.manualCompanyFacts;
+    return { ...structuredClone(initial), ...saved, companyFactDraft: '', busy: '', error: '' };
+  }
   catch { return structuredClone(initial); }
 }
 function saveState() {
-  const safe = { ...state, busy: '', error: '', files: state.files.map(({ text, ...meta }) => meta) };
+  const safe = { ...state, companyFactDraft: '', busy: '', error: '', files: state.files.map(({ text, ...meta }) => meta) };
   localStorage.setItem('ms12_project_v3', JSON.stringify(safe));
 }
 function escapeHtml(value = '') { return String(value).replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c])); }
 function nl(value = '') { return escapeHtml(value).replace(/\n/g, '<br>'); }
 function setState(patch) { state = { ...state, ...patch }; saveState(); render(); }
 function typeName() { return TYPES.find(([id]) => id === state.project.type)?.[1] || '사업'; }
-function organizationForGeneration() { return { ...profileForPrompt(), confirmedFacts: state.companyFacts, userConfirmedNotes: state.manualCompanyFacts.trim() || '없음' }; }
+function organizationForGeneration() {
+  return {
+    organization: '마인드스토리',
+    confirmedFacts: state.companyFacts.filter(item => item.confirmedByUser === true),
+    rule: 'confirmedByUser가 true인 정보만 회사 사실로 사용하고, 그 밖의 회사 정보는 반드시 [확인 필요]로 표시한다.'
+  };
+}
 
 function shell(content) {
   return `
@@ -69,7 +79,7 @@ function sourceView() {
   return `<div class="page-heading"><div><h2>기관 원문을 제공해 주세요</h2><p>공고문, 과업지시서, 제안요청서, 평가표와 신청 양식을 함께 넣을 수 있습니다.</p></div><span class="privacy">🔒 파일은 분석을 요청할 때만 서버로 전송됩니다</span></div>
     <div class="source-grid"><div class="card"><div class="card-title"><h3>파일 업로드</h3><span>PDF · DOCX · TXT / 파일당 20MB</span></div><label class="dropzone" for="source-files"><strong>파일을 선택하거나 여기에 놓으세요</strong><small>스캔 PDF는 OCR이 필요할 수 있습니다.</small><input id="source-files" type="file" accept=".pdf,.docx,.txt" multiple></label><div class="file-list">${state.files.length ? state.files.map((f, i) => `<div class="file-item"><span class="file-badge">${escapeHtml(f.type)}</span><div><strong>${escapeHtml(f.name)}</strong><small>${f.pages ? `${f.pages}쪽 · ` : ''}${Number(f.characters || 0).toLocaleString()}자</small></div><button data-remove-file="${i}" aria-label="파일 제거">×</button></div>`).join('') : '<p class="empty-inline">업로드한 파일이 없습니다.</p>'}</div></div>
     <div class="card"><div class="card-title"><h3>원문 붙여넣기</h3><span id="char-count">${state.sourceText.length.toLocaleString()}자</span></div><textarea id="source-text" class="source-text" placeholder="기관 공고문 또는 과업지시서 원문을 붙여넣으세요.">${escapeHtml(state.sourceText)}</textarea></div></div>
-    <details class="card org-details"><summary>다음 제안서에도 재사용할 확정 회사 정보</summary><p class="muted">담당자가 사실로 확인한 프로그램, 인력, 실적, 운영조건, 지역, 예산만 입력하세요.</p><textarea id="manual-company-facts" class="source-text" placeholder="예: 광주·전남 지역 운영 가능 (담당자 확인 완료)">${escapeHtml(state.manualCompanyFacts)}</textarea>${state.companyFacts.length ? `<p class="muted">문서에서 확정 저장한 정보 ${state.companyFacts.length}건도 자동 적용됩니다.</p>` : ''}</details>
+    <details class="card org-details"><summary>다음 제안서에도 재사용할 확정 회사 정보</summary><p class="muted">담당자가 사실로 확인한 내용만 입력한 뒤 확정 저장하세요. 입력만 한 내용은 누적되지 않습니다.</p><textarea id="company-fact-draft" class="source-text" placeholder="예: 광주·전남 지역 운영 가능 (담당자 확인 완료)">${escapeHtml(state.companyFactDraft)}</textarea><div class="actions"><span>${state.companyFacts.length ? `확정 저장된 정보 ${state.companyFacts.length}건` : '확정 저장된 정보 없음'}</span><button class="button secondary" id="confirm-company-fact">확정 정보로 저장</button></div></details>
     <div class="tip"><strong>정확도 높이는 방법</strong><span>평가표와 제출 양식까지 함께 제공하면 필수 조건·배점·목차 누락을 줄일 수 있습니다.</span></div>${footer({ nextLabel: '원문 분석 시작', nextId: 'analyze' })}`;
 }
 
@@ -85,21 +95,21 @@ function analysisView() {
 
 function listOrEmpty(items = []) { return items.length ? `<ul>${items.map(v => `<li>${escapeHtml(typeof v === 'string' ? v : v.name || v.criterion)}</li>`).join('')}</ul>` : '<p class="muted">원문에서 확인되지 않음</p>'; }
 function buildMatches() {
-  const caps = organizationProfile.capabilities;
+  const caps = state.companyFacts.filter(item => item.confirmedByUser === true);
   return state.analysis.requirements.map(r => {
     const tokens = r.requirement.replace(/[^가-힣A-Za-z0-9]/g, ' ').split(/\s+/).filter(v => v.length > 1);
-    const found = caps.filter(c => tokens.some(t => c.name.includes(t) || c.category.includes(t))).slice(0, 3);
-    return { requirementId: r.id, requirement: r.requirement, evidence: r.location, capability: found.map(v => v.name).join(', ') || '확인된 직접 대응 정보 없음', status: found.length ? '부분 충족' : '확인 필요', action: found.length ? '증빙과 적용 범위 확인' : '담당자 답변 또는 증빙 필요' };
+    const found = caps.filter(c => tokens.some(t => `${c.title} ${c.content} ${c.category}`.includes(t))).slice(0, 3);
+    return { requirementId: r.id, requirement: r.requirement, evidence: r.location, capability: found.map(v => v.title).join(', ') || '사용자 확정 대응 정보 없음', status: found.length ? '부분 충족' : '확인 필요', action: found.length ? '증빙과 적용 범위 확인' : '담당자 확정 또는 증빙 필요' };
   });
 }
 
 function matchView() {
   const matches = state.matches.length ? state.matches : buildMatches();
   const counts = ['충족', '부분 충족', '확인 필요', '부족'].map(s => [s, matches.filter(v => v.status === s).length]);
-  return `<div class="page-heading"><div><h2>기관 요구와 우리 역량 비교</h2><p>공개 확인된 역량만 자동 연결했습니다. 실적·인력·예산은 증빙 전까지 확정하지 않습니다.</p></div></div>
+  return `<div class="page-heading"><div><h2>기관 요구와 우리 역량 비교</h2><p>사용자가 확정 저장한 회사 정보만 연결했습니다. 실적·인력·예산은 확정 전까지 사용하지 않습니다.</p></div></div>
     <div class="match-summary">${counts.map(([name, count]) => `<div><span class="status ${name.replace(' ', '-')}">${name}</span><strong>${count}</strong></div>`).join('')}</div>
     <div class="card table-card"><div class="responsive-table"><table><thead><tr><th>기관 요구사항</th><th>마인드스토리 정보</th><th>판정</th><th>후속 조치</th></tr></thead><tbody>${matches.map(m => `<tr><td><strong>${escapeHtml(m.requirement)}</strong><small>${escapeHtml(m.evidence)}</small></td><td>${escapeHtml(m.capability)}</td><td><span class="status ${m.status.replace(' ', '-')}">${m.status}</span></td><td>${escapeHtml(m.action)}</td></tr>`).join('')}</tbody></table></div></div>
-    <details class="card org-details"><summary>사용 중인 마인드스토리 기관 정보 ${organizationProfile.capabilities.length}건 보기</summary><div class="cap-grid">${organizationProfile.capabilities.map(c => `<div><span>${escapeHtml(c.category)}</span><strong>${escapeHtml(c.name)}</strong><small>${escapeHtml(c.status)}</small></div>`).join('')}</div><h4>아직 확인 필요한 기관 정보</h4><p>${organizationProfile.unverified.map(v => `<span class="chip">${escapeHtml(v)}</span>`).join('')}</p></details>${footer()}`;
+    <details class="card org-details"><summary>사용자 확정 회사 정보 ${state.companyFacts.length}건 보기</summary><div class="cap-grid">${state.companyFacts.length ? state.companyFacts.map(c => `<div><span>${escapeHtml(c.category)}</span><strong>${escapeHtml(c.title)}</strong><small>${escapeHtml(c.content)}</small></div>`).join('') : '<p class="muted">확정 저장된 회사 정보가 없습니다.</p>'}</div></details>${footer()}`;
 }
 
 function questionsView() {
@@ -124,7 +134,7 @@ function updateInputs() {
   document.querySelector('#issuer')?.addEventListener('input', e => { state.project.issuer = e.target.value; saveState(); });
   document.querySelector('#deadline')?.addEventListener('input', e => { state.project.deadline = e.target.value; saveState(); });
   document.querySelector('#source-text')?.addEventListener('input', e => { state.sourceText = e.target.value; document.querySelector('#char-count').textContent = `${e.target.value.length.toLocaleString()}자`; saveState(); });
-  document.querySelector('#manual-company-facts')?.addEventListener('input', e => { state.manualCompanyFacts = e.target.value; saveState(); });
+  document.querySelector('#company-fact-draft')?.addEventListener('input', e => { state.companyFactDraft = e.target.value; });
 }
 
 function bind() {
@@ -148,6 +158,7 @@ function bind() {
   document.querySelectorAll('[data-section-content]').forEach(el => el.oninput = () => { state.sections[Number(el.dataset.sectionContent)].content = el.value; saveState(); });
   document.querySelectorAll('[data-rewrite]').forEach(el => el.onclick = () => rewriteSection(Number(el.dataset.rewrite)));
   document.querySelectorAll('[data-confirm-fact]').forEach(el => el.onclick = () => confirmCompanyFact(Number(el.dataset.confirmFact)));
+  document.querySelector('#confirm-company-fact')?.addEventListener('click', confirmCompanyFactDraft);
   document.querySelector('#docx')?.addEventListener('click', () => exportDocx(state.project, state.sections).catch(showError));
   document.querySelector('#pdf')?.addEventListener('click', () => exportPdf(state.project, state.sections).catch(showError));
   document.querySelector('#print')?.addEventListener('click', printDocument);
@@ -167,7 +178,7 @@ async function createDraft() {
   setState({ busy: '근거를 연결해 사업계획서 초안을 작성하는 중...', error: '', notice: '' });
   const payload = { project: state.project, analysis: state.analysis, matches: state.matches, answers: state.answers, organization: organizationForGeneration() };
   try { const result = await draftWithAI(payload); state.sections = result.sections; state.aiMode = 'ai'; }
-  catch (error) { const result = localDraft({ analysis: state.analysis, answers: state.answers, organization: organizationProfile }); state.sections = result.sections; state.aiMode = 'local'; state.notice = `서버 AI를 사용할 수 없어 검토용 로컬 초안을 만들었습니다: ${error.message}`; }
+  catch (error) { const result = localDraft({ analysis: state.analysis, answers: state.answers, organization: organizationForGeneration() }); state.sections = result.sections; state.aiMode = 'local'; state.notice = `서버 AI를 사용할 수 없어 검토용 로컬 초안을 만들었습니다: ${error.message}`; }
   setState({ busy: '', step: 5 });
 }
 
@@ -192,7 +203,7 @@ async function generateCompleteProposal() {
     state.aiMode = 'ai';
   } catch (error) {
     state.analysis = localAnalyze({ sourceText: state.sourceText, projectType: typeName(), title: state.project.title });
-    state.sections = localDraft({ analysis: state.analysis, answers: state.analysis.questions || [], organization: { ...organizationProfile, confirmedFacts: state.companyFacts, userConfirmedNotes: state.manualCompanyFacts } }).sections;
+    state.sections = localDraft({ analysis: state.analysis, answers: state.analysis.questions || [], organization: organizationForGeneration() }).sections;
     state.aiMode = 'local';
     state.notice = `서버 AI를 사용할 수 없어 로컬 분석과 검토용 완성 초안으로 계속했습니다: ${error.message}`;
   }
@@ -209,6 +220,16 @@ function confirmCompanyFact(index) {
   const fact = { id: section.id, category: companyFactCategory(section.title), title: section.title, content: section.content, confirmedByUser: true, confirmedAt: new Date().toISOString() };
   state.companyFacts = [...state.companyFacts.filter(item => item.id !== fact.id), fact];
   setState({ companyFacts: state.companyFacts, notice: '확정한 회사 정보를 다음 사업계획서에 재사용합니다.' });
+}
+
+function confirmCompanyFactDraft() {
+  const content = state.companyFactDraft.trim();
+  if (!content) return setState({ error: '확정할 회사 정보를 입력해 주세요.' });
+  if (!window.confirm('입력한 내용이 실제 회사 정보임을 확인했습니까?')) return;
+  const fact = { id: `manual-${Date.now()}`, category: '사용자 확정', title: '사용자 확정 회사 정보', content, confirmedByUser: true, confirmedAt: new Date().toISOString() };
+  state.companyFacts = [...state.companyFacts, fact];
+  state.companyFactDraft = '';
+  setState({ companyFacts: state.companyFacts, notice: '확정한 회사 정보를 다음 사업계획서에 재사용합니다.', error: '' });
 }
 
 function companyFactCategory(title) {
