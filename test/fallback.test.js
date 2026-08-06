@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { localAnalyze, localDraft } from '../src/fallback.js';
 import { onRequest } from '../functions/api/proposal.js';
-import { handleNoticeRequest, mergeNoticeCandidates } from '../functions/api/notices.js';
+import { handleNoticeRequest, isBusinessNotice, mergeNoticeCandidates } from '../functions/api/notices.js';
 
 test('규칙 분석은 원문 근거를 보존한다', () => {
   const sourceText = '제출 마감은 2026년 9월 1일이다. 상담사 3명 이상을 필수 배치해야 한다. 평가 배점은 사업수행 50점이다.';
@@ -90,6 +90,14 @@ test('공고 목록은 중앙회와 광주지회 고정 소스만 조회한다',
   assert.match(calls[1].body, /pBhfCode=006/);
 });
 
+test('채용·행사·설문·교육 신청 공지는 공고 목록에서 제외한다', () => {
+  assert.equal(isBusinessNotice('계약직 직원 채용 공고'), false);
+  assert.equal(isBusinessNotice('30주년 감사음악회 참석 신청 안내'), false);
+  assert.equal(isBusinessNotice('복지기관 만족도 설문 안내'), false);
+  assert.equal(isBusinessNotice('담당자 교육 참가신청'), false);
+  assert.equal(isBusinessNotice('2027년 전국단위 신청사업 공고'), true);
+});
+
 test('선택한 광주지회 공고 상세과 첨부 메타데이터를 우선 반환한다', async () => {
   const fetcher = async (url, options) => {
     const gwangju = url.includes('gwangju.');
@@ -171,4 +179,7 @@ test('공고 선택 결과는 기존 제목과 원문 입력으로 전달된다'
   assert.match(source, /광주지회 공식 사이트/);
   assert.match(source, /누락 공고 가져오기/);
   assert.match(source, /importNoticeUrl\(url, state\.noticeResults\)/);
+  assert.match(source, /state\.project\.type = 'chest'/);
+  assert.match(source, /data-remove-notice/);
+  assert.match(source, /removeOfficialNotice/);
 });

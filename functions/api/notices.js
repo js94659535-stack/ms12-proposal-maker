@@ -71,11 +71,16 @@ async function listNotices(fetcher) {
       });
       return (data.listInfo || []).map(item => ({
         source, sourceLabel: config.label, listSn: String(item.listSn), title: String(item.sj || ''), registeredAt: String(item.rgsde || '')
-      }));
+      })).filter(item => isBusinessNotice(item.title));
     }));
     const notices = await mergeNoticeCandidates(groups.flat(), reference => loadNotice(fetcher, reference));
     return json({ notices });
   } catch { return json({ error: '공식 공고 목록을 불러오지 못했습니다.' }, 502); }
+}
+
+export function isBusinessNotice(title) {
+  const value = String(title || '').normalize('NFKC');
+  return !/채용|합격자\s*발표|초빙|행사|음악회|설명회|설문|수강|교육.{0,20}(?:신청|모집)|(?:참가|참석)\s*신청/.test(value);
 }
 
 async function noticeDetail(fetcher, references, supplementalReferences = []) {
