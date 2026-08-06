@@ -12,7 +12,7 @@ const TYPES = [
 const STEPS = ['사업 설정', '기관 원문', '요구사항 분석', '적합성 비교', '확인 질문', '계획서 작성'];
 const initial = {
   step: 1, project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
-  analysis: null, matches: [], answers: [], sections: [], companyFacts: [], companyFactDraft: '', noticeResults: [], noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
+  analysis: null, matches: [], answers: [], sections: [], companyFacts: [], companyFactDraft: '', noticeResults: [], selectedNoticeIndexes: [], noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
 const app = document.querySelector('#app');
@@ -22,7 +22,7 @@ function loadState() {
     const saved = JSON.parse(localStorage.getItem('ms12_project_v3') || '{}');
     // 이전 버전의 자유입력 회사 정보는 사용자 확인 기록이 없으므로 확정 정보로 승격하지 않는다.
     delete saved.manualCompanyFacts;
-    return { ...structuredClone(initial), ...saved, companyFactDraft: '', noticeResults: [], noticeUrlDraft: '', busy: '', error: '' };
+    return { ...structuredClone(initial), ...saved, companyFactDraft: '', noticeResults: [], selectedNoticeIndexes: [], noticeUrlDraft: '', busy: '', error: '' };
   }
   catch { return structuredClone(initial); }
 }
@@ -78,7 +78,7 @@ function setupView() {
 
 function sourceView() {
   return `<div class="page-heading"><div><h2>기관 원문을 제공해 주세요</h2><p>공고문, 과업지시서, 제안요청서, 평가표와 신청 양식을 함께 넣을 수 있습니다.</p></div><span class="privacy">🔒 파일은 분석을 요청할 때만 서버로 전송됩니다</span></div>
-    <div class="card"><div class="card-title"><div><h3>사랑의열매 공식 공고</h3><span>중앙회 · 광주지회</span></div><button class="button secondary" id="fetch-notices">공고 가져오기</button></div>${state.noticeResults.length ? `<div class="requirement-list">${state.noticeResults.map((item, index) => `<article class="requirement"><div><span class="tag">${escapeHtml(item.sourceLabel)}</span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.registeredAt)} · listSn ${escapeHtml(item.listSn)}</small></div><span><button class="button secondary" data-select-notice="${index}">선택</button><button class="button secondary" data-remove-notice="${index}">삭제</button></span></article>`).join('')}</div>` : '<p class="muted">버튼을 누를 때만 두 공식 소스의 최신 공고를 조회합니다.</p>'}</div>
+    <div class="card"><div class="card-title"><div><h3>사랑의열매 공모사업 안내</h3><span>중앙회 · 광주지회</span></div><button class="button secondary" id="fetch-notices">공고 가져오기</button></div>${state.noticeResults.length ? `<div class="actions"><button class="button secondary" id="remove-selected-notices" ${state.selectedNoticeIndexes.length ? '' : 'disabled'}>선택 삭제 (${state.selectedNoticeIndexes.length})</button></div><div class="requirement-list">${state.noticeResults.map((item, index) => `<article class="requirement"><label><input type="checkbox" data-notice-check="${index}" ${state.selectedNoticeIndexes.includes(index) ? 'checked' : ''}> 삭제 선택</label><div><span class="tag">${escapeHtml(item.sourceLabel)}</span><strong>${escapeHtml(item.title)}</strong><small>마감일 ${escapeHtml(item.deadline)} · dstbBsnsCode ${escapeHtml(item.dstbBsnsCode)}</small></div><span><button class="button secondary" data-select-notice="${index}">선택</button><button class="button secondary" data-remove-notice="${index}">삭제</button></span></article>`).join('')}</div>` : '<p class="muted">버튼을 누를 때만 접수 마감일이 남은 공모사업을 조회합니다.</p>'}</div>
     <details class="card org-details"><summary>추가 공고 확인</summary><div class="actions"><a class="button secondary" href="https://chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">중앙회 공식 사이트</a><a class="button secondary" href="https://gwangju.chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">광주지회 공식 사이트</a></div><div class="field"><label for="missing-notice-url">누락 공고 가져오기</label><input id="missing-notice-url" type="url" value="${escapeHtml(state.noticeUrlDraft)}" placeholder="공식 상세 URL을 붙여넣으세요"><button class="button secondary" id="import-notice-url">목록에 추가</button></div></details>
     <div class="source-grid"><div class="card"><div class="card-title"><h3>파일 업로드</h3><span>PDF · DOCX · TXT / 파일당 20MB</span></div><label class="dropzone" for="source-files"><strong>파일을 선택하거나 여기에 놓으세요</strong><small>스캔 PDF는 OCR이 필요할 수 있습니다.</small><input id="source-files" type="file" accept=".pdf,.docx,.txt" multiple></label><div class="file-list">${state.files.length ? state.files.map((f, i) => `<div class="file-item"><span class="file-badge">${escapeHtml(f.type)}</span><div><strong>${escapeHtml(f.name)}</strong><small>${f.pages ? `${f.pages}쪽 · ` : ''}${Number(f.characters || 0).toLocaleString()}자</small></div><button data-remove-file="${i}" aria-label="파일 제거">×</button></div>`).join('') : '<p class="empty-inline">업로드한 파일이 없습니다.</p>'}</div></div>
     <div class="card"><div class="card-title"><h3>원문 붙여넣기</h3><span id="char-count">${state.sourceText.length.toLocaleString()}자</span></div><textarea id="source-text" class="source-text" placeholder="기관 공고문 또는 과업지시서 원문을 붙여넣으세요.">${escapeHtml(state.sourceText)}</textarea></div></div>
@@ -158,6 +158,8 @@ function bind() {
   document.querySelector('#import-notice-url')?.addEventListener('click', addMissingNotice);
   document.querySelectorAll('[data-select-notice]').forEach(el => el.onclick = () => selectOfficialNotice(el.dataset.selectNotice));
   document.querySelectorAll('[data-remove-notice]').forEach(el => el.onclick = () => removeOfficialNotice(el.dataset.removeNotice));
+  document.querySelectorAll('[data-notice-check]').forEach(el => el.onchange = () => toggleNoticeSelection(el.dataset.noticeCheck, el.checked));
+  document.querySelector('#remove-selected-notices')?.addEventListener('click', removeSelectedNotices);
   const analyzeButton = document.querySelector('#analyze');
   if (analyzeButton) { analyzeButton.textContent = '사업계획서 작성 →'; analyzeButton.addEventListener('click', generateCompleteProposal); }
   document.querySelectorAll('[data-answer]').forEach(el => el.oninput = () => { const questions = state.answers.length ? state.answers : structuredClone(state.analysis.questions || []); questions[Number(el.dataset.answer)].answer = el.value; state.answers = questions; saveState(); });
@@ -177,7 +179,7 @@ async function loadOfficialNotices() {
   setState({ busy: '중앙회와 광주지회 공고를 불러오는 중...', error: '', notice: '' });
   try {
     const result = await fetchNoticeList();
-    setState({ busy: '', noticeResults: result.notices || [], notice: `공고 ${result.notices?.length || 0}건을 불러왔습니다.` });
+    setState({ busy: '', noticeResults: result.notices || [], selectedNoticeIndexes: [], notice: `공고 ${result.notices?.length || 0}건을 불러왔습니다.` });
   } catch (error) { setState({ busy: '', error: error.message }); }
 }
 
@@ -185,7 +187,22 @@ function removeOfficialNotice(value) {
   const index = Number(value);
   if (!Number.isInteger(index) || !state.noticeResults[index]) return;
   state.noticeResults.splice(index, 1);
-  setState({ noticeResults: [...state.noticeResults], notice: '목록에서 공고를 삭제했습니다.' });
+  setState({ noticeResults: [...state.noticeResults], selectedNoticeIndexes: [], notice: '목록에서 공고를 삭제했습니다.' });
+}
+
+function toggleNoticeSelection(value, checked) {
+  const index = Number(value);
+  if (!Number.isInteger(index) || !state.noticeResults[index]) return;
+  const selected = new Set(state.selectedNoticeIndexes);
+  checked ? selected.add(index) : selected.delete(index);
+  setState({ selectedNoticeIndexes: [...selected].sort((a, b) => a - b) });
+}
+
+function removeSelectedNotices() {
+  const selected = new Set(state.selectedNoticeIndexes);
+  if (!selected.size) return;
+  const noticeResults = state.noticeResults.filter((_, index) => !selected.has(index));
+  setState({ noticeResults, selectedNoticeIndexes: [], notice: `선택한 공고 ${selected.size}건을 삭제했습니다.` });
 }
 
 async function selectOfficialNotice(value) {
@@ -194,7 +211,7 @@ async function selectOfficialNotice(value) {
   setState({ busy: '선택한 공고 본문을 불러오는 중...', error: '', notice: '' });
   try {
     const { notice } = await fetchNoticeDetail(selected);
-    const bodyText = notice.parts.map((part, index) => `[${index === 0 ? `${part.sourceLabel} 우선 조건` : `${part.sourceLabel} 보충 자료`} · listSn ${part.listSn}]\n${noticeBodyText(part.bodyHtml)}`).join('\n\n');
+    const bodyText = notice.parts.map((part, index) => `[${index === 0 ? `${part.sourceLabel} 우선 조건` : `${part.sourceLabel} 보충 자료`} · dstbBsnsCode ${part.listSn}]\n${noticeBodyText(part.bodyHtml)}`).join('\n\n');
     state.project = { ...state.project, type: 'chest', title: notice.title, issuer: notice.sourceLabels.includes('광주지회') ? '광주사회복지공동모금회' : '사회복지공동모금회' };
     state.sourceText = `${notice.title}\n\n${bodyText}`;
     state.selectedNotice = { title: notice.title, registeredAt: notice.registeredAt, references: notice.references, attachments: notice.attachments };

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { localAnalyze, localDraft } from '../src/fallback.js';
 import { onRequest } from '../functions/api/proposal.js';
-import { handleNoticeRequest, isBusinessNotice, mergeNoticeCandidates } from '../functions/api/notices.js';
+import { handleNoticeRequest, isBusinessNotice, isOpenDeadline, mergeNoticeCandidates, parseProposalList } from '../functions/api/notices.js';
 
 test('규칙 분석은 원문 근거를 보존한다', () => {
   const sourceText = '제출 마감은 2026년 9월 1일이다. 상담사 3명 이상을 필수 배치해야 한다. 평가 배점은 사업수행 50점이다.';
@@ -74,20 +74,34 @@ test('앱은 공고문 입력에서 시작하고 사용자 확정 회사 정보�
   assert.match(source, /addEventListener\('click', confirmCompanyFactDraft\)/);
 });
 
-test('공고 목록은 중앙회와 광주지회 고정 소스만 조회한다', async () => {
+test('공모사업 목록은 중앙회와 광주지회 진행 중 공고만 조회한다', async () => {
   const calls = [];
-  const fetcher = async (url, options) => {
-    calls.push({ url, body: options.body });
-    const source = url.includes('gwangju.') ? '광주 공고' : '중앙 공고';
-    return new Response(JSON.stringify({ listInfo: [{ listSn: source === '중앙 공고' ? 101 : 202, sj: source, rgsde: '2026-08-01' }] }), { status: 200 });
+  const fetcher = async url => {
+    calls.push(url);
+    const branch = new URL(url).searchParams.get('bhfCode');
+    const item = (code, title, deadline) => `<li><a href="javascript:fn_goDetail('${code}','${branch}','');"><span class="gallery-type">${branch === '001' ? '중앙' : '광주'}</span><p class="gallery-tit">${title}</p><span>${deadline}</span></a></li>`;
+    return new Response(`<ul>${item(branch === '001' ? '20260700100022' : '20260700600081', branch === '001' ? '중앙 공고' : '광주 공고', '2099.08.14')}${item(`${branch}000`, '마감 공고', '2000.01.01')}</ul>`, { status: 200 });
   };
   const response = await handleNoticeRequest(new Request('https://example.test/api/notices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'list' }) }), fetcher);
   const result = await response.json();
   assert.deepEqual(result.notices.map(item => item.sourceLabel), ['중앙회', '광주지회']);
-  assert.deepEqual(result.notices.map(item => item.listSn), ['101', '202']);
+  assert.deepEqual(result.notices.map(item => item.dstbBsnsCode), ['20260700100022', '20260700600081']);
+  assert.deepEqual(result.notices.map(item => item.deadline), ['2099-08-14', '2099-08-14']);
   assert.equal(calls.length, 2);
-  assert.match(calls[0].body, /pBhfCode=001/);
-  assert.match(calls[1].body, /pBhfCode=006/);
+  assert.match(calls[0], /mobileMainBsnsList\.do\?bhfCode=001&page=1/);
+  assert.match(calls[1], /mobileMainBsnsList\.do\?bhfCode=006&page=1/);
+});
+
+test('마감일 당일은 포함하고 지난 마감일은 제외한다', () => {
+  const now = new Date('2026-08-06T03:00:00Z');
+  assert.equal(isOpenDeadline('2026-08-06', now), true);
+  assert.equal(isOpenDeadline('2026-08-05', now), false);
+  assert.equal(isOpenDeadline('2026-08-07', now), true);
+});
+
+test('공모사업 목록에서 제목·지회·마감일·사업번호를 추출한다', () => {
+  const html = `<li><a href="javascript:fn_goDetail('20260700600081','006','');"><span class="gallery-type">광주</span><p class="gallery-tit">[광주] 2027년 신청사업</p><span>2026.08.14</span></a></li>`;
+  assert.deepEqual(parseProposalList(html, 'gwangju'), [{ source: 'gwangju', sourceLabel: '광주지회', listSn: '20260700600081', dstbBsnsCode: '20260700600081', appnDocNo: '', title: '[광주] 2027년 신청사업', deadline: '2026-08-14', registeredAt: '2026-08-14' }]);
 });
 
 test('채용·행사·설문·교육 신청 공지는 공고 목록에서 제외한다', () => {
@@ -98,18 +112,18 @@ test('채용·행사·설문·교육 신청 공지는 공고 목록에서 제외
   assert.equal(isBusinessNotice('2027년 전국단위 신청사업 공고'), true);
 });
 
-test('선택한 광주지회 공고 상세과 첨부 메타데이터를 우선 반환한다', async () => {
-  const fetcher = async (url, options) => {
-    const gwangju = url.includes('gwangju.');
-    assert.match(options.body, new RegExp(`listSn=${gwangju ? 202 : 101}`));
-    return new Response(JSON.stringify({ dataInfo: { postInfo: { sj: gwangju ? '광주 지원사업 공고' : '중앙 지원사업 공고', rgsde: '2026-08-01', cn: `<p>${gwangju ? '광주 우선 조건' : '중앙 보충 내용'}</p>` }, fileListInfo: gwangju ? [{ orginlFileNm: '공고문.pdf', serverFileNm: 'saved.pdf', flpth: '/notice/' }] : [] } }), { status: 200 });
+test('선택한 공모사업 상세와 첨부 메타데이터를 반환한다', async () => {
+  const fetcher = async url => {
+    assert.match(url, /mobileMainBsnsDetail\.do\?dstbBsnsCode=20260700600081&appnDocNo=/);
+    return new Response(`<table><tr><th>사업명</th><td>광주 지원사업 공고</td></tr><tr><th>사업수행기간</th><td>2027-01-01 ~ 2027-12-31</td></tr><tr><th>공모기간</th><td>2026-07-27 09:00 ~ 2026-08-14 18:00</td></tr><tr><th>지원한도(원)</th><td>30,000,000</td></tr><tr><th>개요</th><td>광주 지역 복지기관 지원</td></tr></table><a href="#" onclick="fn_fileDownload('01','20260700600081','1','1')">공고문.hwp</a>`, { status: 200 });
   };
-  const response = await handleNoticeRequest(new Request('https://example.test/api/notices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'detail', references: [{ source: 'gwangju', listSn: '202' }], supplementalReferences: [{ source: 'central', listSn: '101' }] }) }), fetcher);
+  const response = await handleNoticeRequest(new Request('https://example.test/api/notices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'detail', references: [{ source: 'gwangju', listSn: '20260700600081', kind: 'proposal' }], supplementalReferences: [] }) }), fetcher);
   const result = await response.json();
   assert.equal(result.notice.title, '광주 지원사업 공고');
-  assert.equal(result.notice.parts[0].bodyHtml, '<p>광주 우선 조건</p>');
-  assert.deepEqual(result.notice.parts.map(part => part.sourceLabel), ['광주지회', '중앙회']);
-  assert.deepEqual(result.notice.attachments, [{ name: '공고문.pdf', serverName: 'saved.pdf', path: '/notice/', sourceLabel: '광주지회' }]);
+  assert.match(result.notice.parts[0].bodyHtml, /사업수행기간/);
+  assert.match(result.notice.parts[0].bodyHtml, /광주 지역 복지기관 지원/);
+  assert.deepEqual(result.notice.parts.map(part => part.sourceLabel), ['광주지회']);
+  assert.deepEqual(result.notice.attachments, [{ name: '공고문.hwp', fileSeCode: '01', dstbBsnsCode: '20260700600081', sn: '1', fileSn: '1', sourceLabel: '광주지회' }]);
 });
 
 test('동일 공고는 통합하고 출처를 모두 표시한다', async () => {
@@ -182,4 +196,6 @@ test('공고 선택 결과는 기존 제목과 원문 입력으로 전달된다'
   assert.match(source, /state\.project\.type = 'chest'/);
   assert.match(source, /data-remove-notice/);
   assert.match(source, /removeOfficialNotice/);
+  assert.match(source, /data-notice-check/);
+  assert.match(source, /removeSelectedNotices/);
 });
