@@ -2,6 +2,7 @@ import { analyzeWithAI, draftWithAI, rewriteWithAI } from './api.js';
 import { extractFiles } from './files.js';
 import { localAnalyze, localDraft } from './fallback.js';
 import { exportDocx, exportPdf, printDocument } from './export.js';
+import { fetchNoticeDetail, fetchNoticeList, importNoticeUrl, noticeBodyText } from './notices.js';
 
 const TYPES = [
   ['chest', '사랑의열매', '복지·지원사업'], ['family', '가족센터', '가족지원사업'],
@@ -11,7 +12,7 @@ const TYPES = [
 const STEPS = ['사업 설정', '기관 원문', '요구사항 분석', '적합성 비교', '확인 질문', '계획서 작성'];
 const initial = {
   step: 1, project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
-  analysis: null, matches: [], answers: [], sections: [], companyFacts: [], companyFactDraft: '', busy: '', notice: '', error: '', aiMode: ''
+  analysis: null, matches: [], answers: [], sections: [], companyFacts: [], companyFactDraft: '', noticeResults: [], noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
 const app = document.querySelector('#app');
@@ -21,12 +22,12 @@ function loadState() {
     const saved = JSON.parse(localStorage.getItem('ms12_project_v3') || '{}');
     // 이전 버전의 자유입력 회사 정보는 사용자 확인 기록이 없으므로 확정 정보로 승격하지 않는다.
     delete saved.manualCompanyFacts;
-    return { ...structuredClone(initial), ...saved, companyFactDraft: '', busy: '', error: '' };
+    return { ...structuredClone(initial), ...saved, companyFactDraft: '', noticeResults: [], noticeUrlDraft: '', busy: '', error: '' };
   }
   catch { return structuredClone(initial); }
 }
 function saveState() {
-  const safe = { ...state, companyFactDraft: '', busy: '', error: '', files: state.files.map(({ text, ...meta }) => meta) };
+  const safe = { ...state, companyFactDraft: '', noticeResults: [], noticeUrlDraft: '', busy: '', error: '', files: state.files.map(({ text, ...meta }) => meta) };
   localStorage.setItem('ms12_project_v3', JSON.stringify(safe));
 }
 function escapeHtml(value = '') { return String(value).replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c])); }
@@ -77,6 +78,8 @@ function setupView() {
 
 function sourceView() {
   return `<div class="page-heading"><div><h2>기관 원문을 제공해 주세요</h2><p>공고문, 과업지시서, 제안요청서, 평가표와 신청 양식을 함께 넣을 수 있습니다.</p></div><span class="privacy">🔒 파일은 분석을 요청할 때만 서버로 전송됩니다</span></div>
+    <div class="card"><div class="card-title"><div><h3>사랑의열매 공식 공고</h3><span>중앙회 · 광주지회</span></div><button class="button secondary" id="fetch-notices">공고 가져오기</button></div>${state.noticeResults.length ? `<div class="requirement-list">${state.noticeResults.map((item, index) => `<article class="requirement"><div><span class="tag">${escapeHtml(item.sourceLabel)}</span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.registeredAt)} · listSn ${escapeHtml(item.listSn)}</small></div><button class="button secondary" data-select-notice="${index}">선택</button></article>`).join('')}</div>` : '<p class="muted">버튼을 누를 때만 두 공식 소스의 최신 공고를 조회합니다.</p>'}</div>
+    <details class="card org-details"><summary>추가 공고 확인</summary><div class="actions"><a class="button secondary" href="https://chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">중앙회 공식 사이트</a><a class="button secondary" href="https://gwangju.chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">광주지회 공식 사이트</a></div><div class="field"><label for="missing-notice-url">누락 공고 가져오기</label><input id="missing-notice-url" type="url" value="${escapeHtml(state.noticeUrlDraft)}" placeholder="공식 상세 URL을 붙여넣으세요"><button class="button secondary" id="import-notice-url">목록에 추가</button></div></details>
     <div class="source-grid"><div class="card"><div class="card-title"><h3>파일 업로드</h3><span>PDF · DOCX · TXT / 파일당 20MB</span></div><label class="dropzone" for="source-files"><strong>파일을 선택하거나 여기에 놓으세요</strong><small>스캔 PDF는 OCR이 필요할 수 있습니다.</small><input id="source-files" type="file" accept=".pdf,.docx,.txt" multiple></label><div class="file-list">${state.files.length ? state.files.map((f, i) => `<div class="file-item"><span class="file-badge">${escapeHtml(f.type)}</span><div><strong>${escapeHtml(f.name)}</strong><small>${f.pages ? `${f.pages}쪽 · ` : ''}${Number(f.characters || 0).toLocaleString()}자</small></div><button data-remove-file="${i}" aria-label="파일 제거">×</button></div>`).join('') : '<p class="empty-inline">업로드한 파일이 없습니다.</p>'}</div></div>
     <div class="card"><div class="card-title"><h3>원문 붙여넣기</h3><span id="char-count">${state.sourceText.length.toLocaleString()}자</span></div><textarea id="source-text" class="source-text" placeholder="기관 공고문 또는 과업지시서 원문을 붙여넣으세요.">${escapeHtml(state.sourceText)}</textarea></div></div>
     <details class="card org-details"><summary>다음 제안서에도 재사용할 확정 회사 정보</summary><p class="muted">담당자가 사실로 확인한 내용만 입력한 뒤 확정 저장하세요. 입력만 한 내용은 누적되지 않습니다.</p><textarea id="company-fact-draft" class="source-text" placeholder="예: 광주·전남 지역 운영 가능 (담당자 확인 완료)">${escapeHtml(state.companyFactDraft)}</textarea><div class="actions"><span>${state.companyFacts.length ? `확정 저장된 정보 ${state.companyFacts.length}건` : '확정 저장된 정보 없음'}</span><button class="button secondary" id="confirm-company-fact">확정 정보로 저장</button></div></details>
@@ -135,6 +138,7 @@ function updateInputs() {
   document.querySelector('#deadline')?.addEventListener('input', e => { state.project.deadline = e.target.value; saveState(); });
   document.querySelector('#source-text')?.addEventListener('input', e => { state.sourceText = e.target.value; document.querySelector('#char-count').textContent = `${e.target.value.length.toLocaleString()}자`; saveState(); });
   document.querySelector('#company-fact-draft')?.addEventListener('input', e => { state.companyFactDraft = e.target.value; });
+  document.querySelector('#missing-notice-url')?.addEventListener('input', e => { state.noticeUrlDraft = e.target.value; });
 }
 
 function bind() {
@@ -150,6 +154,9 @@ function bind() {
     catch (error) { setState({ busy: '', error: error.message }); }
   };
   document.querySelectorAll('[data-remove-file]').forEach(el => el.onclick = () => { state.files.splice(Number(el.dataset.removeFile), 1); setState({ files: state.files }); });
+  document.querySelector('#fetch-notices')?.addEventListener('click', loadOfficialNotices);
+  document.querySelector('#import-notice-url')?.addEventListener('click', addMissingNotice);
+  document.querySelectorAll('[data-select-notice]').forEach(el => el.onclick = () => selectOfficialNotice(el.dataset.selectNotice));
   const analyzeButton = document.querySelector('#analyze');
   if (analyzeButton) { analyzeButton.textContent = '사업계획서 작성 →'; analyzeButton.addEventListener('click', generateCompleteProposal); }
   document.querySelectorAll('[data-answer]').forEach(el => el.oninput = () => { const questions = state.answers.length ? state.answers : structuredClone(state.analysis.questions || []); questions[Number(el.dataset.answer)].answer = el.value; state.answers = questions; saveState(); });
@@ -162,6 +169,50 @@ function bind() {
   document.querySelector('#docx')?.addEventListener('click', () => exportDocx(state.project, state.sections).catch(showError));
   document.querySelector('#pdf')?.addEventListener('click', () => exportPdf(state.project, state.sections).catch(showError));
   document.querySelector('#print')?.addEventListener('click', printDocument);
+}
+
+async function loadOfficialNotices() {
+  setState({ busy: '중앙회와 광주지회 공고를 불러오는 중...', error: '', notice: '' });
+  try {
+    const result = await fetchNoticeList();
+    setState({ busy: '', noticeResults: result.notices || [], notice: `공고 ${result.notices?.length || 0}건을 불러왔습니다.` });
+  } catch (error) { setState({ busy: '', error: error.message }); }
+}
+
+async function selectOfficialNotice(value) {
+  const selected = state.noticeResults[Number(value)];
+  if (!selected) return setState({ error: '선택한 공고를 찾지 못했습니다.' });
+  setState({ busy: '선택한 공고 본문을 불러오는 중...', error: '', notice: '' });
+  try {
+    const { notice } = await fetchNoticeDetail(selected);
+    const bodyText = notice.parts.map((part, index) => `[${index === 0 ? `${part.sourceLabel} 우선 조건` : `${part.sourceLabel} 보충 자료`} · listSn ${part.listSn}]\n${noticeBodyText(part.bodyHtml)}`).join('\n\n');
+    state.project = { ...state.project, type: 'chest', title: notice.title, issuer: notice.sourceLabels.includes('광주지회') ? '광주사회복지공동모금회' : '사회복지공동모금회' };
+    state.sourceText = `${notice.title}\n\n${bodyText}`;
+    state.selectedNotice = { title: notice.title, registeredAt: notice.registeredAt, references: notice.references, attachments: notice.attachments };
+    setState({ busy: '', notice: '선택한 공고 본문을 사업계획서 입력으로 가져왔습니다.' });
+  } catch (error) { setState({ busy: '', error: error.message }); }
+}
+
+async function addMissingNotice() {
+  const url = state.noticeUrlDraft.trim();
+  if (!url) return setState({ error: '공식 상세 URL을 입력해 주세요.' });
+  setState({ busy: '누락 공고를 확인하는 중...', error: '', notice: '' });
+  try {
+    const result = await importNoticeUrl(url, state.noticeResults);
+    if (result.duplicate) {
+      const item = state.noticeResults[result.existingIndex];
+      if (item && result.reference && !item.references.some(reference => reference.source === result.reference.source && reference.listSn === result.reference.listSn)) {
+        item.references.push(result.reference);
+        item.sourceLabels = [...new Set([...item.sourceLabels, result.sourceLabel])];
+        item.sourceLabel = item.sourceLabels.join('·');
+        item.listSn = item.references.map(reference => reference.listSn).join(' · ');
+      }
+      state.noticeUrlDraft = '';
+      return setState({ busy: '', noticeResults: [...state.noticeResults], notice: '이미 목록에 있는 동일 공고입니다.' });
+    }
+    state.noticeUrlDraft = '';
+    setState({ busy: '', noticeResults: [...state.noticeResults, result.notice], notice: '누락 공고를 목록에 추가했습니다.' });
+  } catch (error) { setState({ busy: '', error: error.message }); }
 }
 
 async function analyze() {

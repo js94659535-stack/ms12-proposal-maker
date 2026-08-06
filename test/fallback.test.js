@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { localAnalyze, localDraft } from '../src/fallback.js';
 import { onRequest } from '../functions/api/proposal.js';
+import { handleNoticeRequest, mergeNoticeCandidates } from '../functions/api/notices.js';
 
 test('규칙 분석은 원문 근거를 보존한다', () => {
   const sourceText = '제출 마감은 2026년 9월 1일이다. 상담사 3명 이상을 필수 배치해야 한다. 평가 배점은 사업수행 50점이다.';
@@ -71,4 +72,103 @@ test('앱은 공고문 입력에서 시작하고 사용자 확정 회사 정보�
   assert.doesNotMatch(source, /profileForPrompt|organizationProfile/);
   assert.match(source, /delete saved\.manualCompanyFacts/);
   assert.match(source, /addEventListener\('click', confirmCompanyFactDraft\)/);
+});
+
+test('공고 목록은 중앙회와 광주지회 고정 소스만 조회한다', async () => {
+  const calls = [];
+  const fetcher = async (url, options) => {
+    calls.push({ url, body: options.body });
+    const source = url.includes('gwangju.') ? '광주 공고' : '중앙 공고';
+    return new Response(JSON.stringify({ listInfo: [{ listSn: source === '중앙 공고' ? 101 : 202, sj: source, rgsde: '2026-08-01' }] }), { status: 200 });
+  };
+  const response = await handleNoticeRequest(new Request('https://example.test/api/notices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'list' }) }), fetcher);
+  const result = await response.json();
+  assert.deepEqual(result.notices.map(item => item.sourceLabel), ['중앙회', '광주지회']);
+  assert.deepEqual(result.notices.map(item => item.listSn), ['101', '202']);
+  assert.equal(calls.length, 2);
+  assert.match(calls[0].body, /pBhfCode=001/);
+  assert.match(calls[1].body, /pBhfCode=006/);
+});
+
+test('선택한 광주지회 공고 상세과 첨부 메타데이터를 우선 반환한다', async () => {
+  const fetcher = async (url, options) => {
+    const gwangju = url.includes('gwangju.');
+    assert.match(options.body, new RegExp(`listSn=${gwangju ? 202 : 101}`));
+    return new Response(JSON.stringify({ dataInfo: { postInfo: { sj: gwangju ? '광주 지원사업 공고' : '중앙 지원사업 공고', rgsde: '2026-08-01', cn: `<p>${gwangju ? '광주 우선 조건' : '중앙 보충 내용'}</p>` }, fileListInfo: gwangju ? [{ orginlFileNm: '공고문.pdf', serverFileNm: 'saved.pdf', flpth: '/notice/' }] : [] } }), { status: 200 });
+  };
+  const response = await handleNoticeRequest(new Request('https://example.test/api/notices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'detail', references: [{ source: 'gwangju', listSn: '202' }], supplementalReferences: [{ source: 'central', listSn: '101' }] }) }), fetcher);
+  const result = await response.json();
+  assert.equal(result.notice.title, '광주 지원사업 공고');
+  assert.equal(result.notice.parts[0].bodyHtml, '<p>광주 우선 조건</p>');
+  assert.deepEqual(result.notice.parts.map(part => part.sourceLabel), ['광주지회', '중앙회']);
+  assert.deepEqual(result.notice.attachments, [{ name: '공고문.pdf', serverName: 'saved.pdf', path: '/notice/', sourceLabel: '광주지회' }]);
+});
+
+test('동일 공고는 통합하고 출처를 모두 표시한다', async () => {
+  const items = [
+    { source: 'central', sourceLabel: '중앙회', listSn: '101', title: '[공고] 2027년 지원사업', registeredAt: '2026-08-01' },
+    { source: 'gwangju', sourceLabel: '광주지회', listSn: '202', title: '2027년 지원사업', registeredAt: '2026-08-01' }
+  ];
+  const detail = reference => ({ ...items.find(item => item.source === reference.source), bodyHtml: '<p>신청기간 8월 1일, 지원대상 사회복지기관 공통 내용</p>', attachments: [{ name: '공고.pdf', serverName: 'same.pdf', path: '/same/' }] });
+  const result = await mergeNoticeCandidates(items, detail);
+  assert.equal(result.length, 1);
+  assert.equal(result[0].sourceLabel, '중앙회·광주지회');
+  assert.equal(result[0].references.length, 2);
+});
+
+test('지역 조건이나 첨부가 다르면 별도 공고로 유지하고 광주 공고에 중앙회 보충 참조를 연결한다', async () => {
+  const items = [
+    { source: 'central', sourceLabel: '중앙회', listSn: '101', title: '2027년 지원사업', registeredAt: '2026-08-01' },
+    { source: 'gwangju', sourceLabel: '광주지회', listSn: '202', title: '2027년 지원사업', registeredAt: '2026-08-01' }
+  ];
+  const detail = reference => reference.source === 'central'
+    ? { ...items[0], bodyHtml: '<p>지원대상 전국 사회복지기관</p>', attachments: [{ name: '중앙.pdf', serverName: 'c.pdf', path: '/c/' }] }
+    : { ...items[1], bodyHtml: '<p>지원대상 광주 소재 사회복지기관</p>', attachments: [{ name: '광주.pdf', serverName: 'g.pdf', path: '/g/' }] };
+  const result = await mergeNoticeCandidates(items, detail);
+  assert.equal(result.length, 2);
+  const gwangju = result.find(item => item.sourceLabel === '광주지회');
+  assert.deepEqual(gwangju.supplementalReferences, [{ source: 'central', listSn: '101' }]);
+});
+
+test('조건이 같아도 본문이 완전히 같지 않으면 별도 공고로 유지한다', async () => {
+  const items = [
+    { source: 'central', sourceLabel: '중앙회', listSn: '111', title: '2027년 동일 제목 사업', registeredAt: '2026-08-01' },
+    { source: 'gwangju', sourceLabel: '광주지회', listSn: '222', title: '[공고] 2027년 동일 제목 사업', registeredAt: '2026-08-01' }
+  ];
+  const detail = reference => ({ ...items.find(item => item.source === reference.source), bodyHtml: reference.source === 'central' ? '<p>지원대상 복지기관. 공통 본문.</p>' : '<p>지원대상 복지기관. 공통 본문. 광주 안내 문장.</p>', attachments: [] });
+  const result = await mergeNoticeCandidates(items, detail);
+  assert.equal(result.length, 2);
+});
+
+test('공식 상세 URL의 누락 공고를 추가하고 동일 listSn은 중복 처리한다', async () => {
+  const fetcher = async (url, options) => {
+    assert.equal(url, 'https://gwangju.chest.or.kr/bbs/selectPostInfo.do');
+    assert.match(options.body, /listSn=303/);
+    return new Response(JSON.stringify({ dataInfo: { postInfo: { sj: '광주 누락 공고', rgsde: '2026-08-02', cn: '<p>광주 대상</p>' }, fileListInfo: [] } }), { status: 200 });
+  };
+  const imported = await handleNoticeRequest(new Request('https://example.test/api/notices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'importUrl', url: 'https://gwangju.chest.or.kr/bbs/1000/initPostDetail.do?listSn=303', existingNotices: [] }) }), fetcher);
+  const importedResult = await imported.json();
+  assert.equal(importedResult.duplicate, false);
+  assert.equal(importedResult.notice.sourceLabel, '광주지회');
+
+  const duplicate = await handleNoticeRequest(new Request('https://example.test/api/notices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'importUrl', url: 'https://gwangju.chest.or.kr/bbs/1000/initPostDetail.do?listSn=303', existingNotices: [importedResult.notice] }) }), () => { throw new Error('중복 공고는 다시 조회하지 않아야 함'); });
+  assert.equal((await duplicate.json()).duplicate, true);
+});
+
+test('고정된 두 공식 도메인 이외의 누락 공고 URL은 거부한다', async () => {
+  const response = await handleNoticeRequest(new Request('https://example.test/api/notices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'importUrl', url: 'https://example.com/bbs/1000/initPostDetail.do?listSn=1', existingNotices: [] }) }), () => { throw new Error('호출되지 않아야 함'); });
+  assert.equal(response.status, 400);
+});
+
+test('공고 선택 결과는 기존 제목과 원문 입력으로 전달된다', () => {
+  const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  assert.match(source, /state\.project = \{ \.\.\.state\.project, type: 'chest', title: notice\.title/);
+  assert.match(source, /state\.sourceText = `\$\{notice\.title\}/);
+  assert.match(source, /fetchNoticeDetail\(selected\)/);
+  assert.match(source, /\$\{part\.sourceLabel\} 우선 조건/);
+  assert.match(source, /\$\{part\.sourceLabel\} 보충 자료/);
+  assert.match(source, /중앙회 공식 사이트/);
+  assert.match(source, /광주지회 공식 사이트/);
+  assert.match(source, /누락 공고 가져오기/);
+  assert.match(source, /importNoticeUrl\(url, state\.noticeResults\)/);
 });
