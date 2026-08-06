@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { localAnalyze, localDraft } from '../src/fallback.js';
 import { onRequest } from '../functions/api/proposal.js';
-import { handleNoticeRequest, isBusinessNotice, isOpenDeadline, mergeNoticeCandidates, parseProposalList, splitSubprojects } from '../functions/api/notices.js';
+import { classifyAttachment, handleNoticeRequest, isBusinessNotice, isOpenDeadline, mergeNoticeCandidates, parseProposalList, splitSubprojects } from '../functions/api/notices.js';
+import { buildPdfHtml, validatePdfOutput } from '../src/export.js';
 
 test('규칙 분석은 원문 근거를 보존한다', () => {
   const sourceText = '제출 마감은 2026년 9월 1일이다. 상담사 3명 이상을 필수 배치해야 한다. 평가 배점은 사업수행 50점이다.';
@@ -136,7 +137,30 @@ test('선택한 공모사업 상세와 첨부 메타데이터를 반환한다', 
   assert.match(result.notice.parts[0].bodyHtml, /사업수행기간/);
   assert.match(result.notice.parts[0].bodyHtml, /광주 지역 복지기관 지원/);
   assert.deepEqual(result.notice.parts.map(part => part.sourceLabel), ['광주지회']);
-  assert.deepEqual(result.notice.attachments, [{ name: '공고문.hwp', fileSeCode: '01', dstbBsnsCode: '20260700600081', sn: '1', fileSn: '1', sourceLabel: '광주지회' }]);
+  assert.deepEqual(result.notice.attachments, [{ name: '공고문.hwp', fileType: 'HWP', fileSeCode: '01', dstbBsnsCode: '20260700600081', sn: '1', fileSn: '1', sourceLabel: '광주지회' }]);
+});
+
+test('공식 첨부파일을 공개 토큰으로 중계하고 원본 이름을 유지한다', async () => {
+  const attachment = { name: '공식 신청서.HWP', fileSeCode: '01', dstbBsnsCode: '20260700600081', sn: '1', fileSn: '2' };
+  const calls = [];
+  const fetcher = async (url, options) => {
+    calls.push({ url, options });
+    if (url.includes('mobileMainBsnsDetail.do')) return new Response(`<a onclick="fn_fileDownload('01','20260700600081','1','2')">공식 신청서.HWP</a>`, { headers: { 'Set-Cookie': 'JSESSIONID=test; Path=/' } });
+    if (url.endsWith('/file/downloadToken.do')) return new Response(JSON.stringify({ token: 'public-token' }), { headers: { 'Content-Type': 'application/json' } });
+    if (url.endsWith('/file/acceptingBusiness.fileDownloadNew.do')) return new Response(new Uint8Array([72, 87, 80]), { headers: { 'Content-Type': 'application/octet-stream' } });
+    throw new Error('unexpected request');
+  };
+  const response = await handleNoticeRequest(new Request('https://example.test/api/notices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'downloadAttachment', attachment }) }), fetcher);
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-disposition'), /%EA%B3%B5%EC%8B%9D%20%EC%8B%A0%EC%B2%AD%EC%84%9C\.HWP/);
+  assert.deepEqual([...new Uint8Array(await response.arrayBuffer())], [72, 87, 80]);
+  assert.equal(calls.length, 3);
+  assert.match(calls[1].options.body, /type=APPLY/);
+  assert.match(calls[2].options.body, /token=public-token/);
+});
+
+test('공식 첨부파일 형식을 구분한다', () => {
+  assert.deepEqual(['a.pdf', 'a.docx', 'a.txt', 'a.hwp', 'a.hwpx', 'a.zip', 'a.exe'].map(classifyAttachment), ['PDF', 'DOCX', 'TXT', 'HWP', 'HWPX', 'ZIP', 'UNSUPPORTED']);
 });
 
 test('동일 공고는 통합하고 출처를 모두 표시한다', async () => {
@@ -215,4 +239,35 @@ test('공고 선택 결과는 기존 제목과 원문 입력으로 전달된다'
   assert.match(source, /data-select-subproject/);
   assert.match(source, /applyNoticeSelection\(pending\.notice, subproject\)/);
   assert.match(source, /개요:\\n\$\{subproject\.content\}/);
+});
+
+test('빈 PDF와 비정상적으로 작은 PDF는 성공 처리하지 않는다', () => {
+  assert.throws(() => validatePdfOutput(new ArrayBuffer(9000), 1, 500), /정상적으로 렌더링되지 않았습니다/);
+  assert.throws(() => validatePdfOutput(new ArrayBuffer(12000), 1, 0), /정상적으로 렌더링되지 않았습니다/);
+  assert.doesNotThrow(() => validatePdfOutput(new ArrayBuffer(12000), 2, 500));
+});
+
+test('PDF 출력 HTML에 계획서 10개 항목의 실제 내용을 모두 포함한다', () => {
+  const titles = ['사업 필요성', '사업 목적', '사업 목표', '지원 대상', '사업 내용', '추진 일정', '수행 인력', '예산 계획', '성과지표', '기대효과'];
+  const html = buildPdfHtml({ title: '검토 계획서' }, titles.map((title, index) => ({ title, content: `${title} 본문 ${index + 1}`, status: '검토 필요' })));
+  titles.forEach(title => assert.match(html, new RegExp(`${title}.*${title} 본문`, 's')));
+  assert.equal((html.match(/<section>/g) || []).length, 10);
+});
+
+test('DOCX는 공식 양식이 아닌 검토용으로 표시한다', () => {
+  const appSource = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  const exportSource = fs.readFileSync(new URL('../src/export.js', import.meta.url), 'utf8');
+  assert.match(appSource, /검토용 DOCX/);
+  assert.match(appSource, /공식 신청서 양식이 아닌 검토본/);
+  assert.match(exportSource, /_검토용\.docx/);
+});
+
+test('HWP 안내와 공고문 추출 상태를 명확히 표시한다', () => {
+  const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  assert.match(source, /공식 한글 양식 파일/);
+  assert.match(source, /한글 프로그램에서 PDF로 저장한 뒤 다시 업로드/);
+  assert.match(source, /공고문 반영 초안/);
+  assert.match(source, /안내 페이지 기반 임시 초안/);
+  assert.match(source, /공고문 추출 실패/);
+  assert.match(source, /\['PDF', 'DOCX', 'TXT'\]/);
 });

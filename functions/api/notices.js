@@ -20,6 +20,7 @@ export async function handleNoticeRequest(request, fetcher = fetch) {
   if (body.action === 'list') return listNotices(fetcher);
   if (body.action === 'detail') return noticeDetail(fetcher, body.references, body.supplementalReferences);
   if (body.action === 'importUrl') return importNoticeUrl(fetcher, body.url, body.existingNotices);
+  if (body.action === 'downloadAttachment') return downloadProposalAttachment(fetcher, body.attachment);
   return json({ error: '지원하지 않는 작업입니다.' }, 400);
 }
 
@@ -150,7 +151,7 @@ async function loadProposalNotice(fetcher, reference) {
   const selectedFields = ['사업명', '사업수행기간', '공모기간', '지원한도(원)', '개요'];
   const bodyHtml = selectedFields.filter(name => fields[name]).map(name => `<h3>${escapeMarkup(name)}</h3><p>${escapeMarkup(fields[name])}</p>`).join('');
   const attachments = [...html.matchAll(/fn_fileDownload\('([^']+)'\s*,\s*'([^']+)'\s*,\s*'([^']+)'\s*,\s*'([^']+)'\)[^>]*>([\s\S]*?)<\/a>/gi)].map(match => ({
-    name: plainText(match[5]), fileSeCode: match[1], dstbBsnsCode: match[2], sn: match[3], fileSn: match[4]
+    name: structuredText(match[5]), fileType: classifyAttachment(match[5]), fileSeCode: match[1], dstbBsnsCode: match[2], sn: match[3], fileSn: match[4]
   }));
   return {
     source: reference.source, sourceLabel: config.label, listSn: String(reference.listSn), title: fields['사업명'],
@@ -158,6 +159,55 @@ async function loadProposalNotice(fetcher, reference) {
     businessName: fields['사업명'], performancePeriod: fields['사업수행기간'] || '', applicationPeriod: fields['공모기간'] || '',
     supportLimit: fields['지원한도(원)'] || '', overview: fields['개요'] || '', subprojects: splitSubprojects(fields['개요'])
   };
+}
+
+export function classifyAttachment(name) {
+  const extension = String(name || '').trim().split('.').pop()?.toLowerCase();
+  return ({ pdf: 'PDF', docx: 'DOCX', txt: 'TXT', hwp: 'HWP', hwpx: 'HWPX', zip: 'ZIP' })[extension] || 'UNSUPPORTED';
+}
+
+async function downloadProposalAttachment(fetcher, attachment) {
+  if (!validAttachment(attachment)) return json({ error: '첨부파일 정보가 올바르지 않습니다.' }, 400);
+  try {
+    const detailUrl = new URL('/mobile/mobileMainBsnsDetail.do', PROPOSAL_ORIGIN);
+    detailUrl.searchParams.set('dstbBsnsCode', attachment.dstbBsnsCode);
+    detailUrl.searchParams.set('appnDocNo', '');
+    const detailResponse = await fetcher(detailUrl.href, { method: 'GET' });
+    if (!detailResponse.ok) throw new Error('detail failed');
+    const detailHtml = await detailResponse.text();
+    const officialFiles = [...detailHtml.matchAll(/fn_fileDownload\('([^']+)'\s*,\s*'([^']+)'\s*,\s*'([^']+)'\s*,\s*'([^']+)'\)[^>]*>([\s\S]*?)<\/a>/gi)].map(match => ({
+      fileSeCode: match[1], dstbBsnsCode: match[2], sn: match[3], fileSn: match[4], name: structuredText(match[5])
+    }));
+    const official = officialFiles.find(file => ['fileSeCode', 'dstbBsnsCode', 'sn', 'fileSn'].every(key => file[key] === attachment[key]));
+    if (!official) return json({ error: '공식 상세 페이지에서 첨부파일을 확인할 수 없습니다.' }, 404);
+
+    const cookie = (detailResponse.headers.get('set-cookie') || '').split(';', 1)[0];
+    const tokenResponse = await fetcher(`${PROPOSAL_ORIGIN}/file/downloadToken.do`, {
+      method: 'POST', headers: {
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest', Referer: detailUrl.href,
+        ...(cookie ? { Cookie: cookie } : {})
+      },
+      body: new URLSearchParams({ type: 'APPLY', fileSeCode: official.fileSeCode, dstbBsnsCode: official.dstbBsnsCode, sn: official.sn, fileSn: official.fileSn }).toString()
+    });
+    if (!tokenResponse.ok) throw new Error('token failed');
+    const token = (await tokenResponse.json()).token;
+    if (!token) throw new Error('token missing');
+    const fileResponse = await fetcher(`${PROPOSAL_ORIGIN}/file/acceptingBusiness.fileDownloadNew.do`, {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', Referer: detailUrl.href, ...(cookie ? { Cookie: cookie } : {}) },
+      body: new URLSearchParams({ token }).toString()
+    });
+    if (!fileResponse.ok || !fileResponse.body) throw new Error('download failed');
+    const encodedName = encodeURIComponent(official.name).replace(/'/g, '%27');
+    return new Response(fileResponse.body, { status: 200, headers: {
+      'Content-Type': fileResponse.headers.get('content-type') || 'application/octet-stream',
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodedName}`,
+      'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'
+    } });
+  } catch { return json({ error: '공식 첨부파일을 내려받지 못했습니다.' }, 502); }
+}
+
+function validAttachment(value) {
+  return value && ['fileSeCode', 'dstbBsnsCode', 'sn', 'fileSn'].every(key => /^[A-Za-z0-9_-]{1,24}$/.test(String(value[key] || '')));
 }
 
 export function splitSubprojects(value) {
