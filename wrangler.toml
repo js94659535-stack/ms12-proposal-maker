@@ -1,0 +1,6 @@
+name = "ms12-proposal-maker"
+pages_build_output_dir = "dist"
+compatibility_date = "2026-08-06"
+compatibility_flags = ["nodejs_compat"]
+
+# OPENAI_API_KEY와 OPENAI_MODEL은 Cloudflare Variables and Secrets에서 설정합니다.
