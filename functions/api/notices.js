@@ -113,6 +113,7 @@ async function noticeDetail(fetcher, references, supplementalReferences = []) {
     return json({ notice: {
       sourceLabels: [...new Set(references.map(reference => SOURCES[reference.source].label))], references,
       title: primary.title, registeredAt: primary.registeredAt, parts,
+      subprojects: primary.subprojects || [],
       attachments: parts.flatMap(part => part.attachments.map(file => ({ ...file, sourceLabel: part.sourceLabel })))
     } });
   } catch { return json({ error: '공식 공고 상세 내용을 불러오지 못했습니다.' }, 502); }
@@ -141,7 +142,10 @@ async function loadProposalNotice(fetcher, reference) {
     dstbBsnsCode: String(reference.listSn), appnDocNo: String(reference.appnDocNo || '')
   });
   const fields = Object.fromEntries([...html.matchAll(/<th[^>]*>([\s\S]*?)<\/th>\s*<td[^>]*>([\s\S]*?)<\/td>/gi)]
-    .map(match => [plainText(match[1]), plainText(match[2])]));
+    .map(match => {
+      const name = plainText(match[1]);
+      return [name, name === '개요' ? structuredText(match[2]) : plainText(match[2])];
+    }));
   if (!fields['사업명']) throw new Error('notice missing');
   const selectedFields = ['사업명', '사업수행기간', '공모기간', '지원한도(원)', '개요'];
   const bodyHtml = selectedFields.filter(name => fields[name]).map(name => `<h3>${escapeMarkup(name)}</h3><p>${escapeMarkup(fields[name])}</p>`).join('');
@@ -152,8 +156,19 @@ async function loadProposalNotice(fetcher, reference) {
     source: reference.source, sourceLabel: config.label, listSn: String(reference.listSn), title: fields['사업명'],
     registeredAt: fields['공모기간'] || '', deadline: extractDeadline(fields['공모기간']), bodyHtml, attachments,
     businessName: fields['사업명'], performancePeriod: fields['사업수행기간'] || '', applicationPeriod: fields['공모기간'] || '',
-    supportLimit: fields['지원한도(원)'] || '', overview: fields['개요'] || ''
+    supportLimit: fields['지원한도(원)'] || '', overview: fields['개요'] || '', subprojects: splitSubprojects(fields['개요'])
   };
+}
+
+export function splitSubprojects(value) {
+  const text = String(value || '').replace(/\r\n?/g, '\n').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  const headings = [...text.matchAll(/^\s*(\d{1,2})[.)]\s*(.+?)\s*$/gm)]
+    .filter(match => /사업(?:\s*공고)?$/.test(match[2]) && !/^(?:사업명|사업개념|사업내용|사업기간)\s*[:：]/.test(match[2]));
+  if (headings.length < 2) return [];
+  return headings.map((heading, index) => ({
+    id: heading[1], title: heading[2].replace(/\s*공고$/, '').trim(),
+    content: text.slice(heading.index, headings[index + 1]?.index ?? text.length).trim()
+  }));
 }
 
 export async function mergeNoticeCandidates(items, loadDetail) {
@@ -197,6 +212,7 @@ function sameNotice(left, right) {
 
 function normalizeTitle(value) { return String(value || '').normalize('NFKC').toLowerCase().replace(/\[[^\]]*\]|\([^)]*(?:마감|지원한도)[^)]*\)/g, '').replace(/[^가-힣a-z0-9]/g, ''); }
 function plainText(html) { return String(html || '').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ').replace(/\s+/g, ' ').trim().toLowerCase(); }
+function structuredText(html) { return String(html || '').replace(/<br\s*\/?\s*>/gi, '\n').replace(/<\/p\s*>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/&#39;/g, "'").replace(/&amp;/gi, '&').replace(/[ \t]+/g, ' ').replace(/ *\n */g, '\n').replace(/\n{3,}/g, '\n\n').trim(); }
 function conditionSignature(html) { return plainText(html).split(/[.!?。]|\n/).filter(line => /접수|신청기간|마감|지원대상|신청대상|광주|지역|소재/.test(line)).map(line => line.replace(/\s/g, '')).sort().join('|'); }
 function attachmentSignature(files = []) { return files.map(file => `${file.name}|${file.serverName}|${file.path}`).sort().join('|'); }
 function validReferences(references, emptyAllowed = false) { return Array.isArray(references) && (emptyAllowed || references.length > 0) && references.length <= 2 && references.every(reference => SOURCES[reference?.source] && /^\d{1,20}$/.test(String(reference.listSn || ''))); }

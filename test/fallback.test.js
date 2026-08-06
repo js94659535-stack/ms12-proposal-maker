@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { localAnalyze, localDraft } from '../src/fallback.js';
 import { onRequest } from '../functions/api/proposal.js';
-import { handleNoticeRequest, isBusinessNotice, isOpenDeadline, mergeNoticeCandidates, parseProposalList } from '../functions/api/notices.js';
+import { handleNoticeRequest, isBusinessNotice, isOpenDeadline, mergeNoticeCandidates, parseProposalList, splitSubprojects } from '../functions/api/notices.js';
 
 test('규칙 분석은 원문 근거를 보존한다', () => {
   const sourceText = '제출 마감은 2026년 9월 1일이다. 상담사 3명 이상을 필수 배치해야 한다. 평가 배점은 사업수행 50점이다.';
@@ -104,6 +104,19 @@ test('공모사업 목록에서 제목·지회·마감일·사업번호를 추�
   assert.deepEqual(parseProposalList(html, 'gwangju'), [{ source: 'gwangju', sourceLabel: '광주지회', listSn: '20260700600081', dstbBsnsCode: '20260700600081', appnDocNo: '', title: '[광주] 2027년 신청사업', deadline: '2026-08-14', registeredAt: '2026-08-14' }]);
 });
 
+test('복수 공고의 번호가 붙은 세부사업 3개를 서로 섞지 않고 분리한다', () => {
+  const overview = `안내 공통문\n1. 취약계층 아동·청소년 가족기능 강화사업\n가족 상담과 회복 지원\n2. 경계선 지능 아동 사회적응력 향상사업\n느린학습자 사회성 지원\n3. 저소득 아동·청소년 환경개선 지원사업\n주거 환경 개선 지원`;
+  const result = splitSubprojects(overview);
+  assert.deepEqual(result.map(item => item.title), ['취약계층 아동·청소년 가족기능 강화사업', '경계선 지능 아동 사회적응력 향상사업', '저소득 아동·청소년 환경개선 지원사업']);
+  assert.match(result[1].content, /느린학습자 사회성 지원/);
+  assert.doesNotMatch(result[1].content, /가족 상담|주거 환경/);
+});
+
+test('단일 사업과 일반 번호 목차는 세부사업 선택 대상으로 만들지 않는다', () => {
+  assert.deepEqual(splitSubprojects('1. 단일 아동 지원사업\n아동 지원 내용'), []);
+  assert.deepEqual(splitSubprojects('1. 사업명: 신청사업\n2. 사업개념: 자유주제\n3. 사업내용: 복지 지원'), []);
+});
+
 test('채용·행사·설문·교육 신청 공지는 공고 목록에서 제외한다', () => {
   assert.equal(isBusinessNotice('계약직 직원 채용 공고'), false);
   assert.equal(isBusinessNotice('30주년 감사음악회 참석 신청 안내'), false);
@@ -184,8 +197,8 @@ test('고정된 두 공식 도메인 이외의 누락 공고 URL은 거부한다
 
 test('공고 선택 결과는 기존 제목과 원문 입력으로 전달된다', () => {
   const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
-  assert.match(source, /state\.project = \{ \.\.\.state\.project, type: 'chest', title: notice\.title/);
-  assert.match(source, /state\.sourceText = `\$\{notice\.title\}/);
+  assert.match(source, /state\.project = \{ \.\.\.state\.project, type: 'chest', title,/);
+  assert.match(source, /state\.sourceText = `\$\{title\}/);
   assert.match(source, /fetchNoticeDetail\(selected\)/);
   assert.match(source, /\$\{part\.sourceLabel\} 우선 조건/);
   assert.match(source, /\$\{part\.sourceLabel\} 보충 자료/);
@@ -198,4 +211,8 @@ test('공고 선택 결과는 기존 제목과 원문 입력으로 전달된다'
   assert.match(source, /removeOfficialNotice/);
   assert.match(source, /data-notice-check/);
   assert.match(source, /removeSelectedNotices/);
+  assert.match(source, /notice\.subprojects\?\.length > 1/);
+  assert.match(source, /data-select-subproject/);
+  assert.match(source, /applyNoticeSelection\(pending\.notice, subproject\)/);
+  assert.match(source, /개요:\\n\$\{subproject\.content\}/);
 });
