@@ -301,6 +301,21 @@ test('공고 선택 결과는 기존 제목과 원문 입력으로 전달된다'
   assert.match(source, /detailText: bodyText/);
   assert.match(source, /scrollIntoView\(\{ behavior: 'smooth'/);
   assert.match(source, /선택한 공고 상세/);
+  assert.match(source, /data-view-notice/);
+  assert.match(source, /이 공고 선택/);
+  assert.match(source, /아직 계획서 작성 대상으로 선택하지 않았습니다/);
+  assert.match(source, /선택 완료 · 다음 단계/);
+});
+
+test('공고 개별·다중 삭제는 쓰레기통으로 이동하고 복원·영구 삭제할 수 있다', () => {
+  const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  assert.match(source, /noticeTrash: \[\]/);
+  assert.match(source, /noticeTrash: \[\.\.\.state\.noticeTrash, \{ \.\.\.removed/);
+  assert.match(source, /선택한 공고 \$\{selected\.size\}건을 쓰레기통으로 이동/);
+  assert.match(source, /data-restore-notice/);
+  assert.match(source, /function restoreNotice/);
+  assert.match(source, /data-delete-notice-forever/);
+  assert.match(source, /function deleteNoticeForever/);
 });
 
 test('한국어 인쇄 문서에 계획서 10개 항목의 실제 내용을 모두 포함한다', () => {

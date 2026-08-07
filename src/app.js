@@ -15,7 +15,7 @@ const NAVIGATION_KEY = 'ms12_workflow_navigation_v1';
 const NAVIGATION_LIMIT = 10;
 const initial = {
   step: 1, project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
-  analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], selectedNoticeIndexes: [], pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
+  analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
 let navigationHistory = loadNavigationHistory();
@@ -26,7 +26,7 @@ function loadState() {
     const saved = JSON.parse(localStorage.getItem('ms12_project_v3') || '{}');
     // 이전 버전의 자유입력 회사 정보는 사용자 확인 기록이 없으므로 확정 정보로 승격하지 않는다.
     delete saved.manualCompanyFacts;
-    return { ...structuredClone(initial), ...saved, companyFactDraft: '', noticeResults: [], selectedNoticeIndexes: [], pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '' };
+    return { ...structuredClone(initial), ...saved, companyFactDraft: '', noticeResults: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '' };
   }
   catch { return structuredClone(initial); }
 }
@@ -129,7 +129,9 @@ function setupView() {
 
 function sourceView() {
   return `<div class="page-heading"><div><h2>기관 원문을 제공해 주세요</h2><p>공고문, 과업지시서, 제안요청서, 평가표와 신청 양식을 함께 넣을 수 있습니다.</p></div><span class="privacy">🔒 파일은 분석을 요청할 때만 서버로 전송됩니다</span></div>
-    <div class="card"><div class="card-title"><div><h3>사랑의열매 공모사업 안내</h3><span>중앙회 · 광주지회</span></div><button class="button secondary" id="fetch-notices">공고 가져오기</button></div>${state.noticeResults.length ? `<div class="actions"><button class="button secondary" id="remove-selected-notices" ${state.selectedNoticeIndexes.length ? '' : 'disabled'}>선택 삭제 (${state.selectedNoticeIndexes.length})</button></div><div class="requirement-list">${state.noticeResults.map((item, index) => `<article class="requirement"><label><input type="checkbox" data-notice-check="${index}" ${state.selectedNoticeIndexes.includes(index) ? 'checked' : ''}> 삭제 선택</label><div><span class="tag">${escapeHtml(item.sourceLabel)}</span><div><strong>${escapeHtml(item.title)}</strong><small>주관 기관 ${escapeHtml(item.sourceLabel)} · 마감일 ${escapeHtml(item.deadline)} · dstbBsnsCode ${escapeHtml(item.dstbBsnsCode)}</small><p class="muted">${escapeHtml(item.summary || '상세 공고문 확인 필요')}</p>${item.applicationPeriod ? `<small><b>신청 기간</b> ${escapeHtml(item.applicationPeriod)}</small>` : ''}${item.eligibility ? `<small><b>신청 대상</b> ${escapeHtml(item.eligibility)}</small>` : ''}${item.supportDetails ? `<small><b>지원 내용</b> ${escapeHtml(item.supportDetails)}</small>` : ''}${item.supportLimit ? `<small><b>지원 규모·한도</b> ${escapeHtml(item.supportLimit)}</small>` : ''}</div></div><span><button class="button secondary" data-select-notice="${index}">자세히 보기</button><button class="button secondary" data-remove-notice="${index}">삭제</button></span></article>`).join('')}</div>` : '<p class="muted">버튼을 누를 때만 접수 마감일이 남은 공모사업을 조회합니다.</p>'}</div>
+    <div class="card"><div class="card-title"><div><h3>사랑의열매 공모사업 안내</h3><span>중앙회 · 광주지회</span></div><button class="button secondary" id="fetch-notices">공고 가져오기</button></div>${state.noticeResults.length ? `<div class="actions"><button class="button secondary" id="remove-selected-notices" ${state.selectedNoticeIndexes.length ? '' : 'disabled'}>선택 항목을 쓰레기통으로 (${state.selectedNoticeIndexes.length})</button></div><div class="requirement-list">${state.noticeResults.map((item, index) => `<article class="requirement"><label><input type="checkbox" data-notice-check="${index}" ${state.selectedNoticeIndexes.includes(index) ? 'checked' : ''}> 삭제할 항목 선택</label><div><span class="tag">${escapeHtml(item.sourceLabel)}</span><div><strong>${escapeHtml(item.title)}</strong><small>주관 기관 ${escapeHtml(item.sourceLabel)} · 마감일 ${escapeHtml(item.deadline)} · dstbBsnsCode ${escapeHtml(item.dstbBsnsCode)}</small><p class="muted">${escapeHtml(item.summary || '상세 공고문 확인 필요')}</p>${item.applicationPeriod ? `<small><b>신청 기간</b> ${escapeHtml(item.applicationPeriod)}</small>` : ''}${item.eligibility ? `<small><b>신청 대상</b> ${escapeHtml(item.eligibility)}</small>` : ''}${item.supportDetails ? `<small><b>지원 내용</b> ${escapeHtml(item.supportDetails)}</small>` : ''}${item.supportLimit ? `<small><b>지원 규모·한도</b> ${escapeHtml(item.supportLimit)}</small>` : ''}</div></div><span><button class="button secondary" data-view-notice="${index}">자세히 보기</button><button class="button primary" data-select-notice="${index}">이 공고 선택</button><button class="button secondary" data-remove-notice="${index}">쓰레기통</button></span></article>`).join('')}</div>` : '<p class="muted">버튼을 누를 때만 접수 마감일이 남은 공모사업을 조회합니다.</p>'}</div>
+    ${noticeTrashView()}
+    ${noticePreviewView()}
     ${state.pendingNoticeChoice ? `<div class="card"><div class="card-title"><div><h3>작성할 세부사업을 선택하세요</h3><span>선택한 사업 내용만 계획서에 반영됩니다.</span></div></div><div class="requirement-list">${state.pendingNoticeChoice.subprojects.map((item, index) => `<article class="requirement"><div><span class="tag">${escapeHtml(item.id)}</span><strong>${escapeHtml(item.title)}</strong></div><button class="button primary" data-select-subproject="${index}">이 사업 선택</button></article>`).join('')}</div></div>` : ''}
     ${selectedNoticeDetailView()}
     ${attachmentView()}
@@ -141,10 +143,23 @@ function sourceView() {
     <div class="tip"><strong>정확도 높이는 방법</strong><span>평가표와 제출 양식까지 함께 제공하면 필수 조건·배점·목차 누락을 줄일 수 있습니다.</span></div>${footer({ next: !state.pendingNoticeChoice, nextLabel: '원문 분석 시작', nextId: 'analyze' })}`;
 }
 
+function noticeTrashView() {
+  if (!state.noticeTrash.length) return '';
+  return `<details class="card org-details"><summary>쓰레기통 ${state.noticeTrash.length}건</summary><div class="requirement-list">${state.noticeTrash.map((item, index) => `<article class="requirement"><div><span class="tag">${escapeHtml(item.sourceLabel)}</span><strong>${escapeHtml(item.title)}</strong></div><span><button class="button secondary" data-restore-notice="${index}">복원</button><button class="button secondary" data-delete-notice-forever="${index}">영구 삭제</button></span></article>`).join('')}</div></details>`;
+}
+
+function noticePreviewView() {
+  const notice = state.noticePreview;
+  if (!notice) return '';
+  const primary = notice.parts?.[0] || {};
+  const detailText = notice.parts?.map(part => `[${part.sourceLabel}]\n${noticeBodyText(part.bodyHtml)}`).join('\n\n') || '';
+  return `<div class="card" id="notice-preview" tabindex="-1"><div class="card-title"><div><h3>공고 자세히 보기</h3><span>아직 계획서 작성 대상으로 선택하지 않았습니다.</span></div><button class="button primary" id="choose-preview-notice">이 공고 선택</button></div><h4>${escapeHtml(notice.title)}</h4><div class="summary-grid"><div><span>신청 기간</span><strong>${escapeHtml(primary.applicationPeriod || '')}</strong></div><div><span>사업 기간</span><strong>${escapeHtml(primary.performancePeriod || '')}</strong></div><div><span>지원 규모·한도</span><strong>${escapeHtml(primary.supportLimit || '')}</strong></div><div><span>첨부파일</span><strong>${notice.attachments?.length || 0}개</strong></div></div><details open><summary>공식 상세 원문</summary><blockquote>${nl(detailText)}</blockquote></details></div>`;
+}
+
 function selectedNoticeDetailView() {
   const notice = state.selectedNotice;
   if (!notice?.detailText) return '';
-  return `<div class="card" id="selected-notice-detail" tabindex="-1"><div class="card-title"><div><h3>선택한 공고 상세</h3><span>${escapeHtml(notice.sourceLabels?.join(' · ') || '')}</span></div></div><h4>${escapeHtml(notice.title)}</h4><div class="summary-grid"><div><span>신청 기간</span><strong>${escapeHtml(notice.applicationPeriod || '공식 원문에 별도 표기 없음')}</strong></div><div><span>사업 기간</span><strong>${escapeHtml(notice.performancePeriod || '공식 원문에 별도 표기 없음')}</strong></div><div><span>지원 규모·한도</span><strong>${escapeHtml(notice.supportLimit || '공식 원문에 별도 표기 없음')}</strong></div><div><span>첨부파일</span><strong>${notice.attachments?.length || 0}개</strong></div></div><details open><summary>공식 상세 원문</summary><blockquote>${nl(notice.detailText)}</blockquote></details></div>`;
+  return `<div class="card" id="selected-notice-detail" tabindex="-1"><div class="card-title"><div><h3>선택한 공고 상세</h3><span>${escapeHtml(notice.sourceLabels?.join(' · ') || '')}</span></div><button class="button primary" id="proceed-selected-notice">선택 완료 · 다음 단계</button></div><h4>${escapeHtml(notice.title)}</h4><div class="summary-grid"><div><span>신청 기간</span><strong>${escapeHtml(notice.applicationPeriod || '공식 원문에 별도 표기 없음')}</strong></div><div><span>사업 기간</span><strong>${escapeHtml(notice.performancePeriod || '공식 원문에 별도 표기 없음')}</strong></div><div><span>지원 규모·한도</span><strong>${escapeHtml(notice.supportLimit || '공식 원문에 별도 표기 없음')}</strong></div><div><span>첨부파일</span><strong>${notice.attachments?.length || 0}개</strong></div></div><details open><summary>공식 상세 원문</summary><blockquote>${nl(notice.detailText)}</blockquote></details></div>`;
 }
 
 function sourceTypeOptions(selected) { return SOURCE_TYPES.map(value => `<option value="${escapeHtml(value)}" ${value === selected ? 'selected' : ''}>${escapeHtml(value)}</option>`).join(''); }
@@ -285,10 +300,15 @@ function bind() {
   document.querySelectorAll('[data-remove-file]').forEach(el => el.onclick = () => { state.files.splice(Number(el.dataset.removeFile), 1); setState({ files: state.files }); });
   document.querySelector('#fetch-notices')?.addEventListener('click', loadOfficialNotices);
   document.querySelector('#import-notice-url')?.addEventListener('click', addMissingNotice);
+  document.querySelectorAll('[data-view-notice]').forEach(el => el.onclick = () => previewOfficialNotice(el.dataset.viewNotice));
   document.querySelectorAll('[data-select-notice]').forEach(el => el.onclick = () => selectOfficialNotice(el.dataset.selectNotice));
   document.querySelectorAll('[data-remove-notice]').forEach(el => el.onclick = () => removeOfficialNotice(el.dataset.removeNotice));
   document.querySelectorAll('[data-notice-check]').forEach(el => el.onchange = () => toggleNoticeSelection(el.dataset.noticeCheck, el.checked));
   document.querySelector('#remove-selected-notices')?.addEventListener('click', removeSelectedNotices);
+  document.querySelectorAll('[data-restore-notice]').forEach(el => el.onclick = () => restoreNotice(el.dataset.restoreNotice));
+  document.querySelectorAll('[data-delete-notice-forever]').forEach(el => el.onclick = () => deleteNoticeForever(el.dataset.deleteNoticeForever));
+  document.querySelector('#choose-preview-notice')?.addEventListener('click', choosePreviewNotice);
+  document.querySelector('#proceed-selected-notice')?.addEventListener('click', generateCompleteProposal);
   document.querySelectorAll('[data-select-subproject]').forEach(el => el.onclick = () => selectNoticeSubproject(el.dataset.selectSubproject));
   document.querySelectorAll('[data-download-attachment]').forEach(el => el.onclick = () => handleOfficialAttachment(el.dataset.downloadAttachment, false));
   document.querySelectorAll('[data-extract-attachment]').forEach(el => el.onclick = () => handleOfficialAttachment(el.dataset.extractAttachment, true));
@@ -421,8 +441,8 @@ async function loadOfficialNotices() {
 function removeOfficialNotice(value) {
   const index = Number(value);
   if (!Number.isInteger(index) || !state.noticeResults[index]) return;
-  state.noticeResults.splice(index, 1);
-  setState({ noticeResults: [...state.noticeResults], selectedNoticeIndexes: [], notice: '목록에서 공고를 삭제했습니다.' });
+  const [removed] = state.noticeResults.splice(index, 1);
+  setState({ noticeResults: [...state.noticeResults], noticeTrash: [...state.noticeTrash, { ...removed, trashedAt: new Date().toISOString() }].slice(-50), selectedNoticeIndexes: [], notice: '공고를 쓰레기통으로 이동했습니다.' });
 }
 
 function toggleNoticeSelection(value, checked) {
@@ -436,8 +456,43 @@ function toggleNoticeSelection(value, checked) {
 function removeSelectedNotices() {
   const selected = new Set(state.selectedNoticeIndexes);
   if (!selected.size) return;
+  const removed = state.noticeResults.filter((_, index) => selected.has(index)).map(item => ({ ...item, trashedAt: new Date().toISOString() }));
   const noticeResults = state.noticeResults.filter((_, index) => !selected.has(index));
-  setState({ noticeResults, selectedNoticeIndexes: [], notice: `선택한 공고 ${selected.size}건을 삭제했습니다.` });
+  setState({ noticeResults, noticeTrash: [...state.noticeTrash, ...removed].slice(-50), selectedNoticeIndexes: [], notice: `선택한 공고 ${selected.size}건을 쓰레기통으로 이동했습니다.` });
+}
+
+function restoreNotice(value) {
+  const index = Number(value);
+  if (!Number.isInteger(index) || !state.noticeTrash[index]) return;
+  const [restored] = state.noticeTrash.splice(index, 1);
+  const { trashedAt, ...notice } = restored;
+  setState({ noticeTrash: [...state.noticeTrash], noticeResults: [...state.noticeResults, notice], notice: '공고를 목록으로 복원했습니다.' });
+}
+
+function deleteNoticeForever(value) {
+  const index = Number(value);
+  if (!Number.isInteger(index) || !state.noticeTrash[index]) return;
+  state.noticeTrash.splice(index, 1);
+  setState({ noticeTrash: [...state.noticeTrash], notice: '공고를 영구 삭제했습니다.' });
+}
+
+async function previewOfficialNotice(value) {
+  const selected = state.noticeResults[Number(value)];
+  if (!selected) return setState({ error: '확인할 공고를 찾지 못했습니다.' });
+  setState({ busy: '공고 상세 내용을 불러오는 중...', error: '', notice: '' });
+  try {
+    const { notice } = await fetchNoticeDetail(selected);
+    setState({ busy: '', noticePreview: notice, pendingNoticeChoice: null });
+    requestAnimationFrame(() => document.querySelector('#notice-preview')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  } catch (error) { setState({ busy: '', error: error.message }); }
+}
+
+function choosePreviewNotice() {
+  const notice = state.noticePreview;
+  if (!notice) return;
+  if (notice.subprojects?.length > 1) return setState({ noticePreview: null, pendingNoticeChoice: { notice, subprojects: notice.subprojects }, notice: '계획서에 반영할 세부사업을 선택해 주세요.' });
+  state.noticePreview = null;
+  applyNoticeSelection(notice);
 }
 
 async function selectOfficialNotice(value) {
