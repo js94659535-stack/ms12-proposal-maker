@@ -3,7 +3,7 @@ import { extractFile, extractFiles } from './files.js';
 import { localAnalyze } from './fallback.js';
 import { exportDocx, exportPdf, printDocument } from './export.js';
 import { fetchNoticeDetail, fetchNoticeList, importNoticeUrl, noticeBodyText } from './notices.js';
-import { getArchivedProposal, listArchivedProposals, saveArchivedProposal, searchArchivedNotices, syncArchivedNotices } from './archive.js';
+import { getArchivedProposal, getArchiveRecoveryKey, listArchivedProposals, saveArchivedProposal, searchArchivedNotices, syncArchivedNotices, useArchiveRecoveryKey } from './archive.js';
 
 const TYPES = [
   ['chest', '사랑의열매', '복지·지원사업'], ['family', '가족센터', '가족지원사업'],
@@ -16,7 +16,7 @@ const NAVIGATION_KEY = 'ms12_workflow_navigation_v1';
 const NAVIGATION_LIMIT = 10;
 const initial = {
   step: 0, project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
-  analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [] }, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
+  analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [] }, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
 let navigationHistory = loadNavigationHistory();
@@ -34,12 +34,12 @@ function loadState() {
     const stagedGeneration = saved.stagedGeneration && typeof saved.stagedGeneration === 'object'
       ? { ...structuredClone(initial.stagedGeneration), ...saved.stagedGeneration, parts: Array.isArray(saved.stagedGeneration.parts) ? saved.stagedGeneration.parts : [], completedGroupIds: Array.isArray(saved.stagedGeneration.completedGroupIds) ? saved.stagedGeneration.completedGroupIds : [] }
       : structuredClone(initial.stagedGeneration);
-    return { ...structuredClone(initial), ...saved, stagedGeneration, step: Math.max(0, Math.min(4, Number(saved.step) || 0)), companyFactDraft: '', noticeResults: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '' };
+    return { ...structuredClone(initial), ...saved, stagedGeneration, step: Math.max(0, Math.min(4, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '' };
   }
   catch { return structuredClone(initial); }
 }
 function saveState() {
-  const safe = { ...state, companyFactDraft: '', noticeResults: [], archiveNotices: [], archiveProposals: [], noticeUrlDraft: '', busy: '', error: '', files: state.files.map(({ text, ...meta }) => meta) };
+  const safe = { ...state, companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], archiveNotices: [], archiveProposals: [], noticeUrlDraft: '', busy: '', error: '', files: state.files.map(({ text, ...meta }) => meta) };
   localStorage.setItem('ms12_project_v3', JSON.stringify(safe));
 }
 function loadNavigationHistory() {
@@ -168,7 +168,8 @@ function archiveView() {
     <div class="two-col"><div class="field"><label for="archive-from">마감일 시작</label><input id="archive-from" type="date" value="${escapeHtml(filters.from)}"></div><div class="field"><label for="archive-to">마감일 종료</label><input id="archive-to" type="date" value="${escapeHtml(filters.to)}"></div></div>
     <div class="actions"><span>검색은 저장 자료만 조회하며, 맞춤 찾기는 사용자가 눌렀을 때만 공식 공고를 갱신합니다.</span><div><button class="button secondary" id="search-archive">보관함 검색</button><button class="button primary" id="find-matching-notices">맞춤 공고 찾기</button><button class="button secondary" id="list-archived-proposals">계획서 보관함</button></div></div>
     ${state.archiveNotices.length ? `<div class="requirement-list">${state.archiveNotices.map((item, index) => `<article class="requirement"><div><span class="tag">${escapeHtml(item.sourceLabel)}</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.applicationPeriod || item.deadline || '기간 정보 없음')} · ${item.linkedProposalCount ? `연결 계획서 ${item.linkedProposalCount}건` : '연결 계획서 없음'}</small></div></div><p class="muted notice-card-preview">${escapeHtml(String(item.summary || '상세 공고문 확인 필요').slice(0, 300))}</p><div class="actions"><span></span><div><button class="button secondary" data-view-archived-notice="${index}">공고 상세</button>${item.linkedProposalId ? `<button class="button secondary" data-open-archived-proposal="${escapeHtml(item.linkedProposalId)}">작성 계획서 열기</button>` : ''}<button class="button primary" data-use-archived-notice="${index}">공고 확인 목록에 열기</button></div></div></article>`).join('')}</div>` : '<p class="muted">검색 전에는 최근 저장 공고를 불러옵니다. 조건 없이 ‘보관함 검색’을 누르면 최근 공고부터 표시됩니다.</p>'}
-    ${state.archiveProposals.length ? `<div class="requirement-list"><h4>저장된 계획서</h4>${state.archiveProposals.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(archiveStageLabel(item.stage))}</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(new Date(item.updatedAt).toLocaleString('ko-KR'))}</small></div></div><button class="button primary" data-open-archived-proposal="${escapeHtml(item.id)}">이어서 수정</button></article>`).join('')}</div>` : ''}</details>`;
+    ${state.archiveProposals.length ? `<div class="requirement-list"><h4>저장된 계획서</h4>${state.archiveProposals.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(archiveStageLabel(item.stage))}</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(new Date(item.updatedAt).toLocaleString('ko-KR'))}</small></div></div><button class="button primary" data-open-archived-proposal="${escapeHtml(item.id)}">이어서 수정</button></article>`).join('')}</div>` : ''}
+    <details><summary>다른 기기에서 같은 보관함 사용</summary><p class="muted">현재 복구키를 비밀번호 관리도구 등 안전한 장소에 보관하세요. 새 기기에서 같은 키를 입력하면 기존 계획서 보관함에 연결됩니다. 복구키를 잃으면 서버에서도 복원할 수 없습니다.</p><div class="actions"><button class="button secondary" id="copy-archive-key">현재 복구키 복사</button></div><div class="field"><label for="archive-recovery-key">기존 보관함 복구키</label><input id="archive-recovery-key" type="password" autocomplete="off" value="${escapeHtml(state.archiveKeyDraft)}" placeholder="다른 기기에서 보관한 복구키 붙여넣기"><button class="button primary" id="apply-archive-key">이 기기에 기존 보관함 연결</button></div></details></details>`;
 }
 
 function archiveStageLabel(stage) { return ({ master: '마스터 설계', parts: '분할 생성', complete: '완성본', review: '검토본' })[stage] || stage; }
@@ -366,6 +367,7 @@ function updateInputs() {
   document.querySelector('#manual-source-name')?.addEventListener('input', e => { state.manualSourceName = e.target.value; saveState(); });
   document.querySelector('#manual-source-text')?.addEventListener('input', e => { state.manualSourceText = e.target.value; saveState(); });
   for (const [id, key] of [['archive-institution', 'institution'], ['archive-from', 'from'], ['archive-to', 'to'], ['archive-keyword', 'keyword']]) document.querySelector(`#${id}`)?.addEventListener('input', event => { state.archiveFilters[key] = event.target.value; saveState(); });
+  document.querySelector('#archive-recovery-key')?.addEventListener('input', event => { state.archiveKeyDraft = event.target.value; });
 }
 
 function bind() {
@@ -396,6 +398,8 @@ function bind() {
   document.querySelector('#search-archive')?.addEventListener('click', searchNoticeArchive);
   document.querySelector('#find-matching-notices')?.addEventListener('click', findMatchingNotices);
   document.querySelector('#list-archived-proposals')?.addEventListener('click', loadProposalArchive);
+  document.querySelector('#copy-archive-key')?.addEventListener('click', copyArchiveRecoveryKey);
+  document.querySelector('#apply-archive-key')?.addEventListener('click', applyArchiveRecoveryKey);
   document.querySelectorAll('[data-use-archived-notice]').forEach(el => el.onclick = () => useArchivedNotice(Number(el.dataset.useArchivedNotice)));
   document.querySelectorAll('[data-view-archived-notice]').forEach(el => el.onclick = () => viewArchivedNotice(Number(el.dataset.viewArchivedNotice)));
   document.querySelectorAll('[data-open-archived-proposal]').forEach(el => el.onclick = () => openArchivedProposal(el.dataset.openArchivedProposal));
@@ -569,6 +573,28 @@ async function loadRecentArchive() {
   archiveLoaded = true;
   try { const result = await searchArchivedNotices({}); setState({ archiveNotices: result.notices || [] }); }
   catch { /* 자료보관함 장애가 기존 첫 화면을 막지 않게 한다. */ }
+}
+
+async function copyArchiveRecoveryKey() {
+  try {
+    await navigator.clipboard.writeText(getArchiveRecoveryKey());
+    setState({ notice: '자료보관함 복구키를 복사했습니다. 안전한 비밀번호 관리도구에 보관하세요.', error: '' });
+  } catch { setState({ error: '복구키를 복사하지 못했습니다. 브라우저의 클립보드 권한을 확인해 주세요.' }); }
+}
+
+async function applyArchiveRecoveryKey() {
+  const value = state.archiveKeyDraft.trim();
+  if (!value) return setState({ error: '기존 보관함 복구키를 입력해 주세요.' });
+  if (!window.confirm('이 기기의 자료보관함 연결을 입력한 복구키로 변경할까요? 현재 D1 자료는 삭제되지 않습니다.')) return;
+  try {
+    useArchiveRecoveryKey(value);
+    archiveLoaded = true;
+    state.archiveProposalId = '';
+    state.archiveKeyDraft = '';
+    setState({ busy: '기존 자료보관함을 연결하는 중...', archiveNotices: [], archiveProposals: [], error: '', notice: '' });
+    const [noticeResult, proposalResult] = await Promise.all([searchArchivedNotices({}), listArchivedProposals()]);
+    setState({ busy: '', archiveNotices: noticeResult.notices || [], archiveProposals: proposalResult.proposals || [], notice: '기존 자료보관함을 이 기기에 연결했습니다.' });
+  } catch (error) { setState({ busy: '', error: error.message }); }
 }
 
 async function findMatchingNotices() {

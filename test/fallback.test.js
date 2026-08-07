@@ -144,6 +144,20 @@ test('공고 보관함 검색은 날짜·기관·핵심어와 상세 원문·세
   assert.match(appSource, /slice\(0, 300\)/);
 });
 
+test('자료보관함 복구키로 새 브라우저에서도 동일한 D1 소유 자료에 접근한다', () => {
+  const clientSource = fs.readFileSync(new URL('../src/archive.js', import.meta.url), 'utf8');
+  const appSource = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  const serverSource = fs.readFileSync(new URL('../functions/api/archive.js', import.meta.url), 'utf8');
+  assert.match(clientSource, /export function getArchiveRecoveryKey/);
+  assert.match(clientSource, /export function useArchiveRecoveryKey/);
+  assert.match(clientSource, /localStorage\.setItem\(ARCHIVE_KEY_NAME, normalized\)/);
+  assert.match(appSource, /id="copy-archive-key"/);
+  assert.match(appSource, /id="apply-archive-key"/);
+  assert.match(appSource, /비밀번호 관리도구/);
+  assert.match(serverSource, /crypto\.subtle\.digest\('SHA-256'/);
+  assert.doesNotMatch(serverSource, /INSERT[^;]+archive.key/is);
+});
+
 test('앱은 공고문 입력에서 시작하고 사용자 확정 회사 정보만 생성에 사용한다', () => {
   const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   assert.match(source, /step: 0,/);
