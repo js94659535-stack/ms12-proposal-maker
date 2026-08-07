@@ -37,19 +37,28 @@ async function startCoaching(env, request, payload) {
 }
 
 async function pollCoaching(env, request, payload) {
+  const completedStartedAt = Date.now();
   const access = await coachingJobAccess(request, payload.jobId);
   if (access.response) return access.response;
+  const accessMs = Date.now() - completedStartedAt;
   const upstream = await retrieveOpenAI(env, payload.jobId);
   if (!upstream.ok) return diagnosticErrorResponse(upstream, '계획서 검증·코칭 상태 조회');
   const status = String(upstream.data?.status || '');
   if (!['queued', 'in_progress', 'completed', 'failed', 'cancelled', 'incomplete'].includes(status)) return failure('application-validation', '알 수 없는 background 작업 상태입니다.', 502, upstream.diagnostic);
   if (['failed', 'cancelled', 'incomplete'].includes(status)) return failure('openai-upstream', `OpenAI background 작업이 ${status} 상태로 종료되었습니다.`, 502, diagnosticFromResponse(env.OPENAI_MODEL, upstream, upstream.data?.error));
   if (status === 'completed') {
+    const parseStartedAt = Date.now();
+    const output = outputText(upstream.data);
     let result;
-    try { result = JSON.parse(outputText(upstream.data)); } catch { return failure('parse', '검증·코칭 결과 JSON을 해석하지 못했습니다.', 502, upstream.diagnostic); }
+    try { result = JSON.parse(output); } catch { return failure('parse', '검증·코칭 결과 JSON을 해석하지 못했습니다.', 422, upstream.diagnostic); }
+    const parseMs = Date.now() - parseStartedAt;
     const validationPayload = access.jobPayload || {};
+    const validationStartedAt = Date.now();
     const validation = validateCoachingResultDetailed(result, validationPayload.officialEvaluationProvided === true, Number(validationPayload.previousVersion || 0), validationPayload);
-    return validation.error ? failure(validation.stage, validation.error, 502, upstream.diagnostic) : json({ jobId: payload.jobId, status, ...result, failureStage: '', diagnostic: upstream.diagnostic });
+    const validationMs = Date.now() - validationStartedAt;
+    const resultBytes = new TextEncoder().encode(JSON.stringify(result)).byteLength;
+    console.info('coaching_completed_processing', { accessMs, upstreamMs: upstream.diagnostic.elapsedMs, parseMs, validationMs, outputBytes: new TextEncoder().encode(output).byteLength, resultBytes, failureStage: validation.stage || '', totalMs: Date.now() - completedStartedAt });
+    return validation.error ? failure(validation.stage, validation.error, 422, upstream.diagnostic) : json({ jobId: payload.jobId, status, ...result, failureStage: '', diagnostic: upstream.diagnostic });
   }
   return json({ jobId: payload.jobId, status, failureStage: '', diagnostic: upstream.diagnostic });
 }

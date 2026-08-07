@@ -107,6 +107,25 @@ test('전체 코칭은 OpenAI background 생성 한 번과 짧은 polling·완�
   } finally { globalThis.fetch = originalFetch; globalThis.caches = originalCaches; }
 });
 
+test('completed 검증 실패는 gateway 502가 아닌 안전한 422 진단으로 반환한다', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalCaches = globalThis.caches;
+  const cacheValues = new Map();
+  globalThis.caches = { default: { match: async request => cacheValues.get(request.url), put: async (request, response) => cacheValues.set(request.url, response) } };
+  globalThis.fetch = async (url, options) => options.method === 'POST'
+    ? new Response(JSON.stringify({ id: 'resp_invalid_test', status: 'queued' }), { headers: { 'Content-Type': 'application/json' } })
+    : new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ basis: 'invalid' }) }), { headers: { 'Content-Type': 'application/json' } });
+  try {
+    const headers = { 'Content-Type': 'application/json', 'X-Archive-Key': '12345678-1234-1234-1234-123456789abc' };
+    const payload = { action: 'startCoaching', proposalText: '검증 실패 상태 코드를 확인하기 위한 충분한 길이의 계획서 원문입니다.', criteriaText: '' };
+    await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers, body: JSON.stringify(payload) }) });
+    const response = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers, body: JSON.stringify({ action: 'pollCoaching', jobId: 'resp_invalid_test' }) }) });
+    const result = await response.json();
+    assert.equal(response.status, 422);
+    assert.equal(result.failureStage, 'schema-validation');
+  } finally { globalThis.fetch = originalFetch; globalThis.caches = originalCaches; }
+});
+
 test('문제별 AI 수정은 선택한 원문 구간만 한 번 호출하고 확정 수치를 보존한다', async () => {
   const originalFetch = globalThis.fetch;
   const originalCaches = globalThis.caches;
