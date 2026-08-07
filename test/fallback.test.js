@@ -125,8 +125,8 @@ test('목록 카드는 없는 상세 항목에 확인 필요 문구를 반복하
   const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /item\.eligibility \|\| '공식 상세 확인 필요'/);
   assert.doesNotMatch(source, /item\.supportDetails \|\| '공식 상세 확인 필요'/);
-  assert.match(source, /item\.eligibility \? `<small>/);
-  assert.match(source, /item\.supportDetails \? `<small>/);
+  assert.match(source, /item\.eligibility \? `<small[^>]*>/);
+  assert.match(source, /item\.supportDetails \? `<small[^>]*>/);
 });
 
 test('일부 상세 조회 실패에도 목록을 유지하고 상세 확인 안내를 표시한다', async () => {
@@ -305,6 +305,8 @@ test('공고 선택 결과는 기존 제목과 원문 입력으로 전달된다'
   assert.match(source, /data-notice-panel="summary"/);
   assert.match(source, /data-notice-panel="overview"/);
   assert.match(source, /slice\(0, 200\)/);
+  assert.match(source, /notice-card-preview/);
+  assert.match(source, /padding:7px 11px;font-size:12px/);
   assert.match(source, /계획서 작성/);
   assert.match(source, /아직 계획서 작성 대상으로 선택하지 않았습니다/);
   assert.match(source, /선택 완료 · 다음 단계/);
