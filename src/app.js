@@ -127,9 +127,18 @@ function setupView() {
     <div class="field narrow"><label for="deadline">제출 마감일</label><input id="deadline" type="date" value="${escapeHtml(state.project.deadline)}"></div></div>${footer()}`;
 }
 
+function noticeListView() {
+  if (!state.noticeResults.length) return '<p class="muted">버튼을 누를 때만 접수 마감일이 남은 공모사업을 조회합니다.</p>';
+  const cards = state.noticeResults.map((item, index) => {
+    const summary = String(item.summary || '상세 공고문 확인 필요').slice(0, 200);
+    return `<article class="requirement"><label><input type="checkbox" data-notice-check="${index}" ${state.selectedNoticeIndexes.includes(index) ? 'checked' : ''}> 삭제할 항목 선택</label><div><span class="tag">${escapeHtml(item.sourceLabel)}</span><strong>${escapeHtml(item.title)}</strong></div><div class="actions"><button class="button secondary" data-notice-panel="summary" data-notice-index="${index}" aria-expanded="false">일반</button><button class="button secondary" data-notice-panel="overview" data-notice-index="${index}" aria-expanded="false">개요</button><button class="button secondary" data-view-notice="${index}">자세히 보기</button><button class="button primary" data-select-notice="${index}">계획서 작성</button><button class="button secondary" data-remove-notice="${index}">삭제</button></div><div data-notice-content="summary-${index}" hidden><p class="muted">${escapeHtml(summary)}</p></div><div data-notice-content="overview-${index}" hidden><small><b>주관 기관</b> ${escapeHtml(item.sourceLabel)}</small>${item.applicationPeriod ? `<small><b>신청 기간</b> ${escapeHtml(item.applicationPeriod)}</small>` : ''}${item.eligibility ? `<small><b>신청 대상</b> ${escapeHtml(item.eligibility)}</small>` : ''}${item.supportDetails ? `<small><b>지원 내용</b> ${escapeHtml(item.supportDetails)}</small>` : ''}${item.supportLimit ? `<small><b>지원 규모·한도</b> ${escapeHtml(item.supportLimit)}</small>` : ''}<small><b>마감일</b> ${escapeHtml(item.deadline)} · <b>dstbBsnsCode</b> ${escapeHtml(item.dstbBsnsCode)}</small></div></article>`;
+  }).join('');
+  return `<div class="actions"><button class="button secondary" id="remove-selected-notices" ${state.selectedNoticeIndexes.length ? '' : 'disabled'}>선택 항목을 쓰레기통으로 (${state.selectedNoticeIndexes.length})</button></div><div class="requirement-list">${cards}</div>`;
+}
+
 function sourceView() {
   return `<div class="page-heading"><div><h2>기관 원문을 제공해 주세요</h2><p>공고문, 과업지시서, 제안요청서, 평가표와 신청 양식을 함께 넣을 수 있습니다.</p></div><span class="privacy">🔒 파일은 분석을 요청할 때만 서버로 전송됩니다</span></div>
-    <div class="card"><div class="card-title"><div><h3>사랑의열매 공모사업 안내</h3><span>중앙회 · 광주지회</span></div><button class="button secondary" id="fetch-notices">공고 가져오기</button></div>${state.noticeResults.length ? `<div class="actions"><button class="button secondary" id="remove-selected-notices" ${state.selectedNoticeIndexes.length ? '' : 'disabled'}>선택 항목을 쓰레기통으로 (${state.selectedNoticeIndexes.length})</button></div><div class="requirement-list">${state.noticeResults.map((item, index) => `<article class="requirement"><label><input type="checkbox" data-notice-check="${index}" ${state.selectedNoticeIndexes.includes(index) ? 'checked' : ''}> 삭제할 항목 선택</label><div><span class="tag">${escapeHtml(item.sourceLabel)}</span><div><strong>${escapeHtml(item.title)}</strong><small>주관 기관 ${escapeHtml(item.sourceLabel)} · 마감일 ${escapeHtml(item.deadline)} · dstbBsnsCode ${escapeHtml(item.dstbBsnsCode)}</small><p class="muted">${escapeHtml(item.summary || '상세 공고문 확인 필요')}</p>${item.applicationPeriod ? `<small><b>신청 기간</b> ${escapeHtml(item.applicationPeriod)}</small>` : ''}${item.eligibility ? `<small><b>신청 대상</b> ${escapeHtml(item.eligibility)}</small>` : ''}${item.supportDetails ? `<small><b>지원 내용</b> ${escapeHtml(item.supportDetails)}</small>` : ''}${item.supportLimit ? `<small><b>지원 규모·한도</b> ${escapeHtml(item.supportLimit)}</small>` : ''}</div></div><span><button class="button secondary" data-view-notice="${index}">자세히 보기</button><button class="button primary" data-select-notice="${index}">이 공고 선택</button><button class="button secondary" data-remove-notice="${index}">쓰레기통</button></span></article>`).join('')}</div>` : '<p class="muted">버튼을 누를 때만 접수 마감일이 남은 공모사업을 조회합니다.</p>'}</div>
+    <div class="card"><div class="card-title"><div><h3>사랑의열매 공모사업 안내</h3><span>중앙회 · 광주지회</span></div><button class="button secondary" id="fetch-notices">공고 가져오기</button></div>${noticeListView()}</div>
     ${noticeTrashView()}
     ${noticePreviewView()}
     ${state.pendingNoticeChoice ? `<div class="card"><div class="card-title"><div><h3>작성할 세부사업을 선택하세요</h3><span>선택한 사업 내용만 계획서에 반영됩니다.</span></div></div><div class="requirement-list">${state.pendingNoticeChoice.subprojects.map((item, index) => `<article class="requirement"><div><span class="tag">${escapeHtml(item.id)}</span><strong>${escapeHtml(item.title)}</strong></div><button class="button primary" data-select-subproject="${index}">이 사업 선택</button></article>`).join('')}</div></div>` : ''}
@@ -300,6 +309,15 @@ function bind() {
   document.querySelectorAll('[data-remove-file]').forEach(el => el.onclick = () => { state.files.splice(Number(el.dataset.removeFile), 1); setState({ files: state.files }); });
   document.querySelector('#fetch-notices')?.addEventListener('click', loadOfficialNotices);
   document.querySelector('#import-notice-url')?.addEventListener('click', addMissingNotice);
+  document.querySelectorAll('[data-notice-panel]').forEach(el => el.onclick = () => {
+    const content = document.querySelector(`[data-notice-content="${el.dataset.noticePanel}-${el.dataset.noticeIndex}"]`);
+    if (!content) return;
+    const willOpen = content.hidden;
+    document.querySelectorAll(`[data-notice-content$="-${el.dataset.noticeIndex}"]`).forEach(panel => { panel.hidden = true; });
+    document.querySelectorAll(`[data-notice-panel][data-notice-index="${el.dataset.noticeIndex}"]`).forEach(button => button.setAttribute('aria-expanded', 'false'));
+    content.hidden = !willOpen;
+    el.setAttribute('aria-expanded', String(willOpen));
+  });
   document.querySelectorAll('[data-view-notice]').forEach(el => el.onclick = () => previewOfficialNotice(el.dataset.viewNotice));
   document.querySelectorAll('[data-select-notice]').forEach(el => el.onclick = () => selectOfficialNotice(el.dataset.selectNotice));
   document.querySelectorAll('[data-remove-notice]').forEach(el => el.onclick = () => removeOfficialNotice(el.dataset.removeNotice));

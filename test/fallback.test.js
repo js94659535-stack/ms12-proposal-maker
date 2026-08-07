@@ -302,7 +302,10 @@ test('공고 선택 결과는 기존 제목과 원문 입력으로 전달된다'
   assert.match(source, /scrollIntoView\(\{ behavior: 'smooth'/);
   assert.match(source, /선택한 공고 상세/);
   assert.match(source, /data-view-notice/);
-  assert.match(source, /이 공고 선택/);
+  assert.match(source, /data-notice-panel="summary"/);
+  assert.match(source, /data-notice-panel="overview"/);
+  assert.match(source, /slice\(0, 200\)/);
+  assert.match(source, /계획서 작성/);
   assert.match(source, /아직 계획서 작성 대상으로 선택하지 않았습니다/);
   assert.match(source, /선택 완료 · 다음 단계/);
 });
