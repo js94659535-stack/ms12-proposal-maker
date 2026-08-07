@@ -71,10 +71,70 @@ async function listNotices(fetcher) {
       const html = await requestProposalHtml(fetcher, '/mobile/mobileMainBsnsList.do', { bhfCode: config.branchCode, page: '1' });
       return parseProposalList(html, source).filter(item => isOpenDeadline(item.deadline));
     }));
-    const notices = groups.flat().map(item => toDisplayNotice(item, [{ source: item.source, listSn: item.listSn, appnDocNo: item.appnDocNo, kind: 'proposal' }]));
+    const detailCache = new Map();
+    const notices = await mapWithConcurrency(groups.flat(), 3, async item => {
+      const reference = { source: item.source, listSn: item.listSn, appnDocNo: item.appnDocNo, kind: 'proposal' };
+      const display = toDisplayNotice(item, [reference]);
+      const key = `${item.source}:${item.listSn}`;
+      try {
+        if (!detailCache.has(key)) detailCache.set(key, loadProposalNotice(fetcher, reference));
+        return { ...display, ...buildOfficialSummary(await detailCache.get(key)) };
+      } catch {
+        return { ...display, ...emptyOfficialSummary() };
+      }
+    });
     return json({ notices });
   } catch { return json({ error: '공식 공고 목록을 불러오지 못했습니다.' }, 502); }
 }
+
+async function mapWithConcurrency(items, limit, mapper) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      results[index] = await mapper(items[index], index);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+export function buildOfficialSummary(detail) {
+  const overview = cleanSummaryText(detail?.overview || '');
+  const eligibility = extractSummaryField(overview, ['신청대상', '지원대상', '사업대상', '대상']);
+  const supportDetails = extractSummaryField(overview, ['지원내용', '사업내용', '주요내용', '필수 사업내용']);
+  const purpose = extractSummaryField(overview, ['사업목적', '목적', '추진목적']);
+  const applicationPeriod = cleanSummaryText(detail?.applicationPeriod || '');
+  const performancePeriod = cleanSummaryText(detail?.performancePeriod || '');
+  const supportLimit = cleanSummaryText(detail?.supportLimit || '');
+  const facts = [purpose, eligibility, supportDetails, performancePeriod && `사업기간 ${performancePeriod}`, supportLimit && `지원한도 ${supportLimit}`]
+    .filter(Boolean).filter((value, index, values) => values.indexOf(value) === index);
+  const summary = truncateSummary(facts.join(' · ') || overview || '상세 공고문 확인 필요');
+  return { summary, eligibility, supportDetails, supportLimit, applicationPeriod, summarySource: 'official-detail' };
+}
+
+function emptyOfficialSummary() {
+  return { summary: '상세 공고문 확인 필요', eligibility: '', supportDetails: '', supportLimit: '', applicationPeriod: '', summarySource: 'official-detail' };
+}
+
+function extractSummaryField(text, labels) {
+  const labelPattern = labels.map(escapeRegExp).join('|');
+  const match = String(text || '').match(new RegExp(`(?:^|\\n|[·|])\\s*(?:${labelPattern})\\s*[:：-]?\\s*([^\\n·|]+)`, 'i'));
+  return cleanSummaryText(match?.[1] || '');
+}
+
+function cleanSummaryText(value) {
+  return String(value || '').replace(/첨부파일\s*[:：]?[^\n]*/gi, ' ').replace(/(?:문의|연락처)\s*[:：]?[^\n]*/gi, ' ')
+    .replace(/copyright[^\n]*/gi, ' ').replace(/[ \t]+/g, ' ').replace(/ *\n */g, '\n').replace(/\n{2,}/g, '\n').trim();
+}
+
+function truncateSummary(value) {
+  const text = cleanSummaryText(value);
+  return text.length <= 300 ? text : `${text.slice(0, 297).trimEnd()}...`;
+}
+
+function escapeRegExp(value) { return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
 export function isOpenDeadline(deadline, now = new Date()) {
   const normalized = String(deadline || '').replace(/\./g, '-');

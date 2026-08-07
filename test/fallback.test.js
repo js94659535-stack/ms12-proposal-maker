@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { localAnalyze, localDraft } from '../src/fallback.js';
 import { normalizeManualSources, onRequest, validateEngineResult } from '../functions/api/proposal.js';
-import { classifyAttachment, handleNoticeRequest, isBusinessNotice, isOpenDeadline, mergeNoticeCandidates, parseProposalList, splitSubprojects } from '../functions/api/notices.js';
+import { buildOfficialSummary, classifyAttachment, handleNoticeRequest, isBusinessNotice, isOpenDeadline, mergeNoticeCandidates, parseProposalList, splitSubprojects } from '../functions/api/notices.js';
 import { buildPrintDocument } from '../src/export.js';
 
 test('규칙 분석은 원문 근거를 보존한다', () => {
@@ -79,6 +79,7 @@ test('공모사업 목록은 중앙회와 광주지회 진행 중 공고만 조�
   const calls = [];
   const fetcher = async url => {
     calls.push(url);
+    if (url.includes('mobileMainBsnsDetail.do')) return new Response(`<table><tr><th>사업명</th><td>진행 공고</td></tr><tr><th>사업수행기간</th><td>2099-09-01 ~ 2099-12-31</td></tr><tr><th>공모기간</th><td>2099-08-01 ~ 2099-08-14</td></tr><tr><th>지원한도금액</th><td>30,000,000원</td></tr><tr><th>개요</th><td>사업목적: 아동 지원<br>신청대상: 사회복지기관<br>지원내용: 상담 프로그램 운영</td></tr></table>`, { status: 200 });
     const branch = new URL(url).searchParams.get('bhfCode');
     const item = (code, title, deadline) => `<li><a href="javascript:fn_goDetail('${code}','${branch}','');"><span class="gallery-type">${branch === '001' ? '중앙' : '광주'}</span><p class="gallery-tit">${title}</p><span>${deadline}</span></a></li>`;
     return new Response(`<ul>${item(branch === '001' ? '20260700100022' : '20260700600081', branch === '001' ? '중앙 공고' : '광주 공고', '2099.08.14')}${item(`${branch}000`, '마감 공고', '2000.01.01')}</ul>`, { status: 200 });
@@ -88,9 +89,47 @@ test('공모사업 목록은 중앙회와 광주지회 진행 중 공고만 조�
   assert.deepEqual(result.notices.map(item => item.sourceLabel), ['중앙회', '광주지회']);
   assert.deepEqual(result.notices.map(item => item.dstbBsnsCode), ['20260700100022', '20260700600081']);
   assert.deepEqual(result.notices.map(item => item.deadline), ['2099-08-14', '2099-08-14']);
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 4);
   assert.match(calls[0], /mobileMainBsnsList\.do\?bhfCode=001&page=1/);
   assert.match(calls[1], /mobileMainBsnsList\.do\?bhfCode=006&page=1/);
+  assert.ok(result.notices.every(item => item.summary.length <= 300));
+  assert.ok(result.notices.every(item => item.summarySource === 'official-detail'));
+  assert.deepEqual(result.notices.map(item => item.eligibility), ['사회복지기관', '사회복지기관']);
+});
+
+test('공식 상세 원문만 사용해 300자 이내 핵심 요약을 만든다', () => {
+  const summary = buildOfficialSummary({
+    applicationPeriod: '2026-08-01 ~ 2026-08-14', performancePeriod: '2027-01-01 ~ 2027-12-31', supportLimit: '기관당 3천만원',
+    overview: '사업목적: 취약계층 아동의 가족기능 강화\n신청대상: 광주 소재 사회복지기관\n지원내용: 가족상담 및 회복 프로그램\n연락처: 000-0000\n첨부파일: 신청서.hwp'
+  });
+  assert.equal(summary.eligibility, '광주 소재 사회복지기관');
+  assert.equal(summary.supportDetails, '가족상담 및 회복 프로그램');
+  assert.equal(summary.applicationPeriod, '2026-08-01 ~ 2026-08-14');
+  assert.equal(summary.supportLimit, '기관당 3천만원');
+  assert.ok(summary.summary.length <= 300);
+  assert.doesNotMatch(summary.summary, /연락처|첨부파일/);
+});
+
+test('일부 상세 조회 실패에도 목록을 유지하고 상세 확인 안내를 표시한다', async () => {
+  let activeDetails = 0;
+  let maximumDetails = 0;
+  const fetcher = async url => {
+    if (url.includes('mobileMainBsnsList.do')) {
+      const branch = new URL(url).searchParams.get('bhfCode');
+      return new Response(`<li><a href="javascript:fn_goDetail('${branch}01','${branch}','');"><p class="gallery-tit">${branch} 공고 1</p><span>2099.12.31</span></a></li><li><a href="javascript:fn_goDetail('${branch}02','${branch}','');"><p class="gallery-tit">${branch} 공고 2</p><span>2099.12.31</span></a></li>`);
+    }
+    activeDetails += 1;
+    maximumDetails = Math.max(maximumDetails, activeDetails);
+    await new Promise(resolve => setTimeout(resolve, 5));
+    activeDetails -= 1;
+    if (url.includes('00101')) throw new Error('detail failed');
+    return new Response(`<table><tr><th>사업명</th><td>진행 공고</td></tr><tr><th>개요</th><td>지원내용: 공식 지원 내용</td></tr></table>`);
+  };
+  const response = await handleNoticeRequest(new Request('https://example.test/api/notices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'list' }) }), fetcher);
+  const result = await response.json();
+  assert.equal(result.notices.length, 4);
+  assert.equal(result.notices.find(item => item.dstbBsnsCode === '00101').summary, '상세 공고문 확인 필요');
+  assert.ok(maximumDetails <= 3);
 });
 
 test('마감일 당일은 포함하고 지난 마감일은 제외한다', () => {
