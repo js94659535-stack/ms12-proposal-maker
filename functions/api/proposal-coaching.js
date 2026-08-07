@@ -45,6 +45,11 @@ async function pollCoaching(env, request, payload) {
   const status = String(upstream.data?.status || '');
   if (!['queued', 'in_progress', 'completed', 'failed', 'cancelled', 'incomplete'].includes(status)) return failure('application-validation', '알 수 없는 background 작업 상태입니다.', 502, upstream.diagnostic);
   if (['failed', 'cancelled', 'incomplete'].includes(status)) return failure('openai-upstream', `OpenAI background 작업이 ${status} 상태로 종료되었습니다.`, 502, diagnosticFromResponse(env.OPENAI_MODEL, upstream, upstream.data?.error));
+  if (status === 'completed') {
+    let resultCandidate;
+    try { resultCandidate = JSON.parse(outputText(upstream.data)); } catch { return failure('parse', '검증·코칭 결과 JSON을 해석하지 못했습니다.', 502, upstream.diagnostic); }
+    return json({ jobId: payload.jobId, status, resultCandidate, failureStage: '', diagnostic: upstream.diagnostic });
+  }
   return json({ jobId: payload.jobId, status, failureStage: '', diagnostic: upstream.diagnostic });
 }
 
@@ -52,14 +57,11 @@ async function finalizeCoaching(env, request, payload) {
   const access = await coachingJobAccess(request, payload.jobId);
   if (access.response) return access.response;
   if (typeof payload.proposalText !== 'string' || payload.proposalText.trim().length < 30) return failure('application-validation', '검증 결과 확인에 필요한 계획서 원문이 없습니다.', 400, safeDiagnostic(env.OPENAI_MODEL, 0, '', '', '', 0));
-  const upstream = await retrieveOpenAI(env, payload.jobId);
-  if (!upstream.ok) return diagnosticErrorResponse(upstream, '계획서 검증·코칭 결과 조회');
-  if (upstream.data?.status !== 'completed') return failure('application-validation', `완료되지 않은 작업입니다 (${upstream.data?.status || 'unknown'}).`, 409, upstream.diagnostic);
-  const output = outputText(upstream.data);
-  let result;
-  try { result = JSON.parse(output); } catch { return failure('parse', '검증·코칭 결과 JSON을 해석하지 못했습니다.', 502, upstream.diagnostic); }
+  const result = payload.resultCandidate;
+  if (!result || typeof result !== 'object') return failure('schema-validation', '완료 polling 결과가 누락되었습니다.', 400, safeDiagnostic(env.OPENAI_MODEL, 0, '', '', '', 0));
   const validation = validateCoachingResultDetailed(result, payload.officialEvaluationProvided === true, Number(payload.previousVersion || 0), payload);
-  return validation.error ? failure(validation.stage, validation.error, 502, upstream.diagnostic) : json({ ...result, failureStage: '', diagnostic: upstream.diagnostic });
+  const diagnostic = payload.pollDiagnostic && typeof payload.pollDiagnostic === 'object' ? safeDiagnostic(env.OPENAI_MODEL, payload.pollDiagnostic.upstreamStatus, payload.pollDiagnostic.upstreamErrorType, payload.pollDiagnostic.upstreamErrorCode, payload.pollDiagnostic.upstreamRequestId, payload.pollDiagnostic.elapsedMs) : safeDiagnostic(env.OPENAI_MODEL, 200, '', '', '', 0);
+  return validation.error ? failure(validation.stage, validation.error, 502, diagnostic) : json({ ...result, failureStage: '', diagnostic });
 }
 
 async function enforceIssueRevisionLimit(request) {

@@ -609,16 +609,16 @@ async function pollProposalCoaching() {
     state.coaching.pendingJob = { ...state.coaching.pendingJob, status: result.status, pollCount: Number(state.coaching.pendingJob.pollCount || 0) + 1, diagnostic: result.diagnostic || state.coaching.pendingJob.diagnostic };
     saveState(); render();
     if (['queued', 'in_progress'].includes(result.status)) setTimeout(() => pollProposalCoaching(), 2500);
-    else if (result.status === 'completed') await finalizeProposalCoaching(jobId);
+    else if (result.status === 'completed') await finalizeProposalCoaching(jobId, result.resultCandidate, result.diagnostic);
   } catch (error) {
     state.coaching.pendingJob = null;
     setState({ busy: '', coaching: state.coaching, error: error.message });
   } finally { coachingPollActive = false; }
 }
 
-async function finalizeProposalCoaching(jobId) {
+async function finalizeProposalCoaching(jobId, resultCandidate, pollDiagnostic) {
   try {
-    const response = await coachingRequest({ action: 'finalizeCoaching', jobId, ...coachingPayload() });
+    const response = await coachingRequest({ action: 'finalizeCoaching', jobId, resultCandidate, pollDiagnostic, ...coachingPayload() });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(coachingFailureMessage(result, response.status));
     const version = Number(state.coaching.version || 0) + 1;

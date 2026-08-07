@@ -96,12 +96,13 @@ test('전체 코칭은 OpenAI background 생성 한 번과 짧은 polling·완�
     assert.equal(start.status, 200);
     assert.equal((await start.json()).jobId, 'resp_background_test');
     const poll = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers, body: JSON.stringify({ action: 'pollCoaching', jobId: 'resp_background_test' }) }) });
-    assert.equal((await poll.json()).status, 'completed');
-    const complete = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers, body: JSON.stringify({ action: 'finalizeCoaching', jobId: 'resp_background_test', ...payload }) }) });
+    const pollResult = await poll.json();
+    assert.equal(pollResult.status, 'completed');
+    const complete = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers, body: JSON.stringify({ action: 'finalizeCoaching', jobId: 'resp_background_test', resultCandidate: pollResult.resultCandidate, pollDiagnostic: pollResult.diagnostic, ...payload }) }) });
     assert.equal(complete.status, 200);
     assert.equal((await complete.json()).basis, 'official-evaluation');
     assert.equal(generationCalls, 1);
-    assert.equal(retrievalCalls, 2);
+    assert.equal(retrievalCalls, 1);
   } finally { globalThis.fetch = originalFetch; globalThis.caches = originalCaches; }
 });
 
