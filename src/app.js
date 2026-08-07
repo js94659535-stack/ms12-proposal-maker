@@ -16,7 +16,7 @@ const NAVIGATION_KEY = 'ms12_workflow_navigation_v1';
 const NAVIGATION_LIMIT = 10;
 const initial = {
   step: 0, activeTool: 'workflow', project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
-  coaching: { title: '', text: '', validatedText: '', criteriaText: '', officialEvaluationProvided: false, sourceProposalId: '', sourceNoticeKey: '', seriesId: '', result: null, version: 0 },
+  coaching: { title: '', text: '', validatedText: '', criteriaText: '', officialEvaluationProvided: false, sourceProposalId: '', sourceNoticeKey: '', seriesId: '', currentArchiveId: '', result: null, workItems: [], version: 0 },
   analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
@@ -375,10 +375,16 @@ function coachingResultView(result) {
   const priorityOrder = { '최우선 경고': 0, '주요 개선': 1, '일반 개선': 2 };
   const issues = [...result.issues].sort((left, right) => (priorityOrder[left.priority] ?? 9) - (priorityOrder[right.priority] ?? 9));
   const comparison = result.comparison || { previousVersion: 0, resolvedIssues: [], remainingIssues: [], newIssues: [], improvedAreas: [] };
-  return `<div class="card"><div class="card-title"><div><h3>검증·코칭 결과 · ${escapeHtml(result.overallStatus)}</h3><span>합격확률을 추정하지 않으며, 수정안은 자동 적용되지 않습니다.</span></div><span class="tag">${result.basis === 'official-evaluation' ? '공식 평가표 우선' : '공통 검증 기준'}</span></div><p>${escapeHtml(result.summary)}</p>
+  if (state.coaching.workItems?.length !== result.issues.length) state.coaching.workItems = makeCoachingWorkItems(result);
+  const workItems = state.coaching.workItems;
+  return `<div class="card"><div class="card-title"><div><h3>검증·코칭 결과 · ${escapeHtml(result.overallStatus)}</h3><span>합격확률을 추정하지 않으며, 수정안은 자동 적용되지 않습니다.</span></div><div><span class="tag">${result.basis === 'official-evaluation' ? '공식 평가표 우선' : '공통 검증 기준'}</span><button class="button secondary" id="print-coaching-report">코칭 보고서 PDF 인쇄·저장</button></div></div><p>${escapeHtml(result.summary)}</p>
     ${result.evaluationMatrix?.length ? `<details open><summary>평가기준 대응표</summary><div class="requirement-list">${result.evaluationMatrix.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(item.status)}</span><div><strong>${escapeHtml(item.criterion)}${item.officialPoints ? ` · ${escapeHtml(item.officialPoints)}` : ''}</strong><small>${escapeHtml(item.requirement)}</small></div></div><p><b>계획서 대응 위치</b> ${escapeHtml(item.proposalLocations.join(' · ') || '연결 위치 없음')}</p></article>`).join('')}</div></details>` : ''}
     ${comparison.previousVersion ? `<details open><summary>v${comparison.previousVersion} 대비 재검증 결과</summary><div class="summary-grid"><div><span>해결된 문제</span><strong>${comparison.resolvedIssues.length}건</strong><small>${escapeHtml(comparison.resolvedIssues.join(' · ') || '없음')}</small></div><div><span>남은 문제</span><strong>${comparison.remainingIssues.length}건</strong><small>${escapeHtml(comparison.remainingIssues.join(' · ') || '없음')}</small></div><div><span>새로 생긴 문제</span><strong>${comparison.newIssues.length}건</strong><small>${escapeHtml(comparison.newIssues.join(' · ') || '없음')}</small></div><div><span>실제 개선 항목</span><strong>${comparison.improvedAreas.length}건</strong><small>${escapeHtml(comparison.improvedAreas.join(' · ') || '없음')}</small></div></div></details>` : ''}
-    <div class="requirement-list">${issues.length ? issues.map(item => `<article class="requirement"><div><span class="tag mandatory">${escapeHtml(item.priority)}</span><strong>${escapeHtml(item.location)}</strong></div><p><b>위험 이유</b> ${escapeHtml(item.reason)}</p><p><b>개선 방향</b> ${escapeHtml(item.direction)}</p><details><summary>수정 예시${item.requiresConfirmation ? ' · 확인 필요' : ''}</summary><blockquote>${escapeHtml(item.example)}</blockquote></details></article>`).join('') : '<p class="muted">현재 기준에서 발견된 주요 문제가 없습니다.</p>'}</div></div>`;
+    <h3>개선 작업판</h3><div class="requirement-list">${issues.length ? issues.map(item => { const originalIndex = result.issues.indexOf(item); const work = workItems[originalIndex] || { status: '미수정' }; return `<article class="requirement"><div><span class="tag mandatory">${escapeHtml(item.priority)}</span><div><strong>${escapeHtml(item.location)}</strong><small>${escapeHtml(item.category)}</small></div><select data-coaching-status="${originalIndex}" aria-label="${escapeHtml(item.location)} 상태"><option ${work.status === '미수정' ? 'selected' : ''}>미수정</option><option ${work.status === '수정중' ? 'selected' : ''}>수정중</option><option ${work.status === '해결' ? 'selected' : ''}>해결</option><option ${work.status === '확인필요' ? 'selected' : ''}>확인필요</option></select></div><p><b>위험 이유</b> ${escapeHtml(item.reason)}</p><p><b>개선 방향</b> ${escapeHtml(item.direction)}</p><details><summary>기존 수정 예시${item.requiresConfirmation ? ' · 확인 필요' : ''}</summary><blockquote>${escapeHtml(item.example)}</blockquote></details><div class="actions"><span>상태: ${escapeHtml(work.status)}</span><button class="button secondary" data-coaching-revise="${originalIndex}">이 문제만 AI 수정안 만들기</button></div>${work.revision ? `<div class="two-col"><details open><summary>원문</summary><blockquote>${escapeHtml(work.revision.originalExcerpt)}</blockquote></details><details open><summary>AI 수정안${work.revision.requiresConfirmation ? ' · 확인 필요' : ''}</summary><blockquote>${escapeHtml(work.revision.revisedText)}</blockquote><small>${escapeHtml(work.revision.explanation)}</small></details></div><div class="actions"><span>자동 적용되지 않습니다.</span>${work.applied ? `<button class="button secondary" data-coaching-undo="${originalIndex}">적용 되돌리기</button>` : `<button class="button primary" data-coaching-apply="${originalIndex}">수정안 적용</button>`}</div>` : ''}</article>`; }).join('') : '<p class="muted">현재 기준에서 발견된 주요 문제가 없습니다.</p>'}</div></div>`;
+}
+
+function makeCoachingWorkItems(result) {
+  return (result.issues || []).map((issue, index) => ({ id: `issue-${index + 1}`, status: issue.requiresConfirmation ? '확인필요' : '미수정', revision: null, applied: false }));
 }
 
 function startBusyElapsedTimer() {
@@ -492,6 +498,11 @@ function bind() {
   document.querySelector('#coach-list-archive')?.addEventListener('click', loadCoachingArchive);
   document.querySelectorAll('[data-coach-archive]').forEach(el => el.onclick = () => loadArchivedProposalForCoaching(el.dataset.coachArchive));
   document.querySelector('#run-coaching')?.addEventListener('click', runProposalCoaching);
+  document.querySelectorAll('[data-coaching-status]').forEach(el => el.onchange = () => updateCoachingStatus(Number(el.dataset.coachingStatus), el.value));
+  document.querySelectorAll('[data-coaching-revise]').forEach(el => el.onclick = () => requestCoachingRevision(Number(el.dataset.coachingRevise)));
+  document.querySelectorAll('[data-coaching-apply]').forEach(el => el.onclick = () => applyCoachingRevision(Number(el.dataset.coachingApply)));
+  document.querySelectorAll('[data-coaching-undo]').forEach(el => el.onclick = () => undoCoachingRevision(Number(el.dataset.coachingUndo)));
+  document.querySelector('#print-coaching-report')?.addEventListener('click', printCoachingReport);
 }
 
 async function loadCoachingFile(event) {
@@ -526,7 +537,8 @@ async function loadArchivedProposalForCoaching(id) {
     const snapshot = result.proposal?.snapshot;
     if (!snapshot) throw new Error('보관된 계획서를 찾지 못했습니다.');
     if (result.proposal.stage?.startsWith('coaching-v') && snapshot.coaching) {
-      state.coaching = snapshot.coaching;
+      state.coaching = { ...initial.coaching, ...snapshot.coaching, currentArchiveId: result.proposal.id };
+      if (state.coaching.result && state.coaching.workItems?.length !== state.coaching.result.issues?.length) state.coaching.workItems = makeCoachingWorkItems(state.coaching.result);
     } else {
       const sections = snapshot.sections || [];
       const text = sections.map(section => `${section.title}\n${section.content}`).join('\n\n');
@@ -547,11 +559,80 @@ async function runProposalCoaching() {
     if (!response.ok) throw new Error(result.error || `검증·코칭 요청 실패 (${response.status})`);
     const version = Number(state.coaching.version || 0) + 1;
     const seriesId = String(state.coaching.seriesId || state.coaching.sourceProposalId || crypto.randomUUID()).slice(0, 60);
-    state.coaching = { ...state.coaching, result, version, seriesId, validatedText: state.coaching.text };
+    state.coaching = { ...state.coaching, result, workItems: makeCoachingWorkItems(result), version, seriesId, validatedText: state.coaching.text };
     const id = `${seriesId}-coaching-v${version}`.slice(0, 80);
+    state.coaching.currentArchiveId = id;
     await saveArchivedProposal({ id, noticeKey: state.coaching.sourceNoticeKey, title: `${state.coaching.title || '외부 계획서'} · 코칭 v${version}`, stage: `coaching-v${version}`, snapshot: { coaching: structuredClone(state.coaching), parentProposalId: state.coaching.sourceProposalId || '', coachingSeriesId: seriesId } });
     setState({ busy: '', coaching: state.coaching, notice: `검증·코칭 v${version} 결과를 자료보관함에 저장했습니다.` });
   } catch (error) { setState({ busy: '', error: error.message }); }
+}
+
+function updateCoachingStatus(index, status) {
+  if (!['미수정', '수정중', '해결', '확인필요'].includes(status) || !state.coaching.workItems[index]) return;
+  state.coaching.workItems[index].status = status;
+  setState({ coaching: state.coaching, notice: '개선 항목 상태를 저장했습니다.' });
+  void persistCoachingWorkboard();
+}
+
+async function requestCoachingRevision(index) {
+  const issue = state.coaching.result?.issues?.[index];
+  if (!issue || !state.coaching.text.trim()) return;
+  setState({ busy: '선택한 문제의 수정안만 작성하는 중...', error: '', notice: '' });
+  try {
+    const response = await fetch('/api/proposal-coaching', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Archive-Key': getArchiveRecoveryKey() }, body: JSON.stringify({ action: 'reviseIssue', title: state.coaching.title, proposalText: state.coaching.text, criteriaText: state.coaching.criteriaText, issue }) });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || `항목 수정안 요청 실패 (${response.status})`);
+    state.coaching.workItems[index] = { ...state.coaching.workItems[index], status: result.requiresConfirmation ? '확인필요' : '수정중', revision: result, applied: false };
+    setState({ busy: '', coaching: state.coaching, notice: '선택한 문제의 AI 수정안을 만들었습니다. 비교 후 적용하세요.' });
+    void persistCoachingWorkboard();
+  } catch (error) { setState({ busy: '', error: error.message }); }
+}
+
+function applyCoachingRevision(index) {
+  const work = state.coaching.workItems[index];
+  const revision = work?.revision;
+  if (!revision || work.applied) return;
+  const occurrenceCount = state.coaching.text.split(revision.originalExcerpt).length - 1;
+  if (occurrenceCount !== 1) return setState({ error: '수정할 원문 위치를 하나로 특정하지 못했습니다. 원문을 확인한 뒤 다시 수정안을 요청하세요.' });
+  state.coaching.text = state.coaching.text.replace(revision.originalExcerpt, revision.revisedText);
+  state.coaching.workItems[index] = { ...work, applied: true, status: revision.requiresConfirmation ? '확인필요' : '해결' };
+  setState({ coaching: state.coaching, notice: '선택한 수정안을 적용했습니다. 필요하면 되돌릴 수 있습니다.' });
+  void persistCoachingWorkboard();
+}
+
+function undoCoachingRevision(index) {
+  const work = state.coaching.workItems[index];
+  const revision = work?.revision;
+  if (!revision || !work.applied) return;
+  const occurrenceCount = state.coaching.text.split(revision.revisedText).length - 1;
+  if (occurrenceCount !== 1) return setState({ error: '적용된 수정 위치를 하나로 특정하지 못해 자동으로 되돌릴 수 없습니다.' });
+  state.coaching.text = state.coaching.text.replace(revision.revisedText, revision.originalExcerpt);
+  state.coaching.workItems[index] = { ...work, applied: false, status: '수정중' };
+  setState({ coaching: state.coaching, notice: '수정안 적용을 되돌렸습니다.' });
+  void persistCoachingWorkboard();
+}
+
+async function persistCoachingWorkboard() {
+  const id = state.coaching.currentArchiveId;
+  if (!id) return;
+  try {
+    await saveArchivedProposal({ id, noticeKey: state.coaching.sourceNoticeKey, title: `${state.coaching.title || '외부 계획서'} · 코칭 v${state.coaching.version}`, stage: `coaching-v${state.coaching.version}`, snapshot: { coaching: structuredClone(state.coaching), parentProposalId: state.coaching.sourceProposalId || '', coachingSeriesId: state.coaching.seriesId } });
+  } catch (error) { setState({ error: `개선 작업판을 자료보관함에 저장하지 못했습니다: ${error.message}` }); }
+}
+
+function printCoachingReport() {
+  const reportWindow = window.open('', '_blank');
+  if (!reportWindow) return setState({ error: '코칭 보고서 인쇄 창을 열지 못했습니다. 팝업 허용 후 다시 시도하세요.' });
+  const result = state.coaching.result;
+  const grouped = priority => result.issues.filter(issue => issue.priority === priority);
+  const confirmed = state.coaching.workItems.map((item, index) => ({ item, issue: result.issues[index] })).filter(value => value.item.status === '확인필요' || value.item.revision?.requiresConfirmation).map(value => `${value.issue?.location}: ${value.item.revision?.explanation || value.issue?.reason}`);
+  const changes = state.coaching.workItems.map((item, index) => ({ item, issue: result.issues[index] })).filter(value => value.item.applied).map(value => `${value.issue?.location}: 수정안 적용`);
+  const remaining = state.coaching.workItems.map((item, index) => ({ item, issue: result.issues[index] })).filter(value => value.item.status !== '해결').map(value => `${value.issue?.location}: ${value.item.status}`);
+  const issueHtml = values => values.map(item => `<li><strong>${escapeHtml(item.location)}</strong> — ${escapeHtml(item.reason)}<br>${escapeHtml(item.direction)}</li>`).join('') || '<li>없음</li>';
+  const listHtml = values => values.map(value => `<li>${escapeHtml(value)}</li>`).join('') || '<li>없음</li>';
+  const matrixHtml = result.evaluationMatrix.map(item => `<tr><td>${escapeHtml(item.criterion)}</td><td>${escapeHtml(item.officialPoints)}</td><td>${escapeHtml(item.requirement)}</td><td>${escapeHtml(item.proposalLocations.join(' · '))}</td><td>${escapeHtml(item.status)}</td></tr>`).join('');
+  reportWindow.document.write(`<!doctype html><html lang="ko"><head><meta charset="UTF-8"><title>${escapeHtml(state.coaching.title)} 코칭 보고서</title><style>@page{size:A4 portrait;margin:16mm}body{font-family:"Malgun Gothic","Apple SD Gothic Neo","Noto Sans KR",sans-serif;color:#172033;line-height:1.6}h1{font-size:24px}h2{font-size:18px;border-bottom:1px solid #ccd3df;padding-bottom:6px}section{break-inside:avoid-page;margin:18px 0}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #ccd3df;padding:6px;vertical-align:top}li{margin:5px 0}</style></head><body><h1>계획서 검증·코칭 보고서</h1><p><b>계획서명</b> ${escapeHtml(state.coaching.title)}<br><b>검증 버전</b> v${state.coaching.version}<br><b>검증 기준</b> ${result.basis === 'official-evaluation' ? '공식 평가기준 우선' : '공통 검증 기준'}</p><section><h2>적용한 공식 평가기준·대응표</h2><table><thead><tr><th>평가항목</th><th>배점</th><th>요구내용</th><th>대응 위치</th><th>상태</th></tr></thead><tbody>${matrixHtml}</tbody></table></section><section><h2>최우선 위험</h2><ul>${issueHtml(grouped('최우선 경고'))}</ul></section><section><h2>주요 개선사항</h2><ul>${issueHtml(grouped('주요 개선'))}</ul></section><section><h2>일반 개선사항</h2><ul>${issueHtml(grouped('일반 개선'))}</ul></section><section><h2>[확인 필요] 목록</h2><ul>${listHtml(confirmed)}</ul></section><section><h2>수정 전후 개선내역</h2><ul>${listHtml([...(result.comparison?.improvedAreas || []), ...changes])}</ul></section><section><h2>남아 있는 문제</h2><ul>${listHtml(remaining)}</ul></section><section><h2>다음 수정 우선순위</h2><ol>${listHtml(remaining.slice(0, 5))}</ol></section><script>document.fonts?.ready.then(()=>window.print());<\/script></body></html>`);
+  reportWindow.document.close();
 }
 
 async function runProposalReview(force = false) {
@@ -742,7 +823,8 @@ async function openArchivedProposal(id) {
     if (!result.proposal?.snapshot) throw new Error('저장된 계획서를 찾지 못했습니다.');
     const snapshot = result.proposal.snapshot;
     if (result.proposal.stage?.startsWith('coaching-v') && snapshot.coaching) {
-      state.coaching = { ...initial.coaching, ...snapshot.coaching };
+      state.coaching = { ...initial.coaching, ...snapshot.coaching, currentArchiveId: result.proposal.id };
+      if (state.coaching.result && state.coaching.workItems?.length !== state.coaching.result.issues?.length) state.coaching.workItems = makeCoachingWorkItems(state.coaching.result);
       return setState({ activeTool: 'coaching', busy: '', notice: '보관된 검증·코칭 버전을 열었습니다.' });
     }
     state = { ...state, ...snapshot, archiveProposalId: result.proposal.id, archiveNotices: state.archiveNotices, archiveProposals: state.archiveProposals, noticeResults: state.noticeResults, busy: '', error: '' };

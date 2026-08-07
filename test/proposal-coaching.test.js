@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { onRequest, validateCoachingResult } from '../functions/api/proposal-coaching.js';
+import { onRequest, validateCoachingResult, validateIssueRevision } from '../functions/api/proposal-coaching.js';
 
 function fixture() {
   return {
@@ -79,6 +79,54 @@ test('공식 평가표를 우선하는 구조화 코칭 결과를 한 번의 요
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test('문제별 AI 수정은 선택한 원문 구간만 한 번 호출하고 확정 수치를 보존한다', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalCaches = globalThis.caches;
+  const proposalText = '사업 필요성\n참여자 20명을 대상으로 10회 프로그램을 운영한다. 공식 근거를 반영한다.';
+  const revision = { sectionLocation: '사업 필요성', originalExcerpt: '참여자 20명을 대상으로 10회 프로그램을 운영한다.', revisedText: '공식 평가기준에 따라 참여자 20명을 대상으로 10회 프로그램을 운영한다.', explanation: '평가기준과 실행 문장을 연결했습니다.', evidenceRefs: ['공식 평가기준'], requiresConfirmation: false };
+  const calls = [];
+  const rateValues = new Map();
+  globalThis.caches = { default: { match: async request => rateValues.get(request.url), put: async (request, response) => rateValues.set(request.url, response) } };
+  globalThis.fetch = async (url, options) => { calls.push(JSON.parse(options.body)); return new Response(JSON.stringify({ output_text: JSON.stringify(revision) }), { headers: { 'Content-Type': 'application/json' } }); };
+  try {
+    const response = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Archive-Key': '12345678-1234-1234-1234-123456789abc' }, body: JSON.stringify({ action: 'reviseIssue', proposalText, criteriaText: '공식 평가기준', issue: fixture().issues[0] }) }) });
+    assert.equal(response.status, 200);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].max_output_tokens, 2500);
+    assert.equal(calls[0].text.format.name, 'proposal_issue_revision');
+    assert.equal((await response.json()).revisedText, revision.revisedText);
+  } finally { globalThis.fetch = originalFetch; globalThis.caches = originalCaches; }
+});
+
+test('문제별 AI 수정은 자료보관함 키와 서버 호출 간격 제한을 적용한다', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalCaches = globalThis.caches;
+  const rateValues = new Map();
+  let calls = 0;
+  globalThis.caches = { default: { match: async request => rateValues.get(request.url), put: async (request, response) => rateValues.set(request.url, response) } };
+  globalThis.fetch = async () => { calls += 1; return new Response('{}'); };
+  const payload = JSON.stringify({ action: 'reviseIssue', proposalText: '검증할 계획서 원문이 충분히 긴 테스트 문장입니다. 대상과 기간과 실행방법을 함께 확인합니다.', issue: fixture().issues[0] });
+  try {
+    const missingKey = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload }) });
+    assert.equal(missingKey.status, 401);
+    const headers = { 'Content-Type': 'application/json', 'X-Archive-Key': '12345678-1234-1234-1234-123456789abc' };
+    const first = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers, body: payload }) });
+    assert.equal(first.status, 502);
+    const second = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers, body: payload }) });
+    assert.equal(second.status, 429);
+    assert.equal(calls, 1);
+  } finally { globalThis.fetch = originalFetch; globalThis.caches = originalCaches; }
+});
+
+test('문제별 수정안은 원문 단일 위치와 수치·근거 안전장치를 검증한다', () => {
+  const text = '참여자 20명을 대상으로 10회 프로그램을 운영한다.';
+  const valid = { sectionLocation: '사업 필요성', originalExcerpt: text, revisedText: '참여자 20명을 대상으로 10회 프로그램을 충실히 운영한다.', explanation: '실행 표현을 구체화합니다.', evidenceRefs: ['계획서 원문'], requiresConfirmation: false };
+  assert.equal(validateIssueRevision(valid, text), '');
+  assert.match(validateIssueRevision({ ...valid, revisedText: '참여자 30명을 대상으로 12회 운영한다.' }, text), /수치/);
+  assert.match(validateIssueRevision({ ...valid, originalExcerpt: '없는 원문' }, text), /하나로 특정/);
+  assert.match(validateIssueRevision({ ...valid, evidenceRefs: [], requiresConfirmation: false }, text), /확인 필요/);
+});
+
 test('상단 독립 코칭 화면은 외부 파일·붙여넣기·보관함·재검증·버전 저장을 지원한다', () => {
   const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   assert.match(source, /id="open-coaching"/);
@@ -97,6 +145,11 @@ test('상단 독립 코칭 화면은 외부 파일·붙여넣기·보관함·재
   assert.match(source, /남은 문제/);
   assert.match(source, /새로 생긴 문제/);
   assert.match(source, /validatedText/);
+  for (const label of ['개선 작업판', '미수정', '수정중', '해결', '확인필요', '이 문제만 AI 수정안 만들기', '수정안 적용', '적용 되돌리기', '코칭 보고서 PDF 인쇄·저장']) assert.match(source, new RegExp(label));
+  assert.match(source, /action: 'reviseIssue'/);
+  assert.match(source, /currentArchiveId/);
+  assert.match(source, /document\.fonts\?\.ready\.then\(\(\)=>window\.print\(\)\)/);
+  assert.match(source, /@page\{size:A4 portrait/);
 });
 
 test('운영 진단 로그와 응답은 안전한 필드만 사용한다', () => {
