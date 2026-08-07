@@ -444,9 +444,9 @@ test('주요 작업 화면은 브라우저 이탈 없는 10단계 앱 내부 이
 test('뒤로·홈·앞으로 버튼은 모든 6단계 공통 셸에 표시되고 작성 상태를 삭제하지 않는다', () => {
   const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   assert.match(source, /aria-label="앱 작업 화면 이동"/);
-  assert.match(source, /← 뒤로 가기/);
-  assert.match(source, /⌂ 홈으로 가기/);
-  assert.match(source, /앞으로 가기 →/);
+  assert.match(source, /← 뒤로/);
+  assert.match(source, /⌂ 홈/);
+  assert.match(source, /앞으로 →/);
   assert.match(source, /document\.querySelector\('#workflow-back'\)/);
   assert.match(source, /navigateToStep\(0\)/);
   assert.match(source, /document\.querySelector\('#workflow-forward'\)/);
@@ -465,4 +465,16 @@ test('사업 유형과 6단계 작업 탭은 sticky 상단 내비게이션에 �
   assert.match(source, /document\.querySelector\('#business-type'\)/);
   assert.match(styles, /\.workflow-header\{position:sticky;top:0/);
   assert.match(styles, /\.workflow-steps\{[^}]*overflow-x:auto/);
+});
+
+test('완료 체크는 방문 순서가 아니라 단계별 필수 데이터로 판단한다', () => {
+  const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  assert.match(source, /function isStepComplete\(index\)/);
+  assert.match(source, /state\.project\.title\.trim\(\).*state\.project\.issuer\.trim\(\).*state\.project\.deadline/);
+  assert.match(source, /state\.sourceText\.trim\(\)\.length >= 30/);
+  assert.match(source, /state\.sections\.length === 10/);
+  assert.doesNotMatch(source, /i < state\.step \? '✓'/);
+  assert.doesNotMatch(source, /<div class="type-grid">\$\{TYPES\.map/);
+  assert.match(source, /class="history-button"/);
+  assert.match(source, /class="intro compact-intro"/);
 });

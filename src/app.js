@@ -84,6 +84,15 @@ function escapeHtml(value = '') { return String(value).replace(/[&<>'"]/g, c => 
 function nl(value = '') { return escapeHtml(value).replace(/\n/g, '<br>'); }
 function setState(patch) { state = { ...state, ...patch }; saveState(); render(); }
 function typeName() { return TYPES.find(([id]) => id === state.project.type)?.[1] || '사업'; }
+function isStepComplete(index) {
+  if (index === 0) return Boolean(state.project.title.trim() && state.project.issuer.trim() && state.project.deadline);
+  if (index === 1) return state.sourceText.trim().length >= 30 || state.manualSources.some(item => item.extractionStatus === 'success');
+  if (index === 2) return Boolean(state.analysis?.requirements?.length);
+  if (index === 3) return Boolean(state.matches.length);
+  if (index === 4) return Boolean(state.answers.length ? state.answers.every(item => !item.required || String(item.answer || '').trim()) : state.analysis);
+  if (index === 5) return state.sections.length === 10;
+  return false;
+}
 function organizationForGeneration() {
   return {
     organization: '마인드스토리',
@@ -98,8 +107,7 @@ function shell(content) {
       <main class="main">
         <header class="workflow-header">
           <div class="workflow-brand"><div class="brand"><span class="brand-mark">M</span><div><strong>Proposal Workbench</strong><small>마인드스토리 내부용</small></div></div><span class="save-state">● 브라우저 자동 저장</span></div>
-          <div class="workflow-row"><label class="type-select-label" for="business-type">사업 유형<select id="business-type">${TYPES.map(([id, name]) => `<option value="${id}" ${state.project.type === id ? 'selected' : ''}>${name}</option>`).join('')}</select></label><nav class="workflow-steps" aria-label="작성 단계">${STEPS.map((name, i) => `<button data-step="${i}" class="workflow-step ${state.step === i ? 'active' : ''} ${i < state.step ? 'done' : ''}" ${state.step === i ? 'aria-current="step"' : ''}><span>${i < state.step ? '✓' : i + 1}</span>${name}</button>`).join('')}</nav></div>
-          <nav class="workflow-history" aria-label="앱 작업 화면 이동"><button class="button secondary" id="workflow-back" aria-label="직전 작업 화면으로 뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로 가기</button><button class="button secondary" id="workflow-home" aria-label="사업 설정 홈으로 가기" ${state.step === 0 ? 'disabled' : ''}>⌂ 홈으로 가기</button><button class="button secondary" id="workflow-forward" aria-label="다음 작업 화면으로 앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 가기 →</button></nav>
+          <div class="workflow-row"><label class="type-select-label" for="business-type">사업 유형<select id="business-type">${TYPES.map(([id, name]) => `<option value="${id}" ${state.project.type === id ? 'selected' : ''}>${name}</option>`).join('')}</select></label><nav class="workflow-steps" aria-label="작성 단계">${STEPS.map((name, i) => { const complete = isStepComplete(i); return `<button data-step="${i}" class="workflow-step ${state.step === i ? 'active' : ''} ${complete ? 'done' : ''}" ${state.step === i ? 'aria-current="step"' : ''}><span>${complete ? '✓' : i + 1}</span>${name}</button>`; }).join('')}</nav><nav class="workflow-history" aria-label="앱 작업 화면 이동"><button class="history-button" id="workflow-back" aria-label="직전 작업 화면으로 뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="history-button" id="workflow-home" aria-label="사업 설정 홈으로 가기" ${state.step === 0 ? 'disabled' : ''}>⌂ 홈</button><button class="history-button" id="workflow-forward" aria-label="다음 작업 화면으로 앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button></nav></div>
         </header>
         ${state.notice ? `<div class="alert success">${escapeHtml(state.notice)}</div>` : ''}
         ${state.error ? `<div class="alert danger">${escapeHtml(state.error)}</div>` : ''}
@@ -114,10 +122,10 @@ function footer({ next = true, back = true, nextLabel = '다음 단계', nextId 
 }
 
 function setupView() {
-  return `<div class="intro"><span class="pill">새 제안 프로젝트</span><h2>기관 요구를 먼저 읽고,<br>근거 있는 계획서를 만듭니다.</h2><p>공고문·과업지시서·신청 양식을 분석하고 마인드스토리의 확인된 역량과 비교합니다.</p></div>
-    <div class="card form-card"><div class="field"><label>사업 유형</label><div class="type-grid">${TYPES.map(([id, name]) => `<button class="choice ${state.project.type === id ? 'active' : ''}" data-type="${id}">${name}</button>`).join('')}</div></div>
+  return `<div class="intro compact-intro"><span class="pill">새 제안 프로젝트</span><h2>기관 요구를 먼저 읽고, 근거 있는 계획서를 만듭니다.</h2><p>공고문·신청 양식을 분석하고 확인된 역량과 비교합니다.</p></div>
+    <div class="card form-card">
     <div class="two-col"><div class="field"><label for="project-title">공고명 또는 사업명</label><input id="project-title" value="${escapeHtml(state.project.title)}" placeholder="예: 2026년 학생 마음건강 프로그램 위탁 운영"></div><div class="field"><label for="issuer">발주·지원 기관</label><input id="issuer" value="${escapeHtml(state.project.issuer)}" placeholder="원문 분석 후 자동 보완 가능"></div></div>
-    <div class="field narrow"><label for="deadline">제출 마감일</label><input id="deadline" type="date" value="${escapeHtml(state.project.deadline)}"></div></div>${footer()}`;
+    <div class="field narrow"><label for="deadline">제출 마감일</label><input id="deadline" type="date" value="${escapeHtml(state.project.deadline)}"></div>${footer()}</div>`;
 }
 
 function noticeListView() {
