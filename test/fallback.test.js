@@ -241,11 +241,14 @@ test('공고 가져오기가 성공하면 공고 확인 단계로 자동 이동�
   assert.match(source, /navigateToStep\(1, \{ busy: '', noticeResults: notices/);
 });
 
-test('사업계획서 AI 작성 대기 중 경과 시간을 초 단위로 표시한다', () => {
+test('모든 AI 작업은 단일 타이머로 경과시간을 표시하고 background 시작시간을 복구한다', () => {
   const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
-  assert.match(source, /PROPOSAL_BUSY_MESSAGE/);
-  assert.match(source, /id="busy-elapsed">0초/);
-  assert.match(source, /Math\.floor\(\(Date\.now\(\) - busyStartedAt\) \/ 1000\)/);
+  for (const message of ['계획서 전체 검증 작업을 시작하는 중', '선택한 문제의 수정안만 작성하는 중', '사업계획서를 심사자 관점에서 검토하는 중', '기관 요구사항과 평가 기준을 분석하는 중', '선택한 항목을 근거 범위 안에서 재작성하는 중', '공고문을 분석하고 마스터 설계를 작성하는 중', '신청서 항목별 계획서를 분할 생성하는 중']) assert.match(source, new RegExp(`setAiBusy\\('${message}`));
+  assert.match(source, /data-ai-elapsed data-started-at/);
+  assert.match(source, /경과시간 00초/);
+  assert.match(source, /startedAt: busyStartedAt \|\| Date\.now\(\)/);
+  assert.match(source, /Math\.floor\(\(Date\.now\(\) - startedAt\) \/ 1000\)/);
+  assert.match(source, /clearInterval\(busyTimer\)/);
   assert.match(source, /setInterval\(update, 1000\)/);
 });
 

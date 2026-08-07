@@ -70,6 +70,9 @@ test('코칭 결과는 문제 위치·이유·방향·예시와 근거 안전장
   assert.match(validateCoachingResult({ ...fixture(), evaluationMatrix: [] }, true, 0, payload), /대응표/);
   assert.match(validateCoachingResult({ ...fixture(), comparison: { ...fixture().comparison, previousVersion: 1 } }, false, 0, payload), /이전 버전 비교/);
   assert.equal(validateCoachingResult({ ...fixture(), comparison: { ...fixture().comparison, previousVersion: 1 } }, true, 1, payload), '');
+  const descriptiveMetadata = structuredClone(fixture());
+  descriptiveMetadata.evaluationMatrix[0].evidenceRefs[0] = { ...descriptiveMetadata.evaluationMatrix[0].evidenceRefs[0], sourceName: '사용자 설명 자료명', pageOrSection: 'AI가 정리한 항목명', proposalLocation: '요약 위치' };
+  assert.equal(validateCoachingResult(descriptiveMetadata, false, 0, payload), '');
   const invented = structuredClone(fixture()); invented.evaluationMatrix[0].evidenceRefs[0].excerpt = '존재하지 않는 규정 99페이지';
   assert.match(validateCoachingResult(invented, false, 0, payload), /확인되지 않는 근거/);
   assert.equal(validateCoachingResultDetailed(invented, false, 0, payload).stage, 'evidence-validation');

@@ -22,7 +22,6 @@ const initial = {
 let state = loadState();
 let navigationHistory = loadNavigationHistory();
 const app = document.querySelector('#app');
-const PROPOSAL_BUSY_MESSAGE = '공고문을 분석하고 완성형 사업계획서를 작성하는 중...';
 let busyStartedAt = 0;
 let busyTimer = null;
 let archiveLoaded = false;
@@ -94,10 +93,13 @@ function escapeHtml(value = '') { return String(value).replace(/[&<>'"]/g, c => 
 function nl(value = '') { return escapeHtml(value).replace(/\n/g, '<br>'); }
 function setState(patch) {
   if (Object.hasOwn(patch, 'busy')) {
-    if (patch.busy === PROPOSAL_BUSY_MESSAGE && state.busy !== PROPOSAL_BUSY_MESSAGE) busyStartedAt = Date.now();
     if (!patch.busy) busyStartedAt = 0;
   }
   state = { ...state, ...patch }; saveState(); render();
+}
+function setAiBusy(message, patch = {}) {
+  busyStartedAt = Date.now();
+  setState({ ...patch, busy: message });
 }
 function typeName() { return TYPES.find(([id]) => id === state.project.type)?.[1] || '사업'; }
 function isStepComplete(index) {
@@ -127,7 +129,7 @@ function shell(content) {
         ${state.notice ? `<div class="alert success">${escapeHtml(state.notice)}</div>` : ''}
         ${state.error ? `<div class="alert danger">${escapeHtml(state.error)}</div>` : ''}
         <section class="workspace">${content}</section>
-        ${state.busy ? `<div class="busy"><div class="loader"></div><strong>${escapeHtml(state.busy)}${state.busy === PROPOSAL_BUSY_MESSAGE ? ' <span id="busy-elapsed">0초</span>' : ''}</strong><small>창을 닫지 마세요.</small></div>` : ''}
+        ${state.busy ? `<div class="busy"><div class="loader"></div><strong>${escapeHtml(state.busy)}</strong><small>창을 닫지 마세요.${busyStartedAt ? ` <span data-ai-elapsed data-started-at="${busyStartedAt}">경과시간 00초</span>` : ''}</small></div>` : ''}
       </main>
     </div>`;
 }
@@ -368,7 +370,7 @@ function coachingView() {
     <div class="field"><label for="coaching-text">계획서 원문</label><textarea id="coaching-text" class="source-text" placeholder="직원이 작성한 계획서를 붙여넣거나 파일을 업로드하세요.">${escapeHtml(coaching.text)}</textarea></div>
     <div class="field"><label for="coaching-criteria">연결할 공고·신청서·공식 평가기준</label><textarea id="coaching-criteria" class="source-text" placeholder="평가표가 있으면 최우선 기준으로 사용합니다.">${escapeHtml(coaching.criteriaText)}</textarea><label><input id="coaching-official-evaluation" type="checkbox" ${coaching.officialEvaluationProvided ? 'checked' : ''}> 입력 자료에 공식 평가표가 포함되어 있음</label></div>
     <div class="actions"><div><button class="button secondary" id="coach-current-proposal" ${state.sections.length ? '' : 'disabled'}>현재 계획서 불러오기</button><button class="button secondary" id="coach-list-archive">자료보관함 계획서</button></div><button class="button primary" id="run-coaching" ${coaching.pendingJob ? 'disabled' : ''}>${coaching.pendingJob ? '검증 중' : result ? '수정본 다시 검증' : '검증·코칭 실행'}</button></div><small>전체 검증은 OpenAI background mode로 실행됩니다. store=false이지만 polling을 위해 응답 데이터가 약 10분간 일시 저장될 수 있습니다.</small></div>
-    ${coaching.pendingJob ? `<div class="alert warning"><strong>검증 중 · ${escapeHtml(coaching.pendingJob.status || 'queued')}</strong><p>작업 ID ${escapeHtml(coaching.pendingJob.id)} · polling ${Number(coaching.pendingJob.pollCount || 0)}회 · ${Math.max(0, Math.floor((Date.now() - Number(coaching.pendingJob.startedAt || Date.now())) / 1000))}초</p><p>새로고침 후에도 같은 탭에서 작업을 이어 확인합니다.</p></div>` : ''}
+    ${coaching.pendingJob ? `<div class="alert warning"><strong>검증 중 · ${escapeHtml(coaching.pendingJob.status || 'queued')}</strong><p>작업 ID ${escapeHtml(coaching.pendingJob.id)} · polling ${Number(coaching.pendingJob.pollCount || 0)}회</p><p>새로고침 후에도 같은 탭에서 작업을 이어 확인합니다. <span data-ai-elapsed data-started-at="${Number(coaching.pendingJob.startedAt || Date.now())}">경과시간 00초</span></p></div>` : ''}
     ${state.archiveProposals.length ? `<div class="card"><h3>자료보관함에서 불러오기</h3><div class="requirement-list">${state.archiveProposals.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(archiveStageLabel(item.stage))}</span><strong>${escapeHtml(item.title)}</strong></div><button class="button secondary" data-coach-archive="${escapeHtml(item.id)}">${String(item.stage).startsWith('coaching-v') ? '이 버전으로 돌아가기' : '검증 대상으로 불러오기'}</button></article>`).join('')}</div></div>` : ''}
     ${result ? coachingResultView(result) : ''}`;
 }
@@ -413,9 +415,12 @@ function makeCoachingWorkItems(result) {
 
 function startBusyElapsedTimer() {
   clearInterval(busyTimer);
-  const output = document.querySelector('#busy-elapsed');
-  if (!output || !busyStartedAt) return;
-  const update = () => { output.textContent = `${Math.floor((Date.now() - busyStartedAt) / 1000)}초`; };
+  const outputs = [...document.querySelectorAll('[data-ai-elapsed]')];
+  if (!outputs.length) return;
+  const update = () => outputs.forEach(output => {
+    const startedAt = Number(output.dataset.startedAt || 0);
+    output.textContent = `경과시간 ${String(Math.max(0, Math.floor((Date.now() - startedAt) / 1000))).padStart(2, '0')}초`;
+  });
   update(); busyTimer = setInterval(update, 1000);
 }
 
@@ -578,12 +583,12 @@ async function loadArchivedProposalForCoaching(id) {
 async function runProposalCoaching() {
   if (state.coaching.text.trim().length < 30) return setState({ error: '검증할 계획서 내용을 30자 이상 입력해 주세요.' });
   if (state.coaching.pendingJob) return;
-  setState({ busy: '계획서 전체 검증 작업을 시작하는 중...', error: '', notice: '' });
+  setAiBusy('계획서 전체 검증 작업을 시작하는 중...', { error: '', notice: '' });
   try {
     const response = await coachingRequest({ action: 'startCoaching', ...coachingPayload() });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(coachingFailureMessage(result, response.status));
-    state.coaching.pendingJob = { id: result.jobId, status: result.status || 'queued', pollCount: 0, startedAt: Date.now(), diagnostic: result.diagnostic || null };
+    state.coaching.pendingJob = { id: result.jobId, status: result.status || 'queued', pollCount: 0, startedAt: busyStartedAt || Date.now(), diagnostic: result.diagnostic || null };
     setState({ busy: '', coaching: state.coaching, notice: 'background 검증 작업을 시작했습니다.' });
     void pollProposalCoaching();
   } catch (error) { setState({ busy: '', error: error.message }); }
@@ -646,7 +651,7 @@ function updateCoachingStatus(index, status) {
 async function requestCoachingRevision(index) {
   const issue = state.coaching.result?.issues?.[index];
   if (!issue || !state.coaching.text.trim()) return;
-  setState({ busy: '선택한 문제의 수정안만 작성하는 중...', error: '', notice: '' });
+  setAiBusy('선택한 문제의 수정안만 작성하는 중...', { error: '', notice: '' });
   try {
     const response = await fetch('/api/proposal-coaching', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Archive-Key': getArchiveRecoveryKey() }, body: JSON.stringify({ action: 'reviseIssue', title: state.coaching.title, proposalText: state.coaching.text, criteriaText: state.coaching.criteriaText, issue }) });
     const result = await response.json().catch(() => ({}));
@@ -713,7 +718,7 @@ async function runProposalReview(force = false) {
   if (!force && state.reviewResult && state.reviewFingerprint === fingerprint) return setState({ notice: '같은 초안의 기존 심사 결과를 표시합니다.' });
   state.reviewOriginalDraft = structuredClone(state.sections);
   state.reviewBusy = true;
-  setState({ busy: '사업계획서를 심사자 관점에서 검토하는 중...', error: '', notice: '' });
+  setAiBusy('사업계획서를 심사자 관점에서 검토하는 중...', { error: '', notice: '' });
   try {
     const response = await fetch('/api/proposal-review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const result = await response.json().catch(() => ({}));
@@ -1058,7 +1063,7 @@ async function addMissingNotice() {
 
 async function analyze() {
   if (state.sourceText.trim().length < 30) return setState({ error: '분석할 원문을 30자 이상 입력해 주세요.' });
-  setState({ busy: '기관 요구사항과 평가 기준을 분석하는 중...', error: '', notice: '' });
+  setAiBusy('기관 요구사항과 평가 기준을 분석하는 중...', { error: '', notice: '' });
   if (state.sourceText.length > 180000) return setState({ error: 'AI 분석 원문은 180,000자 이하여야 합니다. 파일을 나누거나 불필요한 내용을 줄여 주세요.' });
   const payload = { sourceText: state.sourceText, projectType: typeName(), project: state.project, organization: organizationForGeneration() };
   try { const result = await analyzeWithAI(payload); state.analysis = result.analysis; state.aiMode = 'ai'; }
@@ -1073,7 +1078,7 @@ async function createDraft() {
 async function rewriteSection(index) {
   const instruction = window.prompt('어떻게 수정할까요? 사실이나 수치를 새로 만들도록 요청할 수 없습니다.', '더 명확하고 간결하게 작성');
   if (!instruction) return;
-  setState({ busy: '선택한 항목을 근거 범위 안에서 재작성하는 중...', error: '' });
+  setAiBusy('선택한 항목을 근거 범위 안에서 재작성하는 중...', { error: '' });
   try { const result = await rewriteWithAI({ section: state.sections[index], instruction, analysis: state.analysis, organization: organizationForGeneration() }); state.sections[index] = result.section; setState({ busy: '', notice: '항목을 재작성했습니다.' }); }
   catch (error) { setState({ busy: '', error: error.message }); }
 }
@@ -1083,7 +1088,7 @@ async function generateCompleteProposal() {
   const manualLength = state.manualSources.filter(value => value.extractionStatus === 'success').reduce((sum, value) => sum + value.extractedText.length, 0);
   if (state.sourceText.trim().length + manualLength < 30) return setState({ error: '사업계획서를 작성할 공식 또는 직접 자료를 30자 이상 입력해 주세요.' });
   if (state.sourceText.length > 180000 || state.sourceText.length + manualLength > 220000) return setState({ error: '생성 입력 자료가 허용 길이를 초과했습니다. 자료를 나누거나 불필요한 내용을 줄여 주세요.' });
-  setState({ busy: '공고문을 분석하고 마스터 설계를 작성하는 중...', error: '', notice: '', sections: [], assemblyCheck: null, stagedGeneration: structuredClone(initial.stagedGeneration) });
+  setAiBusy('공고문을 분석하고 마스터 설계를 작성하는 중...', { error: '', notice: '', sections: [], assemblyCheck: null, stagedGeneration: structuredClone(initial.stagedGeneration) });
   const completePayload = generationPayload();
   try {
     const result = await masterWithAI(completePayload);
@@ -1128,7 +1133,7 @@ async function generateProposalParts() {
   if (!groups.length) return setState({ error: '분할 생성할 신청서 항목 구조가 없습니다.' });
   const completed = new Set(staged.completedGroupIds || []);
   state.stagedGeneration.phase = 'parts-generating';
-  setState({ stagedGeneration: state.stagedGeneration, busy: '신청서 항목별 계획서를 분할 생성하는 중...', error: '', notice: '' });
+  setAiBusy('신청서 항목별 계획서를 분할 생성하는 중...', { stagedGeneration: state.stagedGeneration, error: '', notice: '' });
   try {
     for (const group of groups) {
       if (completed.has(group.id)) continue;

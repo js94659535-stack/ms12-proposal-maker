@@ -252,7 +252,7 @@ export function validateCoachingResultDetailed(result, officialEvaluationProvide
   for (const judgement of allJudgements) {
     if (!Array.isArray(judgement.evidenceRefs)) return invalid('schema-validation', '근거 추적 정보가 누락되었습니다.');
     const verified = judgement.evidenceRefs.filter(ref => ref?.verified);
-    if (verified.some(ref => !ref.excerpt || !sourceText.includes(ref.excerpt) || (ref.sourceName && !sourceText.includes(ref.sourceName) && ref.sourceName !== '계획서 원문') || (ref.pageOrSection && !sourceText.includes(ref.pageOrSection)) || (ref.proposalLocation && !sourceText.includes(ref.proposalLocation)))) return invalid('evidence-validation', '입력 원문에서 확인되지 않는 근거가 포함되었습니다.');
+    if (verified.some(ref => !ref.excerpt || !sourceText.includes(ref.excerpt))) return invalid('evidence-validation', '입력 원문에서 확인되지 않는 근거가 포함되었습니다.');
     if (!verified.length && ((judgement.status && !['확인필요'].includes(judgement.status)) || (judgement.priority && !judgement.requiresConfirmation))) return invalid('evidence-validation', '근거를 찾지 못한 판단은 확인 필요로 표시해야 합니다.');
   }
   const critical = new Set(['submission', 'eligibility', 'required-item', 'budget-rule', 'core-conflict']);
