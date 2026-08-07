@@ -20,6 +20,9 @@ const initial = {
 let state = loadState();
 let navigationHistory = loadNavigationHistory();
 const app = document.querySelector('#app');
+const PROPOSAL_BUSY_MESSAGE = '공고문을 분석하고 완성형 사업계획서를 작성하는 중...';
+let busyStartedAt = 0;
+let busyTimer = null;
 
 function loadState() {
   try {
@@ -82,7 +85,13 @@ function navigateForward() {
 }
 function escapeHtml(value = '') { return String(value).replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c])); }
 function nl(value = '') { return escapeHtml(value).replace(/\n/g, '<br>'); }
-function setState(patch) { state = { ...state, ...patch }; saveState(); render(); }
+function setState(patch) {
+  if (Object.hasOwn(patch, 'busy')) {
+    if (patch.busy === PROPOSAL_BUSY_MESSAGE && state.busy !== PROPOSAL_BUSY_MESSAGE) busyStartedAt = Date.now();
+    if (!patch.busy) busyStartedAt = 0;
+  }
+  state = { ...state, ...patch }; saveState(); render();
+}
 function typeName() { return TYPES.find(([id]) => id === state.project.type)?.[1] || '사업'; }
 function isStepComplete(index) {
   if (index === 0) return Boolean(state.noticeResults.length || state.sourceText.trim().length >= 30 || state.manualSources.some(item => item.extractionStatus === 'success'));
@@ -111,7 +120,7 @@ function shell(content) {
         ${state.notice ? `<div class="alert success">${escapeHtml(state.notice)}</div>` : ''}
         ${state.error ? `<div class="alert danger">${escapeHtml(state.error)}</div>` : ''}
         <section class="workspace">${content}</section>
-        ${state.busy ? `<div class="busy"><div class="loader"></div><strong>${escapeHtml(state.busy)}</strong><small>창을 닫지 마세요.</small></div>` : ''}
+        ${state.busy ? `<div class="busy"><div class="loader"></div><strong>${escapeHtml(state.busy)}${state.busy === PROPOSAL_BUSY_MESSAGE ? ' <span id="busy-elapsed">0초</span>' : ''}</strong><small>창을 닫지 마세요.</small></div>` : ''}
       </main>
     </div>`;
 }
@@ -297,7 +306,15 @@ function directFactsView() {
 
 function render() {
   const views = [noticeImportView, noticeConfirmView, businessSelectView, documentView, documentView];
-  app.innerHTML = shell(views[state.step]()); bind();
+  app.innerHTML = shell(views[state.step]()); bind(); startBusyElapsedTimer();
+}
+
+function startBusyElapsedTimer() {
+  clearInterval(busyTimer);
+  const output = document.querySelector('#busy-elapsed');
+  if (!output || !busyStartedAt) return;
+  const update = () => { output.textContent = `${Math.floor((Date.now() - busyStartedAt) / 1000)}초`; };
+  update(); busyTimer = setInterval(update, 1000);
 }
 
 function updateInputs() {

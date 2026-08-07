@@ -102,6 +102,14 @@ test('공고 가져오기가 성공하면 공고 확인 단계로 자동 이동�
   assert.match(source, /navigateToStep\(1, \{ busy: '', noticeResults: result\.notices \|\| \[\]/);
 });
 
+test('사업계획서 AI 작성 대기 중 경과 시간을 초 단위로 표시한다', () => {
+  const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  assert.match(source, /PROPOSAL_BUSY_MESSAGE/);
+  assert.match(source, /id="busy-elapsed">0초/);
+  assert.match(source, /Math\.floor\(\(Date\.now\(\) - busyStartedAt\) \/ 1000\)/);
+  assert.match(source, /setInterval\(update, 1000\)/);
+});
+
 test('공식 상세 원문만 사용해 300자 이내 핵심 요약을 만든다', () => {
   const summary = buildOfficialSummary({
     applicationPeriod: '2026-08-01 ~ 2026-08-14', performancePeriod: '2027-01-01 ~ 2027-12-31', supportLimit: '기관당 3천만원',
