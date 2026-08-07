@@ -20,6 +20,41 @@ test('검증·코칭 API는 POST와 JSON만 허용하고 키가 없으면 외부
   assert.equal(post.status, 503);
 });
 
+test('라이브 프로브는 작은 strict JSON schema로 OpenAI를 정확히 한 번 호출한다', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => { calls.push({ url, options }); return new Response(JSON.stringify({ output_text: JSON.stringify({ ok: true, message: 'probe-ok' }) }), { status: 200, headers: { 'x-request-id': 'req_probe_test', 'Content-Type': 'application/json' } }); };
+  try {
+    const response = await onRequest({ env: { OPENAI_API_KEY: 'secret-test-only', OPENAI_MODEL: 'gpt-5.6-sol', OPENAI_PROBE_TOKEN: 'probe-test-token' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-OpenAI-Probe-Token': 'probe-test-token' }, body: JSON.stringify({ action: 'probe' }) }) });
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(calls.length, 1);
+    assert.equal(body.strictJsonSchema, true);
+    assert.equal(body.diagnostic.configuredModel, 'gpt-5.6-sol');
+    assert.equal(body.diagnostic.upstreamStatus, 200);
+    assert.equal(body.diagnostic.upstreamRequestId, 'req_probe_test');
+    const requestBody = JSON.parse(calls[0].options.body);
+    assert.equal(requestBody.max_output_tokens, 200);
+    assert.equal(requestBody.text.format.strict, true);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('OpenAI 비429 오류는 실제 상태와 안전한 진단 정보를 보존하고 비밀정보를 노출하지 않는다', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ error: { type: 'invalid_request_error', code: 'model_not_found', message: 'model unavailable' } }), { status: 400, headers: { 'x-request-id': 'req_error_test', 'Content-Type': 'application/json' } });
+  try {
+    const response = await onRequest({ env: { OPENAI_API_KEY: 'must-not-leak', OPENAI_MODEL: 'gpt-5.6-sol', OPENAI_PROBE_TOKEN: 'probe-test-token' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-OpenAI-Probe-Token': 'probe-test-token' }, body: JSON.stringify({ action: 'probe', proposalText: 'must-not-appear' }) }) });
+    const text = await response.text();
+    const body = JSON.parse(text);
+    assert.equal(response.status, 400);
+    assert.equal(body.diagnostic.upstreamStatus, 400);
+    assert.equal(body.diagnostic.upstreamErrorType, 'invalid_request_error');
+    assert.equal(body.diagnostic.upstreamErrorCode, 'model_not_found');
+    assert.equal(body.diagnostic.upstreamRequestId, 'req_error_test');
+    assert.doesNotMatch(text, /must-not-leak|must-not-appear/);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('코칭 결과는 문제 위치·이유·방향·예시와 근거 안전장치를 검증한다', () => {
   assert.equal(validateCoachingResult(fixture()), '');
   assert.match(validateCoachingResult({ ...fixture(), basis: 'common-criteria' }, true), /공식 평가표/);
@@ -62,4 +97,22 @@ test('상단 독립 코칭 화면은 외부 파일·붙여넣기·보관함·재
   assert.match(source, /남은 문제/);
   assert.match(source, /새로 생긴 문제/);
   assert.match(source, /validatedText/);
+});
+
+test('운영 진단 로그와 응답은 안전한 필드만 사용한다', () => {
+  const source = fs.readFileSync(new URL('../functions/api/proposal-coaching.js', import.meta.url), 'utf8');
+  for (const field of ['configuredModel', 'upstreamStatus', 'upstreamErrorType', 'upstreamErrorCode', 'upstreamRequestId', 'elapsedMs']) assert.match(source, new RegExp(field));
+  assert.doesNotMatch(source, /console\.(?:log|info|error)\([^\n]*(?:OPENAI_API_KEY|proposalText|COACHING_INPUT)/);
+  assert.match(source, /payload\.action === 'probe'/);
+});
+
+test('라이브 프로브는 전용 비밀값 없이는 OpenAI를 호출하지 않는다', async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => { calls += 1; return new Response('{}'); };
+  try {
+    const response = await onRequest({ env: { OPENAI_API_KEY: 'secret', OPENAI_MODEL: 'gpt-5.6-sol', OPENAI_PROBE_TOKEN: 'server-token' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-OpenAI-Probe-Token': 'wrong-token' }, body: JSON.stringify({ action: 'probe' }) }) });
+    assert.equal(response.status, 404);
+    assert.equal(calls, 0);
+  } finally { globalThis.fetch = originalFetch; }
 });
