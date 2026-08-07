@@ -238,6 +238,7 @@ test('실전 품질 QA A/B/C는 고정 더미 자료이며 일반 보관함 저�
   const qaSource = fs.readFileSync(new URL('../scripts/coaching-qa.mjs', import.meta.url), 'utf8');
   for (const field of ['httpStatus', 'failureStage', 'configuredModel', 'upstreamStatus', 'upstreamErrorType', 'upstreamErrorCode', 'upstreamRequestId', 'elapsedMs', 'generationCalls', 'pollingCount', 'totalElapsedMs']) assert.match(qaSource, new RegExp(field));
   assert.match(qaSource, /POLL_INTERVAL_MS = 5000/);
+  assert.match(qaSource, /selectedCaseId/);
   assert.doesNotMatch(qaSource, /saveArchivedProposal|\/api\/archive|retry/i);
 });
 

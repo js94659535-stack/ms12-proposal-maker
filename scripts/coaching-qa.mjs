@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { COACHING_QA_CASES, COACHING_QA_CRITERIA } from '../test/fixtures/coaching-qa.js';
 
 const baseUrl = process.argv[2] || 'https://pro.ms12.org';
+const selectedCaseId = String(process.argv[3] || '').toUpperCase();
 const archiveKey = randomUUID();
 const POLL_INTERVAL_MS = 5000;
 const sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
@@ -34,7 +35,7 @@ function quality(caseId, result) {
   return { criticalCount: critical.length, criticalLocations: critical.map(item => item.location), overdiagnosed: critical.length > 0, passed: critical.length === 0 };
 }
 
-for (const item of COACHING_QA_CASES) {
+for (const item of COACHING_QA_CASES.filter(value => !selectedCaseId || value.id === selectedCaseId)) {
   const startedAt = Date.now();
   let generationCalls = 0;
   let pollingCount = 0;
