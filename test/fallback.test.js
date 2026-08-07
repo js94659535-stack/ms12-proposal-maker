@@ -442,4 +442,5 @@ test('뒤로·홈·앞으로 버튼은 모든 6단계 공통 셸에 표시되고
   assert.match(source, /document\.querySelector\('#workflow-forward'\)/);
   assert.doesNotMatch(source, /function navigateToStep[\s\S]*?structuredClone\(state\)/);
   assert.match(source, /display:flex;flex-wrap:wrap/);
+  assert.match(source, /position:sticky;top:0;z-index:15/);
 });
