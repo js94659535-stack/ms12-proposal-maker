@@ -113,6 +113,20 @@ test('자료보관함 API는 D1 미연결 상태와 전용 저장·검색 흐름
   assert.match(config, /binding = "ARCHIVE_DB"/);
 });
 
+test('공고 보관함 검색은 날짜·기관·핵심어와 상세 원문·세부사업 및 연결 계획서를 지원한다', () => {
+  const serverSource = fs.readFileSync(new URL('../functions/api/archive.js', import.meta.url), 'utf8');
+  const appSource = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  assert.match(serverSource, /notice_json LIKE \?/);
+  assert.match(serverSource, /linked_proposal_count/);
+  assert.match(serverSource, /linked_proposal_id/);
+  assert.match(serverSource, /deadline >= \?/);
+  assert.match(serverSource, /deadline <= \?/);
+  assert.match(appSource, /loadRecentArchive\(\)/);
+  assert.match(appSource, /data-view-archived-notice/);
+  assert.match(appSource, /작성 계획서 열기/);
+  assert.match(appSource, /slice\(0, 300\)/);
+});
+
 test('앱은 공고문 입력에서 시작하고 사용자 확정 회사 정보만 생성에 사용한다', () => {
   const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   assert.match(source, /step: 0,/);

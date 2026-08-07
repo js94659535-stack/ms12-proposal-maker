@@ -10,7 +10,7 @@ export async function onRequest(context) {
   try { body = await context.request.json(); } catch { return json({ error: '요청 JSON 형식이 올바르지 않습니다.' }, 400); }
   try {
     if (body.action === 'syncNotices') return json(await syncNotices(context.env.ARCHIVE_DB, body.notices));
-    if (body.action === 'searchNotices') return json({ notices: await searchNotices(context.env.ARCHIVE_DB, body.filters) });
+    if (body.action === 'searchNotices') return json({ notices: await searchNotices(context.env.ARCHIVE_DB, body.filters, await owner(context.request)) });
     const ownerHash = await owner(context.request);
     if (!ownerHash) return json({ error: '자료보관함 식별키가 없습니다.' }, 401);
     if (body.action === 'saveProposal') return json(await saveProposal(context.env.ARCHIVE_DB, ownerHash, body.proposal));
@@ -40,7 +40,7 @@ export async function syncNotices(db, values) {
   return result;
 }
 
-export async function searchNotices(db, filters = {}) {
+export async function searchNotices(db, filters = {}, ownerHash = '') {
   const clauses = [];
   const bindings = [];
   const institution = clean(filters.institution, 100);
@@ -48,12 +48,15 @@ export async function searchNotices(db, filters = {}) {
   const from = date(filters.from);
   const to = date(filters.to);
   if (institution) { clauses.push('(source_label LIKE ? OR source LIKE ?)'); bindings.push(`%${institution}%`, `%${institution}%`); }
-  if (keyword) { clauses.push('(title LIKE ? OR summary LIKE ? OR eligibility LIKE ? OR support_details LIKE ?)'); bindings.push(...Array(4).fill(`%${keyword}%`)); }
+  if (keyword) { clauses.push('(title LIKE ? OR summary LIKE ? OR eligibility LIKE ? OR support_details LIKE ? OR notice_json LIKE ?)'); bindings.push(...Array(5).fill(`%${keyword}%`)); }
   if (from) { clauses.push("(deadline = '' OR deadline >= ?)"); bindings.push(from); }
   if (to) { clauses.push("(deadline = '' OR deadline <= ?)"); bindings.push(to); }
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-  const rows = await db.prepare(`SELECT notice_json, first_seen_at, updated_at FROM archived_notices ${where} ORDER BY deadline DESC, updated_at DESC LIMIT 100`).bind(...bindings).all();
-  return (rows.results || []).map(row => ({ ...safeJson(row.notice_json), archivedAt: row.first_seen_at, archiveUpdatedAt: row.updated_at }));
+  const rows = await db.prepare(`SELECT n.notice_json, n.source_key, n.first_seen_at, n.updated_at,
+    (SELECT COUNT(*) FROM archived_proposals p WHERE p.notice_key = n.source_key AND p.owner_hash = ?) AS linked_proposal_count,
+    (SELECT p.id FROM archived_proposals p WHERE p.notice_key = n.source_key AND p.owner_hash = ? ORDER BY p.updated_at DESC LIMIT 1) AS linked_proposal_id
+    FROM archived_notices n ${where.replaceAll(/\b(source_label|source|title|summary|eligibility|support_details|deadline|notice_json)\b/g, 'n.$1')} ORDER BY n.updated_at DESC, n.deadline DESC LIMIT 100`).bind(ownerHash, ownerHash, ...bindings).all();
+  return (rows.results || []).map(row => ({ ...safeJson(row.notice_json), archiveNoticeKey: row.source_key, archivedAt: row.first_seen_at, archiveUpdatedAt: row.updated_at, linkedProposalCount: Number(row.linked_proposal_count || 0), linkedProposalId: row.linked_proposal_id || '' }));
 }
 
 export async function saveProposal(db, ownerHash, value) {

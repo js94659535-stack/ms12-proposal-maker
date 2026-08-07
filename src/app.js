@@ -24,6 +24,7 @@ const app = document.querySelector('#app');
 const PROPOSAL_BUSY_MESSAGE = '공고문을 분석하고 완성형 사업계획서를 작성하는 중...';
 let busyStartedAt = 0;
 let busyTimer = null;
+let archiveLoaded = false;
 
 function loadState() {
   try {
@@ -166,7 +167,7 @@ function archiveView() {
     <div class="two-col"><div class="field"><label for="archive-institution">기관</label><input id="archive-institution" value="${escapeHtml(filters.institution)}" placeholder="예: 광주지회"></div><div class="field"><label for="archive-keyword">핵심어</label><input id="archive-keyword" value="${escapeHtml(filters.keyword)}" placeholder="예: 아동·청소년"></div></div>
     <div class="two-col"><div class="field"><label for="archive-from">마감일 시작</label><input id="archive-from" type="date" value="${escapeHtml(filters.from)}"></div><div class="field"><label for="archive-to">마감일 종료</label><input id="archive-to" type="date" value="${escapeHtml(filters.to)}"></div></div>
     <div class="actions"><span>검색은 저장 자료만 조회하며, 맞춤 찾기는 사용자가 눌렀을 때만 공식 공고를 갱신합니다.</span><div><button class="button secondary" id="search-archive">보관함 검색</button><button class="button primary" id="find-matching-notices">맞춤 공고 찾기</button><button class="button secondary" id="list-archived-proposals">계획서 보관함</button></div></div>
-    ${state.archiveNotices.length ? `<div class="requirement-list">${state.archiveNotices.map((item, index) => `<article class="requirement"><div><span class="tag">${escapeHtml(item.sourceLabel)}</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.deadline || item.applicationPeriod || '')}</small></div></div><button class="button primary" data-use-archived-notice="${index}">공고 열기</button></article>`).join('')}</div>` : ''}
+    ${state.archiveNotices.length ? `<div class="requirement-list">${state.archiveNotices.map((item, index) => `<article class="requirement"><div><span class="tag">${escapeHtml(item.sourceLabel)}</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.applicationPeriod || item.deadline || '기간 정보 없음')} · ${item.linkedProposalCount ? `연결 계획서 ${item.linkedProposalCount}건` : '연결 계획서 없음'}</small></div></div><p class="muted notice-card-preview">${escapeHtml(String(item.summary || '상세 공고문 확인 필요').slice(0, 300))}</p><div class="actions"><span></span><div><button class="button secondary" data-view-archived-notice="${index}">공고 상세</button>${item.linkedProposalId ? `<button class="button secondary" data-open-archived-proposal="${escapeHtml(item.linkedProposalId)}">작성 계획서 열기</button>` : ''}<button class="button primary" data-use-archived-notice="${index}">공고 확인 목록에 열기</button></div></div></article>`).join('')}</div>` : '<p class="muted">검색 전에는 최근 저장 공고를 불러옵니다. 조건 없이 ‘보관함 검색’을 누르면 최근 공고부터 표시됩니다.</p>'}
     ${state.archiveProposals.length ? `<div class="requirement-list"><h4>저장된 계획서</h4>${state.archiveProposals.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(archiveStageLabel(item.stage))}</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(new Date(item.updatedAt).toLocaleString('ko-KR'))}</small></div></div><button class="button primary" data-open-archived-proposal="${escapeHtml(item.id)}">이어서 수정</button></article>`).join('')}</div>` : ''}</details>`;
 }
 
@@ -367,6 +368,7 @@ function updateInputs() {
 
 function bind() {
   updateInputs();
+  if (state.step === 0 && !archiveLoaded) void loadRecentArchive();
   document.querySelectorAll('[data-type]').forEach(el => el.onclick = () => { state.project.type = el.dataset.type; saveState(); render(); });
   document.querySelector('#business-type')?.addEventListener('change', event => { state.project.type = event.target.value; saveState(); render(); });
   document.querySelectorAll('[data-step]').forEach(el => el.onclick = () => navigateToStep(Number(el.dataset.step), { notice: '', error: '' }));
@@ -393,6 +395,7 @@ function bind() {
   document.querySelector('#find-matching-notices')?.addEventListener('click', findMatchingNotices);
   document.querySelector('#list-archived-proposals')?.addEventListener('click', loadProposalArchive);
   document.querySelectorAll('[data-use-archived-notice]').forEach(el => el.onclick = () => useArchivedNotice(Number(el.dataset.useArchivedNotice)));
+  document.querySelectorAll('[data-view-archived-notice]').forEach(el => el.onclick = () => viewArchivedNotice(Number(el.dataset.viewArchivedNotice)));
   document.querySelectorAll('[data-open-archived-proposal]').forEach(el => el.onclick = () => openArchivedProposal(el.dataset.openArchivedProposal));
   document.querySelector('#import-notice-url')?.addEventListener('click', addMissingNotice);
   document.querySelectorAll('[data-notice-content]').forEach(panel => { panel.style.display = 'none'; });
@@ -560,6 +563,12 @@ async function searchNoticeArchive() {
   } catch (error) { setState({ busy: '', error: error.message }); }
 }
 
+async function loadRecentArchive() {
+  archiveLoaded = true;
+  try { const result = await searchArchivedNotices({}); setState({ archiveNotices: result.notices || [] }); }
+  catch { /* 자료보관함 장애가 기존 첫 화면을 막지 않게 한다. */ }
+}
+
 async function findMatchingNotices() {
   state.project.type = 'chest';
   setState({ busy: '공식 공고를 갱신하고 맞춤 조건을 확인하는 중...', error: '', notice: '' });
@@ -577,6 +586,15 @@ function useArchivedNotice(index) {
   const existing = state.noticeResults.findIndex(item => archiveNoticeKey(item) === archiveNoticeKey(notice));
   const noticeResults = existing >= 0 ? state.noticeResults : [...state.noticeResults, notice];
   navigateToStep(1, { noticeResults, notice: '보관된 공고를 공고 확인 목록에 열었습니다.' });
+}
+
+async function viewArchivedNotice(index) {
+  const notice = state.archiveNotices[index];
+  if (!notice) return;
+  let noticeIndex = state.noticeResults.findIndex(item => archiveNoticeKey(item) === archiveNoticeKey(notice));
+  if (noticeIndex < 0) { state.noticeResults = [...state.noticeResults, notice]; noticeIndex = state.noticeResults.length - 1; }
+  navigateToStep(1, { noticeResults: state.noticeResults, notice: '보관된 공고의 상세 내용을 확인합니다.' });
+  await previewOfficialNotice(noticeIndex);
 }
 
 async function loadProposalArchive() {
@@ -642,6 +660,7 @@ async function previewOfficialNotice(value) {
   setState({ busy: '공고 상세 내용을 불러오는 중...', error: '', notice: '' });
   try {
     const { notice } = await fetchNoticeDetail(selected);
+    void syncArchivedNotices([{ ...selected, ...notice }]).catch(() => {});
     setState({ busy: '', noticePreview: notice, pendingNoticeChoice: null });
     requestAnimationFrame(() => document.querySelector('#notice-preview')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   } catch (error) { setState({ busy: '', error: error.message }); }
@@ -662,6 +681,7 @@ async function selectOfficialNotice(value) {
   setState({ busy: '선택한 공고 본문을 불러오는 중...', pendingNoticeChoice: null, error: '', notice: '' });
   try {
     const { notice } = await fetchNoticeDetail(selected);
+    void syncArchivedNotices([{ ...selected, ...notice }]).catch(() => {});
     if (notice.subprojects?.length > 1) return navigateToStep(2, { busy: '', pendingNoticeChoice: { notice, subprojects: notice.subprojects }, notice: '계획서에 반영할 세부사업을 선택해 주세요.' });
     applyNoticeSelection(notice);
     navigateToStep(2);
