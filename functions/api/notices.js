@@ -102,8 +102,8 @@ async function mapWithConcurrency(items, limit, mapper) {
 
 export function buildOfficialSummary(detail) {
   const overview = cleanSummaryText(detail?.overview || '');
-  const eligibility = extractSummaryField(overview, ['신청대상', '지원대상', '사업대상', '대상']);
-  const supportDetails = extractSummaryField(overview, ['지원내용', '사업내용', '주요내용', '필수 사업내용']);
+  const eligibility = extractSummaryField(overview, ['신청대상', '지원대상', '사업대상', '대상']) || extractOverviewSection(overview, ['신청유형', '신청대상', '지원대상', '사업대상'], 150);
+  const supportDetails = extractSummaryField(overview, ['지원내용', '사업내용', '주요내용', '필수 사업내용']) || extractOverviewSection(overview, ['주요사업내용', '사업내용', '지원내용'], 170);
   const purpose = extractSummaryField(overview, ['사업목적', '목적', '추진목적']);
   const applicationPeriod = cleanSummaryText(detail?.applicationPeriod || '');
   const performancePeriod = cleanSummaryText(detail?.performancePeriod || '');
@@ -112,6 +112,13 @@ export function buildOfficialSummary(detail) {
     .filter(Boolean).filter((value, index, values) => values.indexOf(value) === index);
   const summary = truncateSummary(facts.join(' · ') || overview || '상세 공고문 확인 필요');
   return { summary, eligibility, supportDetails, supportLimit, applicationPeriod, summarySource: 'official-detail' };
+}
+
+function extractOverviewSection(text, headings, limit) {
+  const headingPattern = headings.map(escapeRegExp).join('|');
+  const match = String(text || '').match(new RegExp(`(?:^|\\n)\\s*\\d{1,2}[.)]?\\s*(?:${headingPattern})\\s*[:：]?\\s*([\\s\\S]*?)(?=\\n\\s*\\d{1,2}[.)]?\\s*[^\\n]{1,40}(?:\\n|:|：)|$)`, 'i'));
+  const value = cleanSummaryText(match?.[1] || '').replace(/(?:^|\n)\s*[○●□■※-]\s*/g, ' ').replace(/\s+/g, ' ').trim();
+  return value.length <= limit ? value : `${value.slice(0, limit - 3).trimEnd()}...`;
 }
 
 function emptyOfficialSummary() {

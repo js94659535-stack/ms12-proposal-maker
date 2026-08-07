@@ -110,6 +110,25 @@ test('공식 상세 원문만 사용해 300자 이내 핵심 요약을 만든다
   assert.doesNotMatch(summary.summary, /연락처|첨부파일/);
 });
 
+test('번호가 붙은 공식 개요에서 실제 지원내용과 신청유형을 요약한다', () => {
+  const summary = buildOfficialSummary({
+    applicationPeriod: '2026-07-20 ~ 2026-08-14', performancePeriod: '2027-01 ~ 2027-12', supportLimit: '1개소당 140,000,000원',
+    overview: '1. 주요사업내용\n○ 홈케어플래너 파견과 가족 맞춤형 서비스 제공\n○ 전문심리치료기관 연계 심리정서 회복 프로그램\n\n2. 사업기간 : 2027. 1. ~ 2027. 12.\n\n3. 신청유형\n○ 재학대예방형: 아동보호전문기관\n○ 아동보호형: 사회복지관 등\n\n4. 예산규모 : 총 21억원 이내'
+  });
+  assert.match(summary.supportDetails, /홈케어플래너 파견/);
+  assert.match(summary.eligibility, /아동보호전문기관/);
+  assert.match(summary.summary, /홈케어플래너 파견/);
+  assert.ok(summary.summary.length <= 300);
+});
+
+test('목록 카드는 없는 상세 항목에 확인 필요 문구를 반복하지 않는다', () => {
+  const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /item\.eligibility \|\| '공식 상세 확인 필요'/);
+  assert.doesNotMatch(source, /item\.supportDetails \|\| '공식 상세 확인 필요'/);
+  assert.match(source, /item\.eligibility \? `<small>/);
+  assert.match(source, /item\.supportDetails \? `<small>/);
+});
+
 test('일부 상세 조회 실패에도 목록을 유지하고 상세 확인 안내를 표시한다', async () => {
   let activeDetails = 0;
   let maximumDetails = 0;
@@ -278,6 +297,10 @@ test('공고 선택 결과는 기존 제목과 원문 입력으로 전달된다'
   assert.match(source, /data-select-subproject/);
   assert.match(source, /applyNoticeSelection\(pending\.notice, subproject\)/);
   assert.match(source, /개요:\\n\$\{subproject\.content\}/);
+  assert.match(source, /id="selected-notice-detail"/);
+  assert.match(source, /detailText: bodyText/);
+  assert.match(source, /scrollIntoView\(\{ behavior: 'smooth'/);
+  assert.match(source, /선택한 공고 상세/);
 });
 
 test('한국어 인쇄 문서에 계획서 10개 항목의 실제 내용을 모두 포함한다', () => {
