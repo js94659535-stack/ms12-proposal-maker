@@ -521,8 +521,8 @@ async function selectOfficialNotice(value) {
   setState({ busy: '선택한 공고 본문을 불러오는 중...', pendingNoticeChoice: null, error: '', notice: '' });
   try {
     const { notice } = await fetchNoticeDetail(selected);
-    if (notice.subprojects?.length > 1) return setState({ busy: '', pendingNoticeChoice: { notice, subprojects: notice.subprojects }, notice: '계획서에 반영할 세부사업을 선택해 주세요.' });
-    applyNoticeSelection(notice);
+    if (notice.subprojects?.length > 1) return setState({ busy: '', pendingNoticeChoice: { notice, subprojects: notice.subprojects, startWriting: true }, notice: '계획서에 반영할 세부사업을 선택해 주세요.' });
+    startProposalWriting(notice);
   } catch (error) { setState({ busy: '', error: error.message }); }
 }
 
@@ -530,7 +530,13 @@ function selectNoticeSubproject(value) {
   const pending = state.pendingNoticeChoice;
   const subproject = pending?.subprojects[Number(value)];
   if (!pending || !subproject) return setState({ error: '선택한 세부사업을 찾지 못했습니다.' });
-  applyNoticeSelection(pending.notice, subproject);
+  if (pending.startWriting) startProposalWriting(pending.notice, subproject);
+  else applyNoticeSelection(pending.notice, subproject);
+}
+
+function startProposalWriting(notice, subproject = null) {
+  applyNoticeSelection(notice, subproject);
+  setTimeout(generateCompleteProposal, 0);
 }
 
 function applyNoticeSelection(notice, subproject = null) {

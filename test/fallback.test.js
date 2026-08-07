@@ -296,6 +296,9 @@ test('공고 선택 결과는 기존 제목과 원문 입력으로 전달된다'
   assert.match(source, /notice\.subprojects\?\.length > 1/);
   assert.match(source, /data-select-subproject/);
   assert.match(source, /applyNoticeSelection\(pending\.notice, subproject\)/);
+  assert.match(source, /startProposalWriting\(notice\)/);
+  assert.match(source, /startWriting: true/);
+  assert.match(source, /setTimeout\(generateCompleteProposal, 0\)/);
   assert.match(source, /개요:\\n\$\{subproject\.content\}/);
   assert.match(source, /id="selected-notice-detail"/);
   assert.match(source, /detailText: bodyText/);
