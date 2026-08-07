@@ -240,6 +240,8 @@ export function validateCoachingResult(result, officialEvaluationProvided = fals
 
 export function normalizeUnsupportedCriticalIssues(result) {
   for (const issue of result?.issues || []) {
+    if (issue.riskType === 'expression') { issue.priority = '일반 개선'; continue; }
+    if (issue.riskType === 'competition') { issue.priority = '주요 개선'; continue; }
     if (issue.priority !== '최우선 경고' || !['submission', 'eligibility', 'required-item', 'budget-rule', 'core-conflict'].includes(issue.riskType)) continue;
     const excerpts = (issue.evidenceRefs || []).filter(ref => ref?.verified && ref.excerpt).map(ref => ref.excerpt);
     const evidence = excerpts.join(' ');

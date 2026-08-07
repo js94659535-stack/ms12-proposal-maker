@@ -85,10 +85,12 @@ test('정상 계획서의 근거 부족을 제출 불가·충돌·예산 위반�
   normal.issues = [
     { ...normal.issues[0], priority: '최우선 경고', riskType: 'core-conflict', reason: '세부 설명이 부족합니다.', evidenceRefs: [{ sourceName: '계획서 원문', pageOrSection: '사업내용', proposalLocation: '사업내용', excerpt: '주 1회 학습코칭 20회와 보호자 교육 2회를 운영한다.', verified: true }], requiresConfirmation: false, example: '설명을 보완합니다.' },
     { ...normal.issues[0], priority: '최우선 경고', riskType: 'budget-rule', reason: '공식 예산규정 원문이 없습니다.', evidenceRefs: [{ sourceName: '계획서 원문', pageOrSection: '예산', proposalLocation: '예산', excerpt: '총사업비 30,000,000원이며 강사비 18,000,000원, 교재비 6,000,000원, 체험비 6,000,000원이다.', verified: true }], requiresConfirmation: false, example: '규정을 확인합니다.' },
+    { ...normal.issues[0], priority: '최우선 경고', riskType: 'expression', reason: '표현을 더 명확하게 할 수 있습니다.' },
   ];
   normalizeUnsupportedCriticalIssues(normal);
   assert.equal(normal.issues.filter(issue => issue.priority === '최우선 경고').length, 0);
-  assert.ok(normal.issues.every(issue => issue.priority === '주요 개선' && issue.riskType === 'competition' && issue.requiresConfirmation));
+  assert.ok(normal.issues.filter(issue => issue.riskType === 'competition').every(issue => issue.priority === '주요 개선' && issue.requiresConfirmation));
+  assert.equal(normal.issues.find(issue => issue.riskType === 'expression').priority, '일반 개선');
 });
 
 test('전체 코칭은 OpenAI background 생성 한 번과 짧은 polling·완료 검증으로 반환한다', async () => {
