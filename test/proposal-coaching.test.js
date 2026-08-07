@@ -7,7 +7,9 @@ function fixture() {
   return {
     basis: 'official-evaluation', overallStatus: '보완 필요', summary: '평가기준 대응 근거를 보완해야 합니다.',
     checkedAreas: ['공모 목적·평가기준', '논리구조', '수치 일관성'],
-    issues: [{ category: '평가기준 대응', severity: '높음', location: '사업 필요성 2문단', reason: '공식 평가항목의 근거가 없습니다.', direction: '공고문 근거를 연결합니다.', example: '[확인 필요: 공식 통계]를 확인한 뒤 근거 문장을 추가합니다.', evidenceRefs: [], requiresConfirmation: true }]
+    evaluationMatrix: [{ criterion: '사업 타당성', officialPoints: '20점', requirement: '필요성과 실행계획을 평가', proposalLocations: ['사업 필요성', '세부 프로그램'], status: '부분충족', evidenceRefs: ['공식 평가표'] }],
+    issues: [{ category: '평가기준 대응', priority: '주요 개선', riskType: 'competition', location: '사업 필요성 2문단', reason: '공식 평가항목의 근거가 없습니다.', direction: '공고문 근거를 연결합니다.', example: '[확인 필요: 공식 통계]를 확인한 뒤 근거 문장을 추가합니다.', evidenceRefs: [], requiresConfirmation: true }],
+    comparison: { previousVersion: 0, resolvedIssues: [], remainingIssues: [], newIssues: [], improvedAreas: [] }
   };
 }
 
@@ -23,6 +25,11 @@ test('코칭 결과는 문제 위치·이유·방향·예시와 근거 안전장
   assert.match(validateCoachingResult({ ...fixture(), basis: 'common-criteria' }, true), /공식 평가표/);
   assert.match(validateCoachingResult({ ...fixture(), issues: [{ ...fixture().issues[0], location: '' }] }), /문제별 코칭 필드/);
   assert.match(validateCoachingResult({ ...fixture(), issues: [{ ...fixture().issues[0], example: '근거 없이 확정', requiresConfirmation: false }] }), /확인 필요 상태/);
+  assert.match(validateCoachingResult({ ...fixture(), issues: [{ ...fixture().issues[0], priority: '일반 개선' }] }), /주요 개선/);
+  assert.match(validateCoachingResult({ ...fixture(), issues: [{ ...fixture().issues[0], riskType: 'budget-rule', priority: '주요 개선' }] }), /최우선 경고/);
+  assert.match(validateCoachingResult({ ...fixture(), evaluationMatrix: [] }, true), /대응표/);
+  assert.match(validateCoachingResult({ ...fixture(), comparison: { ...fixture().comparison, previousVersion: 1 } }), /이전 버전 비교/);
+  assert.equal(validateCoachingResult({ ...fixture(), comparison: { ...fixture().comparison, previousVersion: 1 } }, true, 1), '');
 });
 
 test('공식 평가표를 우선하는 구조화 코칭 결과를 한 번의 요청으로 반환한다', async () => {
@@ -50,4 +57,9 @@ test('상단 독립 코칭 화면은 외부 파일·붙여넣기·보관함·재
   assert.match(source, /coachingSeriesId/);
   assert.match(source, /id="coaching-official-evaluation"/);
   assert.match(source, /합격확률을 추정하지 않으며/);
+  assert.match(source, /평가기준 대응표/);
+  assert.match(source, /해결된 문제/);
+  assert.match(source, /남은 문제/);
+  assert.match(source, /새로 생긴 문제/);
+  assert.match(source, /validatedText/);
 });
