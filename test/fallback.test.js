@@ -134,6 +134,25 @@ test('장문 분할 생성은 전체 이전 원문 대신 압축 요약과 의�
   assert.match(apiSource, /원문 문단을 복사하지 말고 항목당 짧은 문장/);
 });
 
+test('완성 단계는 공식 목차 순서로 조립하고 누락·중복·마스터 기준값을 검증한다', () => {
+  const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  const start = source.indexOf('function assembleProposal()');
+  const end = source.indexOf('async function archiveCurrentProposal', start);
+  const assemblySource = source.slice(start, end);
+  assert.match(assemblySource, /groups\.flatMap/);
+  assert.match(assemblySource, /assemblyStructuralIssues/);
+  assert.match(assemblySource, /공식 목차의 계획서 항목이 누락되거나 중복/);
+  assert.match(assemblySource, /validateFinalAssembly/);
+  assert.match(assemblySource, /마스터 기준값/);
+  assert.match(assemblySource, /존재하지 않는 공식 근거 ID/);
+  assert.match(assemblySource, /분할 원문 보존·새 사실 추가 없음/);
+  assert.match(assemblySource, /replace\(\/\\r\\n\?\/g, '\\n'\)\.trim\(\)/);
+  assert.doesNotMatch(assemblySource, /fetch\(|draftWithAI|masterWithAI/);
+  assert.match(source, /assemblyCheckView\(\)/);
+  assert.match(source, /archiveCurrentProposal\('complete'\)/);
+  assert.match(source, /'stagedGeneration', 'assemblyCheck', 'manualSources'/);
+});
+
 test('자료보관함은 동일 공고를 중복 저장하지 않고 내용이 바뀐 공고만 갱신한다', async () => {
   const rows = new Map();
   const db = { prepare(sql) { return { values: [], bind(...values) { this.values = values; return this; }, async first() { return rows.get(this.values[0]) || null; }, async run() { const [sourceKey, source, sourceLabel, listSn, dstbBsnsCode, title, deadline, applicationPeriod, summary, eligibility, supportDetails, supportLimit, contentHash] = this.values; rows.set(sourceKey, { sourceKey, source, sourceLabel, listSn, dstbBsnsCode, title, deadline, applicationPeriod, summary, eligibility, supportDetails, supportLimit, content_hash: contentHash }); return { success: true }; } }; } };

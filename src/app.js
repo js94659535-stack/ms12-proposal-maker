@@ -16,7 +16,7 @@ const NAVIGATION_KEY = 'ms12_workflow_navigation_v1';
 const NAVIGATION_LIMIT = 10;
 const initial = {
   step: 0, project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
-  analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
+  analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
 let navigationHistory = loadNavigationHistory();
@@ -290,9 +290,17 @@ function documentView() {
   const toolbarActions = completionMode
     ? `<button class="button secondary" id="save-proposal-archive">자료보관함에 저장</button><button class="button secondary" id="proposal-review">${state.reviewResult ? '명시적으로 재검토' : '심사 검토·고도화'}</button><button class="button secondary" id="print">인쇄</button><button class="button secondary" id="pdf">PDF 인쇄·저장</button><button class="button primary" id="docx">검토용 DOCX</button>`
     : '<button class="button secondary" id="save-proposal-archive">자료보관함에 저장</button><button class="button primary" id="go-to-review">검토·완성으로 이동 →</button>';
-  return `${strategy}${questions}<div class="document-toolbar"><div><h2>${escapeHtml(state.project.title || '사업계획서 검토본')}</h2><p><span class="mode">${state.selectedNotice?.officialTextExtracted ? '공고문 반영 초안' : '안내 페이지 기반 임시 초안'}</span> <span class="mode ${state.aiMode === 'ai' ? 'ai' : ''}">${state.aiMode === 'ai' ? 'AI 정밀 사업설계' : '로컬 사실 추출'}</span> ${completionMode ? '심사 검토와 출력 전 최종 편집을 진행하세요. DOCX는 공식 신청서 양식이 아닌 검토본입니다.' : '필요한 질문을 확인하고 초안을 편집하세요.'}</p></div><div>${toolbarActions}</div></div>
+  return `${strategy}${questions}${assemblyCheckView()}<div class="document-toolbar"><div><h2>${escapeHtml(state.project.title || '사업계획서 검토본')}</h2><p><span class="mode">${state.selectedNotice?.officialTextExtracted ? '공고문 반영 초안' : '안내 페이지 기반 임시 초안'}</span> <span class="mode ${state.aiMode === 'ai' ? 'ai' : ''}">${state.aiMode === 'ai' ? 'AI 정밀 사업설계' : '로컬 사실 추출'}</span> ${completionMode ? '심사 검토와 출력 전 최종 편집을 진행하세요. DOCX는 공식 신청서 양식이 아닌 검토본입니다.' : '필요한 질문을 확인하고 초안을 편집하세요.'}</p></div><div>${toolbarActions}</div></div>
     ${completionMode ? proposalReviewView() : ''}
     <div class="editor-layout"><aside class="outline">${state.sections.map((s, i) => `<a href="#section-${i}"><span>${i + 1}</span>${escapeHtml(s.title.replace(/^\d+[.)]?\s*/, ''))}</a>`).join('')}</aside><div class="paper">${state.sections.map((s, i) => `<section id="section-${i}" class="doc-section"><div class="section-head"><input data-section-title="${i}" value="${escapeHtml(s.title)}"><span class="status ${s.status?.replace(' ', '-')}">${escapeHtml(s.status || '검토 필요')}</span></div><textarea data-section-content="${i}">${escapeHtml(s.content)}</textarea><div class="section-meta"><span>근거 ${s.citations?.length || 0}개</span><span><button data-confirm-fact="${i}">회사 정보로 확정 저장</button><button data-rewrite="${i}">이 항목 재작성</button></span></div>${s.citations?.length ? `<details><summary>반영한 원문 근거</summary>${s.citations.map(id => { const r = state.analysis.requirements.find(v => v.id === id); return r ? `<blockquote>${escapeHtml(r.evidence)} <small>${escapeHtml(r.location)}</small></blockquote>` : ''; }).join('')}</details>` : ''}</section>`).join('')}</div></div>`;
+}
+
+function assemblyCheckView() {
+  const check = state.assemblyCheck;
+  if (!check) return '';
+  return check.valid
+    ? '<div class="alert success"><strong>완성 조립 검증 통과</strong><p>공식 목차 순서, 분할 누락·중복, 근거 연결과 마스터 기준값을 확인했습니다.</p></div>'
+    : `<div class="alert warning"><strong>완성 조립 확인 필요</strong><p>사실을 자동 보정하지 않았습니다. 다음 검토 단계에서 아래 항목을 확인하세요.</p>${check.issues.map(issue => `<p>· ${escapeHtml(issue)}</p>`).join('')}</div>`;
 }
 
 function stagedGenerationView() {
@@ -822,7 +830,7 @@ async function generateCompleteProposal() {
   const manualLength = state.manualSources.filter(value => value.extractionStatus === 'success').reduce((sum, value) => sum + value.extractedText.length, 0);
   if (state.sourceText.trim().length + manualLength < 30) return setState({ error: '사업계획서를 작성할 공식 또는 직접 자료를 30자 이상 입력해 주세요.' });
   if (state.sourceText.length > 180000 || state.sourceText.length + manualLength > 220000) return setState({ error: '생성 입력 자료가 허용 길이를 초과했습니다. 자료를 나누거나 불필요한 내용을 줄여 주세요.' });
-  setState({ busy: '공고문을 분석하고 마스터 설계를 작성하는 중...', error: '', notice: '', sections: [], stagedGeneration: structuredClone(initial.stagedGeneration) });
+  setState({ busy: '공고문을 분석하고 마스터 설계를 작성하는 중...', error: '', notice: '', sections: [], assemblyCheck: null, stagedGeneration: structuredClone(initial.stagedGeneration) });
   const completePayload = generationPayload();
   try {
     const result = await masterWithAI(completePayload);
@@ -897,18 +905,52 @@ function relevantPreviousSections(group, parts) {
 function assembleProposal() {
   const staged = state.stagedGeneration;
   const groups = staged?.master?.sectionPlan || [];
-  const sectionsById = new Map((staged.parts || []).flatMap(part => part.sections || []).map(section => [section.id, section]));
-  const orderedKeys = groups.flatMap(group => group.sectionKeys || []);
-  const sections = orderedKeys.map(key => sectionsById.get(key)).filter(Boolean);
-  if (orderedKeys.length !== 10 || sections.length !== 10 || new Set(orderedKeys).size !== 10) return setState({ error: '분할 항목이 모두 준비되지 않아 계획서를 완성할 수 없습니다.' });
+  const allSections = (staged.parts || []).flatMap(part => part.sections || []);
+  const sectionsById = new Map(allSections.map(section => [section.id, section]));
+  const orderedEntries = groups.flatMap(group => (group.sectionKeys || []).map(key => ({ key, groupTitle: group.title })));
+  const orderedKeys = orderedEntries.map(entry => entry.key);
+  const structuralIssues = assemblyStructuralIssues(groups, staged.parts || [], orderedKeys, allSections);
+  if (structuralIssues.some(issue => issue.startsWith('조립 불가:'))) return setState({ error: structuralIssues.join(' ') });
+  const sections = orderedEntries.map((entry, index) => {
+    const source = sectionsById.get(entry.key);
+    return { ...source, title: `${index + 1}. ${entry.groupTitle} · ${String(source.title || sectionTitle(entry.key)).replace(/^\d+[.)]?\s*/, '')}`, content: String(source.content || '').replace(/\r\n?/g, '\n').trim() };
+  });
+  const assemblyCheck = validateFinalAssembly(staged.master, sections, structuralIssues, state.evidenceMap || []);
   state.stagedGeneration.phase = 'complete';
   state.sections = sections;
+  state.assemblyCheck = assemblyCheck;
   state.reviewResult = null;
   state.reviewOriginalDraft = null;
   state.reviewFingerprint = '';
-  setState({ stagedGeneration: state.stagedGeneration, sections: state.sections, notice: '분할 항목을 하나의 사업계획서로 완성했습니다. 검토·보완은 다음 단계에서 진행하세요.', error: '' });
+  setState({ stagedGeneration: state.stagedGeneration, sections: state.sections, assemblyCheck, notice: assemblyCheck.valid ? '분할 항목을 공식 신청서 순서의 하나의 사업계획서로 완성했습니다.' : '계획서를 조립했지만 확인할 불일치가 있습니다. 사실을 자동 보정하지 않았습니다.', error: '' });
   void archiveCurrentProposal('complete').catch(() => {});
 }
+
+function assemblyStructuralIssues(groups, parts, orderedKeys, sections) {
+  const issues = [];
+  const groupIds = groups.map(group => group.id);
+  const partIds = parts.map(part => part.groupId);
+  const sectionIds = sections.map(section => section.id);
+  if (new Set(groupIds).size !== groupIds.length) issues.push('조립 불가: 공식 목차 분할 ID가 중복되었습니다.');
+  if (groups.some(group => !partIds.includes(group.id))) issues.push('조립 불가: 생성되지 않은 공식 목차 분할이 있습니다.');
+  if (new Set(partIds).size !== partIds.length) issues.push('조립 불가: 같은 분할 결과가 중복되었습니다.');
+  if (orderedKeys.length !== 10 || new Set(orderedKeys).size !== 10) issues.push('조립 불가: 공식 목차의 계획서 항목이 누락되거나 중복되었습니다.');
+  if (sections.length !== orderedKeys.length || new Set(sectionIds).size !== sectionIds.length || orderedKeys.some(key => !sectionIds.includes(key))) issues.push('조립 불가: 생성 섹션이 공식 목차와 일치하지 않습니다.');
+  return issues;
+}
+
+function validateFinalAssembly(master, sections, initialIssues = [], evidenceMap = []) {
+  const issues = [...initialIssues];
+  const documentText = sections.map(section => section.content).join('\n');
+  const evidenceIds = new Set(evidenceMap.map(item => item.id));
+  for (const section of sections) if ((section.citations || []).some(id => !evidenceIds.has(id))) issues.push(`${section.title}: 존재하지 않는 공식 근거 ID가 연결되어 있습니다.`);
+  for (const baseline of master?.masterLogic?.baselineValues || []) {
+    const value = String(baseline.value || '').trim();
+    if (value && !value.includes('[확인 필요]') && !compactText(documentText).includes(compactText(value))) issues.push(`마스터 기준값 '${baseline.item}: ${value}'이 최종본에서 확인되지 않습니다.`);
+  }
+  return { valid: issues.length === 0, issues: [...new Set(issues)], checkedAt: new Date().toISOString(), sourcePolicy: '분할 원문 보존·새 사실 추가 없음' };
+}
+function compactText(value) { return String(value || '').replace(/[\s,·:~～-]/g, '').toLowerCase(); }
 
 async function archiveCurrentProposal(forcedStage, announce = false) {
   if (!state.project.title && !state.selectedNotice?.title) throw new Error('저장할 계획서 제목이 없습니다.');
@@ -916,7 +958,7 @@ async function archiveCurrentProposal(forcedStage, announce = false) {
   state.archiveProposalId = id;
   saveState();
   const stage = forcedStage || (state.reviewResult ? 'review' : state.sections.length ? 'complete' : state.stagedGeneration?.phase === 'parts-ready' ? 'parts' : 'master');
-  const fields = ['project', 'sourceText', 'analysis', 'sponsorIntent', 'projectDesign', 'missingInformation', 'evidenceMap', 'qualityCheck', 'designAnswers', 'designUnavailable', 'stagedGeneration', 'manualSources', 'matches', 'answers', 'sections', 'reviewResult', 'reviewOriginalDraft', 'reviewFingerprint', 'companyFacts', 'selectedNotice', 'aiMode'];
+  const fields = ['project', 'sourceText', 'analysis', 'sponsorIntent', 'projectDesign', 'missingInformation', 'evidenceMap', 'qualityCheck', 'designAnswers', 'designUnavailable', 'stagedGeneration', 'assemblyCheck', 'manualSources', 'matches', 'answers', 'sections', 'reviewResult', 'reviewOriginalDraft', 'reviewFingerprint', 'companyFacts', 'selectedNotice', 'aiMode'];
   const snapshot = Object.fromEntries(fields.map(key => [key, structuredClone(state[key])]));
   const result = await saveArchivedProposal({ id, noticeKey: archiveNoticeKey(state.selectedNotice), title: state.project.title || state.selectedNotice?.title, stage, snapshot });
   state.archiveProposalId = result.id;
