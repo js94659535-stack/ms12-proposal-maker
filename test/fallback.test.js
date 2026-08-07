@@ -451,6 +451,18 @@ test('뒤로·홈·앞으로 버튼은 모든 6단계 공통 셸에 표시되고
   assert.match(source, /navigateToStep\(0\)/);
   assert.match(source, /document\.querySelector\('#workflow-forward'\)/);
   assert.doesNotMatch(source, /function navigateToStep[\s\S]*?structuredClone\(state\)/);
-  assert.match(source, /display:flex;flex-wrap:wrap/);
-  assert.match(source, /position:sticky;top:0;z-index:15/);
+  assert.match(source, /class="workflow-header"/);
+  assert.match(source, /id="business-type"/);
+  assert.match(source, /class="workflow-steps"/);
+  assert.match(source, /aria-current="step"/);
+});
+
+test('사업 유형과 6단계 작업 탭은 sticky 상단 내비게이션에 배치된다', () => {
+  const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  const styles = fs.readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /<aside class="sidebar">/);
+  assert.match(source, /<option value="\$\{id\}"/);
+  assert.match(source, /document\.querySelector\('#business-type'\)/);
+  assert.match(styles, /\.workflow-header\{position:sticky;top:0/);
+  assert.match(styles, /\.workflow-steps\{[^}]*overflow-x:auto/);
 });

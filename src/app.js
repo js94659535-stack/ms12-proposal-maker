@@ -95,19 +95,12 @@ function organizationForGeneration() {
 function shell(content) {
   return `
     <div class="layout">
-      <aside class="sidebar">
-        <div class="brand"><span class="brand-mark">M</span><div><strong>Proposal Workbench</strong><small>마인드스토리 내부용</small></div></div>
-        <div class="sidebar-section"><p class="eyebrow">사업 유형</p>
-          ${TYPES.map(([id, name, group]) => `<button class="type-button ${state.project.type === id ? 'active' : ''}" data-type="${id}"><span>${name}</span><small>${group}</small></button>`).join('')}
-        </div>
-        <nav class="steps" aria-label="작성 단계">
-          ${STEPS.map((name, i) => `<button data-step="${i}" class="step ${state.step === i ? 'active' : ''} ${i < state.step ? 'done' : ''}"><span>${i < state.step ? '✓' : i + 1}</span>${name}</button>`).join('')}
-        </nav>
-        <div class="sidebar-note"><strong>사실 기반 작성 원칙</strong><p>원문과 기관 정보에 근거가 없으면 <em>확인 필요</em>로 표시합니다.</p></div>
-      </aside>
       <main class="main">
-        <header class="topbar"><button id="menu-toggle" class="icon-button" aria-label="메뉴 열기">☰</button><div><p class="eyebrow">${escapeHtml(typeName())}</p><h1>${escapeHtml(STEPS[state.step])}</h1></div><span class="save-state">● 브라우저 자동 저장</span></header>
-        <nav aria-label="앱 작업 화면 이동" style="position:sticky;top:0;z-index:15;display:flex;flex-wrap:wrap;gap:8px;padding:12px 34px;background:#fff;border-bottom:1px solid var(--line);box-shadow:0 4px 12px rgba(30,49,78,.08)"><button class="button secondary" id="workflow-back" aria-label="직전 작업 화면으로 뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로 가기</button><button class="button secondary" id="workflow-home" aria-label="사업 설정 홈으로 가기" ${state.step === 0 ? 'disabled' : ''}>⌂ 홈으로 가기</button><button class="button secondary" id="workflow-forward" aria-label="다음 작업 화면으로 앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 가기 →</button></nav>
+        <header class="workflow-header">
+          <div class="workflow-brand"><div class="brand"><span class="brand-mark">M</span><div><strong>Proposal Workbench</strong><small>마인드스토리 내부용</small></div></div><span class="save-state">● 브라우저 자동 저장</span></div>
+          <div class="workflow-row"><label class="type-select-label" for="business-type">사업 유형<select id="business-type">${TYPES.map(([id, name]) => `<option value="${id}" ${state.project.type === id ? 'selected' : ''}>${name}</option>`).join('')}</select></label><nav class="workflow-steps" aria-label="작성 단계">${STEPS.map((name, i) => `<button data-step="${i}" class="workflow-step ${state.step === i ? 'active' : ''} ${i < state.step ? 'done' : ''}" ${state.step === i ? 'aria-current="step"' : ''}><span>${i < state.step ? '✓' : i + 1}</span>${name}</button>`).join('')}</nav></div>
+          <nav class="workflow-history" aria-label="앱 작업 화면 이동"><button class="button secondary" id="workflow-back" aria-label="직전 작업 화면으로 뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로 가기</button><button class="button secondary" id="workflow-home" aria-label="사업 설정 홈으로 가기" ${state.step === 0 ? 'disabled' : ''}>⌂ 홈으로 가기</button><button class="button secondary" id="workflow-forward" aria-label="다음 작업 화면으로 앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 가기 →</button></nav>
+        </header>
         ${state.notice ? `<div class="alert success">${escapeHtml(state.notice)}</div>` : ''}
         ${state.error ? `<div class="alert danger">${escapeHtml(state.error)}</div>` : ''}
         <section class="workspace">${content}</section>
@@ -289,6 +282,7 @@ function updateInputs() {
 function bind() {
   updateInputs();
   document.querySelectorAll('[data-type]').forEach(el => el.onclick = () => { state.project.type = el.dataset.type; saveState(); render(); });
+  document.querySelector('#business-type')?.addEventListener('change', event => { state.project.type = event.target.value; saveState(); render(); });
   document.querySelectorAll('[data-step]').forEach(el => el.onclick = () => navigateToStep(Number(el.dataset.step), { notice: '', error: '' }));
   document.querySelector('#back')?.addEventListener('click', () => navigateToStep(state.step - 1, { notice: '', error: '' }));
   document.querySelector('#next')?.addEventListener('click', () => { if (state.step === 2 && !state.matches.length) state.matches = buildMatches(); navigateToStep(state.step + 1, { notice: '', error: '' }); });
