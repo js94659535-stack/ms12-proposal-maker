@@ -309,13 +309,15 @@ function bind() {
   document.querySelectorAll('[data-remove-file]').forEach(el => el.onclick = () => { state.files.splice(Number(el.dataset.removeFile), 1); setState({ files: state.files }); });
   document.querySelector('#fetch-notices')?.addEventListener('click', loadOfficialNotices);
   document.querySelector('#import-notice-url')?.addEventListener('click', addMissingNotice);
+  document.querySelectorAll('[data-notice-content]').forEach(panel => { panel.style.display = 'none'; });
   document.querySelectorAll('[data-notice-panel]').forEach(el => el.onclick = () => {
     const content = document.querySelector(`[data-notice-content="${el.dataset.noticePanel}-${el.dataset.noticeIndex}"]`);
     if (!content) return;
     const willOpen = content.hidden;
-    document.querySelectorAll(`[data-notice-content$="-${el.dataset.noticeIndex}"]`).forEach(panel => { panel.hidden = true; });
+    document.querySelectorAll(`[data-notice-content$="-${el.dataset.noticeIndex}"]`).forEach(panel => { panel.hidden = true; panel.style.display = 'none'; });
     document.querySelectorAll(`[data-notice-panel][data-notice-index="${el.dataset.noticeIndex}"]`).forEach(button => button.setAttribute('aria-expanded', 'false'));
     content.hidden = !willOpen;
+    content.style.display = willOpen ? 'block' : 'none';
     el.setAttribute('aria-expanded', String(willOpen));
   });
   document.querySelectorAll('[data-view-notice]').forEach(el => el.onclick = () => previewOfficialNotice(el.dataset.viewNotice));

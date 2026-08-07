@@ -307,6 +307,8 @@ test('공고 선택 결과는 기존 제목과 원문 입력으로 전달된다'
   assert.match(source, /slice\(0, 200\)/);
   assert.match(source, /notice-card-preview/);
   assert.match(source, /padding:7px 11px;font-size:12px/);
+  assert.match(source, /panel\.style\.display = 'none'/);
+  assert.match(source, /content\.style\.display = willOpen \? 'block' : 'none'/);
   assert.match(source, /계획서 작성/);
   assert.match(source, /아직 계획서 작성 대상으로 선택하지 않았습니다/);
   assert.match(source, /선택 완료 · 다음 단계/);
