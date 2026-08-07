@@ -609,18 +609,15 @@ async function pollProposalCoaching() {
     state.coaching.pendingJob = { ...state.coaching.pendingJob, status: result.status, pollCount: Number(state.coaching.pendingJob.pollCount || 0) + 1, diagnostic: result.diagnostic || state.coaching.pendingJob.diagnostic };
     saveState(); render();
     if (['queued', 'in_progress'].includes(result.status)) setTimeout(() => pollProposalCoaching(), 5000);
-    else if (result.status === 'completed') await finalizeProposalCoaching(jobId, result.resultCandidate, result.diagnostic);
+    else if (result.status === 'completed') await completeProposalCoaching(result);
   } catch (error) {
     state.coaching.pendingJob = null;
     setState({ busy: '', coaching: state.coaching, error: error.message });
   } finally { coachingPollActive = false; }
 }
 
-async function finalizeProposalCoaching(jobId, resultCandidate, pollDiagnostic) {
+async function completeProposalCoaching(result) {
   try {
-    const response = await coachingRequest({ action: 'finalizeCoaching', jobId, resultCandidate, pollDiagnostic, ...coachingPayload() });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(coachingFailureMessage(result, response.status));
     const version = Number(state.coaching.version || 0) + 1;
     const seriesId = String(state.coaching.seriesId || state.coaching.sourceProposalId || crypto.randomUUID()).slice(0, 60);
     state.coaching = { ...state.coaching, result, workItems: makeCoachingWorkItems(result), pendingJob: null, version, seriesId, validatedText: state.coaching.text };

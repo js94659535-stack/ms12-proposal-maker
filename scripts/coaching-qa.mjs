@@ -46,7 +46,6 @@ for (const item of COACHING_QA_CASES) {
     lastDiagnostic = start.data.diagnostic || lastDiagnostic;
     if (!start.response.ok) throw Object.assign(new Error(start.data.error || 'background start failed'), { httpStatus: start.response.status, data: start.data });
     let status = start.data.status;
-    let resultCandidate = null;
     while (['queued', 'in_progress'].includes(status) && pollingCount < 110) {
       await sleep(POLL_INTERVAL_MS);
       pollingCount += 1;
@@ -54,13 +53,9 @@ for (const item of COACHING_QA_CASES) {
       lastDiagnostic = poll.data.diagnostic || lastDiagnostic;
       if (!poll.response.ok) throw Object.assign(new Error(poll.data.error || 'background polling failed'), { httpStatus: poll.response.status, data: poll.data });
       status = poll.data.status;
-      resultCandidate = poll.data.resultCandidate || resultCandidate;
+      if (status === 'completed') report = { id: item.id, httpStatus: poll.response.status, failureStage: '', ...diagnosticFields(lastDiagnostic), generationCalls, pollingCount, totalElapsedMs: Date.now() - startedAt, quality: quality(item.id, poll.data) };
     }
     if (status !== 'completed') throw Object.assign(new Error(`background status ${status}`), { httpStatus: 504, data: { failureStage: 'proxy/timeout' } });
-    const completed = await request({ action: 'finalizeCoaching', jobId: start.data.jobId, resultCandidate, pollDiagnostic: lastDiagnostic, ...payload });
-    lastDiagnostic = completed.data.diagnostic || lastDiagnostic;
-    if (!completed.response.ok) throw Object.assign(new Error(completed.data.error || 'background finalize failed'), { httpStatus: completed.response.status, data: completed.data });
-    report = { id: item.id, httpStatus: completed.response.status, failureStage: '', ...diagnosticFields(lastDiagnostic), generationCalls, pollingCount, totalElapsedMs: Date.now() - startedAt, quality: quality(item.id, completed.data) };
   } catch (error) {
     const data = error.data || {};
     const totalElapsedMs = Date.now() - startedAt;

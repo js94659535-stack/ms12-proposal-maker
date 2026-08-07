@@ -16,7 +16,6 @@ export async function onRequest(context) {
     return runProbe(context.env);
   }
   if (payload.action === 'pollCoaching') return pollCoaching(context.env, context.request, payload);
-  if (payload.action === 'finalizeCoaching') return finalizeCoaching(context.env, context.request, payload);
   if (typeof payload.proposalText !== 'string' || payload.proposalText.trim().length < 30) return failure('application-validation', '검증할 계획서 원문이 필요합니다.', 400, safeDiagnostic(context.env.OPENAI_MODEL, 0, '', '', '', 0));
   if (payload.action === 'reviseIssue') {
     const limited = await enforceIssueRevisionLimit(context.request);
@@ -33,7 +32,7 @@ async function startCoaching(env, request, payload) {
   if (!upstream.ok) return diagnosticErrorResponse(upstream, '계획서 검증·코칭 시작');
   const jobId = String(upstream.data?.id || '');
   if (!/^resp_[a-zA-Z0-9_-]+$/.test(jobId)) return failure('application-validation', 'OpenAI background 작업 ID를 받지 못했습니다.', 502, upstream.diagnostic);
-  await rememberCoachingJob(access.archiveKey, jobId, Date.now());
+  await rememberCoachingJob(access.archiveKey, jobId, Date.now(), payload);
   return json({ jobId, status: upstream.data.status || 'queued', failureStage: '', diagnostic: upstream.diagnostic });
 }
 
@@ -46,22 +45,13 @@ async function pollCoaching(env, request, payload) {
   if (!['queued', 'in_progress', 'completed', 'failed', 'cancelled', 'incomplete'].includes(status)) return failure('application-validation', '알 수 없는 background 작업 상태입니다.', 502, upstream.diagnostic);
   if (['failed', 'cancelled', 'incomplete'].includes(status)) return failure('openai-upstream', `OpenAI background 작업이 ${status} 상태로 종료되었습니다.`, 502, diagnosticFromResponse(env.OPENAI_MODEL, upstream, upstream.data?.error));
   if (status === 'completed') {
-    let resultCandidate;
-    try { resultCandidate = JSON.parse(outputText(upstream.data)); } catch { return failure('parse', '검증·코칭 결과 JSON을 해석하지 못했습니다.', 502, upstream.diagnostic); }
-    return json({ jobId: payload.jobId, status, resultCandidate, failureStage: '', diagnostic: upstream.diagnostic });
+    let result;
+    try { result = JSON.parse(outputText(upstream.data)); } catch { return failure('parse', '검증·코칭 결과 JSON을 해석하지 못했습니다.', 502, upstream.diagnostic); }
+    const validationPayload = access.jobPayload || {};
+    const validation = validateCoachingResultDetailed(result, validationPayload.officialEvaluationProvided === true, Number(validationPayload.previousVersion || 0), validationPayload);
+    return validation.error ? failure(validation.stage, validation.error, 502, upstream.diagnostic) : json({ jobId: payload.jobId, status, ...result, failureStage: '', diagnostic: upstream.diagnostic });
   }
   return json({ jobId: payload.jobId, status, failureStage: '', diagnostic: upstream.diagnostic });
-}
-
-async function finalizeCoaching(env, request, payload) {
-  const access = await coachingJobAccess(request, payload.jobId);
-  if (access.response) return access.response;
-  if (typeof payload.proposalText !== 'string' || payload.proposalText.trim().length < 30) return failure('application-validation', '검증 결과 확인에 필요한 계획서 원문이 없습니다.', 400, safeDiagnostic(env.OPENAI_MODEL, 0, '', '', '', 0));
-  const result = payload.resultCandidate;
-  if (!result || typeof result !== 'object') return failure('schema-validation', '완료 polling 결과가 누락되었습니다.', 400, safeDiagnostic(env.OPENAI_MODEL, 0, '', '', '', 0));
-  const validation = validateCoachingResultDetailed(result, payload.officialEvaluationProvided === true, Number(payload.previousVersion || 0), payload);
-  const diagnostic = payload.pollDiagnostic && typeof payload.pollDiagnostic === 'object' ? safeDiagnostic(env.OPENAI_MODEL, payload.pollDiagnostic.upstreamStatus, payload.pollDiagnostic.upstreamErrorType, payload.pollDiagnostic.upstreamErrorCode, payload.pollDiagnostic.upstreamRequestId, payload.pollDiagnostic.elapsedMs) : safeDiagnostic(env.OPENAI_MODEL, 200, '', '', '', 0);
-  return validation.error ? failure(validation.stage, validation.error, 502, diagnostic) : json({ ...result, failureStage: '', diagnostic });
 }
 
 async function enforceIssueRevisionLimit(request) {
@@ -150,6 +140,9 @@ async function coachingJobAccess(request, jobId = '') {
     if (!/^resp_[a-zA-Z0-9_-]+$/.test(jobId)) return { response: failure('application-validation', 'background 작업 ID가 올바르지 않습니다.', 400, diagnostic) };
     const marker = await globalThis.caches.default.match(await coachingJobRequest(archiveKey, jobId));
     if (!marker) return { response: failure('application-validation', '이 브라우저에서 시작한 background 작업을 찾지 못했습니다.', 404, diagnostic) };
+    let jobPayload;
+    try { jobPayload = (await marker.json()).payload; } catch { return { response: failure('application-validation', 'background 작업 검증 정보를 읽지 못했습니다.', 500, diagnostic) }; }
+    return { archiveKey, jobPayload };
   }
   return { archiveKey };
 }
@@ -159,8 +152,8 @@ async function coachingJobRequest(archiveKey, jobId) {
   return new Request(`https://proposal-coaching-job.invalid/${[...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join('')}`);
 }
 
-async function rememberCoachingJob(archiveKey, jobId, startedAt) {
-  await globalThis.caches.default.put(await coachingJobRequest(archiveKey, jobId), new Response(JSON.stringify({ startedAt }), { headers: { 'Cache-Control': 'max-age=600', 'Content-Type': 'application/json' } }));
+async function rememberCoachingJob(archiveKey, jobId, startedAt, payload) {
+  await globalThis.caches.default.put(await coachingJobRequest(archiveKey, jobId), new Response(JSON.stringify({ startedAt, payload }), { headers: { 'Cache-Control': 'max-age=600', 'Content-Type': 'application/json' } }));
 }
 
 function diagnosticErrorResponse(upstream, label) {

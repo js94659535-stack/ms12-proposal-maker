@@ -95,12 +95,13 @@ test('전체 코칭은 OpenAI background 생성 한 번과 짧은 polling·완�
     const start = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers, body: JSON.stringify({ action: 'startCoaching', ...payload }) }) });
     assert.equal(start.status, 200);
     assert.equal((await start.json()).jobId, 'resp_background_test');
+    const completedStartedAt = performance.now();
     const poll = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers, body: JSON.stringify({ action: 'pollCoaching', jobId: 'resp_background_test' }) }) });
     const pollResult = await poll.json();
     assert.equal(pollResult.status, 'completed');
-    const complete = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers, body: JSON.stringify({ action: 'finalizeCoaching', jobId: 'resp_background_test', resultCandidate: pollResult.resultCandidate, pollDiagnostic: pollResult.diagnostic, ...payload }) }) });
-    assert.equal(complete.status, 200);
-    assert.equal((await complete.json()).basis, 'official-evaluation');
+    assert.equal(poll.status, 200);
+    assert.equal(pollResult.basis, 'official-evaluation');
+    assert.ok(performance.now() - completedStartedAt < 500);
     assert.equal(generationCalls, 1);
     assert.equal(retrievalCalls, 1);
   } finally { globalThis.fetch = originalFetch; globalThis.caches = originalCaches; }
@@ -178,7 +179,8 @@ test('상단 독립 코칭 화면은 외부 파일·붙여넣기·보관함·재
   assert.match(source, /currentArchiveId/);
   assert.match(source, /document\.fonts\?\.ready\.then\(\(\)=>window\.print\(\)\)/);
   assert.match(source, /@page\{size:A4 portrait/);
-  for (const value of ['pendingJob', 'startCoaching', 'pollCoaching', 'finalizeCoaching', 'background 검증 작업을 시작했습니다', '새로고침 후에도 같은 탭', 'polling']) assert.match(source, new RegExp(value));
+  for (const value of ['pendingJob', 'startCoaching', 'pollCoaching', 'completeProposalCoaching', 'background 검증 작업을 시작했습니다', '새로고침 후에도 같은 탭', 'polling']) assert.match(source, new RegExp(value));
+  assert.doesNotMatch(source, /finalizeCoaching|resultCandidate/);
   assert.match(source, /if \(state\.activeTool === 'coaching' && state\.coaching\.pendingJob && !coachingPollActive\)/);
 });
 
