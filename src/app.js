@@ -16,7 +16,7 @@ const NAVIGATION_KEY = 'ms12_workflow_navigation_v1';
 const NAVIGATION_LIMIT = 10;
 const initial = {
   step: 0, activeTool: 'workflow', project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
-  coaching: { title: '', text: '', validatedText: '', criteriaText: '', officialEvaluationProvided: false, sourceProposalId: '', sourceNoticeKey: '', seriesId: '', currentArchiveId: '', result: null, workItems: [], version: 0 },
+  coaching: { title: '', text: '', validatedText: '', criteriaText: '', officialEvaluationProvided: false, sourceProposalId: '', sourceNoticeKey: '', seriesId: '', currentArchiveId: '', result: null, workItems: [], pendingJob: null, version: 0 },
   analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
@@ -26,6 +26,7 @@ const PROPOSAL_BUSY_MESSAGE = '공고문을 분석하고 완성형 사업계획�
 let busyStartedAt = 0;
 let busyTimer = null;
 let archiveLoaded = false;
+let coachingPollActive = false;
 
 function loadState() {
   try {
@@ -366,7 +367,8 @@ function coachingView() {
     <div class="card"><div class="two-col"><div class="field"><label for="coaching-title">계획서명</label><input id="coaching-title" value="${escapeHtml(coaching.title)}" placeholder="검증할 계획서명"></div><div class="field"><label for="coaching-file">PDF·DOCX·TXT 불러오기</label><input id="coaching-file" type="file" accept=".pdf,.docx,.txt"></div></div>
     <div class="field"><label for="coaching-text">계획서 원문</label><textarea id="coaching-text" class="source-text" placeholder="직원이 작성한 계획서를 붙여넣거나 파일을 업로드하세요.">${escapeHtml(coaching.text)}</textarea></div>
     <div class="field"><label for="coaching-criteria">연결할 공고·신청서·공식 평가기준</label><textarea id="coaching-criteria" class="source-text" placeholder="평가표가 있으면 최우선 기준으로 사용합니다.">${escapeHtml(coaching.criteriaText)}</textarea><label><input id="coaching-official-evaluation" type="checkbox" ${coaching.officialEvaluationProvided ? 'checked' : ''}> 입력 자료에 공식 평가표가 포함되어 있음</label></div>
-    <div class="actions"><div><button class="button secondary" id="coach-current-proposal" ${state.sections.length ? '' : 'disabled'}>현재 계획서 불러오기</button><button class="button secondary" id="coach-list-archive">자료보관함 계획서</button></div><button class="button primary" id="run-coaching">${result ? '수정본 다시 검증' : '검증·코칭 실행'}</button></div></div>
+    <div class="actions"><div><button class="button secondary" id="coach-current-proposal" ${state.sections.length ? '' : 'disabled'}>현재 계획서 불러오기</button><button class="button secondary" id="coach-list-archive">자료보관함 계획서</button></div><button class="button primary" id="run-coaching" ${coaching.pendingJob ? 'disabled' : ''}>${coaching.pendingJob ? '검증 중' : result ? '수정본 다시 검증' : '검증·코칭 실행'}</button></div><small>전체 검증은 OpenAI background mode로 실행됩니다. store=false이지만 polling을 위해 응답 데이터가 약 10분간 일시 저장될 수 있습니다.</small></div>
+    ${coaching.pendingJob ? `<div class="alert warning"><strong>검증 중 · ${escapeHtml(coaching.pendingJob.status || 'queued')}</strong><p>작업 ID ${escapeHtml(coaching.pendingJob.id)} · polling ${Number(coaching.pendingJob.pollCount || 0)}회 · ${Math.max(0, Math.floor((Date.now() - Number(coaching.pendingJob.startedAt || Date.now())) / 1000))}초</p><p>새로고침 후에도 같은 탭에서 작업을 이어 확인합니다.</p></div>` : ''}
     ${state.archiveProposals.length ? `<div class="card"><h3>자료보관함에서 불러오기</h3><div class="requirement-list">${state.archiveProposals.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(archiveStageLabel(item.stage))}</span><strong>${escapeHtml(item.title)}</strong></div><button class="button secondary" data-coach-archive="${escapeHtml(item.id)}">${String(item.stage).startsWith('coaching-v') ? '이 버전으로 돌아가기' : '검증 대상으로 불러오기'}</button></article>`).join('')}</div></div>` : ''}
     ${result ? coachingResultView(result) : ''}`;
 }
@@ -525,6 +527,7 @@ function bind() {
   document.querySelectorAll('[data-coaching-apply]').forEach(el => el.onclick = () => applyCoachingRevision(Number(el.dataset.coachingApply)));
   document.querySelectorAll('[data-coaching-undo]').forEach(el => el.onclick = () => undoCoachingRevision(Number(el.dataset.coachingUndo)));
   document.querySelector('#print-coaching-report')?.addEventListener('click', printCoachingReport);
+  if (state.activeTool === 'coaching' && state.coaching.pendingJob && !coachingPollActive) setTimeout(() => pollProposalCoaching(), 250);
 }
 
 async function loadCoachingFile(event) {
@@ -574,19 +577,66 @@ async function loadArchivedProposalForCoaching(id) {
 
 async function runProposalCoaching() {
   if (state.coaching.text.trim().length < 30) return setState({ error: '검증할 계획서 내용을 30자 이상 입력해 주세요.' });
-  setState({ busy: '계획서 전체 구조와 문제 항목을 검증하는 중...', error: '', notice: '' });
+  if (state.coaching.pendingJob) return;
+  setState({ busy: '계획서 전체 검증 작업을 시작하는 중...', error: '', notice: '' });
   try {
-    const response = await fetch('/api/proposal-coaching', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: state.coaching.title, proposalText: state.coaching.text, criteriaText: state.coaching.criteriaText, officialEvaluationProvided: state.coaching.officialEvaluationProvided, previousVersion: state.coaching.version || 0, previousResult: state.coaching.result }) });
+    const response = await coachingRequest({ action: 'startCoaching', ...coachingPayload() });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(result.error || `검증·코칭 요청 실패 (${response.status})`);
+    if (!response.ok) throw new Error(coachingFailureMessage(result, response.status));
+    state.coaching.pendingJob = { id: result.jobId, status: result.status || 'queued', pollCount: 0, startedAt: Date.now(), diagnostic: result.diagnostic || null };
+    setState({ busy: '', coaching: state.coaching, notice: 'background 검증 작업을 시작했습니다.' });
+    void pollProposalCoaching();
+  } catch (error) { setState({ busy: '', error: error.message }); }
+}
+
+function coachingPayload() {
+  return { title: state.coaching.title, proposalText: state.coaching.text, criteriaText: state.coaching.criteriaText, officialEvaluationProvided: state.coaching.officialEvaluationProvided, previousVersion: state.coaching.version || 0, previousResult: state.coaching.result };
+}
+
+function coachingRequest(body) {
+  return fetch('/api/proposal-coaching', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Archive-Key': getArchiveRecoveryKey() }, body: JSON.stringify(body) });
+}
+
+async function pollProposalCoaching() {
+  if (coachingPollActive || !state.coaching.pendingJob) return;
+  coachingPollActive = true;
+  const jobId = state.coaching.pendingJob.id;
+  try {
+    const response = await coachingRequest({ action: 'pollCoaching', jobId });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(coachingFailureMessage(result, response.status));
+    if (!state.coaching.pendingJob || state.coaching.pendingJob.id !== jobId) return;
+    state.coaching.pendingJob = { ...state.coaching.pendingJob, status: result.status, pollCount: Number(state.coaching.pendingJob.pollCount || 0) + 1, diagnostic: result.diagnostic || state.coaching.pendingJob.diagnostic };
+    saveState(); render();
+    if (['queued', 'in_progress'].includes(result.status)) setTimeout(() => pollProposalCoaching(), 2500);
+    else if (result.status === 'completed') await finalizeProposalCoaching(jobId);
+  } catch (error) {
+    state.coaching.pendingJob = null;
+    setState({ busy: '', coaching: state.coaching, error: error.message });
+  } finally { coachingPollActive = false; }
+}
+
+async function finalizeProposalCoaching(jobId) {
+  try {
+    const response = await coachingRequest({ action: 'finalizeCoaching', jobId, ...coachingPayload() });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(coachingFailureMessage(result, response.status));
     const version = Number(state.coaching.version || 0) + 1;
     const seriesId = String(state.coaching.seriesId || state.coaching.sourceProposalId || crypto.randomUUID()).slice(0, 60);
-    state.coaching = { ...state.coaching, result, workItems: makeCoachingWorkItems(result), version, seriesId, validatedText: state.coaching.text };
+    state.coaching = { ...state.coaching, result, workItems: makeCoachingWorkItems(result), pendingJob: null, version, seriesId, validatedText: state.coaching.text };
     const id = `${seriesId}-coaching-v${version}`.slice(0, 80);
     state.coaching.currentArchiveId = id;
     await saveArchivedProposal({ id, noticeKey: state.coaching.sourceNoticeKey, title: `${state.coaching.title || '외부 계획서'} · 코칭 v${version}`, stage: `coaching-v${version}`, snapshot: { coaching: structuredClone(state.coaching), parentProposalId: state.coaching.sourceProposalId || '', coachingSeriesId: seriesId } });
     setState({ busy: '', coaching: state.coaching, notice: `검증·코칭 v${version} 결과를 자료보관함에 저장했습니다.` });
-  } catch (error) { setState({ busy: '', error: error.message }); }
+  } catch (error) {
+    state.coaching.pendingJob = null;
+    setState({ busy: '', coaching: state.coaching, error: error.message });
+  }
+}
+
+function coachingFailureMessage(result, httpStatus) {
+  const diagnostic = result.diagnostic || {};
+  return `${result.error || '검증·코칭 요청 실패'} · 단계 ${result.failureStage || (httpStatus === 524 ? 'proxy/timeout' : 'unknown')} · HTTP ${httpStatus} · upstream ${diagnostic.upstreamStatus || 0} · ${diagnostic.upstreamErrorType || '-'} / ${diagnostic.upstreamErrorCode || '-'} · request ${diagnostic.upstreamRequestId || '-'} · ${diagnostic.elapsedMs || 0}ms`;
 }
 
 function updateCoachingStatus(index, status) {

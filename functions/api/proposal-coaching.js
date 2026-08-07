@@ -2,50 +2,75 @@ const HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Cont
 const MAX_BYTES = 600_000;
 
 export async function onRequest(context) {
-  if (context.request.method !== 'POST') return json({ error: 'POST 요청만 허용합니다.' }, 405, { Allow: 'POST' });
-  if ((context.request.headers.get('content-type') || '').split(';', 1)[0].trim().toLowerCase() !== 'application/json') return json({ error: 'Content-Type은 application/json이어야 합니다.' }, 415);
-  if (!context.env.OPENAI_API_KEY || !context.env.OPENAI_MODEL) return json({ error: '계획서 검증·코칭 AI 환경변수가 준비되지 않았습니다.' }, 503);
+  const baseDiagnostic = safeDiagnostic(context.env.OPENAI_MODEL, 0, '', '', '', 0);
+  if (context.request.method !== 'POST') return json({ error: 'POST 요청만 허용합니다.', failureStage: 'application-validation', diagnostic: baseDiagnostic }, 405, { Allow: 'POST' });
+  if ((context.request.headers.get('content-type') || '').split(';', 1)[0].trim().toLowerCase() !== 'application/json') return failure('application-validation', 'Content-Type은 application/json이어야 합니다.', 415, baseDiagnostic);
+  if (!context.env.OPENAI_API_KEY || !context.env.OPENAI_MODEL) return failure('application-validation', '계획서 검증·코칭 AI 환경변수가 준비되지 않았습니다.', 503, baseDiagnostic);
   const raw = await context.request.text();
-  if (new TextEncoder().encode(raw).byteLength > MAX_BYTES) return json({ error: '검증 자료가 허용 크기를 초과했습니다.' }, 413);
+  if (new TextEncoder().encode(raw).byteLength > MAX_BYTES) return failure('application-validation', '검증 자료가 허용 크기를 초과했습니다.', 413, baseDiagnostic);
   let payload;
-  try { payload = JSON.parse(raw); } catch { return json({ error: '요청 JSON 형식이 올바르지 않습니다.' }, 400); }
+  try { payload = JSON.parse(raw); } catch { return failure('parse', '요청 JSON 형식이 올바르지 않습니다.', 400, baseDiagnostic); }
   if (payload.action === 'probe') {
     const probeToken = context.request.headers.get('x-openai-probe-token') || '';
     if (!context.env.OPENAI_PROBE_TOKEN || !constantTimeEqual(probeToken, context.env.OPENAI_PROBE_TOKEN)) return json({ error: 'Not found' }, 404);
     return runProbe(context.env);
   }
-  if (typeof payload.proposalText !== 'string' || payload.proposalText.trim().length < 30) return json({ error: '검증할 계획서 원문이 필요합니다.' }, 400);
+  if (payload.action === 'pollCoaching') return pollCoaching(context.env, context.request, payload);
+  if (payload.action === 'finalizeCoaching') return finalizeCoaching(context.env, context.request, payload);
+  if (typeof payload.proposalText !== 'string' || payload.proposalText.trim().length < 30) return failure('application-validation', '검증할 계획서 원문이 필요합니다.', 400, safeDiagnostic(context.env.OPENAI_MODEL, 0, '', '', '', 0));
   if (payload.action === 'reviseIssue') {
     const limited = await enforceIssueRevisionLimit(context.request);
     if (limited) return limited;
     return runIssueRevision(context.env, payload);
   }
+  return startCoaching(context.env, context.request, payload);
+}
 
-  try {
-    const upstream = await requestOpenAI(context.env, { policy: COACHING_POLICY, input: `<COACHING_INPUT>${JSON.stringify(payload)}</COACHING_INPUT>`, schema: COACHING_SCHEMA, schemaName: 'proposal_validation_coaching', maxOutputTokens: 12_000, reasoningEffort: 'medium' });
-    if (!upstream.ok) return diagnosticErrorResponse(upstream, '계획서 검증·코칭');
-    const { data } = upstream;
-    const output = typeof data.output_text === 'string' ? data.output_text : (data.output || []).flatMap(item => item.content || []).filter(item => item.type === 'output_text').map(item => item.text).join('');
-    let result;
-    try { result = JSON.parse(output); } catch { return json({ error: '검증·코칭 결과 JSON을 해석하지 못했습니다.', diagnostic: upstream.diagnostic }, 502); }
-    const error = validateCoachingResult(result, payload.officialEvaluationProvided === true, Number(payload.previousVersion || 0), payload);
-    return error ? json({ error, diagnostic: upstream.diagnostic }, 502) : json({ ...result, diagnostic: upstream.diagnostic });
-  } catch (error) {
-    const diagnostic = safeDiagnostic(context.env.OPENAI_MODEL, 0, error?.name || 'network_error', error?.code || '', '', 0);
-    console.error('openai_coaching_failure', diagnostic);
-    return json({ error: error?.name === 'AbortError' ? '계획서 검증·코칭 시간이 초과되었습니다.' : '계획서 검증·코칭 서비스에 연결하지 못했습니다.', diagnostic }, error?.name === 'AbortError' ? 504 : 502);
-  }
+async function startCoaching(env, request, payload) {
+  const access = await coachingJobAccess(request);
+  if (access.response) return access.response;
+  const upstream = await requestOpenAI(env, { policy: COACHING_POLICY, input: `<COACHING_INPUT>${JSON.stringify(payload)}</COACHING_INPUT>`, schema: COACHING_SCHEMA, schemaName: 'proposal_validation_coaching', maxOutputTokens: 12_000, reasoningEffort: 'medium', background: true });
+  if (!upstream.ok) return diagnosticErrorResponse(upstream, '계획서 검증·코칭 시작');
+  const jobId = String(upstream.data?.id || '');
+  if (!/^resp_[a-zA-Z0-9_-]+$/.test(jobId)) return failure('application-validation', 'OpenAI background 작업 ID를 받지 못했습니다.', 502, upstream.diagnostic);
+  await rememberCoachingJob(access.archiveKey, jobId, Date.now());
+  return json({ jobId, status: upstream.data.status || 'queued', failureStage: '', diagnostic: upstream.diagnostic });
+}
+
+async function pollCoaching(env, request, payload) {
+  const access = await coachingJobAccess(request, payload.jobId);
+  if (access.response) return access.response;
+  const upstream = await retrieveOpenAI(env, payload.jobId);
+  if (!upstream.ok) return diagnosticErrorResponse(upstream, '계획서 검증·코칭 상태 조회');
+  const status = String(upstream.data?.status || '');
+  if (!['queued', 'in_progress', 'completed', 'failed', 'cancelled', 'incomplete'].includes(status)) return failure('application-validation', '알 수 없는 background 작업 상태입니다.', 502, upstream.diagnostic);
+  if (['failed', 'cancelled', 'incomplete'].includes(status)) return failure('openai-upstream', `OpenAI background 작업이 ${status} 상태로 종료되었습니다.`, 502, diagnosticFromResponse(env.OPENAI_MODEL, upstream, upstream.data?.error));
+  return json({ jobId: payload.jobId, status, failureStage: '', diagnostic: upstream.diagnostic });
+}
+
+async function finalizeCoaching(env, request, payload) {
+  const access = await coachingJobAccess(request, payload.jobId);
+  if (access.response) return access.response;
+  if (typeof payload.proposalText !== 'string' || payload.proposalText.trim().length < 30) return failure('application-validation', '검증 결과 확인에 필요한 계획서 원문이 없습니다.', 400, safeDiagnostic(env.OPENAI_MODEL, 0, '', '', '', 0));
+  const upstream = await retrieveOpenAI(env, payload.jobId);
+  if (!upstream.ok) return diagnosticErrorResponse(upstream, '계획서 검증·코칭 결과 조회');
+  if (upstream.data?.status !== 'completed') return failure('application-validation', `완료되지 않은 작업입니다 (${upstream.data?.status || 'unknown'}).`, 409, upstream.diagnostic);
+  const output = outputText(upstream.data);
+  let result;
+  try { result = JSON.parse(output); } catch { return failure('parse', '검증·코칭 결과 JSON을 해석하지 못했습니다.', 502, upstream.diagnostic); }
+  const validation = validateCoachingResultDetailed(result, payload.officialEvaluationProvided === true, Number(payload.previousVersion || 0), payload);
+  return validation.error ? failure(validation.stage, validation.error, 502, upstream.diagnostic) : json({ ...result, failureStage: '', diagnostic: upstream.diagnostic });
 }
 
 async function enforceIssueRevisionLimit(request) {
   const archiveKey = request.headers.get('x-archive-key') || '';
-  if (!/^[a-f0-9-]{32,64}$/i.test(archiveKey)) return json({ error: '자료보관함 식별키가 필요한 요청입니다.' }, 401);
-  if (!globalThis.caches?.default) return json({ error: '문제별 AI 호출 제한을 확인할 수 없습니다.' }, 503);
+  if (!/^[a-f0-9-]{32,64}$/i.test(archiveKey)) return failure('application-validation', '자료보관함 식별키가 필요한 요청입니다.', 401, safeDiagnostic('', 0, '', '', '', 0));
+  if (!globalThis.caches?.default) return failure('application-validation', '문제별 AI 호출 제한을 확인할 수 없습니다.', 503, safeDiagnostic('', 0, '', '', '', 0));
   const clientAddress = request.headers.get('cf-connecting-ip') || 'local';
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${archiveKey}:${clientAddress}`));
   const key = [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join('');
   const cacheRequest = new Request(`https://proposal-coaching-rate.invalid/${key}`);
-  if (await globalThis.caches.default.match(cacheRequest)) return json({ error: '문제별 AI 수정안은 60초 후 다시 요청할 수 있습니다.' }, 429, { 'Retry-After': '60' });
+  if (await globalThis.caches.default.match(cacheRequest)) return json({ error: '문제별 AI 수정안은 60초 후 다시 요청할 수 있습니다.', failureStage: 'application-validation', diagnostic: safeDiagnostic('', 0, '', '', '', 0) }, 429, { 'Retry-After': '60' });
   await globalThis.caches.default.put(cacheRequest, new Response('1', { headers: { 'Cache-Control': 'max-age=60' } }));
   return null;
 }
@@ -57,13 +82,13 @@ async function runIssueRevision(env, payload) {
     if (!upstream.ok) return diagnosticErrorResponse(upstream, '문제별 AI 수정안');
     const output = typeof upstream.data.output_text === 'string' ? upstream.data.output_text : (upstream.data.output || []).flatMap(item => item.content || []).filter(item => item.type === 'output_text').map(item => item.text).join('');
     let result;
-    try { result = JSON.parse(output); } catch { return json({ error: '문제별 수정안 JSON을 해석하지 못했습니다.', diagnostic: upstream.diagnostic }, 502); }
+    try { result = JSON.parse(output); } catch { return failure('parse', '문제별 수정안 JSON을 해석하지 못했습니다.', 502, upstream.diagnostic); }
     const error = validateIssueRevision(result, payload.proposalText);
-    return error ? json({ error, diagnostic: upstream.diagnostic }, 502) : json({ ...result, diagnostic: upstream.diagnostic });
+    return error ? failure(error.includes('근거') ? 'evidence-validation' : 'application-validation', error, 502, upstream.diagnostic) : json({ ...result, failureStage: '', diagnostic: upstream.diagnostic });
   } catch (error) {
     const diagnostic = safeDiagnostic(env.OPENAI_MODEL, 0, error?.name || 'network_error', error?.code || '', '', 0);
     console.error('openai_issue_revision_failure', diagnostic);
-    return json({ error: error?.name === 'AbortError' ? '문제별 수정안 생성 시간이 초과되었습니다.' : '문제별 수정안 서비스에 연결하지 못했습니다.', diagnostic }, error?.name === 'AbortError' ? 504 : 502);
+    return failure(error?.name === 'AbortError' ? 'proxy/timeout' : 'transport', error?.name === 'AbortError' ? '문제별 수정안 생성 시간이 초과되었습니다.' : '문제별 수정안 서비스에 연결하지 못했습니다.', error?.name === 'AbortError' ? 504 : 502, diagnostic);
   }
 }
 
@@ -79,28 +104,70 @@ async function runProbe(env) {
   return json({ ok: true, strictJsonSchema: true, diagnostic: upstream.diagnostic });
 }
 
-async function requestOpenAI(env, { policy, input, schema, schemaName, maxOutputTokens, reasoningEffort }) {
+async function requestOpenAI(env, { policy, input, schema, schemaName, maxOutputTokens, reasoningEffort, background = false }) {
   const startedAt = Date.now();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 300_000);
   try {
-    const response = await fetch('https://api.openai.com/v1/responses', { method: 'POST', signal: controller.signal, headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: env.OPENAI_MODEL, store: false, reasoning: { effort: reasoningEffort }, max_output_tokens: maxOutputTokens, input: [{ role: 'developer', content: [{ type: 'input_text', text: policy }] }, { role: 'user', content: [{ type: 'input_text', text: input }] }], text: { verbosity: 'medium', format: { type: 'json_schema', name: schemaName, strict: true, schema } } }) });
+    // background=true requires OpenAI to retain response data temporarily for polling (about 10 minutes), even with store=false.
+    const response = await fetch('https://api.openai.com/v1/responses', { method: 'POST', signal: controller.signal, headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: env.OPENAI_MODEL, store: false, ...(background ? { background: true } : {}), reasoning: { effort: reasoningEffort }, max_output_tokens: maxOutputTokens, input: [{ role: 'developer', content: [{ type: 'input_text', text: policy }] }, { role: 'user', content: [{ type: 'input_text', text: input }] }], text: { verbosity: 'medium', format: { type: 'json_schema', name: schemaName, strict: true, schema } } }) });
     const data = await response.json().catch(() => ({}));
     const diagnostic = safeDiagnostic(env.OPENAI_MODEL, response.status, data?.error?.type || '', data?.error?.code || '', response.headers.get('x-request-id') || '', Date.now() - startedAt);
     if (!response.ok) console.error('openai_upstream_failure', diagnostic);
-    return { ok: response.ok, status: response.status, data, diagnostic };
+    return { ok: response.ok, status: response.status, data, diagnostic, failureStage: response.ok ? '' : 'openai-upstream' };
   } catch (error) {
     const diagnostic = safeDiagnostic(env.OPENAI_MODEL, 0, error?.name || 'network_error', error?.code || '', '', Date.now() - startedAt);
     console.error('openai_transport_failure', diagnostic);
-    return { ok: false, status: error?.name === 'AbortError' ? 504 : 502, data: {}, diagnostic };
+    return { ok: false, status: error?.name === 'AbortError' ? 504 : 502, data: {}, diagnostic, failureStage: error?.name === 'AbortError' ? 'proxy/timeout' : 'transport' };
   } finally { clearTimeout(timeout); }
+}
+
+async function retrieveOpenAI(env, jobId) {
+  const startedAt = Date.now();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 25_000);
+  try {
+    const response = await fetch(`https://api.openai.com/v1/responses/${encodeURIComponent(jobId)}`, { method: 'GET', signal: controller.signal, headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` } });
+    const data = await response.json().catch(() => ({}));
+    const diagnostic = safeDiagnostic(env.OPENAI_MODEL, response.status, data?.error?.type || '', data?.error?.code || '', response.headers.get('x-request-id') || '', Date.now() - startedAt);
+    return { ok: response.ok, status: response.status, data, diagnostic, failureStage: response.ok ? '' : 'openai-upstream' };
+  } catch (error) {
+    const diagnostic = safeDiagnostic(env.OPENAI_MODEL, 0, error?.name || 'network_error', error?.code || '', '', Date.now() - startedAt);
+    return { ok: false, status: error?.name === 'AbortError' ? 504 : 502, data: {}, diagnostic, failureStage: error?.name === 'AbortError' ? 'proxy/timeout' : 'transport' };
+  } finally { clearTimeout(timeout); }
+}
+
+function outputText(data) { return typeof data?.output_text === 'string' ? data.output_text : (data?.output || []).flatMap(item => item.content || []).filter(item => item.type === 'output_text').map(item => item.text).join(''); }
+
+async function coachingJobAccess(request, jobId = '') {
+  const archiveKey = request.headers.get('x-archive-key') || '';
+  const diagnostic = safeDiagnostic('', 0, '', '', '', 0);
+  if (!/^[a-f0-9-]{32,64}$/i.test(archiveKey)) return { response: failure('application-validation', '자료보관함 식별키가 필요한 요청입니다.', 401, diagnostic) };
+  if (!globalThis.caches?.default) return { response: failure('application-validation', 'background 작업 상태 저장소를 사용할 수 없습니다.', 503, diagnostic) };
+  if (jobId) {
+    if (!/^resp_[a-zA-Z0-9_-]+$/.test(jobId)) return { response: failure('application-validation', 'background 작업 ID가 올바르지 않습니다.', 400, diagnostic) };
+    const marker = await globalThis.caches.default.match(await coachingJobRequest(archiveKey, jobId));
+    if (!marker) return { response: failure('application-validation', '이 브라우저에서 시작한 background 작업을 찾지 못했습니다.', 404, diagnostic) };
+  }
+  return { archiveKey };
+}
+
+async function coachingJobRequest(archiveKey, jobId) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${archiveKey}:${jobId}`));
+  return new Request(`https://proposal-coaching-job.invalid/${[...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join('')}`);
+}
+
+async function rememberCoachingJob(archiveKey, jobId, startedAt) {
+  await globalThis.caches.default.put(await coachingJobRequest(archiveKey, jobId), new Response(JSON.stringify({ startedAt }), { headers: { 'Cache-Control': 'max-age=600', 'Content-Type': 'application/json' } }));
 }
 
 function diagnosticErrorResponse(upstream, label) {
   const message = normalizeOpenAIError(upstream.data, upstream.status, label);
   const status = upstream.status >= 400 && upstream.status <= 599 ? upstream.status : 502;
-  return json({ error: message, diagnostic: upstream.diagnostic }, status);
+  return failure(upstream.failureStage || 'openai-upstream', message, status, upstream.diagnostic);
 }
+function failure(stage, error, status, diagnostic) { return json({ error, failureStage: stage, diagnostic }, status); }
+function diagnosticFromResponse(model, upstream, error) { return safeDiagnostic(model, upstream.status, error?.type || '', error?.code || '', upstream.diagnostic?.upstreamRequestId || '', upstream.diagnostic?.elapsedMs || 0); }
 function normalizeOpenAIError(raw, status, label) {
   if (status === 401) return `${label}: OpenAI API 키가 유효하지 않습니다.`;
   if (status === 429) return `${label}: OpenAI 사용 한도 또는 요청 속도를 초과했습니다.`;
@@ -163,28 +230,33 @@ export function validateIssueRevision(result, proposalText) {
 }
 
 export function validateCoachingResult(result, officialEvaluationProvided = false, previousVersion = 0, payload = {}) {
-  if (!result || !['official-evaluation', 'common-criteria'].includes(result.basis) || !Array.isArray(result.checkedAreas) || !Array.isArray(result.evaluationMatrix) || !Array.isArray(result.issues) || !Array.isArray(result.finalChecks) || !result.comparison) return '검증·코칭 결과 필수 필드가 올바르지 않습니다.';
-  if (officialEvaluationProvided && result.basis !== 'official-evaluation') return '공식 평가표가 최우선 검증 기준으로 적용되지 않았습니다.';
-  if (officialEvaluationProvided && !result.evaluationMatrix.length) return '공식 평가표 대응표가 누락되었습니다.';
-  if (result.evaluationMatrix.some(value => !value.criterion || !value.requirement || !Array.isArray(value.proposalLocations) || !['충족', '부분충족', '미충족', '확인필요'].includes(value.status))) return '평가기준 대응표 필드가 올바르지 않습니다.';
-  if (Number(result.comparison.previousVersion) !== previousVersion || !['resolvedIssues', 'remainingIssues', 'newIssues', 'improvedAreas'].every(key => Array.isArray(result.comparison[key]))) return '이전 버전 비교 결과가 올바르지 않습니다.';
-  if (result.issues.some(value => !value.location || !value.reason || !value.direction || !value.example || !Array.isArray(value.evidenceRefs))) return '문제별 코칭 필드가 올바르지 않습니다.';
+  return validateCoachingResultDetailed(result, officialEvaluationProvided, previousVersion, payload).error;
+}
+
+export function validateCoachingResultDetailed(result, officialEvaluationProvided = false, previousVersion = 0, payload = {}) {
+  const invalid = (stage, error) => ({ stage, error });
+  if (!result || !['official-evaluation', 'common-criteria'].includes(result.basis) || !Array.isArray(result.checkedAreas) || !Array.isArray(result.evaluationMatrix) || !Array.isArray(result.issues) || !Array.isArray(result.finalChecks) || !result.comparison) return invalid('schema-validation', '검증·코칭 결과 필수 필드가 올바르지 않습니다.');
+  if (officialEvaluationProvided && result.basis !== 'official-evaluation') return invalid('application-validation', '공식 평가표가 최우선 검증 기준으로 적용되지 않았습니다.');
+  if (officialEvaluationProvided && !result.evaluationMatrix.length) return invalid('application-validation', '공식 평가표 대응표가 누락되었습니다.');
+  if (result.evaluationMatrix.some(value => !value.criterion || !value.requirement || !Array.isArray(value.proposalLocations) || !['충족', '부분충족', '미충족', '확인필요'].includes(value.status))) return invalid('schema-validation', '평가기준 대응표 필드가 올바르지 않습니다.');
+  if (Number(result.comparison.previousVersion) !== previousVersion || !['resolvedIssues', 'remainingIssues', 'newIssues', 'improvedAreas'].every(key => Array.isArray(result.comparison[key]))) return invalid('application-validation', '이전 버전 비교 결과가 올바르지 않습니다.');
+  if (result.issues.some(value => !value.location || !value.reason || !value.direction || !value.example || !Array.isArray(value.evidenceRefs))) return invalid('schema-validation', '문제별 코칭 필드가 올바르지 않습니다.');
   const requiredChecks = ['자격', '필수 신청항목', '사업기간', '대상·인원', '회기', '예산 합계·예산규정', '성과목표·지표', '기관·협력 역할', '공식 평가항목 누락'];
-  if (result.finalChecks.length !== requiredChecks.length || requiredChecks.some(area => result.finalChecks.filter(item => item.area === area).length !== 1)) return '제출 전 필수 교차점검 항목이 올바르지 않습니다.';
+  if (result.finalChecks.length !== requiredChecks.length || requiredChecks.some(area => result.finalChecks.filter(item => item.area === area).length !== 1)) return invalid('schema-validation', '제출 전 필수 교차점검 항목이 올바르지 않습니다.');
   const allJudgements = [...result.evaluationMatrix, ...result.issues, ...result.finalChecks];
   const sourceText = `${payload.proposalText || ''}\n${payload.criteriaText || ''}`;
   for (const judgement of allJudgements) {
-    if (!Array.isArray(judgement.evidenceRefs)) return '근거 추적 정보가 누락되었습니다.';
+    if (!Array.isArray(judgement.evidenceRefs)) return invalid('schema-validation', '근거 추적 정보가 누락되었습니다.');
     const verified = judgement.evidenceRefs.filter(ref => ref?.verified);
-    if (verified.some(ref => !ref.excerpt || !sourceText.includes(ref.excerpt) || (ref.sourceName && !sourceText.includes(ref.sourceName) && ref.sourceName !== '계획서 원문') || (ref.pageOrSection && !sourceText.includes(ref.pageOrSection)) || (ref.proposalLocation && !sourceText.includes(ref.proposalLocation)))) return '입력 원문에서 확인되지 않는 근거가 포함되었습니다.';
-    if (!verified.length && ((judgement.status && !['확인필요'].includes(judgement.status)) || (judgement.priority && !judgement.requiresConfirmation))) return '근거를 찾지 못한 판단은 확인 필요로 표시해야 합니다.';
+    if (verified.some(ref => !ref.excerpt || !sourceText.includes(ref.excerpt) || (ref.sourceName && !sourceText.includes(ref.sourceName) && ref.sourceName !== '계획서 원문') || (ref.pageOrSection && !sourceText.includes(ref.pageOrSection)) || (ref.proposalLocation && !sourceText.includes(ref.proposalLocation)))) return invalid('evidence-validation', '입력 원문에서 확인되지 않는 근거가 포함되었습니다.');
+    if (!verified.length && ((judgement.status && !['확인필요'].includes(judgement.status)) || (judgement.priority && !judgement.requiresConfirmation))) return invalid('evidence-validation', '근거를 찾지 못한 판단은 확인 필요로 표시해야 합니다.');
   }
   const critical = new Set(['submission', 'eligibility', 'required-item', 'budget-rule', 'core-conflict']);
-  if (result.issues.some(value => critical.has(value.riskType) && value.priority !== '최우선 경고')) return '제출·자격·필수항목·예산·핵심 수치 위험은 최우선 경고여야 합니다.';
-  if (result.issues.some(value => value.riskType === 'competition' && value.priority !== '주요 개선')) return '선정 경쟁력 위험은 주요 개선으로 분류해야 합니다.';
-  if (result.issues.some(value => value.riskType === 'expression' && value.priority !== '일반 개선')) return '표현 문제는 일반 개선으로 분류해야 합니다.';
-  if (result.issues.some(value => !value.evidenceRefs.length && (!value.requiresConfirmation || !value.example.includes('[확인 필요')))) return '근거 없는 수정 예시는 확인 필요 상태로 남겨야 합니다.';
-  return '';
+  if (result.issues.some(value => critical.has(value.riskType) && value.priority !== '최우선 경고')) return invalid('application-validation', '제출·자격·필수항목·예산·핵심 수치 위험은 최우선 경고여야 합니다.');
+  if (result.issues.some(value => value.riskType === 'competition' && value.priority !== '주요 개선')) return invalid('application-validation', '선정 경쟁력 위험은 주요 개선으로 분류해야 합니다.');
+  if (result.issues.some(value => value.riskType === 'expression' && value.priority !== '일반 개선')) return invalid('application-validation', '표현 문제는 일반 개선으로 분류해야 합니다.');
+  if (result.issues.some(value => !value.evidenceRefs.length && (!value.requiresConfirmation || !value.example.includes('[확인 필요')))) return invalid('evidence-validation', '근거 없는 수정 예시는 확인 필요 상태로 남겨야 합니다.');
+  return { stage: '', error: '' };
 }
 
 function json(body, status = 200, extra = {}) { return new Response(JSON.stringify(body), { status, headers: { ...HEADERS, ...extra } }); }

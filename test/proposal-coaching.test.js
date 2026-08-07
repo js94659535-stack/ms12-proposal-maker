@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { onRequest, validateCoachingResult, validateIssueRevision } from '../functions/api/proposal-coaching.js';
+import { onRequest, validateCoachingResult, validateCoachingResultDetailed, validateIssueRevision } from '../functions/api/proposal-coaching.js';
 import { COACHING_QA_CASES, COACHING_QA_CRITERIA } from './fixtures/coaching-qa.js';
 
 function fixture() {
@@ -72,18 +72,37 @@ test('코칭 결과는 문제 위치·이유·방향·예시와 근거 안전장
   assert.equal(validateCoachingResult({ ...fixture(), comparison: { ...fixture().comparison, previousVersion: 1 } }, true, 1, payload), '');
   const invented = structuredClone(fixture()); invented.evaluationMatrix[0].evidenceRefs[0].excerpt = '존재하지 않는 규정 99페이지';
   assert.match(validateCoachingResult(invented, false, 0, payload), /확인되지 않는 근거/);
+  assert.equal(validateCoachingResultDetailed(invented, false, 0, payload).stage, 'evidence-validation');
+  assert.equal(validateCoachingResultDetailed({ ...fixture(), finalChecks: null }, false, 0, payload).stage, 'schema-validation');
+  assert.equal(validateCoachingResultDetailed({ ...fixture(), basis: 'common-criteria' }, true, 0, payload).stage, 'application-validation');
 });
 
-test('공식 평가표를 우선하는 구조화 코칭 결과를 한 번의 요청으로 반환한다', async () => {
+test('전체 코칭은 OpenAI background 생성 한 번과 짧은 polling·완료 검증으로 반환한다', async () => {
   const originalFetch = globalThis.fetch;
-  let calls = 0;
-  globalThis.fetch = async () => { calls += 1; return new Response(JSON.stringify({ output_text: JSON.stringify(fixture()) }), { headers: { 'Content-Type': 'application/json' } }); };
+  const originalCaches = globalThis.caches;
+  let generationCalls = 0;
+  let retrievalCalls = 0;
+  const cacheValues = new Map();
+  globalThis.caches = { default: { match: async request => cacheValues.get(request.url), put: async (request, response) => cacheValues.set(request.url, response) } };
+  globalThis.fetch = async (url, options) => {
+    if (options.method === 'POST') { generationCalls += 1; return new Response(JSON.stringify({ id: 'resp_background_test', status: 'queued' }), { status: 200, headers: { 'Content-Type': 'application/json', 'x-request-id': 'req_start' } }); }
+    retrievalCalls += 1;
+    return new Response(JSON.stringify({ id: 'resp_background_test', status: 'completed', output_text: JSON.stringify(fixture()) }), { status: 200, headers: { 'Content-Type': 'application/json', 'x-request-id': `req_poll_${retrievalCalls}` } });
+  };
   try {
-    const response = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ proposalText: '사업 필요성에서 검증할 사업계획서 본문입니다. 대상과 프로그램과 성과를 충분히 기술한 원문입니다.', criteriaText: '공식 평가표는 필요성과 실행계획을 평가합니다.', officialEvaluationProvided: true }) }) });
-    assert.equal(response.status, 200);
-    assert.equal(calls, 1);
-    assert.equal((await response.json()).basis, 'official-evaluation');
-  } finally { globalThis.fetch = originalFetch; }
+    const headers = { 'Content-Type': 'application/json', 'X-Archive-Key': '12345678-1234-1234-1234-123456789abc' };
+    const payload = { proposalText: '사업 필요성에서 검증할 사업계획서 본문입니다. 대상과 프로그램과 성과를 충분히 기술한 원문입니다.', criteriaText: '공식 평가표는 필요성과 실행계획을 평가합니다.', officialEvaluationProvided: true };
+    const start = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers, body: JSON.stringify({ action: 'startCoaching', ...payload }) }) });
+    assert.equal(start.status, 200);
+    assert.equal((await start.json()).jobId, 'resp_background_test');
+    const poll = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers, body: JSON.stringify({ action: 'pollCoaching', jobId: 'resp_background_test' }) }) });
+    assert.equal((await poll.json()).status, 'completed');
+    const complete = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers, body: JSON.stringify({ action: 'finalizeCoaching', jobId: 'resp_background_test', ...payload }) }) });
+    assert.equal(complete.status, 200);
+    assert.equal((await complete.json()).basis, 'official-evaluation');
+    assert.equal(generationCalls, 1);
+    assert.equal(retrievalCalls, 2);
+  } finally { globalThis.fetch = originalFetch; globalThis.caches = originalCaches; }
 });
 
 test('문제별 AI 수정은 선택한 원문 구간만 한 번 호출하고 확정 수치를 보존한다', async () => {
@@ -158,6 +177,8 @@ test('상단 독립 코칭 화면은 외부 파일·붙여넣기·보관함·재
   assert.match(source, /currentArchiveId/);
   assert.match(source, /document\.fonts\?\.ready\.then\(\(\)=>window\.print\(\)\)/);
   assert.match(source, /@page\{size:A4 portrait/);
+  for (const value of ['pendingJob', 'startCoaching', 'pollCoaching', 'finalizeCoaching', 'background 검증 작업을 시작했습니다', '새로고침 후에도 같은 탭', 'polling']) assert.match(source, new RegExp(value));
+  assert.match(source, /if \(state\.activeTool === 'coaching' && state\.coaching\.pendingJob && !coachingPollActive\)/);
 });
 
 test('운영 진단 로그와 응답은 안전한 필드만 사용한다', () => {
@@ -165,6 +186,10 @@ test('운영 진단 로그와 응답은 안전한 필드만 사용한다', () =>
   for (const field of ['configuredModel', 'upstreamStatus', 'upstreamErrorType', 'upstreamErrorCode', 'upstreamRequestId', 'elapsedMs']) assert.match(source, new RegExp(field));
   assert.doesNotMatch(source, /console\.(?:log|info|error)\([^\n]*(?:OPENAI_API_KEY|proposalText|COACHING_INPUT)/);
   assert.match(source, /payload\.action === 'probe'/);
+  for (const stage of ['openai-upstream', 'transport', 'parse', 'schema-validation', 'evidence-validation', 'application-validation', 'proxy/timeout']) assert.match(source, new RegExp(stage.replace('/', '\\/')));
+  assert.match(source, /background: true/);
+  assert.match(source, /\/v1\/responses\/\$\{encodeURIComponent\(jobId\)\}/);
+  assert.match(source, /temporarily for polling \(about 10 minutes\)/);
 });
 
 test('실전 품질 QA A/B/C는 고정 더미 자료이며 일반 보관함 저장 동작을 포함하지 않는다', () => {
@@ -174,6 +199,9 @@ test('실전 품질 QA A/B/C는 고정 더미 자료이며 일반 보관함 저�
   assert.match(COACHING_QA_CASES[2].proposalText, /총사업비 30,000,000원/);
   assert.match(COACHING_QA_CRITERIA, /신청자격|예산 합계|성과목표/);
   assert.doesNotMatch(JSON.stringify(COACHING_QA_CASES), /주민등록|전화번호|이메일|saveProposal|archive/);
+  const qaSource = fs.readFileSync(new URL('../scripts/coaching-qa.mjs', import.meta.url), 'utf8');
+  for (const field of ['httpStatus', 'failureStage', 'configuredModel', 'upstreamStatus', 'upstreamErrorType', 'upstreamErrorCode', 'upstreamRequestId', 'elapsedMs', 'generationCalls', 'pollingCount', 'totalElapsedMs']) assert.match(qaSource, new RegExp(field));
+  assert.doesNotMatch(qaSource, /saveArchivedProposal|\/api\/archive|retry/i);
 });
 
 test('라이브 프로브는 전용 비밀값 없이는 OpenAI를 호출하지 않는다', async () => {
