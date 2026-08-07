@@ -482,7 +482,7 @@ async function loadOfficialNotices() {
   setState({ busy: '중앙회와 광주지회 공고를 불러오는 중...', error: '', notice: '' });
   try {
     const result = await fetchNoticeList();
-    setState({ busy: '', noticeResults: result.notices || [], selectedNoticeIndexes: [], pendingNoticeChoice: null, notice: `공고 ${result.notices?.length || 0}건을 불러왔습니다.` });
+    navigateToStep(1, { busy: '', noticeResults: result.notices || [], selectedNoticeIndexes: [], pendingNoticeChoice: null, notice: `공고 ${result.notices?.length || 0}건을 불러왔습니다.` });
   } catch (error) { setState({ busy: '', error: error.message }); }
 }
 

@@ -97,6 +97,11 @@ test('공모사업 목록은 중앙회와 광주지회 진행 중 공고만 조�
   assert.deepEqual(result.notices.map(item => item.eligibility), ['사회복지기관', '사회복지기관']);
 });
 
+test('공고 가져오기가 성공하면 공고 확인 단계로 자동 이동한다', () => {
+  const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  assert.match(source, /navigateToStep\(1, \{ busy: '', noticeResults: result\.notices \|\| \[\]/);
+});
+
 test('공식 상세 원문만 사용해 300자 이내 핵심 요약을 만든다', () => {
   const summary = buildOfficialSummary({
     applicationPeriod: '2026-08-01 ~ 2026-08-14', performancePeriod: '2027-01-01 ~ 2027-12-31', supportLimit: '기관당 3천만원',
