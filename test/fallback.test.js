@@ -76,17 +76,34 @@ test('모든 계획서는 마스터 설계와 신청서 항목별 분할 생성�
   assert.match(appSource, /draftPartWithAI/);
   assert.match(appSource, /id="assemble-proposal"/);
   assert.match(appSource, /마스터 설계 → 분할 생성 → 완성/);
-  assert.match(apiSource, /페이지 수나 문서 길이로 나누지 않는다/);
-  assert.match(apiSource, /sectionPlan: \{ type: 'array', minItems: 2, maxItems: 5/);
+  assert.match(apiSource, /페이지 수·문서 길이로 나누지 않는다/);
+  assert.match(apiSource, /sectionPlan: \{ type: 'array', minItems: 2, items:/);
+  assert.doesNotMatch(apiSource, /sectionPlan: \{ type: 'array', minItems: 2, maxItems:/);
 });
 
 test('마스터 설계는 10개 호환 항목을 중복 없이 포함하고 분할 결과는 요청 항목과 일치한다', () => {
   const keys = ['necessity', 'purpose', 'goals', 'target', 'programs', 'schedule', 'roles', 'budget', 'indicators', 'outcomes'];
-  const master = { sponsorIntent: { evidence: ['공식 근거'] }, evidenceMap: [{ id: 'e1' }], qualityCheck: { noticeAlignment: true, singleSubprogramOnly: true, logicConsistency: true }, sectionPlan: [{ id: 'a', title: '배경과 목적', sectionKeys: keys.slice(0, 4) }, { id: 'b', title: '수행계획', sectionKeys: keys.slice(4, 8) }, { id: 'c', title: '성과', sectionKeys: keys.slice(8) }] };
+  const masterLogic = { problem: '공식 문제', coreStrategy: '핵심 전략', outputOutcomeMeasurementLinks: [{}], evaluationResponsePlan: [{}], claimEvidencePlan: [{}] };
+  const master = { sponsorIntent: { evidence: ['공식 근거'] }, masterLogic, evidenceMap: [{ id: 'e1' }], qualityCheck: { noticeAlignment: true, singleSubprogramOnly: true, logicConsistency: true }, sectionPlan: [{ id: 'a', title: '배경과 목적', sectionKeys: keys.slice(0, 4) }, { id: 'b', title: '수행계획', sectionKeys: keys.slice(4, 8) }, { id: 'c', title: '성과', sectionKeys: keys.slice(8) }] };
   assert.equal(validateMasterResult(master), '');
   assert.match(validateMasterResult({ ...master, sectionPlan: [{ id: 'a', title: '중복', sectionKeys: [...keys.slice(0, 9), 'necessity'] }, { id: 'b', title: '누락', sectionKeys: ['outcomes'] }] }), /한 번씩/);
   assert.equal(validatePartResult({ sections: [{ id: 'necessity' }, { id: 'purpose' }] }, { sectionKeys: ['necessity', 'purpose'] }), '');
   assert.match(validatePartResult({ sections: [{ id: 'necessity' }] }, { sectionKeys: ['necessity', 'purpose'] }), /일치하지 않습니다/);
+  const variablePlan = keys.map((key, index) => ({ id: `g${index}`, title: key, sectionKeys: [key] }));
+  assert.equal(validateMasterResult({ ...master, sectionPlan: variablePlan }), '');
+});
+
+test('마스터 설계는 문제부터 성과측정까지 논리사슬과 평가·근거 계획을 고정한다', () => {
+  const apiSource = fs.readFileSync(new URL('../functions/api/proposal.js', import.meta.url), 'utf8');
+  const appSource = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  assert.match(apiSource, /outputOutcomeMeasurementLinks/);
+  assert.match(apiSource, /evaluationResponsePlan/);
+  assert.match(apiSource, /claimEvidencePlan/);
+  assert.match(apiSource, /baselineValues/);
+  assert.match(apiSource, /문제→원인→대상→전략→실행→산출→변화→성과측정/);
+  assert.match(apiSource, /\[확인 필요\]/);
+  assert.match(appSource, /마스터 논리사슬과 선정 대응/);
+  assert.match(appSource, /주장별 공식 자료 근거/);
 });
 
 test('자료보관함은 동일 공고를 중복 저장하지 않고 내용이 바뀐 공고만 갱신한다', async () => {

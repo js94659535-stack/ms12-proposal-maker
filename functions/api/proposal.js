@@ -8,7 +8,7 @@ const LIMITS = Object.freeze({
   rewriteInstructionChars: 4_000,
   analysisChars: 300_000,
   timeoutMs: 300_000,
-  outputTokens: Object.freeze({ analyze: 6_000, master: 8_000, draftPart: 6_000, draft: 12_000, rewrite: 4_000 })
+  outputTokens: Object.freeze({ analyze: 6_000, master: 10_000, draftPart: 6_000, draft: 12_000, rewrite: 4_000 })
 });
 
 export async function onRequest(context) {
@@ -120,8 +120,9 @@ function taskSpecification(action, payload) {
   if (action === 'master') return {
     name: 'proposal_master_design', schema: MASTER_SCHEMA,
     prompt: `사업 유형: ${payload.projectType}\n<SELECTED_SUBPROGRAM>${payload.selectedSubprogram || payload.project?.title || ''}</SELECTED_SUBPROGRAM>\n<PROJECT>${JSON.stringify(payload.project)}</PROJECT>\n<CONFIRMED_USER_ANSWERS>${JSON.stringify(payload.userAnswers || {})}</CONFIRMED_USER_ANSWERS>\n<CANDIDATE_ASSETS>${JSON.stringify(payload.organization)}</CANDIDATE_ASSETS>\n<OFFICIAL_NOTICE_TEXT>${payload.sourceText}</OFFICIAL_NOTICE_TEXT>\n<MANUAL_SOURCES>${JSON.stringify(normalizeManualSources(payload.manualSources))}</MANUAL_SOURCES>\n
-아직 계획서 본문을 작성하지 말고 모든 후속 분할 생성이 공통으로 따를 마스터 설계만 확정하라. 선택한 세부사업 하나에 대해 공모기관 의도, 대상·인원, 사업기간, 일정, 예산 구조, 성과지표, 변화경로와 3~5개 프로그램을 일관된 수치와 논리로 설계하라. 공식 자료에 없는 기관 실적·인력·수치는 만들지 말고 필요한 질문은 missingInformation에 최대 5개만 둔다.
-sectionPlan은 실제 공모신청서·사업계획서 서식의 질문과 목차 결합 관계를 우선하여 2~5개 분할 묶음으로 정한다. 페이지 수나 문서 길이로 나누지 않는다. 호환용 10개 sectionKeys(necessity, purpose, goals, target, programs, schedule, roles, budget, indicators, outcomes)를 빠짐없이 정확히 한 번씩 배치하고, 실제 신청서에서 함께 요구하는 항목은 같은 묶음에 둔다. 각 묶음 제목은 공식 신청서의 항목명 또는 그 구조를 명확히 나타내는 한국어로 작성한다.`
+아직 계획서 본문을 작성하지 말고 모든 후속 분할 생성이 공통으로 따를 마스터 설계만 확정하라. 선택한 세부사업 하나에 대해 공모기관 핵심 의도와 선정 포인트, 해결할 문제와 필요성, 대상과 선정 근거, 핵심 전략과 차별성, 세부 프로그램과 실행방법, 대상 인원·기간·회기·역할·예산의 기준값을 먼저 고정하라. 산출물→성과목표→측정지표를 연결하고 평가기준별 대응계획과 각 주장에 사용할 공식 원문 근거를 명시하라.
+masterLogic은 문제→원인→대상→전략→실행→산출→변화→성과측정이 끊기지 않는 하나의 논리사슬이어야 한다. baselineValues에는 이후 모든 분할이 그대로 재사용할 인원·기간·회기·역할·예산 기준값을 둔다. outputOutcomeMeasurementLinks에는 각 산출물과 성과목표·측정지표·측정시기·담당을 연결한다. evaluationResponsePlan에는 평가기준과 대응전략·반영항목·근거를 연결하고 claimEvidencePlan에는 핵심 주장과 공식 자료 근거·위치를 연결한다. 공식 자료에서 확인할 수 없는 내용은 사실처럼 확정하지 말고 해당 값에 [확인 필요]를 표시하며 missingInformation에도 현재 설계에 필요한 질문으로 최대 5개만 둔다.
+sectionPlan은 실제 공모신청서·사업계획서 서식의 질문과 목차 결합 관계를 우선하여 필요한 수만큼 가변적으로 정한다. 2~5개로 고정하거나 페이지 수·문서 길이로 나누지 않는다. 호환용 10개 sectionKeys(necessity, purpose, goals, target, programs, schedule, roles, budget, indicators, outcomes)를 빠짐없이 정확히 한 번씩 배치하고, 실제 신청서에서 함께 요구하는 항목은 같은 묶음에 둔다. 각 묶음 제목은 공식 신청서의 항목명 또는 그 구조를 명확히 나타내는 한국어로 작성한다.`
   };
   if (action === 'draftPart') return {
     name: 'proposal_draft_part', schema: DRAFT_PART_SCHEMA,
@@ -178,6 +179,14 @@ const projectDesign = { type: 'object', additionalProperties: false, properties:
   projectName: { type: 'string' }, oneSentenceStrategy: { type: 'string' }, target: { type: 'string' }, participantCount: { type: 'string' }, projectPeriod: { type: 'string' }, coreIntervention: { type: 'string' },
   changePath: stringArray, programs: { type: 'array', minItems: 3, maxItems: 5, items: program }, roleStructure: stringArray, budgetStructure: stringArray, performanceIndicators: stringArray, risks: stringArray
 }, required: ['projectName', 'oneSentenceStrategy', 'target', 'participantCount', 'projectPeriod', 'coreIntervention', 'changePath', 'programs', 'roleStructure', 'budgetStructure', 'performanceIndicators', 'risks'] };
+const SECTION_KEYS = ['necessity', 'purpose', 'goals', 'target', 'programs', 'schedule', 'roles', 'budget', 'indicators', 'outcomes'];
+const masterLogic = { type: 'object', additionalProperties: false, properties: {
+  sponsorIntentAndSelectionPoints: stringArray, problem: { type: 'string' }, causes: stringArray, targetRationale: { type: 'string' }, coreStrategy: { type: 'string' }, differentiation: { type: 'string' }, executionMethods: stringArray,
+  baselineValues: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { item: { type: 'string' }, value: { type: 'string' }, evidenceId: { type: 'string' } }, required: ['item', 'value', 'evidenceId'] } },
+  outputOutcomeMeasurementLinks: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { output: { type: 'string' }, outcomeGoal: { type: 'string' }, indicator: { type: 'string' }, timing: { type: 'string' }, owner: { type: 'string' } }, required: ['output', 'outcomeGoal', 'indicator', 'timing', 'owner'] } },
+  evaluationResponsePlan: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { criterion: { type: 'string' }, response: { type: 'string' }, sectionKeys: { type: 'array', items: { type: 'string', enum: SECTION_KEYS } }, evidenceIds: stringArray }, required: ['criterion', 'response', 'sectionKeys', 'evidenceIds'] } },
+  claimEvidencePlan: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { claim: { type: 'string' }, evidence: { type: 'string' }, location: { type: 'string' }, evidenceId: { type: 'string' } }, required: ['claim', 'evidence', 'location', 'evidenceId'] } }
+}, required: ['sponsorIntentAndSelectionPoints', 'problem', 'causes', 'targetRationale', 'coreStrategy', 'differentiation', 'executionMethods', 'baselineValues', 'outputOutcomeMeasurementLinks', 'evaluationResponsePlan', 'claimEvidencePlan'] };
 const evidenceItem = { type: 'object', additionalProperties: false, properties: { id: { type: 'string' }, claim: { type: 'string' }, evidence: { type: 'string' }, location: { type: 'string' } }, required: ['id', 'claim', 'evidence', 'location'] };
 const qualityCheck = { type: 'object', additionalProperties: false, properties: {
   noticeAlignment: { type: 'boolean' }, singleSubprogramOnly: { type: 'boolean' }, logicConsistency: { type: 'boolean' }, budgetConsistency: { type: 'boolean' }, measurableOutcomes: { type: 'boolean' }
@@ -186,23 +195,23 @@ const COMPLETE_SCHEMA = { type: 'object', additionalProperties: false, propertie
   sponsorIntent, projectDesign, sections: { type: 'array', minItems: 10, maxItems: 10, items: section },
   missingInformation: { type: 'array', maxItems: 5, items: { type: 'string' } }, evidenceMap: { type: 'array', items: evidenceItem }, qualityCheck
 }, required: ['sponsorIntent', 'projectDesign', 'sections', 'missingInformation', 'evidenceMap', 'qualityCheck'] };
-const SECTION_KEYS = ['necessity', 'purpose', 'goals', 'target', 'programs', 'schedule', 'roles', 'budget', 'indicators', 'outcomes'];
 const sectionPlanItem = { type: 'object', additionalProperties: false, properties: {
   id: { type: 'string' }, title: { type: 'string' }, sectionKeys: { type: 'array', minItems: 1, items: { type: 'string', enum: SECTION_KEYS } }
 }, required: ['id', 'title', 'sectionKeys'] };
 const MASTER_SCHEMA = { type: 'object', additionalProperties: false, properties: {
-  sponsorIntent, projectDesign, sectionPlan: { type: 'array', minItems: 2, maxItems: 5, items: sectionPlanItem },
+  sponsorIntent, projectDesign, masterLogic, sectionPlan: { type: 'array', minItems: 2, items: sectionPlanItem },
   missingInformation: { type: 'array', maxItems: 5, items: { type: 'string' } }, evidenceMap: { type: 'array', items: evidenceItem }, qualityCheck
-}, required: ['sponsorIntent', 'projectDesign', 'sectionPlan', 'missingInformation', 'evidenceMap', 'qualityCheck'] };
+}, required: ['sponsorIntent', 'projectDesign', 'masterLogic', 'sectionPlan', 'missingInformation', 'evidenceMap', 'qualityCheck'] };
 const DRAFT_PART_SCHEMA = { type: 'object', additionalProperties: false, properties: { sections: { type: 'array', minItems: 1, items: section } }, required: ['sections'] };
 const REWRITE_SCHEMA = { type: 'object', additionalProperties: false, properties: { section }, required: ['section'] };
 
 export function validateMasterResult(result) {
   const groups = result?.sectionPlan;
-  if (!Array.isArray(groups) || groups.length < 2 || groups.length > 5) return '마스터 설계의 신청서 항목 분할은 2~5개여야 합니다.';
+  if (!Array.isArray(groups) || groups.length < 2) return '마스터 설계의 신청서 항목 분할은 2개 이상이어야 합니다.';
   const keys = groups.flatMap(group => Array.isArray(group.sectionKeys) ? group.sectionKeys : []);
   if (keys.length !== SECTION_KEYS.length || new Set(keys).size !== SECTION_KEYS.length || SECTION_KEYS.some(key => !keys.includes(key))) return '마스터 설계가 계획서 10개 항목을 빠짐없이 한 번씩 포함하지 않습니다.';
   if (!result.sponsorIntent?.evidence?.length || !result.evidenceMap?.length) return '마스터 설계에 공식 원문 근거가 연결되지 않았습니다.';
+  if (!result.masterLogic?.problem || !result.masterLogic?.coreStrategy || !result.masterLogic?.outputOutcomeMeasurementLinks?.length || !result.masterLogic?.evaluationResponsePlan?.length || !result.masterLogic?.claimEvidencePlan?.length) return '마스터 설계의 논리사슬·성과측정·평가기준·근거계획이 완성되지 않았습니다.';
   if (!result.qualityCheck?.noticeAlignment || !result.qualityCheck?.singleSubprogramOnly || !result.qualityCheck?.logicConsistency) return '마스터 설계가 공고 정합성 검증을 통과하지 못했습니다.';
   return '';
 }
