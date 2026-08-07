@@ -15,7 +15,7 @@ const NAVIGATION_KEY = 'ms12_workflow_navigation_v1';
 const NAVIGATION_LIMIT = 10;
 const initial = {
   step: 1, project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
-  analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], companyFacts: [], companyFactDraft: '', noticeResults: [], selectedNoticeIndexes: [], pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
+  analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], selectedNoticeIndexes: [], pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
 let navigationHistory = loadNavigationHistory();
@@ -205,8 +205,20 @@ function documentView() {
   const strategy = strategyView();
   const questions = designQuestionsView();
   if (!state.sections.length) return `${strategy}${questions}<div class="empty-state"><div>▤</div><h2>${state.designUnavailable ? 'AI 정밀 사업설계를 실행할 수 없음' : '작성된 초안이 없습니다'}</h2><p>${state.designUnavailable ? '공고 자료 분석은 완료되었지만 AI 정밀 사업설계를 실행하지 못했습니다. 아래에는 공식 원문에서 직접 추출한 사실만 표시합니다.' : '기관 원문 단계에서 사업설계를 실행해 주세요.'}</p>${state.designUnavailable ? directFactsView() : '<button class="button primary" data-step="1">원문 입력으로 이동</button>'}</div>`;
-  return `${strategy}${questions}<div class="document-toolbar"><div><h2>${escapeHtml(state.project.title || '사업계획서 검토본')}</h2><p><span class="mode">${state.selectedNotice?.officialTextExtracted ? '공고문 반영 초안' : '안내 페이지 기반 임시 초안'}</span> <span class="mode ${state.aiMode === 'ai' ? 'ai' : ''}">${state.aiMode === 'ai' ? 'AI 정밀 사업설계' : '로컬 사실 추출'}</span> 항목별 근거와 확인 상태를 검토하세요. DOCX는 공식 신청서 양식이 아닌 검토본입니다.</p></div><div><button class="button secondary" id="print">인쇄</button><button class="button secondary" id="pdf">PDF 인쇄·저장</button><button class="button primary" id="docx">검토용 DOCX</button></div></div>
+  return `${strategy}${questions}<div class="document-toolbar"><div><h2>${escapeHtml(state.project.title || '사업계획서 검토본')}</h2><p><span class="mode">${state.selectedNotice?.officialTextExtracted ? '공고문 반영 초안' : '안내 페이지 기반 임시 초안'}</span> <span class="mode ${state.aiMode === 'ai' ? 'ai' : ''}">${state.aiMode === 'ai' ? 'AI 정밀 사업설계' : '로컬 사실 추출'}</span> 항목별 근거와 확인 상태를 검토하세요. DOCX는 공식 신청서 양식이 아닌 검토본입니다.</p></div><div><button class="button secondary" id="proposal-review">${state.reviewResult ? '명시적으로 재검토' : '심사 검토·고도화'}</button><button class="button secondary" id="print">인쇄</button><button class="button secondary" id="pdf">PDF 인쇄·저장</button><button class="button primary" id="docx">검토용 DOCX</button></div></div>
+    ${proposalReviewView()}
     <div class="editor-layout"><aside class="outline">${state.sections.map((s, i) => `<a href="#section-${i}"><span>${i + 1}</span>${escapeHtml(s.title.replace(/^\d+[.)]?\s*/, ''))}</a>`).join('')}</aside><div class="paper">${state.sections.map((s, i) => `<section id="section-${i}" class="doc-section"><div class="section-head"><input data-section-title="${i}" value="${escapeHtml(s.title)}"><span class="status ${s.status?.replace(' ', '-')}">${escapeHtml(s.status || '검토 필요')}</span></div><textarea data-section-content="${i}">${escapeHtml(s.content)}</textarea><div class="section-meta"><span>근거 ${s.citations?.length || 0}개</span><span><button data-confirm-fact="${i}">회사 정보로 확정 저장</button><button data-rewrite="${i}">이 항목 재작성</button></span></div>${s.citations?.length ? `<details><summary>반영한 원문 근거</summary>${s.citations.map(id => { const r = state.analysis.requirements.find(v => v.id === id); return r ? `<blockquote>${escapeHtml(r.evidence)} <small>${escapeHtml(r.location)}</small></blockquote>` : ''; }).join('')}</details>` : ''}</section>`).join('')}</div></div>`;
+}
+
+function proposalReviewView() {
+  const review = state.reviewResult;
+  if (!review) return '';
+  const original = state.reviewOriginalDraft || [];
+  return `<div class="card"><div class="card-title"><div><h3>심사 검토 결과 · ${Number(review.overallScore).toFixed(0)}점</h3><span>보완안은 자동 적용되지 않습니다.</span></div><div><button class="button secondary" id="restore-review-draft">검토 전 초안 복원</button><button class="button primary" id="apply-all-review">전체 보완안 적용</button></div></div><p>${escapeHtml(review.overallJudgment)}</p>
+    <div class="summary-grid">${review.criteria.map(item => `<div><span>${escapeHtml(item.label)}</span><strong>${Number(item.score).toFixed(0)}점</strong><small>${escapeHtml(item.judgment)}</small></div>`).join('')}</div>
+    ${review.criticalIssues.length ? `<div class="alert warning"><strong>치명적 누락과 불일치</strong>${review.criticalIssues.map(item => `<p>${escapeHtml(item.message)} · ${escapeHtml(item.affectedSections.join(', '))}</p>`).join('')}</div>` : ''}
+    ${review.missingQuestions.length ? `<div class="alert warning"><strong>확인이 필요한 질문</strong>${review.missingQuestions.map(item => `<p>${escapeHtml(item.question)} — ${escapeHtml(item.reason)}</p>`).join('')}</div>` : ''}
+    <div class="requirement-list">${review.revisedSections.length ? review.revisedSections.map((item, index) => { const before = original.find(section => section.id === item.sectionKey || section.title === item.title)?.content || ''; return `<article class="requirement"><div><span class="tag mandatory">보완 필요</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.reason)}</small></div></div><details open><summary>기존 내용</summary><blockquote>${escapeHtml(before)}</blockquote></details><details open><summary>보완안${item.requiresConfirmation ? ' · 근거 확인 필요' : ''}</summary><blockquote>${escapeHtml(item.afterText)}</blockquote></details><button class="button primary" data-apply-review="${index}">보완안 적용</button></article>`; }).join('') : '<p class="muted">보완이 필요한 항목이 없습니다.</p>'}</div></div>`;
 }
 
 function strategyView() {
@@ -287,6 +299,73 @@ function bind() {
   document.querySelector('#docx')?.addEventListener('click', () => exportDocx(state.project, state.sections).catch(showError));
   document.querySelector('#pdf')?.addEventListener('click', () => exportPdf(state.project, state.sections).catch(showError));
   document.querySelector('#print')?.addEventListener('click', printDocument);
+  document.querySelector('#proposal-review')?.addEventListener('click', () => runProposalReview(Boolean(state.reviewResult)));
+  document.querySelectorAll('[data-apply-review]').forEach(el => el.onclick = () => applyReviewSection(Number(el.dataset.applyReview)));
+  document.querySelector('#apply-all-review')?.addEventListener('click', applyAllReviewSections);
+  document.querySelector('#restore-review-draft')?.addEventListener('click', restoreReviewDraft);
+}
+
+async function runProposalReview(force = false) {
+  if (state.reviewBusy || state.sections.length !== 10) return;
+  const payload = reviewPayload();
+  const fingerprint = await sha256Text(JSON.stringify(payload));
+  if (!force && state.reviewResult && state.reviewFingerprint === fingerprint) return setState({ notice: '같은 초안의 기존 심사 결과를 표시합니다.' });
+  state.reviewOriginalDraft = structuredClone(state.sections);
+  state.reviewBusy = true;
+  setState({ busy: '사업계획서를 심사자 관점에서 검토하는 중...', error: '', notice: '' });
+  try {
+    const response = await fetch('/api/proposal-review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || `심사 요청 실패 (${response.status})`);
+    if (!validReviewClientResult(result)) throw new Error('심사 결과 필수 항목이 올바르지 않습니다.');
+    state.reviewResult = result;
+    state.reviewFingerprint = fingerprint;
+    setState({ busy: '', reviewBusy: false, notice: '심사 결과를 확인하고 필요한 보완안만 적용하세요.' });
+  } catch (error) {
+    setState({ busy: '', reviewBusy: false, error: error.message });
+  }
+}
+
+function reviewPayload() {
+  return {
+    selectedNotice: state.selectedNotice, selectedSubprogram: state.selectedNotice?.selectedSubproject || state.project.title,
+    officialDetailText: state.sourceText, manualSources: state.manualSources, applicationQuestions: state.analysis?.questions || [],
+    evaluationCriteria: state.analysis?.evaluationCriteria || [], budgetCriteria: state.manualSources.filter(item => item.sourceType === '예산 편성 기준'),
+    sponsorIntent: state.sponsorIntent, projectDesign: state.projectDesign, evidenceMap: state.evidenceMap,
+    confirmedOrganizationFacts: state.companyFacts.filter(item => item.confirmedByUser === true), sections: state.sections
+  };
+}
+
+function validReviewClientResult(result) {
+  return result && Array.isArray(result.criteria) && result.criteria.length === 8 && Array.isArray(result.revisedSections) && Array.isArray(result.missingQuestions) && result.missingQuestions.length <= 5;
+}
+
+function applyReviewSection(index) {
+  const revision = state.reviewResult?.revisedSections?.[index];
+  if (!revision) return;
+  const sectionIndex = state.sections.findIndex(section => section.id === revision.sectionKey || section.title === revision.title);
+  if (sectionIndex < 0) return setState({ error: '보완안을 적용할 계획서 항목을 찾지 못했습니다.' });
+  state.sections[sectionIndex] = { ...state.sections[sectionIndex], content: revision.afterText, status: revision.requiresConfirmation ? '확인 필요' : '검토 필요' };
+  setState({ sections: [...state.sections], notice: `${revision.title} 보완안을 적용했습니다.` });
+}
+
+function applyAllReviewSections() {
+  (state.reviewResult?.revisedSections || []).forEach((_, index) => {
+    const revision = state.reviewResult.revisedSections[index];
+    const sectionIndex = state.sections.findIndex(section => section.id === revision.sectionKey || section.title === revision.title);
+    if (sectionIndex >= 0) state.sections[sectionIndex] = { ...state.sections[sectionIndex], content: revision.afterText, status: revision.requiresConfirmation ? '확인 필요' : '검토 필요' };
+  });
+  setState({ sections: [...state.sections], notice: '보완안이 있는 항목만 적용했습니다.' });
+}
+
+function restoreReviewDraft() {
+  if (!Array.isArray(state.reviewOriginalDraft) || state.reviewOriginalDraft.length !== 10) return setState({ error: '복원할 검토 전 초안이 없습니다.' });
+  setState({ sections: structuredClone(state.reviewOriginalDraft), notice: '검토 실행 전 초안으로 복원했습니다.' });
+}
+
+async function sha256Text(value) {
+  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
 async function addManualFiles(event) {
