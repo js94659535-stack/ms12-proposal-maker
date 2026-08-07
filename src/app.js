@@ -1,6 +1,6 @@
 import { analyzeWithAI, draftWithAI, rewriteWithAI } from './api.js';
 import { extractFile, extractFiles } from './files.js';
-import { localAnalyze, localDraft } from './fallback.js';
+import { localAnalyze } from './fallback.js';
 import { exportDocx, exportPdf, printDocument } from './export.js';
 import { fetchNoticeDetail, fetchNoticeList, importNoticeUrl, noticeBodyText } from './notices.js';
 
@@ -10,9 +10,10 @@ const TYPES = [
   ['general', '일반 창업·아이디어', '일반 사업']
 ];
 const STEPS = ['사업 설정', '기관 원문', '요구사항 분석', '적합성 비교', '확인 질문', '계획서 작성'];
+const SOURCE_TYPES = ['공고 공문', '세부 공고문', '공모신청서', '사업계획서 서식', '예산 편성 기준', '심사·평가기준', '기타 안내자료'];
 const initial = {
   step: 1, project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
-  analysis: null, matches: [], answers: [], sections: [], companyFacts: [], companyFactDraft: '', noticeResults: [], selectedNoticeIndexes: [], pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
+  analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], companyFacts: [], companyFactDraft: '', noticeResults: [], selectedNoticeIndexes: [], pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
 const app = document.querySelector('#app');
@@ -81,11 +82,21 @@ function sourceView() {
     <div class="card"><div class="card-title"><div><h3>사랑의열매 공모사업 안내</h3><span>중앙회 · 광주지회</span></div><button class="button secondary" id="fetch-notices">공고 가져오기</button></div>${state.noticeResults.length ? `<div class="actions"><button class="button secondary" id="remove-selected-notices" ${state.selectedNoticeIndexes.length ? '' : 'disabled'}>선택 삭제 (${state.selectedNoticeIndexes.length})</button></div><div class="requirement-list">${state.noticeResults.map((item, index) => `<article class="requirement"><label><input type="checkbox" data-notice-check="${index}" ${state.selectedNoticeIndexes.includes(index) ? 'checked' : ''}> 삭제 선택</label><div><span class="tag">${escapeHtml(item.sourceLabel)}</span><strong>${escapeHtml(item.title)}</strong><small>마감일 ${escapeHtml(item.deadline)} · dstbBsnsCode ${escapeHtml(item.dstbBsnsCode)}</small></div><span><button class="button secondary" data-select-notice="${index}">선택</button><button class="button secondary" data-remove-notice="${index}">삭제</button></span></article>`).join('')}</div>` : '<p class="muted">버튼을 누를 때만 접수 마감일이 남은 공모사업을 조회합니다.</p>'}</div>
     ${state.pendingNoticeChoice ? `<div class="card"><div class="card-title"><div><h3>작성할 세부사업을 선택하세요</h3><span>선택한 사업 내용만 계획서에 반영됩니다.</span></div></div><div class="requirement-list">${state.pendingNoticeChoice.subprojects.map((item, index) => `<article class="requirement"><div><span class="tag">${escapeHtml(item.id)}</span><strong>${escapeHtml(item.title)}</strong></div><button class="button primary" data-select-subproject="${index}">이 사업 선택</button></article>`).join('')}</div></div>` : ''}
     ${attachmentView()}
+    ${manualSourcesView()}
     <details class="card org-details"><summary>추가 공고 확인</summary><div class="actions"><a class="button secondary" href="https://chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">중앙회 공식 사이트</a><a class="button secondary" href="https://gwangju.chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">광주지회 공식 사이트</a></div><div class="field"><label for="missing-notice-url">누락 공고 가져오기</label><input id="missing-notice-url" type="url" value="${escapeHtml(state.noticeUrlDraft)}" placeholder="공식 상세 URL을 붙여넣으세요"><button class="button secondary" id="import-notice-url">목록에 추가</button></div></details>
     <div class="source-grid"><div class="card"><div class="card-title"><h3>파일 업로드</h3><span>PDF · DOCX · TXT / 파일당 20MB</span></div><label class="dropzone" for="source-files"><strong>파일을 선택하거나 여기에 놓으세요</strong><small>스캔 PDF는 OCR이 필요할 수 있습니다.</small><input id="source-files" type="file" accept=".pdf,.docx,.txt" multiple></label><div class="file-list">${state.files.length ? state.files.map((f, i) => `<div class="file-item"><span class="file-badge">${escapeHtml(f.type)}</span><div><strong>${escapeHtml(f.name)}</strong><small>${f.pages ? `${f.pages}쪽 · ` : ''}${Number(f.characters || 0).toLocaleString()}자</small></div><button data-remove-file="${i}" aria-label="파일 제거">×</button></div>`).join('') : '<p class="empty-inline">업로드한 파일이 없습니다.</p>'}</div></div>
     <div class="card"><div class="card-title"><h3>원문 붙여넣기</h3><span id="char-count">${state.sourceText.length.toLocaleString()}자</span></div><textarea id="source-text" class="source-text" placeholder="기관 공고문 또는 과업지시서 원문을 붙여넣으세요.">${escapeHtml(state.sourceText)}</textarea></div></div>
     <details class="card org-details"><summary>다음 제안서에도 재사용할 확정 회사 정보</summary><p class="muted">담당자가 사실로 확인한 내용만 입력한 뒤 확정 저장하세요. 입력만 한 내용은 누적되지 않습니다.</p><textarea id="company-fact-draft" class="source-text" placeholder="예: 광주·전남 지역 운영 가능 (담당자 확인 완료)">${escapeHtml(state.companyFactDraft)}</textarea><div class="actions"><span>${state.companyFacts.length ? `확정 저장된 정보 ${state.companyFacts.length}건` : '확정 저장된 정보 없음'}</span><button class="button secondary" id="confirm-company-fact">확정 정보로 저장</button></div></details>
     <div class="tip"><strong>정확도 높이는 방법</strong><span>평가표와 제출 양식까지 함께 제공하면 필수 조건·배점·목차 누락을 줄일 수 있습니다.</span></div>${footer({ next: !state.pendingNoticeChoice, nextLabel: '원문 분석 시작', nextId: 'analyze' })}`;
+}
+
+function sourceTypeOptions(selected) { return SOURCE_TYPES.map(value => `<option value="${escapeHtml(value)}" ${value === selected ? 'selected' : ''}>${escapeHtml(value)}</option>`).join(''); }
+
+function manualSourcesView() {
+  return `<div class="card"><div class="card-title"><div><h3>직접 자료 추가</h3><span>PDF · DOCX · TXT / HWP·HWPX는 PDF 변환 안내</span></div></div>
+    <div class="two-col"><div class="field"><label for="manual-source-type">기본 자료 유형</label><select id="manual-source-type">${sourceTypeOptions(state.manualSourceType)}</select><label class="dropzone" for="manual-source-files"><strong>여러 파일을 선택하세요</strong><small>자료별 유형은 추가 후 변경할 수 있습니다.</small><input id="manual-source-files" type="file" accept=".pdf,.docx,.txt,.hwp,.hwpx" multiple></label></div>
+    <div><div class="field"><label for="manual-source-name">붙여넣기 자료명</label><input id="manual-source-name" value="${escapeHtml(state.manualSourceName)}" placeholder="예: 2027년 신청서 작성항목"><label for="manual-source-text">원문 직접 붙여넣기</label><textarea id="manual-source-text" class="source-text" placeholder="공문·신청서·예산기준·심사기준 원문을 붙여넣으세요.">${escapeHtml(state.manualSourceText)}</textarea></div><button class="button secondary" id="add-manual-text">붙여넣기 자료 추가</button></div></div>
+    ${state.manualSources.length ? `<div class="requirement-list">${state.manualSources.map((item, index) => `<article class="requirement"><div><span class="tag ${item.extractionStatus === 'success' ? '' : 'mandatory'}">${item.extractionStatus === 'success' ? '추출 성공' : '추출 불가'}</span><div><strong>${escapeHtml(item.fileName)}</strong><select data-manual-source-type="${index}">${sourceTypeOptions(item.sourceType)}</select><small>${Number(item.extractedText?.length || 0).toLocaleString()}자${item.extractionError ? ` · ${escapeHtml(item.extractionError)}` : ''}</small><p class="muted">${escapeHtml((item.extractedText || '').slice(0, 180) || '텍스트 미리보기 없음')}</p></div></div><button class="button secondary" data-remove-manual-source="${index}">삭제</button></article>`).join('')}</div>` : '<p class="muted">직접 추가한 자료가 없습니다.</p>'}</div>`;
 }
 
 function attachmentView() {
@@ -141,9 +152,28 @@ function questionsView() {
 }
 
 function documentView() {
-  if (!state.sections.length) return `<div class="empty-state"><div>▤</div><h2>작성된 초안이 없습니다</h2><p>확인 질문 단계에서 초안을 생성해 주세요.</p><button class="button primary" data-step="4">확인 질문으로 이동</button></div>`;
-  return `<div class="document-toolbar"><div><h2>${escapeHtml(state.project.title || '사업계획서 검토본')}</h2><p><span class="mode">${state.selectedNotice?.officialTextExtracted ? '공고문 반영 초안' : '안내 페이지 기반 임시 초안'}</span> <span class="mode ${state.aiMode === 'ai' ? 'ai' : ''}">${state.aiMode === 'ai' ? 'AI 초안' : '로컬 초안'}</span> 항목별 근거와 확인 상태를 검토하세요. DOCX는 공식 신청서 양식이 아닌 검토본입니다.</p></div><div><button class="button secondary" id="print">인쇄</button><button class="button secondary" id="pdf">PDF</button><button class="button primary" id="docx">검토용 DOCX</button></div></div>
+  const strategy = strategyView();
+  const questions = designQuestionsView();
+  if (!state.sections.length) return `${strategy}${questions}<div class="empty-state"><div>▤</div><h2>${state.designUnavailable ? 'AI 정밀 사업설계를 실행할 수 없음' : '작성된 초안이 없습니다'}</h2><p>${state.designUnavailable ? '공고 자료 분석은 완료되었지만 AI 정밀 사업설계를 실행하지 못했습니다. 아래에는 공식 원문에서 직접 추출한 사실만 표시합니다.' : '기관 원문 단계에서 사업설계를 실행해 주세요.'}</p>${state.designUnavailable ? directFactsView() : '<button class="button primary" data-step="1">원문 입력으로 이동</button>'}</div>`;
+  return `${strategy}${questions}<div class="document-toolbar"><div><h2>${escapeHtml(state.project.title || '사업계획서 검토본')}</h2><p><span class="mode">${state.selectedNotice?.officialTextExtracted ? '공고문 반영 초안' : '안내 페이지 기반 임시 초안'}</span> <span class="mode ${state.aiMode === 'ai' ? 'ai' : ''}">${state.aiMode === 'ai' ? 'AI 정밀 사업설계' : '로컬 사실 추출'}</span> 항목별 근거와 확인 상태를 검토하세요. DOCX는 공식 신청서 양식이 아닌 검토본입니다.</p></div><div><button class="button secondary" id="print">인쇄</button><button class="button secondary" id="pdf">PDF 인쇄·저장</button><button class="button primary" id="docx">검토용 DOCX</button></div></div>
     <div class="editor-layout"><aside class="outline">${state.sections.map((s, i) => `<a href="#section-${i}"><span>${i + 1}</span>${escapeHtml(s.title.replace(/^\d+[.)]?\s*/, ''))}</a>`).join('')}</aside><div class="paper">${state.sections.map((s, i) => `<section id="section-${i}" class="doc-section"><div class="section-head"><input data-section-title="${i}" value="${escapeHtml(s.title)}"><span class="status ${s.status?.replace(' ', '-')}">${escapeHtml(s.status || '검토 필요')}</span></div><textarea data-section-content="${i}">${escapeHtml(s.content)}</textarea><div class="section-meta"><span>근거 ${s.citations?.length || 0}개</span><span><button data-confirm-fact="${i}">회사 정보로 확정 저장</button><button data-rewrite="${i}">이 항목 재작성</button></span></div>${s.citations?.length ? `<details><summary>반영한 원문 근거</summary>${s.citations.map(id => { const r = state.analysis.requirements.find(v => v.id === id); return r ? `<blockquote>${escapeHtml(r.evidence)} <small>${escapeHtml(r.location)}</small></blockquote>` : ''; }).join('')}</details>` : ''}</section>`).join('')}</div></div>`;
+}
+
+function strategyView() {
+  const intent = state.sponsorIntent;
+  const design = state.projectDesign;
+  if (!intent && !design) return '';
+  return `<div class="card"><div class="card-title"><div><h3>공모기관 의도와 선정전략</h3><span>공식 원문 근거 기반</span></div></div><div class="summary-grid"><div><span>해결하려는 핵심 문제</span><strong>${escapeHtml(intent?.coreProblem || '공식 원문에서 직접 확인되지 않음')}</strong></div><div><span>기대하는 변화</span><strong>${escapeHtml(intent?.expectedChange || '공식 원문에서 직접 확인되지 않음')}</strong></div><div><span>평가자가 중요하게 볼 요소</span><strong>${escapeHtml((intent?.selectionLogic || []).join(' · ') || '공식 원문에서 직접 확인되지 않음')}</strong></div><div><span>제안 사업 핵심전략</span><strong>${escapeHtml(design?.oneSentenceStrategy || 'AI 정밀 설계 미실행')}</strong></div></div>${intent?.evidence?.length ? `<details><summary>공식 원문 근거 ${intent.evidence.length}건</summary>${intent.evidence.map(value => `<blockquote>${escapeHtml(value)}</blockquote>`).join('')}</details>` : ''}</div>`;
+}
+
+function designQuestionsView() {
+  if (!state.missingInformation.length) return '';
+  return `<div class="card"><div class="card-title"><div><h3>사업설계에 필요한 추가 답변</h3><span>최대 5개 · 답변 후 다시 생성</span></div></div>${state.missingInformation.slice(0, 5).map((question, index) => `<div class="field"><label>${escapeHtml(question)}</label><textarea data-design-answer="${index}">${escapeHtml(state.designAnswers[question] || '')}</textarea></div>`).join('')}<div class="actions"><span>공식 자료에 없는 핵심 정보만 질문합니다.</span><button class="button primary" id="regenerate-design">답변 반영해 다시 생성</button></div></div>`;
+}
+
+function directFactsView() {
+  const requirements = state.analysis?.requirements || [];
+  return requirements.length ? `<div class="requirement-list">${requirements.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(item.category)}</span><strong>${escapeHtml(item.requirement)}</strong></div><blockquote>${escapeHtml(item.evidence)}</blockquote></article>`).join('')}</div>` : '<p>공식 원문에서 구조화할 사실을 찾지 못했습니다.</p>';
 }
 
 function render() {
@@ -158,6 +188,9 @@ function updateInputs() {
   document.querySelector('#source-text')?.addEventListener('input', e => { state.sourceText = e.target.value; document.querySelector('#char-count').textContent = `${e.target.value.length.toLocaleString()}자`; saveState(); });
   document.querySelector('#company-fact-draft')?.addEventListener('input', e => { state.companyFactDraft = e.target.value; });
   document.querySelector('#missing-notice-url')?.addEventListener('input', e => { state.noticeUrlDraft = e.target.value; });
+  document.querySelector('#manual-source-type')?.addEventListener('change', e => { state.manualSourceType = e.target.value; saveState(); });
+  document.querySelector('#manual-source-name')?.addEventListener('input', e => { state.manualSourceName = e.target.value; saveState(); });
+  document.querySelector('#manual-source-text')?.addEventListener('input', e => { state.manualSourceText = e.target.value; saveState(); });
 }
 
 function bind() {
@@ -172,6 +205,11 @@ function bind() {
     try { setState({ busy: '파일에서 텍스트를 추출하는 중...', error: '' }); const parsed = await extractFiles([...e.target.files]); state.files.push(...parsed.map(v => ({ ...v, characters: v.text.length }))); state.sourceText += parsed.map(v => `\n\n[파일: ${v.name}]\n${v.text}`).join(''); setState({ busy: '', notice: `${parsed.length}개 파일을 읽었습니다.` }); }
     catch (error) { setState({ busy: '', error: error.message }); }
   };
+  const manualFiles = document.querySelector('#manual-source-files');
+  if (manualFiles) manualFiles.onchange = addManualFiles;
+  document.querySelector('#add-manual-text')?.addEventListener('click', addManualText);
+  document.querySelectorAll('[data-manual-source-type]').forEach(el => el.onchange = () => { const item = state.manualSources[Number(el.dataset.manualSourceType)]; if (item) { item.sourceType = el.value; setState({ manualSources: [...state.manualSources] }); } });
+  document.querySelectorAll('[data-remove-manual-source]').forEach(el => el.onclick = () => { state.manualSources.splice(Number(el.dataset.removeManualSource), 1); setState({ manualSources: [...state.manualSources], notice: '직접 자료를 삭제했습니다.' }); });
   document.querySelectorAll('[data-remove-file]').forEach(el => el.onclick = () => { state.files.splice(Number(el.dataset.removeFile), 1); setState({ files: state.files }); });
   document.querySelector('#fetch-notices')?.addEventListener('click', loadOfficialNotices);
   document.querySelector('#import-notice-url')?.addEventListener('click', addMissingNotice);
@@ -186,6 +224,8 @@ function bind() {
   if (analyzeButton) { analyzeButton.textContent = '사업계획서 작성 →'; analyzeButton.addEventListener('click', generateCompleteProposal); }
   document.querySelectorAll('[data-answer]').forEach(el => el.oninput = () => { const questions = state.answers.length ? state.answers : structuredClone(state.analysis.questions || []); questions[Number(el.dataset.answer)].answer = el.value; state.answers = questions; saveState(); });
   document.querySelector('#draft')?.addEventListener('click', createDraft);
+  document.querySelectorAll('[data-design-answer]').forEach(el => el.oninput = () => { const question = state.missingInformation[Number(el.dataset.designAnswer)]; if (question) { state.designAnswers[question] = el.value; saveState(); } });
+  document.querySelector('#regenerate-design')?.addEventListener('click', generateCompleteProposal);
   document.querySelectorAll('[data-section-title]').forEach(el => el.oninput = () => { state.sections[Number(el.dataset.sectionTitle)].title = el.value; saveState(); });
   document.querySelectorAll('[data-section-content]').forEach(el => el.oninput = () => { state.sections[Number(el.dataset.sectionContent)].content = el.value; saveState(); });
   document.querySelectorAll('[data-rewrite]').forEach(el => el.onclick = () => rewriteSection(Number(el.dataset.rewrite)));
@@ -194,6 +234,40 @@ function bind() {
   document.querySelector('#docx')?.addEventListener('click', () => exportDocx(state.project, state.sections).catch(showError));
   document.querySelector('#pdf')?.addEventListener('click', () => exportPdf(state.project, state.sections).catch(showError));
   document.querySelector('#print')?.addEventListener('click', printDocument);
+}
+
+async function addManualFiles(event) {
+  const files = [...event.target.files];
+  if (!files.length) return;
+  setState({ busy: `직접 자료 ${files.length}개를 읽는 중...`, error: '', notice: '' });
+  const additions = [];
+  for (const file of files) {
+    const extension = file.name.split('.').pop()?.toLowerCase();
+    if (extension === 'hwp' || extension === 'hwpx') {
+      additions.push(manualSourceRecord(file.name, state.manualSourceType, '', 'unsupported', '한글 프로그램에서 PDF로 저장한 뒤 다시 업로드해 주세요.'));
+      continue;
+    }
+    try {
+      const parsed = await extractFile(file);
+      additions.push(manualSourceRecord(file.name, state.manualSourceType, parsed.text, 'success', ''));
+    } catch (error) {
+      additions.push(manualSourceRecord(file.name, state.manualSourceType, '', 'failed', error.message));
+    }
+  }
+  setState({ busy: '', manualSources: [...state.manualSources, ...additions], notice: `직접 자료 ${additions.length}개를 추가했습니다.` });
+}
+
+function addManualText() {
+  const text = state.manualSourceText.trim();
+  if (text.length < 10) return setState({ error: '붙여넣을 자료 원문을 10자 이상 입력해 주세요.' });
+  const name = state.manualSourceName.trim() || `붙여넣기 자료 ${state.manualSources.length + 1}`;
+  const item = manualSourceRecord(name, state.manualSourceType, text, 'success', '');
+  state.manualSourceName = ''; state.manualSourceText = '';
+  setState({ manualSources: [...state.manualSources, item], manualSourceName: '', manualSourceText: '', notice: '붙여넣기 자료를 추가했습니다.' });
+}
+
+function manualSourceRecord(fileName, sourceType, extractedText, extractionStatus, extractionError) {
+  return { id: globalThis.crypto?.randomUUID?.() || `source-${Date.now()}-${Math.random().toString(16).slice(2)}`, fileName, sourceType, extractedText, extractionStatus, extractionError };
 }
 
 async function loadOfficialNotices() {
@@ -326,11 +400,7 @@ async function analyze() {
 }
 
 async function createDraft() {
-  setState({ busy: '근거를 연결해 사업계획서 초안을 작성하는 중...', error: '', notice: '' });
-  const payload = { project: state.project, analysis: state.analysis, matches: state.matches, answers: state.answers, organization: organizationForGeneration() };
-  try { const result = await draftWithAI(payload); state.sections = result.sections; state.aiMode = 'ai'; }
-  catch (error) { const result = localDraft({ analysis: state.analysis, answers: state.answers, organization: organizationForGeneration() }); state.sections = result.sections; state.aiMode = 'local'; state.notice = `서버 AI를 사용할 수 없어 검토용 로컬 초안을 만들었습니다: ${error.message}`; }
-  setState({ busy: '', step: 5 });
+  await generateCompleteProposal();
 }
 
 async function rewriteSection(index) {
@@ -343,26 +413,50 @@ async function rewriteSection(index) {
 function showError(error) { setState({ error: error.message }); }
 
 async function generateCompleteProposal() {
-  if (state.sourceText.trim().length < 30) return setState({ error: '사업계획서를 작성할 공고문을 30자 이상 입력해 주세요.' });
-  if (state.sourceText.length > 180000) return setState({ error: 'AI 분석 원문은 180,000자 이하여야 합니다. 파일을 나누거나 불필요한 내용을 줄여 주세요.' });
+  const manualLength = state.manualSources.filter(value => value.extractionStatus === 'success').reduce((sum, value) => sum + value.extractedText.length, 0);
+  if (state.sourceText.trim().length + manualLength < 30) return setState({ error: '사업계획서를 작성할 공식 또는 직접 자료를 30자 이상 입력해 주세요.' });
+  if (state.sourceText.length > 180000 || state.sourceText.length + manualLength > 220000) return setState({ error: '생성 입력 자료가 허용 길이를 초과했습니다. 자료를 나누거나 불필요한 내용을 줄여 주세요.' });
   setState({ busy: '공고문을 분석하고 완성형 사업계획서를 작성하는 중...', error: '', notice: '' });
-  const completePayload = { sourceText: state.sourceText, projectType: typeName(), project: state.project, organization: organizationForGeneration() };
+  const completePayload = { sourceText: state.sourceText, manualSources: state.manualSources.map(({ id, fileName, sourceType, extractedText, extractionStatus, extractionError }) => ({ id, fileName, sourceType, extractedText, extractionStatus, extractionError })), projectType: typeName(), project: state.project, selectedSubprogram: state.selectedNotice?.selectedSubproject || state.selectedNotice?.title || state.project.title, organization: organizationForGeneration(), userAnswers: state.designAnswers };
   try {
     const result = await draftWithAI(completePayload);
-    state.analysis = result.analysis;
+    state.sponsorIntent = result.sponsorIntent;
+    state.projectDesign = result.projectDesign;
+    state.missingInformation = (result.missingInformation || []).slice(0, 5);
+    state.evidenceMap = result.evidenceMap || [];
+    state.qualityCheck = result.qualityCheck;
+    state.analysis = engineAnalysis(result);
     state.sections = result.sections;
     state.aiMode = 'ai';
+    state.designUnavailable = false;
+    state.project = { ...state.project, title: result.projectDesign.projectName || state.project.title };
   } catch (error) {
-    state.analysis = localAnalyze({ sourceText: state.sourceText, projectType: typeName(), title: state.project.title });
-    state.sections = localDraft({ analysis: state.analysis, answers: state.analysis.questions || [], organization: organizationForGeneration() }).sections;
+    const localSource = [state.sourceText, ...state.manualSources.filter(value => value.extractionStatus === 'success').map(value => `[${value.sourceType}: ${value.fileName}]\n${value.extractedText}`)].filter(Boolean).join('\n\n');
+    state.analysis = localAnalyze({ sourceText: localSource, projectType: typeName(), title: state.project.title });
+    state.sponsorIntent = localSponsorIntent(state.analysis);
+    state.projectDesign = null;
+    state.missingInformation = (state.analysis.questions || []).slice(0, 5).map(value => value.question);
+    state.evidenceMap = state.analysis.requirements.map(value => ({ id: value.id, claim: value.requirement, evidence: value.evidence, location: value.location }));
+    state.qualityCheck = null;
+    state.sections = [];
     state.aiMode = 'local';
-    state.notice = `서버 AI를 사용할 수 없어 로컬 분석과 검토용 완성 초안으로 계속했습니다: ${error.message}`;
+    state.designUnavailable = true;
+    state.notice = `공고 자료 분석은 완료되었지만 AI 정밀 사업설계를 실행하지 못했습니다. ${error.message}`;
   }
-  state.analysis.project = { ...state.project, ...state.analysis.project };
-  state.project = { ...state.project, ...state.analysis.project };
   state.answers = state.analysis.questions || [];
   state.matches = buildMatches();
   setState({ busy: '', step: 5 });
+}
+
+function engineAnalysis(result) {
+  const requirements = (result.evidenceMap || []).map((item, index) => ({ id: item.id || `evidence-${index + 1}`, category: '공모 근거', requirement: item.claim, mandatory: false, evidence: item.evidence, location: item.location, confidence: '높음' }));
+  return { mode: 'ai', project: { ...state.project, title: result.projectDesign.projectName, budget: result.projectDesign.budgetStructure.join(' · ') }, requirements, evaluationCriteria: result.sponsorIntent.selectionLogic, submissionItems: [], warnings: [], questions: (result.missingInformation || []).slice(0, 5).map((question, index) => ({ id: `design-q-${index + 1}`, question, required: true, answer: state.designAnswers[question] || '' })) };
+}
+
+function localSponsorIntent(analysis) {
+  const facts = analysis.requirements;
+  const first = category => facts.find(value => value.category === category)?.evidence || '';
+  return { coreProblem: first('대상') || facts[0]?.evidence || '', policyPurpose: first('운영'), requiredTarget: first('대상'), expectedChange: first('평가'), selectionLogic: analysis.evaluationCriteria || [], mandatoryConditions: facts.filter(value => value.mandatory).map(value => value.requirement), budgetRestrictions: facts.filter(value => value.category === '예산').map(value => value.requirement), evidence: facts.map(value => value.evidence).filter(Boolean) };
 }
 
 function confirmCompanyFact(index) {

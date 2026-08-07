@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { localAnalyze, localDraft } from '../src/fallback.js';
-import { onRequest } from '../functions/api/proposal.js';
+import { normalizeManualSources, onRequest, validateEngineResult } from '../functions/api/proposal.js';
 import { classifyAttachment, handleNoticeRequest, isBusinessNotice, isOpenDeadline, mergeNoticeCandidates, parseProposalList, splitSubprojects } from '../functions/api/notices.js';
-import { buildPdfHtml, validatePdfOutput } from '../src/export.js';
+import { buildPrintDocument } from '../src/export.js';
 
 test('규칙 분석은 원문 근거를 보존한다', () => {
   const sourceText = '제출 마감은 2026년 9월 1일이다. 상담사 3명 이상을 필수 배치해야 한다. 평가 배점은 사업수행 50점이다.';
@@ -241,17 +241,17 @@ test('공고 선택 결과는 기존 제목과 원문 입력으로 전달된다'
   assert.match(source, /개요:\\n\$\{subproject\.content\}/);
 });
 
-test('빈 PDF와 비정상적으로 작은 PDF는 성공 처리하지 않는다', () => {
-  assert.throws(() => validatePdfOutput(new ArrayBuffer(9000), 1, 500), /정상적으로 렌더링되지 않았습니다/);
-  assert.throws(() => validatePdfOutput(new ArrayBuffer(12000), 1, 0), /정상적으로 렌더링되지 않았습니다/);
-  assert.doesNotThrow(() => validatePdfOutput(new ArrayBuffer(12000), 2, 500));
-});
-
-test('PDF 출력 HTML에 계획서 10개 항목의 실제 내용을 모두 포함한다', () => {
+test('한국어 인쇄 문서에 계획서 10개 항목의 실제 내용을 모두 포함한다', () => {
   const titles = ['사업 필요성', '사업 목적', '사업 목표', '지원 대상', '사업 내용', '추진 일정', '수행 인력', '예산 계획', '성과지표', '기대효과'];
-  const html = buildPdfHtml({ title: '검토 계획서' }, titles.map((title, index) => ({ title, content: `${title} 본문 ${index + 1}`, status: '검토 필요' })));
+  const html = buildPrintDocument({ title: '한글 검토 계획서' }, titles.map((title, index) => ({ title, content: `${title} 본문 ${index + 1}`, status: '검토 필요' })));
   titles.forEach(title => assert.match(html, new RegExp(`${title}.*${title} 본문`, 's')));
   assert.equal((html.match(/<section>/g) || []).length, 10);
+  assert.match(html, /<html lang="ko">/);
+  assert.match(html, /<meta charset="UTF-8">/);
+  assert.match(html, /"Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif/);
+  assert.match(html, /@page \{ size: A4 portrait/);
+  assert.match(html, /break-inside: avoid-page/);
+  assert.match(html, /button, nav, aside, details, summary/);
 });
 
 test('DOCX는 공식 양식이 아닌 검토용으로 표시한다', () => {
@@ -262,6 +262,15 @@ test('DOCX는 공식 양식이 아닌 검토용으로 표시한다', () => {
   assert.match(exportSource, /_검토용\.docx/);
 });
 
+test('PDF 버튼은 브라우저 인쇄 저장 방식으로 표시한다', () => {
+  const appSource = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  const exportSource = fs.readFileSync(new URL('../src/export.js', import.meta.url), 'utf8');
+  assert.match(appSource, /PDF 인쇄·저장/);
+  assert.match(exportSource, /document\.fonts\?\.ready/);
+  assert.match(exportSource, /printWindow\.print\(\)/);
+  assert.doesNotMatch(exportSource, /jspdf|html2canvas|pdf\.html/);
+});
+
 test('HWP 안내와 공고문 추출 상태를 명확히 표시한다', () => {
   const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   assert.match(source, /공식 한글 양식 파일/);
@@ -270,4 +279,64 @@ test('HWP 안내와 공고문 추출 상태를 명확히 표시한다', () => {
   assert.match(source, /안내 페이지 기반 임시 초안/);
   assert.match(source, /공고문 추출 실패/);
   assert.match(source, /\['PDF', 'DOCX', 'TXT'\]/);
+});
+
+test('핵심 사업계획 엔진 결과는 근거·단일 세부사업·질문 수를 검증한다', () => {
+  const result = {
+    sponsorIntent: { evidence: ['공식 공고 근거'] },
+    projectDesign: { projectName: '아동 회복 지원사업' },
+    sections: Array.from({ length: 10 }, (_, index) => ({ id: `s-${index + 1}`, title: `${index + 1}. 항목`, content: '공식 근거와 연결된 설계 내용', citations: ['e-1'], status: '검토 필요' })),
+    missingInformation: ['실제 참여 가능 인원은 몇 명입니까?'],
+    evidenceMap: [{ id: 'e-1', claim: '지원 대상', evidence: '공식 원문', location: '공고문' }],
+    qualityCheck: { noticeAlignment: true, singleSubprogramOnly: true, logicConsistency: true, budgetConsistency: true, measurableOutcomes: true }
+  };
+  assert.equal(validateEngineResult(result), '');
+  assert.match(validateEngineResult({ ...result, missingInformation: Array(6).fill('질문') }), /최대 5개/);
+  assert.match(validateEngineResult({ ...result, sections: result.sections.map((section, index) => index ? section : { ...section, content: '[확인 필요]' }) }), /가짜 완성 문구/);
+  assert.match(validateEngineResult({ ...result, qualityCheck: { ...result.qualityCheck, singleSubprogramOnly: false } }), /단일 세부사업/);
+});
+
+test('AI 실패 시 가짜 로컬 완성본을 만들지 않고 정밀 설계 불가 상태를 표시한다', () => {
+  const appSource = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  const serverSource = fs.readFileSync(new URL('../functions/api/proposal.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(appSource, /localDraft/);
+  assert.match(appSource, /state\.sections = \[\]/);
+  assert.match(appSource, /AI 정밀 사업설계를 실행할 수 없음/);
+  assert.match(appSource, /missingInformation = .*slice\(0, 5\)/);
+  assert.match(appSource, /selectedSubprogram/);
+  assert.match(serverSource, /minItems: 3, maxItems: 5/);
+  assert.match(serverSource, /목표값·측정도구·시기·담당/);
+  assert.match(serverSource, /sections\.citations에는 evidenceMap의 id만 사용/);
+});
+
+test('직접 추가 자료는 출처별 구조와 추출 상태를 보존한다', () => {
+  const sources = normalizeManualSources([
+    { id: 'pdf-1', fileName: '공고문.pdf', sourceType: '공고 공문', extractedText: '공식 공고문 본문', extractionStatus: 'success', extractionError: '' },
+    { id: 'docx-1', fileName: '신청서.docx', sourceType: '공모신청서', extractedText: '작성 질문과 요구사항', extractionStatus: 'success', extractionError: '' },
+    { id: 'hwp-1', fileName: '사업계획서.hwp', sourceType: '사업계획서 서식', extractedText: '', extractionStatus: 'unsupported', extractionError: 'PDF 변환 필요' }
+  ]);
+  assert.equal(sources.length, 3);
+  assert.deepEqual(Object.keys(sources[0]), ['id', 'fileName', 'sourceType', 'extractedText', 'extractionStatus', 'extractionError']);
+  assert.equal(sources[1].sourceType, '공모신청서');
+  assert.equal(sources[2].fileName, '사업계획서.hwp');
+  assert.equal(sources[2].extractionStatus, 'unsupported');
+});
+
+test('직접 자료 UI는 다중 추가·유형 변경·삭제·미리보기를 제공한다', () => {
+  const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  assert.match(source, /accept="\.pdf,\.docx,\.txt,\.hwp,\.hwpx" multiple/);
+  assert.match(source, /data-manual-source-type/);
+  assert.match(source, /data-remove-manual-source/);
+  assert.match(source, /텍스트 미리보기 없음/);
+  assert.match(source, /manualSources: state\.manualSources\.map/);
+  assert.match(source, /extractionStatus === 'success'/);
+});
+
+test('생성 API는 직접 자료 우선순위와 충돌을 출처별로 처리한다', () => {
+  const source = fs.readFileSync(new URL('../functions/api/proposal.js', import.meta.url), 'utf8');
+  assert.match(source, /<MANUAL_SOURCES>/);
+  assert.match(source, /공모신청서·사업계획서 서식의 질문과 작성항목/);
+  assert.match(source, /파일명과 sourceType을 evidenceMap\.location에 보존/);
+  assert.match(source, /각 출처를 evidenceMap에 모두 기록하고 missingInformation 질문에 포함/);
+  assert.match(source, /선택된 세부사업 하나만/);
 });
