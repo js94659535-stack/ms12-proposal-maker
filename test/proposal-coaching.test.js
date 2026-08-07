@@ -2,13 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { onRequest, validateCoachingResult, validateIssueRevision } from '../functions/api/proposal-coaching.js';
+import { COACHING_QA_CASES, COACHING_QA_CRITERIA } from './fixtures/coaching-qa.js';
 
 function fixture() {
+  const verifiedEvidence = [{ sourceName: '계획서 원문', pageOrSection: '사업 필요성', proposalLocation: '사업 필요성', excerpt: '필요성과 실행계획을 평가', verified: true }];
+  const finalChecks = ['자격', '필수 신청항목', '사업기간', '대상·인원', '회기', '예산 합계·예산규정', '성과목표·지표', '기관·협력 역할', '공식 평가항목 누락'].map(area => ({ area, status: '확인필요', note: `${area} 근거 확인 필요`, evidenceRefs: [] }));
   return {
     basis: 'official-evaluation', overallStatus: '보완 필요', summary: '평가기준 대응 근거를 보완해야 합니다.',
     checkedAreas: ['공모 목적·평가기준', '논리구조', '수치 일관성'],
-    evaluationMatrix: [{ criterion: '사업 타당성', officialPoints: '20점', requirement: '필요성과 실행계획을 평가', proposalLocations: ['사업 필요성', '세부 프로그램'], status: '부분충족', evidenceRefs: ['공식 평가표'] }],
+    evaluationMatrix: [{ criterion: '사업 타당성', officialPoints: '20점', requirement: '필요성과 실행계획을 평가', proposalLocations: ['사업 필요성', '세부 프로그램'], status: '부분충족', evidenceRefs: verifiedEvidence }],
     issues: [{ category: '평가기준 대응', priority: '주요 개선', riskType: 'competition', location: '사업 필요성 2문단', reason: '공식 평가항목의 근거가 없습니다.', direction: '공고문 근거를 연결합니다.', example: '[확인 필요: 공식 통계]를 확인한 뒤 근거 문장을 추가합니다.', evidenceRefs: [], requiresConfirmation: true }],
+    finalChecks,
     comparison: { previousVersion: 0, resolvedIssues: [], remainingIssues: [], newIssues: [], improvedAreas: [] }
   };
 }
@@ -56,15 +60,18 @@ test('OpenAI 비429 오류는 실제 상태와 안전한 진단 정보를 보존
 });
 
 test('코칭 결과는 문제 위치·이유·방향·예시와 근거 안전장치를 검증한다', () => {
-  assert.equal(validateCoachingResult(fixture()), '');
-  assert.match(validateCoachingResult({ ...fixture(), basis: 'common-criteria' }, true), /공식 평가표/);
-  assert.match(validateCoachingResult({ ...fixture(), issues: [{ ...fixture().issues[0], location: '' }] }), /문제별 코칭 필드/);
-  assert.match(validateCoachingResult({ ...fixture(), issues: [{ ...fixture().issues[0], example: '근거 없이 확정', requiresConfirmation: false }] }), /확인 필요 상태/);
-  assert.match(validateCoachingResult({ ...fixture(), issues: [{ ...fixture().issues[0], priority: '일반 개선' }] }), /주요 개선/);
-  assert.match(validateCoachingResult({ ...fixture(), issues: [{ ...fixture().issues[0], riskType: 'budget-rule', priority: '주요 개선' }] }), /최우선 경고/);
-  assert.match(validateCoachingResult({ ...fixture(), evaluationMatrix: [] }, true), /대응표/);
-  assert.match(validateCoachingResult({ ...fixture(), comparison: { ...fixture().comparison, previousVersion: 1 } }), /이전 버전 비교/);
-  assert.equal(validateCoachingResult({ ...fixture(), comparison: { ...fixture().comparison, previousVersion: 1 } }, true, 1), '');
+  const payload = { proposalText: '사업 필요성에서 필요성과 실행계획을 평가하는 계획서 원문', criteriaText: '' };
+  assert.equal(validateCoachingResult(fixture(), false, 0, payload), '');
+  assert.match(validateCoachingResult({ ...fixture(), basis: 'common-criteria' }, true, 0, payload), /공식 평가표/);
+  assert.match(validateCoachingResult({ ...fixture(), issues: [{ ...fixture().issues[0], location: '' }] }, false, 0, payload), /문제별 코칭 필드/);
+  assert.match(validateCoachingResult({ ...fixture(), issues: [{ ...fixture().issues[0], example: '근거 없이 확정', requiresConfirmation: false }] }, false, 0, payload), /확인 필요/);
+  assert.match(validateCoachingResult({ ...fixture(), issues: [{ ...fixture().issues[0], priority: '일반 개선' }] }, false, 0, payload), /주요 개선/);
+  assert.match(validateCoachingResult({ ...fixture(), issues: [{ ...fixture().issues[0], riskType: 'budget-rule', priority: '주요 개선' }] }, false, 0, payload), /최우선 경고/);
+  assert.match(validateCoachingResult({ ...fixture(), evaluationMatrix: [] }, true, 0, payload), /대응표/);
+  assert.match(validateCoachingResult({ ...fixture(), comparison: { ...fixture().comparison, previousVersion: 1 } }, false, 0, payload), /이전 버전 비교/);
+  assert.equal(validateCoachingResult({ ...fixture(), comparison: { ...fixture().comparison, previousVersion: 1 } }, true, 1, payload), '');
+  const invented = structuredClone(fixture()); invented.evaluationMatrix[0].evidenceRefs[0].excerpt = '존재하지 않는 규정 99페이지';
+  assert.match(validateCoachingResult(invented, false, 0, payload), /확인되지 않는 근거/);
 });
 
 test('공식 평가표를 우선하는 구조화 코칭 결과를 한 번의 요청으로 반환한다', async () => {
@@ -72,7 +79,7 @@ test('공식 평가표를 우선하는 구조화 코칭 결과를 한 번의 요
   let calls = 0;
   globalThis.fetch = async () => { calls += 1; return new Response(JSON.stringify({ output_text: JSON.stringify(fixture()) }), { headers: { 'Content-Type': 'application/json' } }); };
   try {
-    const response = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ proposalText: '검증할 사업계획서 본문입니다. 대상과 프로그램과 성과를 충분히 기술한 원문입니다.', criteriaText: '공식 평가표', officialEvaluationProvided: true }) }) });
+    const response = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ proposalText: '사업 필요성에서 검증할 사업계획서 본문입니다. 대상과 프로그램과 성과를 충분히 기술한 원문입니다.', criteriaText: '공식 평가표는 필요성과 실행계획을 평가합니다.', officialEvaluationProvided: true }) }) });
     assert.equal(response.status, 200);
     assert.equal(calls, 1);
     assert.equal((await response.json()).basis, 'official-evaluation');
@@ -146,6 +153,7 @@ test('상단 독립 코칭 화면은 외부 파일·붙여넣기·보관함·재
   assert.match(source, /새로 생긴 문제/);
   assert.match(source, /validatedText/);
   for (const label of ['개선 작업판', '미수정', '수정중', '해결', '확인필요', '이 문제만 AI 수정안 만들기', '수정안 적용', '적용 되돌리기', '코칭 보고서 PDF 인쇄·저장']) assert.match(source, new RegExp(label));
+  for (const label of ['근거 바로 확인', '자료명', '페이지·항목', '관련 원문', '제출 전 점검', '제출 전 필수 보완', '주요 개선 권장', '제출 검토 완료']) assert.match(source, new RegExp(label));
   assert.match(source, /action: 'reviseIssue'/);
   assert.match(source, /currentArchiveId/);
   assert.match(source, /document\.fonts\?\.ready\.then\(\(\)=>window\.print\(\)\)/);
@@ -157,6 +165,15 @@ test('운영 진단 로그와 응답은 안전한 필드만 사용한다', () =>
   for (const field of ['configuredModel', 'upstreamStatus', 'upstreamErrorType', 'upstreamErrorCode', 'upstreamRequestId', 'elapsedMs']) assert.match(source, new RegExp(field));
   assert.doesNotMatch(source, /console\.(?:log|info|error)\([^\n]*(?:OPENAI_API_KEY|proposalText|COACHING_INPUT)/);
   assert.match(source, /payload\.action === 'probe'/);
+});
+
+test('실전 품질 QA A/B/C는 고정 더미 자료이며 일반 보관함 저장 동작을 포함하지 않는다', () => {
+  assert.deepEqual(COACHING_QA_CASES.map(item => item.id), ['A', 'B', 'C']);
+  assert.match(COACHING_QA_CASES[0].proposalText, /확인하지 않음|미정/);
+  assert.match(COACHING_QA_CASES[1].proposalText, /20회.*24회/s);
+  assert.match(COACHING_QA_CASES[2].proposalText, /총사업비 30,000,000원/);
+  assert.match(COACHING_QA_CRITERIA, /신청자격|예산 합계|성과목표/);
+  assert.doesNotMatch(JSON.stringify(COACHING_QA_CASES), /주민등록|전화번호|이메일|saveProposal|archive/);
 });
 
 test('라이브 프로브는 전용 비밀값 없이는 OpenAI를 호출하지 않는다', async () => {
