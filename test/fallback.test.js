@@ -5,6 +5,7 @@ import { localAnalyze, localDraft } from '../src/fallback.js';
 import { normalizeManualSources, onRequest, validateEngineResult, validateMasterResult, validatePartResult } from '../functions/api/proposal.js';
 import { buildOfficialSummary, classifyAttachment, handleNoticeRequest, isBusinessNotice, isOpenDeadline, mergeNoticeCandidates, parseProposalList, splitSubprojects } from '../functions/api/notices.js';
 import { buildPrintDocument } from '../src/export.js';
+import { onRequest as handleArchiveRequest, syncNotices } from '../functions/api/archive.js';
 
 test('규칙 분석은 원문 근거를 보존한다', () => {
   const sourceText = '제출 마감은 2026년 9월 1일이다. 상담사 3명 이상을 필수 배치해야 한다. 평가 배점은 사업수행 50점이다.';
@@ -88,6 +89,30 @@ test('마스터 설계는 10개 호환 항목을 중복 없이 포함하고 분�
   assert.match(validatePartResult({ sections: [{ id: 'necessity' }] }, { sectionKeys: ['necessity', 'purpose'] }), /일치하지 않습니다/);
 });
 
+test('자료보관함은 동일 공고를 중복 저장하지 않고 내용이 바뀐 공고만 갱신한다', async () => {
+  const rows = new Map();
+  const db = { prepare(sql) { return { values: [], bind(...values) { this.values = values; return this; }, async first() { return rows.get(this.values[0]) || null; }, async run() { const [sourceKey, source, sourceLabel, listSn, dstbBsnsCode, title, deadline, applicationPeriod, summary, eligibility, supportDetails, supportLimit, contentHash] = this.values; rows.set(sourceKey, { sourceKey, source, sourceLabel, listSn, dstbBsnsCode, title, deadline, applicationPeriod, summary, eligibility, supportDetails, supportLimit, content_hash: contentHash }); return { success: true }; } }; } };
+  const notice = { source: 'central', sourceLabel: '중앙회', listSn: '1', dstbBsnsCode: '2026001', title: '아동 지원사업', deadline: '2026-12-31', summary: '공식 요약' };
+  assert.deepEqual(await syncNotices(db, [notice]), { inserted: 1, updated: 0, unchanged: 0 });
+  assert.deepEqual(await syncNotices(db, [notice]), { inserted: 0, updated: 0, unchanged: 1 });
+  assert.deepEqual(await syncNotices(db, [{ ...notice, summary: '변경된 공식 요약' }]), { inserted: 0, updated: 1, unchanged: 0 });
+});
+
+test('자료보관함 API는 D1 미연결 상태와 전용 저장·검색 흐름을 명확히 처리한다', async () => {
+  const response = await handleArchiveRequest({ env: {}, request: new Request('https://example.test/api/archive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'searchNotices' }) }) });
+  assert.equal(response.status, 503);
+  const appSource = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  const config = fs.readFileSync(new URL('../wrangler.toml', import.meta.url), 'utf8');
+  assert.match(appSource, /id="find-matching-notices"/);
+  assert.match(appSource, /id="list-archived-proposals"/);
+  assert.match(appSource, /data-open-archived-proposal/);
+  assert.match(appSource, /archiveCurrentProposal\('master'\)/);
+  assert.match(appSource, /archiveCurrentProposal\('parts'\)/);
+  assert.match(appSource, /archiveCurrentProposal\('complete'\)/);
+  assert.match(appSource, /archiveCurrentProposal\('review'\)/);
+  assert.match(config, /binding = "ARCHIVE_DB"/);
+});
+
 test('앱은 공고문 입력에서 시작하고 사용자 확정 회사 정보만 생성에 사용한다', () => {
   const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   assert.match(source, /step: 0,/);
@@ -121,7 +146,7 @@ test('공모사업 목록은 중앙회와 광주지회 진행 중 공고만 조�
 
 test('공고 가져오기가 성공하면 공고 확인 단계로 자동 이동한다', () => {
   const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
-  assert.match(source, /navigateToStep\(1, \{ busy: '', noticeResults: result\.notices \|\| \[\]/);
+  assert.match(source, /navigateToStep\(1, \{ busy: '', noticeResults: notices/);
 });
 
 test('사업계획서 AI 작성 대기 중 경과 시간을 초 단위로 표시한다', () => {

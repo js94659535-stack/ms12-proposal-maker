@@ -4,3 +4,9 @@ compatibility_date = "2026-08-06"
 compatibility_flags = ["nodejs_compat"]
 
 # OPENAI_API_KEY와 OPENAI_MODEL은 Cloudflare Variables and Secrets에서 설정합니다.
+
+[[d1_databases]]
+binding = "ARCHIVE_DB"
+database_name = "ms12-proposal-archive"
+database_id = "6bf8da36-9690-4577-8f55-ef316e875ef8"
+migrations_dir = "migrations"
