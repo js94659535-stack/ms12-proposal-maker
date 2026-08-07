@@ -68,7 +68,7 @@ test('서버 함수에는 OpenAI 외부 호출이 한 곳뿐이고 재시도 루
 
 test('앱은 공고문 입력에서 시작하고 사용자 확정 회사 정보만 생성에 사용한다', () => {
   const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
-  assert.match(source, /step: 1,/);
+  assert.match(source, /step: 0,/);
   assert.match(source, /confirmedFacts: state\.companyFacts\.filter\(item => item\.confirmedByUser === true\)/);
   assert.doesNotMatch(source, /profileForPrompt|organizationProfile/);
   assert.match(source, /delete saved\.manualCompanyFacts/);
@@ -296,9 +296,7 @@ test('공고 선택 결과는 기존 제목과 원문 입력으로 전달된다'
   assert.match(source, /notice\.subprojects\?\.length > 1/);
   assert.match(source, /data-select-subproject/);
   assert.match(source, /applyNoticeSelection\(pending\.notice, subproject\)/);
-  assert.match(source, /startProposalWriting\(notice\)/);
-  assert.match(source, /startWriting: true/);
-  assert.match(source, /setTimeout\(generateCompleteProposal, 0\)/);
+  assert.match(source, /navigateToStep\(2/);
   assert.match(source, /개요:\\n\$\{subproject\.content\}/);
   assert.match(source, /id="selected-notice-detail"/);
   assert.match(source, /detailText: bodyText/);
@@ -470,11 +468,11 @@ test('사업 유형과 6단계 작업 탭은 sticky 상단 내비게이션에 �
 test('완료 체크는 방문 순서가 아니라 단계별 필수 데이터로 판단한다', () => {
   const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   assert.match(source, /function isStepComplete\(index\)/);
-  assert.match(source, /state\.project\.title\.trim\(\).*state\.project\.issuer\.trim\(\).*state\.project\.deadline/);
-  assert.match(source, /state\.sourceText\.trim\(\)\.length >= 30/);
+  assert.match(source, /state\.noticeResults\.length \|\| state\.sourceText\.trim\(\)\.length >= 30/);
+  assert.match(source, /state\.selectedNotice/);
   assert.match(source, /state\.sections\.length === 10/);
   assert.doesNotMatch(source, /i < state\.step \? '✓'/);
   assert.doesNotMatch(source, /<div class="type-grid">\$\{TYPES\.map/);
   assert.match(source, /class="history-button"/);
-  assert.match(source, /class="intro compact-intro"/);
+  assert.match(source, /const STEPS = \['공고 가져오기', '공고 확인', '사업 선택', '계획서 작성', '검토·완성'\]/);
 });
