@@ -8,7 +8,7 @@ const LIMITS = Object.freeze({
   rewriteInstructionChars: 4_000,
   analysisChars: 300_000,
   timeoutMs: 300_000,
-  outputTokens: Object.freeze({ analyze: 6_000, draft: 12_000, rewrite: 4_000 })
+  outputTokens: Object.freeze({ analyze: 6_000, master: 8_000, draftPart: 6_000, draft: 12_000, rewrite: 4_000 })
 });
 
 export async function onRequest(context) {
@@ -24,7 +24,7 @@ export async function onRequest(context) {
     if (new TextEncoder().encode(rawBody).byteLength > LIMITS.requestBytes) return limitError('요청 본문');
     let body;
     try { body = JSON.parse(rawBody); } catch { return json({ error: '요청 JSON 형식이 올바르지 않습니다.' }, 400); }
-    if (!['analyze', 'draft', 'rewrite'].includes(body.action)) return json({ error: '지원하지 않는 작업입니다.' }, 400);
+    if (!['analyze', 'master', 'draftPart', 'draft', 'rewrite'].includes(body.action)) return json({ error: '지원하지 않는 작업입니다.' }, 400);
     const validation = validate(body.action, body.payload);
     if (validation) return json({ error: validation }, 400);
 
@@ -42,7 +42,7 @@ export async function onRequest(context) {
         signal: controller.signal,
         body: JSON.stringify({
           model: context.env.OPENAI_MODEL,
-          reasoning: { effort: body.action === 'analyze' ? 'medium' : 'low' },
+          reasoning: { effort: ['analyze', 'master'].includes(body.action) ? 'medium' : 'low' },
           safety_identifier: safetyIdentifier.slice(0, 32),
           store: false,
           input: [
@@ -70,6 +70,14 @@ export async function onRequest(context) {
       const qualityError = validateEngineResult(result);
       if (qualityError) return json({ error: qualityError }, 502);
     }
+    if (body.action === 'master') {
+      const masterError = validateMasterResult(result);
+      if (masterError) return json({ error: masterError }, 502);
+    }
+    if (body.action === 'draftPart') {
+      const partError = validatePartResult(result, body.payload.group);
+      if (partError) return json({ error: partError }, 502);
+    }
     return json(result);
   } catch (error) {
     return json({ error: '서버 처리 중 오류가 발생했습니다. 입력을 확인하거나 관리자에게 문의하세요.' }, 500);
@@ -89,7 +97,7 @@ const SYSTEM_POLICY = `당신은 대한민국 기관 제출용 사업계획서 �
 
 function validate(action, payload) {
   if (!payload || typeof payload !== 'object') return '요청 내용이 없습니다.';
-  const includesSource = action === 'analyze' || (action === 'draft' && typeof payload.sourceText === 'string');
+  const includesSource = action === 'analyze' || action === 'master' || action === 'draftPart' || (action === 'draft' && typeof payload.sourceText === 'string');
   const manualSources = normalizeManualSources(payload.manualSources);
   const manualChars = manualSources.reduce((sum, value) => sum + value.extractedText.length, 0);
   if (Array.isArray(payload.manualSources) && payload.manualSources.length > 30) return '직접 자료는 최대 30개까지 추가할 수 있습니다.';
@@ -108,6 +116,17 @@ function taskSpecification(action, payload) {
   if (action === 'analyze') return {
     name: 'proposal_source_analysis', schema: ANALYSIS_SCHEMA,
     prompt: `사업 유형: ${payload.projectType}\n사용자 입력 사업정보: ${JSON.stringify(payload.project)}\n\n<ORGANIZATION_PROFILE>\n${JSON.stringify(payload.organization)}\n</ORGANIZATION_PROFILE>\n\n<SOURCE_DOCUMENT>\n${payload.sourceText}\n</SOURCE_DOCUMENT>\n\n원문을 분석해 공고 정보, 요구사항, 평가기준, 제출항목, 위험과 확인 질문을 추출하라. 위치는 파일명·페이지 표시가 있으면 그대로 사용하라.`
+  };
+  if (action === 'master') return {
+    name: 'proposal_master_design', schema: MASTER_SCHEMA,
+    prompt: `사업 유형: ${payload.projectType}\n<SELECTED_SUBPROGRAM>${payload.selectedSubprogram || payload.project?.title || ''}</SELECTED_SUBPROGRAM>\n<PROJECT>${JSON.stringify(payload.project)}</PROJECT>\n<CONFIRMED_USER_ANSWERS>${JSON.stringify(payload.userAnswers || {})}</CONFIRMED_USER_ANSWERS>\n<CANDIDATE_ASSETS>${JSON.stringify(payload.organization)}</CANDIDATE_ASSETS>\n<OFFICIAL_NOTICE_TEXT>${payload.sourceText}</OFFICIAL_NOTICE_TEXT>\n<MANUAL_SOURCES>${JSON.stringify(normalizeManualSources(payload.manualSources))}</MANUAL_SOURCES>\n
+아직 계획서 본문을 작성하지 말고 모든 후속 분할 생성이 공통으로 따를 마스터 설계만 확정하라. 선택한 세부사업 하나에 대해 공모기관 의도, 대상·인원, 사업기간, 일정, 예산 구조, 성과지표, 변화경로와 3~5개 프로그램을 일관된 수치와 논리로 설계하라. 공식 자료에 없는 기관 실적·인력·수치는 만들지 말고 필요한 질문은 missingInformation에 최대 5개만 둔다.
+sectionPlan은 실제 공모신청서·사업계획서 서식의 질문과 목차 결합 관계를 우선하여 2~5개 분할 묶음으로 정한다. 페이지 수나 문서 길이로 나누지 않는다. 호환용 10개 sectionKeys(necessity, purpose, goals, target, programs, schedule, roles, budget, indicators, outcomes)를 빠짐없이 정확히 한 번씩 배치하고, 실제 신청서에서 함께 요구하는 항목은 같은 묶음에 둔다. 각 묶음 제목은 공식 신청서의 항목명 또는 그 구조를 명확히 나타내는 한국어로 작성한다.`
+  };
+  if (action === 'draftPart') return {
+    name: 'proposal_draft_part', schema: DRAFT_PART_SCHEMA,
+    prompt: `<MASTER_DESIGN>${JSON.stringify(payload.master)}</MASTER_DESIGN>\n<CURRENT_APPLICATION_GROUP>${JSON.stringify(payload.group)}</CURRENT_APPLICATION_GROUP>\n<OFFICIAL_NOTICE_TEXT>${payload.sourceText}</OFFICIAL_NOTICE_TEXT>\n<MANUAL_SOURCES>${JSON.stringify(normalizeManualSources(payload.manualSources))}</MANUAL_SOURCES>\n<CONFIRMED_USER_ANSWERS>${JSON.stringify(payload.userAnswers || {})}</CONFIRMED_USER_ANSWERS>\n<CANDIDATE_ASSETS>${JSON.stringify(payload.organization)}</CANDIDATE_ASSETS>\n
+MASTER_DESIGN을 변경하거나 다시 설계하지 말고 CURRENT_APPLICATION_GROUP.sectionKeys에 지정된 항목만 작성하라. 다른 분할과 수치·대상·인원·기간·예산·프로그램·성과지표가 충돌하지 않도록 마스터 설계를 단일 기준으로 사용한다. sections의 id는 sectionKeys와 정확히 같아야 하며 그 밖의 섹션은 반환하지 않는다. 제목은 necessity=사업 필요성, purpose=목적, goals=목표, target=대상, programs=세부 프로그램, schedule=추진 일정, roles=운영 인력·역할, budget=예산, indicators=성과지표, outcomes=기대효과를 사용한다. 검토·심사·수정 의견은 작성하지 않는다. 공식 자료와 사용자 확정 정보에 없는 사실은 만들지 않는다.`
   };
   if (action === 'draft' && typeof payload.sourceText === 'string') return {
     name: 'evidence_based_project_engine', schema: COMPLETE_SCHEMA,
@@ -167,7 +186,33 @@ const COMPLETE_SCHEMA = { type: 'object', additionalProperties: false, propertie
   sponsorIntent, projectDesign, sections: { type: 'array', minItems: 10, maxItems: 10, items: section },
   missingInformation: { type: 'array', maxItems: 5, items: { type: 'string' } }, evidenceMap: { type: 'array', items: evidenceItem }, qualityCheck
 }, required: ['sponsorIntent', 'projectDesign', 'sections', 'missingInformation', 'evidenceMap', 'qualityCheck'] };
+const SECTION_KEYS = ['necessity', 'purpose', 'goals', 'target', 'programs', 'schedule', 'roles', 'budget', 'indicators', 'outcomes'];
+const sectionPlanItem = { type: 'object', additionalProperties: false, properties: {
+  id: { type: 'string' }, title: { type: 'string' }, sectionKeys: { type: 'array', minItems: 1, items: { type: 'string', enum: SECTION_KEYS } }
+}, required: ['id', 'title', 'sectionKeys'] };
+const MASTER_SCHEMA = { type: 'object', additionalProperties: false, properties: {
+  sponsorIntent, projectDesign, sectionPlan: { type: 'array', minItems: 2, maxItems: 5, items: sectionPlanItem },
+  missingInformation: { type: 'array', maxItems: 5, items: { type: 'string' } }, evidenceMap: { type: 'array', items: evidenceItem }, qualityCheck
+}, required: ['sponsorIntent', 'projectDesign', 'sectionPlan', 'missingInformation', 'evidenceMap', 'qualityCheck'] };
+const DRAFT_PART_SCHEMA = { type: 'object', additionalProperties: false, properties: { sections: { type: 'array', minItems: 1, items: section } }, required: ['sections'] };
 const REWRITE_SCHEMA = { type: 'object', additionalProperties: false, properties: { section }, required: ['section'] };
+
+export function validateMasterResult(result) {
+  const groups = result?.sectionPlan;
+  if (!Array.isArray(groups) || groups.length < 2 || groups.length > 5) return '마스터 설계의 신청서 항목 분할은 2~5개여야 합니다.';
+  const keys = groups.flatMap(group => Array.isArray(group.sectionKeys) ? group.sectionKeys : []);
+  if (keys.length !== SECTION_KEYS.length || new Set(keys).size !== SECTION_KEYS.length || SECTION_KEYS.some(key => !keys.includes(key))) return '마스터 설계가 계획서 10개 항목을 빠짐없이 한 번씩 포함하지 않습니다.';
+  if (!result.sponsorIntent?.evidence?.length || !result.evidenceMap?.length) return '마스터 설계에 공식 원문 근거가 연결되지 않았습니다.';
+  if (!result.qualityCheck?.noticeAlignment || !result.qualityCheck?.singleSubprogramOnly || !result.qualityCheck?.logicConsistency) return '마스터 설계가 공고 정합성 검증을 통과하지 못했습니다.';
+  return '';
+}
+
+export function validatePartResult(result, group) {
+  const expected = Array.isArray(group?.sectionKeys) ? group.sectionKeys : [];
+  const actual = Array.isArray(result?.sections) ? result.sections.map(value => value.id) : [];
+  if (!expected.length || actual.length !== expected.length || new Set(actual).size !== actual.length || expected.some(key => !actual.includes(key))) return '분할 생성 결과가 요청한 신청서 항목과 일치하지 않습니다.';
+  return '';
+}
 
 export function validateEngineResult(result) {
   if (!result || !Array.isArray(result.sections) || result.sections.length !== 10) return 'AI 사업설계 결과에 10개 계획서 항목이 없습니다.';

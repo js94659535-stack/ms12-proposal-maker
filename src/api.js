@@ -10,4 +10,6 @@ async function request(action, payload) {
 
 export const analyzeWithAI = payload => request('analyze', payload);
 export const draftWithAI = payload => request('draft', payload);
+export const masterWithAI = payload => request('master', payload);
+export const draftPartWithAI = payload => request('draftPart', payload);
 export const rewriteWithAI = payload => request('rewrite', payload);

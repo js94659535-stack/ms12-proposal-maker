@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { localAnalyze, localDraft } from '../src/fallback.js';
-import { normalizeManualSources, onRequest, validateEngineResult } from '../functions/api/proposal.js';
+import { normalizeManualSources, onRequest, validateEngineResult, validateMasterResult, validatePartResult } from '../functions/api/proposal.js';
 import { buildOfficialSummary, classifyAttachment, handleNoticeRequest, isBusinessNotice, isOpenDeadline, mergeNoticeCandidates, parseProposalList, splitSubprojects } from '../functions/api/notices.js';
 import { buildPrintDocument } from '../src/export.js';
 
@@ -65,6 +65,27 @@ test('서버 함수에는 OpenAI 외부 호출이 한 곳뿐이고 재시도 루
   assert.match(source, /new AbortController\(\)/);
   assert.match(source, /timeoutMs:\s*300_000/);
   assert.match(source, /max_output_tokens: LIMITS\.outputTokens\[body\.action\]/);
+});
+
+test('모든 계획서는 마스터 설계와 신청서 항목별 분할 생성을 거쳐 완성한다', () => {
+  const appSource = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  const apiSource = fs.readFileSync(new URL('../functions/api/proposal.js', import.meta.url), 'utf8');
+  assert.match(appSource, /masterWithAI\(completePayload\)/);
+  assert.match(appSource, /id="generate-parts"/);
+  assert.match(appSource, /draftPartWithAI/);
+  assert.match(appSource, /id="assemble-proposal"/);
+  assert.match(appSource, /마스터 설계 → 분할 생성 → 완성/);
+  assert.match(apiSource, /페이지 수나 문서 길이로 나누지 않는다/);
+  assert.match(apiSource, /sectionPlan: \{ type: 'array', minItems: 2, maxItems: 5/);
+});
+
+test('마스터 설계는 10개 호환 항목을 중복 없이 포함하고 분할 결과는 요청 항목과 일치한다', () => {
+  const keys = ['necessity', 'purpose', 'goals', 'target', 'programs', 'schedule', 'roles', 'budget', 'indicators', 'outcomes'];
+  const master = { sponsorIntent: { evidence: ['공식 근거'] }, evidenceMap: [{ id: 'e1' }], qualityCheck: { noticeAlignment: true, singleSubprogramOnly: true, logicConsistency: true }, sectionPlan: [{ id: 'a', title: '배경과 목적', sectionKeys: keys.slice(0, 4) }, { id: 'b', title: '수행계획', sectionKeys: keys.slice(4, 8) }, { id: 'c', title: '성과', sectionKeys: keys.slice(8) }] };
+  assert.equal(validateMasterResult(master), '');
+  assert.match(validateMasterResult({ ...master, sectionPlan: [{ id: 'a', title: '중복', sectionKeys: [...keys.slice(0, 9), 'necessity'] }, { id: 'b', title: '누락', sectionKeys: ['outcomes'] }] }), /한 번씩/);
+  assert.equal(validatePartResult({ sections: [{ id: 'necessity' }, { id: 'purpose' }] }, { sectionKeys: ['necessity', 'purpose'] }), '');
+  assert.match(validatePartResult({ sections: [{ id: 'necessity' }] }, { sectionKeys: ['necessity', 'purpose'] }), /일치하지 않습니다/);
 });
 
 test('앱은 공고문 입력에서 시작하고 사용자 확정 회사 정보만 생성에 사용한다', () => {

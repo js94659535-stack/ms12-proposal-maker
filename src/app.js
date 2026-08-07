@@ -1,4 +1,4 @@
-import { analyzeWithAI, draftWithAI, rewriteWithAI } from './api.js';
+import { analyzeWithAI, draftPartWithAI, draftWithAI, masterWithAI, rewriteWithAI } from './api.js';
 import { extractFile, extractFiles } from './files.js';
 import { localAnalyze } from './fallback.js';
 import { exportDocx, exportPdf, printDocument } from './export.js';
@@ -15,7 +15,7 @@ const NAVIGATION_KEY = 'ms12_workflow_navigation_v1';
 const NAVIGATION_LIMIT = 10;
 const initial = {
   step: 0, project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
-  analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
+  analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [] }, manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
 let navigationHistory = loadNavigationHistory();
@@ -29,7 +29,10 @@ function loadState() {
     const saved = JSON.parse(localStorage.getItem('ms12_project_v3') || '{}');
     // 이전 버전의 자유입력 회사 정보는 사용자 확인 기록이 없으므로 확정 정보로 승격하지 않는다.
     delete saved.manualCompanyFacts;
-    return { ...structuredClone(initial), ...saved, step: Math.max(0, Math.min(4, Number(saved.step) || 0)), companyFactDraft: '', noticeResults: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '' };
+    const stagedGeneration = saved.stagedGeneration && typeof saved.stagedGeneration === 'object'
+      ? { ...structuredClone(initial.stagedGeneration), ...saved.stagedGeneration, parts: Array.isArray(saved.stagedGeneration.parts) ? saved.stagedGeneration.parts : [], completedGroupIds: Array.isArray(saved.stagedGeneration.completedGroupIds) ? saved.stagedGeneration.completedGroupIds : [] }
+      : structuredClone(initial.stagedGeneration);
+    return { ...structuredClone(initial), ...saved, stagedGeneration, step: Math.max(0, Math.min(4, Number(saved.step) || 0)), companyFactDraft: '', noticeResults: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '' };
   }
   catch { return structuredClone(initial); }
 }
@@ -266,7 +269,7 @@ function questionsView() {
 function documentView() {
   const strategy = strategyView();
   const questions = designQuestionsView();
-  if (!state.sections.length) return `${strategy}${questions}<div class="empty-state"><div>▤</div><h2>${state.designUnavailable ? 'AI 정밀 사업설계를 실행할 수 없음' : '작성된 초안이 없습니다'}</h2><p>${state.designUnavailable ? '공고 자료 분석은 완료되었지만 AI 정밀 사업설계를 실행하지 못했습니다. 아래에는 공식 원문에서 직접 추출한 사실만 표시합니다.' : '기관 원문 단계에서 사업설계를 실행해 주세요.'}</p>${state.designUnavailable ? directFactsView() : '<button class="button primary" data-step="1">원문 입력으로 이동</button>'}</div>`;
+  if (!state.sections.length) return `${strategy}${questions}${stagedGenerationView()}${state.designUnavailable ? `<div class="empty-state"><div>▤</div><h2>AI 정밀 사업설계를 실행할 수 없음</h2><p>공고 자료 분석은 완료되었지만 AI 정밀 사업설계를 실행하지 못했습니다. 아래에는 공식 원문에서 직접 추출한 사실만 표시합니다.</p>${directFactsView()}</div>` : ''}`;
   const completionMode = state.step === 4;
   const toolbarActions = completionMode
     ? `<button class="button secondary" id="proposal-review">${state.reviewResult ? '명시적으로 재검토' : '심사 검토·고도화'}</button><button class="button secondary" id="print">인쇄</button><button class="button secondary" id="pdf">PDF 인쇄·저장</button><button class="button primary" id="docx">검토용 DOCX</button>`
@@ -275,6 +278,24 @@ function documentView() {
     ${completionMode ? proposalReviewView() : ''}
     <div class="editor-layout"><aside class="outline">${state.sections.map((s, i) => `<a href="#section-${i}"><span>${i + 1}</span>${escapeHtml(s.title.replace(/^\d+[.)]?\s*/, ''))}</a>`).join('')}</aside><div class="paper">${state.sections.map((s, i) => `<section id="section-${i}" class="doc-section"><div class="section-head"><input data-section-title="${i}" value="${escapeHtml(s.title)}"><span class="status ${s.status?.replace(' ', '-')}">${escapeHtml(s.status || '검토 필요')}</span></div><textarea data-section-content="${i}">${escapeHtml(s.content)}</textarea><div class="section-meta"><span>근거 ${s.citations?.length || 0}개</span><span><button data-confirm-fact="${i}">회사 정보로 확정 저장</button><button data-rewrite="${i}">이 항목 재작성</button></span></div>${s.citations?.length ? `<details><summary>반영한 원문 근거</summary>${s.citations.map(id => { const r = state.analysis.requirements.find(v => v.id === id); return r ? `<blockquote>${escapeHtml(r.evidence)} <small>${escapeHtml(r.location)}</small></blockquote>` : ''; }).join('')}</details>` : ''}</section>`).join('')}</div></div>`;
 }
+
+function stagedGenerationView() {
+  const staged = state.stagedGeneration || initial.stagedGeneration;
+  const master = staged.master;
+  if (!master) return state.designUnavailable ? '' : '<div class="empty-state"><div>▤</div><h2>마스터 설계가 없습니다</h2><p>사업을 선택하면 전체 구조를 먼저 설계합니다.</p><button class="button primary" data-step="2">사업 선택으로 이동</button></div>';
+  const groups = master.sectionPlan || [];
+  const completed = new Set(staged.completedGroupIds || []);
+  const progress = groups.length ? Math.round((completed.size / groups.length) * 100) : 0;
+  const waitingForAnswers = (state.missingInformation || []).some(question => !String(state.designAnswers[question] || '').trim());
+  return `<div class="card"><div class="card-title"><div><h3>계획서 생성 3단계</h3><span>마스터 설계 → 분할 생성 → 완성</span></div><span class="tag ${staged.phase === 'parts-ready' ? 'mandatory' : ''}">${staged.phase === 'master-ready' ? '마스터 설계 완료' : staged.phase === 'parts-ready' ? '분할 생성 완료' : '분할 생성 중'}</span></div>
+    <div class="summary-grid"><div><span>사업명</span><strong>${escapeHtml(master.projectDesign?.projectName || state.project.title)}</strong></div><div><span>대상·인원</span><strong>${escapeHtml([master.projectDesign?.target, master.projectDesign?.participantCount].filter(Boolean).join(' · '))}</strong></div><div><span>사업기간</span><strong>${escapeHtml(master.projectDesign?.projectPeriod || '')}</strong></div><div><span>분할 기준</span><strong>신청서 항목·목차 ${groups.length}개 묶음</strong></div></div>
+    <details open><summary>확정된 마스터 구조 보기</summary><div class="requirement-list">${groups.map((group, index) => `<article class="requirement"><div><span class="tag">${index + 1}</span><div><strong>${escapeHtml(group.title)}</strong><small>${escapeHtml((group.sectionKeys || []).map(sectionTitle).join(' · '))}</small></div></div><span class="status ${completed.has(group.id) ? '충족' : '확인-필요'}">${completed.has(group.id) ? '완료' : '대기'}</span></article>`).join('')}</div></details>
+    <div class="field"><label>분할 생성 진행률 ${completed.size} / ${groups.length}</label><progress value="${completed.size}" max="${Math.max(groups.length, 1)}" style="width:100%">${progress}%</progress></div>
+    <div class="actions"><span>${waitingForAnswers ? '필수 확인 질문에 답한 뒤 마스터 설계를 다시 확정하세요.' : staged.phase === 'parts-ready' ? '모든 항목이 동일한 마스터 설계를 기준으로 작성되었습니다.' : '사용자가 시작해야 분할 생성을 실행합니다.'}</span>${staged.phase === 'master-ready' || staged.phase === 'parts-generating' ? `<button class="button primary" id="generate-parts" ${waitingForAnswers ? 'disabled' : ''}>분할 생성</button>` : ''}${staged.phase === 'parts-ready' ? '<button class="button primary" id="assemble-proposal">계획서 완성하기</button>' : ''}</div></div>`;
+}
+
+const SECTION_TITLES = { necessity: '사업 필요성', purpose: '목적', goals: '목표', target: '대상', programs: '세부 프로그램', schedule: '추진 일정', roles: '운영 인력·역할', budget: '예산', indicators: '성과지표', outcomes: '기대효과' };
+function sectionTitle(key) { return SECTION_TITLES[key] || key; }
 
 function proposalReviewView() {
   const review = state.reviewResult;
@@ -383,6 +404,8 @@ function bind() {
   document.querySelector('#draft')?.addEventListener('click', createDraft);
   document.querySelectorAll('[data-design-answer]').forEach(el => el.oninput = () => { const question = state.missingInformation[Number(el.dataset.designAnswer)]; if (question) { state.designAnswers[question] = el.value; saveState(); } });
   document.querySelector('#regenerate-design')?.addEventListener('click', generateCompleteProposal);
+  document.querySelector('#generate-parts')?.addEventListener('click', generateProposalParts);
+  document.querySelector('#assemble-proposal')?.addEventListener('click', assembleProposal);
   document.querySelectorAll('[data-section-title]').forEach(el => el.oninput = () => { state.sections[Number(el.dataset.sectionTitle)].title = el.value; saveState(); });
   document.querySelectorAll('[data-section-content]').forEach(el => el.oninput = () => { state.sections[Number(el.dataset.sectionContent)].content = el.value; saveState(); });
   document.querySelectorAll('[data-rewrite]').forEach(el => el.onclick = () => rewriteSection(Number(el.dataset.rewrite)));
@@ -678,17 +701,18 @@ async function generateCompleteProposal() {
   const manualLength = state.manualSources.filter(value => value.extractionStatus === 'success').reduce((sum, value) => sum + value.extractedText.length, 0);
   if (state.sourceText.trim().length + manualLength < 30) return setState({ error: '사업계획서를 작성할 공식 또는 직접 자료를 30자 이상 입력해 주세요.' });
   if (state.sourceText.length > 180000 || state.sourceText.length + manualLength > 220000) return setState({ error: '생성 입력 자료가 허용 길이를 초과했습니다. 자료를 나누거나 불필요한 내용을 줄여 주세요.' });
-  setState({ busy: '공고문을 분석하고 완성형 사업계획서를 작성하는 중...', error: '', notice: '' });
-  const completePayload = { sourceText: state.sourceText, manualSources: state.manualSources.map(({ id, fileName, sourceType, extractedText, extractionStatus, extractionError }) => ({ id, fileName, sourceType, extractedText, extractionStatus, extractionError })), projectType: typeName(), project: state.project, selectedSubprogram: state.selectedNotice?.selectedSubproject || state.selectedNotice?.title || state.project.title, organization: organizationForGeneration(), userAnswers: state.designAnswers };
+  setState({ busy: '공고문을 분석하고 마스터 설계를 작성하는 중...', error: '', notice: '', sections: [], stagedGeneration: structuredClone(initial.stagedGeneration) });
+  const completePayload = generationPayload();
   try {
-    const result = await draftWithAI(completePayload);
+    const result = await masterWithAI(completePayload);
     state.sponsorIntent = result.sponsorIntent;
     state.projectDesign = result.projectDesign;
     state.missingInformation = (result.missingInformation || []).slice(0, 5);
     state.evidenceMap = result.evidenceMap || [];
     state.qualityCheck = result.qualityCheck;
     state.analysis = engineAnalysis(result);
-    state.sections = result.sections;
+    state.sections = [];
+    state.stagedGeneration = { phase: 'master-ready', master: result, parts: [], completedGroupIds: [] };
     state.aiMode = 'ai';
     state.designUnavailable = false;
     state.project = { ...state.project, title: result.projectDesign.projectName || state.project.title };
@@ -701,6 +725,7 @@ async function generateCompleteProposal() {
     state.evidenceMap = state.analysis.requirements.map(value => ({ id: value.id, claim: value.requirement, evidence: value.evidence, location: value.location }));
     state.qualityCheck = null;
     state.sections = [];
+    state.stagedGeneration = structuredClone(initial.stagedGeneration);
     state.aiMode = 'local';
     state.designUnavailable = true;
     state.notice = `공고 자료 분석은 완료되었지만 AI 정밀 사업설계를 실행하지 못했습니다. ${error.message}`;
@@ -708,6 +733,49 @@ async function generateCompleteProposal() {
   state.answers = state.analysis.questions || [];
   state.matches = buildMatches();
   navigateToStep(3, { busy: '' });
+}
+
+function generationPayload() {
+  return { sourceText: state.sourceText, manualSources: state.manualSources.map(({ id, fileName, sourceType, extractedText, extractionStatus, extractionError }) => ({ id, fileName, sourceType, extractedText, extractionStatus, extractionError })), projectType: typeName(), project: state.project, selectedSubprogram: state.selectedNotice?.selectedSubproject || state.selectedNotice?.title || state.project.title, organization: organizationForGeneration(), userAnswers: state.designAnswers };
+}
+
+async function generateProposalParts() {
+  const staged = state.stagedGeneration;
+  const groups = staged?.master?.sectionPlan || [];
+  if (!groups.length) return setState({ error: '분할 생성할 신청서 항목 구조가 없습니다.' });
+  const completed = new Set(staged.completedGroupIds || []);
+  state.stagedGeneration.phase = 'parts-generating';
+  setState({ stagedGeneration: state.stagedGeneration, busy: '신청서 항목별 계획서를 분할 생성하는 중...', error: '', notice: '' });
+  try {
+    for (const group of groups) {
+      if (completed.has(group.id)) continue;
+      const result = await draftPartWithAI({ ...generationPayload(), analysis: state.analysis, master: staged.master, group });
+      state.stagedGeneration.parts = [...state.stagedGeneration.parts.filter(part => part.groupId !== group.id), { groupId: group.id, sections: result.sections }];
+      completed.add(group.id);
+      state.stagedGeneration.completedGroupIds = [...completed];
+      state.stagedGeneration.phase = completed.size === groups.length ? 'parts-ready' : 'parts-generating';
+      setState({ stagedGeneration: state.stagedGeneration, busy: completed.size === groups.length ? '' : `신청서 항목별 계획서를 분할 생성하는 중... (${completed.size}/${groups.length})` });
+    }
+    setState({ busy: '', stagedGeneration: state.stagedGeneration, notice: '분할 생성이 완료되었습니다. 내용을 하나의 계획서로 완성해 주세요.' });
+  } catch (error) {
+    state.stagedGeneration.phase = 'parts-generating';
+    setState({ busy: '', stagedGeneration: state.stagedGeneration, error: `분할 생성이 중단되었습니다. 완료된 항목은 보존됩니다. ${error.message}` });
+  }
+}
+
+function assembleProposal() {
+  const staged = state.stagedGeneration;
+  const groups = staged?.master?.sectionPlan || [];
+  const sectionsById = new Map((staged.parts || []).flatMap(part => part.sections || []).map(section => [section.id, section]));
+  const orderedKeys = groups.flatMap(group => group.sectionKeys || []);
+  const sections = orderedKeys.map(key => sectionsById.get(key)).filter(Boolean);
+  if (orderedKeys.length !== 10 || sections.length !== 10 || new Set(orderedKeys).size !== 10) return setState({ error: '분할 항목이 모두 준비되지 않아 계획서를 완성할 수 없습니다.' });
+  state.stagedGeneration.phase = 'complete';
+  state.sections = sections;
+  state.reviewResult = null;
+  state.reviewOriginalDraft = null;
+  state.reviewFingerprint = '';
+  setState({ stagedGeneration: state.stagedGeneration, sections: state.sections, notice: '분할 항목을 하나의 사업계획서로 완성했습니다. 검토·보완은 다음 단계에서 진행하세요.', error: '' });
 }
 
 function engineAnalysis(result) {
