@@ -15,7 +15,8 @@ const SOURCE_TYPES = ['공고 공문', '세부 공고문', '공모신청서', '�
 const NAVIGATION_KEY = 'ms12_workflow_navigation_v1';
 const NAVIGATION_LIMIT = 10;
 const initial = {
-  step: 0, project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
+  step: 0, activeTool: 'workflow', project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
+  coaching: { title: '', text: '', criteriaText: '', officialEvaluationProvided: false, sourceProposalId: '', sourceNoticeKey: '', seriesId: '', result: null, version: 0 },
   analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
@@ -34,7 +35,7 @@ function loadState() {
     const stagedGeneration = saved.stagedGeneration && typeof saved.stagedGeneration === 'object'
       ? { ...structuredClone(initial.stagedGeneration), ...saved.stagedGeneration, parts: Array.isArray(saved.stagedGeneration.parts) ? saved.stagedGeneration.parts : [], completedGroupIds: Array.isArray(saved.stagedGeneration.completedGroupIds) ? saved.stagedGeneration.completedGroupIds : [] }
       : structuredClone(initial.stagedGeneration);
-    return { ...structuredClone(initial), ...saved, stagedGeneration, step: Math.max(0, Math.min(4, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '' };
+    return { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(4, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '' };
   }
   catch { return structuredClone(initial); }
 }
@@ -120,7 +121,7 @@ function shell(content) {
       <main class="main">
         <header class="workflow-header">
           <div class="workflow-brand"><div class="brand"><span class="brand-mark">M</span><div><strong>Proposal Workbench</strong><small>마인드스토리 내부용</small></div></div><span class="save-state">● 브라우저 자동 저장</span></div>
-          <div class="workflow-row"><label class="type-select-label" for="business-type">사업 유형<select id="business-type">${TYPES.map(([id, name]) => `<option value="${id}" ${state.project.type === id ? 'selected' : ''}>${name}</option>`).join('')}</select></label><nav class="workflow-steps" aria-label="작성 단계">${STEPS.map((name, i) => { const complete = isStepComplete(i); return `<button data-step="${i}" class="workflow-step ${state.step === i ? 'active' : ''} ${complete ? 'done' : ''}" ${state.step === i ? 'aria-current="step"' : ''}><span>${complete ? '✓' : i + 1}</span>${name}</button>`; }).join('')}</nav><nav class="workflow-history" aria-label="앱 작업 화면 이동"><button class="history-button" id="workflow-back" aria-label="직전 작업 화면으로 뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="history-button" id="workflow-home" aria-label="사업 설정 홈으로 가기" ${state.step === 0 ? 'disabled' : ''}>⌂ 홈</button><button class="history-button" id="workflow-forward" aria-label="다음 작업 화면으로 앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button></nav></div>
+          <div class="workflow-row"><label class="type-select-label" for="business-type">사업 유형<select id="business-type">${TYPES.map(([id, name]) => `<option value="${id}" ${state.project.type === id ? 'selected' : ''}>${name}</option>`).join('')}</select></label><nav class="workflow-steps" aria-label="작성 단계">${STEPS.map((name, i) => { const complete = isStepComplete(i); return `<button data-step="${i}" class="workflow-step ${state.activeTool === 'workflow' && state.step === i ? 'active' : ''} ${complete ? 'done' : ''}" ${state.activeTool === 'workflow' && state.step === i ? 'aria-current="step"' : ''}><span>${complete ? '✓' : i + 1}</span>${name}</button>`; }).join('')}</nav><button class="history-button" id="open-coaching" aria-pressed="${state.activeTool === 'coaching'}">계획서 검증·코칭</button><nav class="workflow-history" aria-label="앱 작업 화면 이동"><button class="history-button" id="workflow-back" aria-label="직전 작업 화면으로 뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="history-button" id="workflow-home" aria-label="사업 설정 홈으로 가기" ${state.activeTool === 'workflow' && state.step === 0 ? 'disabled' : ''}>⌂ 홈</button><button class="history-button" id="workflow-forward" aria-label="다음 작업 화면으로 앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button></nav></div>
         </header>
         ${state.notice ? `<div class="alert success">${escapeHtml(state.notice)}</div>` : ''}
         ${state.error ? `<div class="alert danger">${escapeHtml(state.error)}</div>` : ''}
@@ -172,7 +173,7 @@ function archiveView() {
     <details><summary>다른 기기에서 같은 보관함 사용</summary><p class="muted">현재 복구키를 비밀번호 관리도구 등 안전한 장소에 보관하세요. 새 기기에서 같은 키를 입력하면 기존 계획서 보관함에 연결됩니다. 복구키를 잃으면 서버에서도 복원할 수 없습니다.</p><div class="actions"><button class="button secondary" id="copy-archive-key">현재 복구키 복사</button></div><div class="field"><label for="archive-recovery-key">기존 보관함 복구키</label><input id="archive-recovery-key" type="password" autocomplete="off" value="${escapeHtml(state.archiveKeyDraft)}" placeholder="다른 기기에서 보관한 복구키 붙여넣기"><button class="button primary" id="apply-archive-key">이 기기에 기존 보관함 연결</button></div></details></details>`;
 }
 
-function archiveStageLabel(stage) { return ({ master: '마스터 설계', parts: '분할 생성', complete: '완성본', review: '검토본' })[stage] || stage; }
+function archiveStageLabel(stage) { return String(stage).startsWith('coaching-v') ? `검증·코칭 ${String(stage).replace('coaching-', '')}` : ({ master: '마스터 설계', parts: '분할 생성', complete: '완성본', review: '검토본' })[stage] || stage; }
 
 function noticeConfirmView() {
   return `<div class="page-heading"><div><h2>공고 내용을 확인하세요</h2><p>공식 상세 원문에서 추출한 요약·대상·기간·지원내용을 확인합니다.</p></div></div>
@@ -355,7 +356,23 @@ function directFactsView() {
 
 function render() {
   const views = [noticeImportView, noticeConfirmView, businessSelectView, documentView, documentView];
-  app.innerHTML = shell(views[state.step]()); bind(); startBusyElapsedTimer();
+  app.innerHTML = shell(state.activeTool === 'coaching' ? coachingView() : views[state.step]()); bind(); startBusyElapsedTimer();
+}
+
+function coachingView() {
+  const coaching = state.coaching || initial.coaching;
+  const result = coaching.result;
+  return `<div class="page-heading"><div><h2>계획서 검증·코칭</h2><p>내부·외부 계획서를 전체 구조부터 검토하고 문제가 있는 위치만 구체적으로 코칭합니다.</p></div><button class="button secondary" id="close-coaching">작성 흐름으로 돌아가기</button></div>
+    <div class="card"><div class="two-col"><div class="field"><label for="coaching-title">계획서명</label><input id="coaching-title" value="${escapeHtml(coaching.title)}" placeholder="검증할 계획서명"></div><div class="field"><label for="coaching-file">PDF·DOCX·TXT 불러오기</label><input id="coaching-file" type="file" accept=".pdf,.docx,.txt"></div></div>
+    <div class="field"><label for="coaching-text">계획서 원문</label><textarea id="coaching-text" class="source-text" placeholder="직원이 작성한 계획서를 붙여넣거나 파일을 업로드하세요.">${escapeHtml(coaching.text)}</textarea></div>
+    <div class="field"><label for="coaching-criteria">연결할 공고·신청서·공식 평가기준</label><textarea id="coaching-criteria" class="source-text" placeholder="평가표가 있으면 최우선 기준으로 사용합니다.">${escapeHtml(coaching.criteriaText)}</textarea><label><input id="coaching-official-evaluation" type="checkbox" ${coaching.officialEvaluationProvided ? 'checked' : ''}> 입력 자료에 공식 평가표가 포함되어 있음</label></div>
+    <div class="actions"><div><button class="button secondary" id="coach-current-proposal" ${state.sections.length ? '' : 'disabled'}>현재 계획서 불러오기</button><button class="button secondary" id="coach-list-archive">자료보관함 계획서</button></div><button class="button primary" id="run-coaching">${result ? '수정본 다시 검증' : '검증·코칭 실행'}</button></div></div>
+    ${state.archiveProposals.length ? `<div class="card"><h3>자료보관함에서 불러오기</h3><div class="requirement-list">${state.archiveProposals.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(archiveStageLabel(item.stage))}</span><strong>${escapeHtml(item.title)}</strong></div><button class="button secondary" data-coach-archive="${escapeHtml(item.id)}">검증 대상으로 불러오기</button></article>`).join('')}</div></div>` : ''}
+    ${result ? coachingResultView(result) : ''}`;
+}
+
+function coachingResultView(result) {
+  return `<div class="card"><div class="card-title"><div><h3>검증·코칭 결과 · ${escapeHtml(result.overallStatus)}</h3><span>합격확률을 추정하지 않으며, 수정안은 자동 적용되지 않습니다.</span></div><span class="tag">${result.basis === 'official-evaluation' ? '공식 평가표 우선' : '공통 검증 기준'}</span></div><p>${escapeHtml(result.summary)}</p><div class="requirement-list">${result.issues.length ? result.issues.map(item => `<article class="requirement"><div><span class="tag mandatory">${escapeHtml(item.severity)}</span><strong>${escapeHtml(item.location)}</strong></div><p><b>문제 이유</b> ${escapeHtml(item.reason)}</p><p><b>개선 방향</b> ${escapeHtml(item.direction)}</p><details><summary>수정 예시${item.requiresConfirmation ? ' · 확인 필요' : ''}</summary><blockquote>${escapeHtml(item.example)}</blockquote></details></article>`).join('') : '<p class="muted">현재 기준에서 발견된 주요 문제가 없습니다.</p>'}</div></div>`;
 }
 
 function startBusyElapsedTimer() {
@@ -385,12 +402,14 @@ function bind() {
   if (state.step === 0 && !archiveLoaded) void loadRecentArchive();
   document.querySelectorAll('[data-type]').forEach(el => el.onclick = () => { state.project.type = el.dataset.type; saveState(); render(); });
   document.querySelector('#business-type')?.addEventListener('change', event => { state.project.type = event.target.value; saveState(); render(); });
-  document.querySelectorAll('[data-step]').forEach(el => el.onclick = () => navigateToStep(Number(el.dataset.step), { notice: '', error: '' }));
+  document.querySelectorAll('[data-step]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(Number(el.dataset.step), { notice: '', error: '' }); });
+  document.querySelector('#open-coaching')?.addEventListener('click', () => setState({ activeTool: 'coaching', notice: '', error: '' }));
+  document.querySelector('#close-coaching')?.addEventListener('click', () => setState({ activeTool: 'workflow', notice: '', error: '' }));
   document.querySelector('#back')?.addEventListener('click', () => navigateToStep(state.step - 1, { notice: '', error: '' }));
   document.querySelector('#next')?.addEventListener('click', () => navigateToStep(state.step + 1, { notice: '', error: '' }));
-  document.querySelector('#workflow-back')?.addEventListener('click', navigateBack);
-  document.querySelector('#workflow-home')?.addEventListener('click', () => navigateToStep(0));
-  document.querySelector('#workflow-forward')?.addEventListener('click', navigateForward);
+  document.querySelector('#workflow-back')?.addEventListener('click', () => { state.activeTool = 'workflow'; navigateBack(); });
+  document.querySelector('#workflow-home')?.addEventListener('click', () => { state.activeTool = 'workflow'; navigateToStep(0); });
+  document.querySelector('#workflow-forward')?.addEventListener('click', () => { state.activeTool = 'workflow'; navigateForward(); });
   document.querySelector('#go-to-review')?.addEventListener('click', () => navigateToStep(4));
   document.querySelector('#menu-toggle')?.addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
   const fileInput = document.querySelector('#source-files');
@@ -458,6 +477,75 @@ function bind() {
   document.querySelectorAll('[data-apply-review]').forEach(el => el.onclick = () => applyReviewSection(Number(el.dataset.applyReview)));
   document.querySelector('#apply-all-review')?.addEventListener('click', applyAllReviewSections);
   document.querySelector('#restore-review-draft')?.addEventListener('click', restoreReviewDraft);
+  document.querySelector('#coaching-title')?.addEventListener('input', event => { state.coaching.title = event.target.value; saveState(); });
+  document.querySelector('#coaching-text')?.addEventListener('input', event => { state.coaching.text = event.target.value; saveState(); });
+  document.querySelector('#coaching-criteria')?.addEventListener('input', event => { state.coaching.criteriaText = event.target.value; saveState(); });
+  document.querySelector('#coaching-official-evaluation')?.addEventListener('change', event => { state.coaching.officialEvaluationProvided = event.target.checked; saveState(); });
+  document.querySelector('#coaching-file')?.addEventListener('change', loadCoachingFile);
+  document.querySelector('#coach-current-proposal')?.addEventListener('click', coachCurrentProposal);
+  document.querySelector('#coach-list-archive')?.addEventListener('click', loadCoachingArchive);
+  document.querySelectorAll('[data-coach-archive]').forEach(el => el.onclick = () => loadArchivedProposalForCoaching(el.dataset.coachArchive));
+  document.querySelector('#run-coaching')?.addEventListener('click', runProposalCoaching);
+}
+
+async function loadCoachingFile(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  setState({ busy: '검증할 계획서 파일을 읽는 중...', error: '', notice: '' });
+  try {
+    const parsed = await extractFile(file);
+    state.coaching = { ...state.coaching, title: state.coaching.title || parsed.name.replace(/\.[^.]+$/, ''), text: parsed.text, result: null };
+    setState({ busy: '', coaching: state.coaching, notice: `${parsed.type} 계획서를 불러왔습니다.` });
+  } catch (error) { setState({ busy: '', error: error.message }); }
+}
+
+function coachCurrentProposal() {
+  if (!state.sections.length) return;
+  const text = state.sections.map(section => `${section.title}\n${section.content}`).join('\n\n');
+  const criteriaText = [state.sourceText, ...state.manualSources.filter(item => ['공모신청서', '심사·평가기준'].includes(item.sourceType)).map(item => item.extractedText)].filter(Boolean).join('\n\n');
+  const officialEvaluationProvided = Boolean(state.analysis?.evaluationCriteria?.length || state.manualSources.some(item => item.sourceType === '심사·평가기준' && item.extractionStatus === 'success'));
+  setState({ coaching: { ...state.coaching, title: state.project.title || '작성 계획서', text, criteriaText, officialEvaluationProvided, sourceProposalId: state.archiveProposalId || '', sourceNoticeKey: archiveNoticeKey(state.selectedNotice), seriesId: state.archiveProposalId || state.coaching.seriesId, result: null }, notice: '현재 계획서를 검증 대상으로 불러왔습니다.' });
+}
+
+async function loadCoachingArchive() {
+  setState({ busy: '자료보관함 계획서를 불러오는 중...', error: '', notice: '' });
+  try { const result = await listArchivedProposals(); setState({ busy: '', archiveProposals: result.proposals || [], notice: '검증할 계획서를 선택하세요.' }); }
+  catch (error) { setState({ busy: '', error: error.message }); }
+}
+
+async function loadArchivedProposalForCoaching(id) {
+  setState({ busy: '보관된 계획서를 검증 화면에 여는 중...', error: '', notice: '' });
+  try {
+    const result = await getArchivedProposal(id);
+    const snapshot = result.proposal?.snapshot;
+    if (!snapshot) throw new Error('보관된 계획서를 찾지 못했습니다.');
+    if (result.proposal.stage?.startsWith('coaching-v') && snapshot.coaching) {
+      state.coaching = snapshot.coaching;
+    } else {
+      const sections = snapshot.sections || [];
+      const text = sections.map(section => `${section.title}\n${section.content}`).join('\n\n');
+      const criteriaText = [snapshot.sourceText, ...(snapshot.manualSources || []).filter(item => ['공모신청서', '심사·평가기준'].includes(item.sourceType)).map(item => item.extractedText)].filter(Boolean).join('\n\n');
+      const officialEvaluationProvided = Boolean(snapshot.analysis?.evaluationCriteria?.length || (snapshot.manualSources || []).some(item => item.sourceType === '심사·평가기준' && item.extractionStatus === 'success'));
+      state.coaching = { ...initial.coaching, title: result.proposal.title, text, criteriaText, officialEvaluationProvided, sourceProposalId: result.proposal.id, sourceNoticeKey: result.proposal.noticeKey || '', seriesId: result.proposal.id };
+    }
+    setState({ busy: '', coaching: state.coaching, notice: '자료보관함 계획서를 검증 대상으로 불러왔습니다.' });
+  } catch (error) { setState({ busy: '', error: error.message }); }
+}
+
+async function runProposalCoaching() {
+  if (state.coaching.text.trim().length < 30) return setState({ error: '검증할 계획서 내용을 30자 이상 입력해 주세요.' });
+  setState({ busy: '계획서 전체 구조와 문제 항목을 검증하는 중...', error: '', notice: '' });
+  try {
+    const response = await fetch('/api/proposal-coaching', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: state.coaching.title, proposalText: state.coaching.text, criteriaText: state.coaching.criteriaText, officialEvaluationProvided: state.coaching.officialEvaluationProvided }) });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || `검증·코칭 요청 실패 (${response.status})`);
+    const version = Number(state.coaching.version || 0) + 1;
+    const seriesId = String(state.coaching.seriesId || state.coaching.sourceProposalId || crypto.randomUUID()).slice(0, 60);
+    state.coaching = { ...state.coaching, result, version, seriesId };
+    const id = `${seriesId}-coaching-v${version}`.slice(0, 80);
+    await saveArchivedProposal({ id, noticeKey: state.coaching.sourceNoticeKey, title: `${state.coaching.title || '외부 계획서'} · 코칭 v${version}`, stage: `coaching-v${version}`, snapshot: { coaching: structuredClone(state.coaching), parentProposalId: state.coaching.sourceProposalId || '', coachingSeriesId: seriesId } });
+    setState({ busy: '', coaching: state.coaching, notice: `검증·코칭 v${version} 결과를 자료보관함에 저장했습니다.` });
+  } catch (error) { setState({ busy: '', error: error.message }); }
 }
 
 async function runProposalReview(force = false) {
@@ -647,6 +735,10 @@ async function openArchivedProposal(id) {
     const result = await getArchivedProposal(id);
     if (!result.proposal?.snapshot) throw new Error('저장된 계획서를 찾지 못했습니다.');
     const snapshot = result.proposal.snapshot;
+    if (result.proposal.stage?.startsWith('coaching-v') && snapshot.coaching) {
+      state.coaching = { ...initial.coaching, ...snapshot.coaching };
+      return setState({ activeTool: 'coaching', busy: '', notice: '보관된 검증·코칭 버전을 열었습니다.' });
+    }
     state = { ...state, ...snapshot, archiveProposalId: result.proposal.id, archiveNotices: state.archiveNotices, archiveProposals: state.archiveProposals, noticeResults: state.noticeResults, busy: '', error: '' };
     navigateToStep(result.proposal.stage === 'review' ? 4 : 3, { notice: '보관된 계획서를 열었습니다. 이어서 수정할 수 있습니다.' });
   } catch (error) { setState({ busy: '', error: error.message }); }
