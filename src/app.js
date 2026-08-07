@@ -327,7 +327,9 @@ function proposalReviewView() {
   const review = state.reviewResult;
   if (!review) return '';
   const original = state.reviewOriginalDraft || [];
-  return `<div class="card"><div class="card-title"><div><h3>심사 검토 결과 · ${Number(review.overallScore).toFixed(0)}점</h3><span>보완안은 자동 적용되지 않습니다.</span></div><div><button class="button secondary" id="restore-review-draft">검토 전 초안 복원</button><button class="button primary" id="apply-all-review">전체 보완안 적용</button></div></div><p>${escapeHtml(review.overallJudgment)}</p>
+  const structureLabels = { noticeAndEvaluationFit: '공고 목적·평가기준', needDifferentiationFeasibility: '필요성·차별성·실행가능성', baselineConsistency: '대상·인원·기간·회기·역할·예산·성과지표', applicationQuestionCoverage: '신청서 질문 누락', crossSectionLogicAndDuplication: '항목 간 논리 충돌·중복', unsupportedClaims: '근거 없는 주장' };
+  return `<div class="card"><div class="card-title"><div><h3>심사 검토 결과 · ${Number(review.overallScore).toFixed(0)}점</h3><span>전체 구조를 먼저 검토하고 문제가 있는 항목만 보완합니다. 보완안은 자동 적용되지 않습니다.</span></div><div><button class="button secondary" id="restore-review-draft">검토 전 초안 복원</button><button class="button primary" id="apply-all-review">전체 보완안 적용</button></div></div><p>${escapeHtml(review.overallJudgment)}</p>
+    <details open><summary>전체 구조 검토</summary><div class="summary-grid">${Object.entries(structureLabels).map(([key, label]) => { const check = review.structureReview?.[key]; return `<div><span>${label}</span><strong>${escapeHtml(check?.status || '확인 필요')}</strong><small>${escapeHtml((check?.findings || []).join(' · ') || '문제 없음')}</small></div>`; }).join('')}</div></details>
     <div class="summary-grid">${review.criteria.map(item => `<div><span>${escapeHtml(item.label)}</span><strong>${Number(item.score).toFixed(0)}점</strong><small>${escapeHtml(item.judgment)}</small></div>`).join('')}</div>
     ${review.criticalIssues.length ? `<div class="alert warning"><strong>치명적 누락과 불일치</strong>${review.criticalIssues.map(item => `<p>${escapeHtml(item.message)} · ${escapeHtml(item.affectedSections.join(', '))}</p>`).join('')}</div>` : ''}
     ${review.missingQuestions.length ? `<div class="alert warning"><strong>확인이 필요한 질문</strong>${review.missingQuestions.map(item => `<p>${escapeHtml(item.question)} — ${escapeHtml(item.reason)}</p>`).join('')}</div>` : ''}
@@ -485,13 +487,13 @@ function reviewPayload() {
     selectedNotice: state.selectedNotice, selectedSubprogram: state.selectedNotice?.selectedSubproject || state.project.title,
     officialDetailText: state.sourceText, manualSources: state.manualSources, applicationQuestions: state.analysis?.questions || [],
     evaluationCriteria: state.analysis?.evaluationCriteria || [], budgetCriteria: state.manualSources.filter(item => item.sourceType === '예산 편성 기준'),
-    sponsorIntent: state.sponsorIntent, projectDesign: state.projectDesign, evidenceMap: state.evidenceMap,
+    sponsorIntent: state.sponsorIntent, projectDesign: state.projectDesign, masterDesign: state.stagedGeneration?.master, assemblyCheck: state.assemblyCheck, evidenceMap: state.evidenceMap,
     confirmedOrganizationFacts: state.companyFacts.filter(item => item.confirmedByUser === true), sections: state.sections
   };
 }
 
 function validReviewClientResult(result) {
-  return result && Array.isArray(result.criteria) && result.criteria.length === 8 && Array.isArray(result.revisedSections) && Array.isArray(result.missingQuestions) && result.missingQuestions.length <= 5;
+  return result && result.structureReview && Array.isArray(result.structureReview.affectedSectionKeys) && Array.isArray(result.criteria) && result.criteria.length === 8 && Array.isArray(result.revisedSections) && result.revisedSections.every(item => result.structureReview.affectedSectionKeys.includes(item.sectionKey)) && Array.isArray(result.missingQuestions) && result.missingQuestions.length <= 5;
 }
 
 function applyReviewSection(index) {
