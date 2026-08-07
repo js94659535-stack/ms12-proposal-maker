@@ -8,7 +8,7 @@ const LIMITS = Object.freeze({
   rewriteInstructionChars: 4_000,
   analysisChars: 300_000,
   timeoutMs: 300_000,
-  outputTokens: Object.freeze({ analyze: 6_000, master: 10_000, draftPart: 6_000, draft: 12_000, rewrite: 4_000 })
+  outputTokens: Object.freeze({ analyze: 6_000, master: 10_000, draftPart: 7_000, draft: 12_000, rewrite: 4_000 })
 });
 
 export async function onRequest(context) {
@@ -108,6 +108,7 @@ function validate(action, payload) {
   if (jsonLength(payload.answers) > LIMITS.answersChars) return `사용자 보완 내용은 ${LIMITS.answersChars.toLocaleString()}자 이하여야 합니다.`;
   if (typeof payload.instruction === 'string' && payload.instruction.length > LIMITS.rewriteInstructionChars) return `재작성 요청은 ${LIMITS.rewriteInstructionChars.toLocaleString()}자 이하여야 합니다.`;
   if (jsonLength(payload.analysis) > LIMITS.analysisChars) return `분석 결과는 ${LIMITS.analysisChars.toLocaleString()}자 이하여야 합니다.`;
+  if (action === 'draftPart' && jsonLength(payload.previousSections) > 120_000) return '이전 분할 내용이 허용 길이를 초과했습니다.';
   if (action !== 'analyze' && !payload.analysis && !includesSource) return '확정된 분석 결과가 없습니다.';
   return '';
 }
@@ -126,8 +127,11 @@ sectionPlan은 실제 공모신청서·사업계획서 서식의 질문과 목�
   };
   if (action === 'draftPart') return {
     name: 'proposal_draft_part', schema: DRAFT_PART_SCHEMA,
-    prompt: `<MASTER_DESIGN>${JSON.stringify(payload.master)}</MASTER_DESIGN>\n<CURRENT_APPLICATION_GROUP>${JSON.stringify(payload.group)}</CURRENT_APPLICATION_GROUP>\n<OFFICIAL_NOTICE_TEXT>${payload.sourceText}</OFFICIAL_NOTICE_TEXT>\n<MANUAL_SOURCES>${JSON.stringify(normalizeManualSources(payload.manualSources))}</MANUAL_SOURCES>\n<CONFIRMED_USER_ANSWERS>${JSON.stringify(payload.userAnswers || {})}</CONFIRMED_USER_ANSWERS>\n<CANDIDATE_ASSETS>${JSON.stringify(payload.organization)}</CANDIDATE_ASSETS>\n
-MASTER_DESIGN을 변경하거나 다시 설계하지 말고 CURRENT_APPLICATION_GROUP.sectionKeys에 지정된 항목만 작성하라. 다른 분할과 수치·대상·인원·기간·예산·프로그램·성과지표가 충돌하지 않도록 마스터 설계를 단일 기준으로 사용한다. sections의 id는 sectionKeys와 정확히 같아야 하며 그 밖의 섹션은 반환하지 않는다. 제목은 necessity=사업 필요성, purpose=목적, goals=목표, target=대상, programs=세부 프로그램, schedule=추진 일정, roles=운영 인력·역할, budget=예산, indicators=성과지표, outcomes=기대효과를 사용한다. 검토·심사·수정 의견은 작성하지 않는다. 공식 자료와 사용자 확정 정보에 없는 사실은 만들지 않는다.`
+    prompt: `<MASTER_DESIGN>${JSON.stringify(payload.master)}</MASTER_DESIGN>\n<CURRENT_APPLICATION_GROUP>${JSON.stringify(payload.group)}</CURRENT_APPLICATION_GROUP>\n<PREVIOUS_COMPLETED_SECTIONS>${JSON.stringify(payload.previousSections || [])}</PREVIOUS_COMPLETED_SECTIONS>\n<OFFICIAL_NOTICE_TEXT>${payload.sourceText}</OFFICIAL_NOTICE_TEXT>\n<MANUAL_SOURCES>${JSON.stringify(normalizeManualSources(payload.manualSources))}</MANUAL_SOURCES>\n<CONFIRMED_USER_ANSWERS>${JSON.stringify(payload.userAnswers || {})}</CONFIRMED_USER_ANSWERS>\n<CANDIDATE_ASSETS>${JSON.stringify(payload.organization)}</CANDIDATE_ASSETS>\n
+MASTER_DESIGN을 변경하거나 다시 설계하지 말고 CURRENT_APPLICATION_GROUP.sectionKeys에 지정된 공식 신청서 질문·목차에 정확히 대응하는 항목만 이어서 작성하라. MASTER_DESIGN의 공모 의도, 문제→원인→대상→전략→실행→산출→변화→성과측정 논리와 대상·인원·기간·회기·역할·예산·성과지표 기준값은 모든 분할의 변경 불가능한 공통 기준이다.
+PREVIOUS_COMPLETED_SECTIONS를 앞부분 원고로 읽고 동일한 계획서를 이어 써라. 사업명·대상 명칭·프로그램명·담당 역할·수치·단위·기간·성과지표 용어를 그대로 유지하고 충돌하는 새 값을 만들지 않는다. 앞 분할에서 이미 충분히 설명한 배경이나 목적을 반복하지 말고 현재 신청 항목에 필요한 연결 문장만 사용한다. 추상적 당위보다 누가·언제·어디서·누구에게·무엇을·몇 회·어떻게 수행하고 어떤 근거와 산출물을 남기는지 구체적으로 작성한다.
+sections의 id는 sectionKeys와 정확히 같아야 하며 그 밖의 섹션은 반환하지 않는다. 제목은 necessity=사업 필요성, purpose=목적, goals=목표, target=대상, programs=세부 프로그램, schedule=추진 일정, roles=운영 인력·역할, budget=예산, indicators=성과지표, outcomes=기대효과를 사용한다. 공식 자료와 사용자 확정 정보에 없는 사실은 만들지 않고 필요한 위치에 [확인 필요]를 유지한다. 검토·심사·수정 의견은 작성하지 않는다.
+작성 후 continuityCheck에서 마스터 정합성, 공식 신청서 구조 대응, 용어·수치 일관성, 불필요한 반복 여부를 스스로 대조하라. 하나라도 충족하지 못하면 임의로 통과 처리하지 말고 issues에 구체적으로 기록하라.`
   };
   if (action === 'draft' && typeof payload.sourceText === 'string') return {
     name: 'evidence_based_project_engine', schema: COMPLETE_SCHEMA,
@@ -202,7 +206,10 @@ const MASTER_SCHEMA = { type: 'object', additionalProperties: false, properties:
   sponsorIntent, projectDesign, masterLogic, sectionPlan: { type: 'array', minItems: 2, items: sectionPlanItem },
   missingInformation: { type: 'array', maxItems: 5, items: { type: 'string' } }, evidenceMap: { type: 'array', items: evidenceItem }, qualityCheck
 }, required: ['sponsorIntent', 'projectDesign', 'masterLogic', 'sectionPlan', 'missingInformation', 'evidenceMap', 'qualityCheck'] };
-const DRAFT_PART_SCHEMA = { type: 'object', additionalProperties: false, properties: { sections: { type: 'array', minItems: 1, items: section } }, required: ['sections'] };
+const continuityCheck = { type: 'object', additionalProperties: false, properties: {
+  masterAligned: { type: 'boolean' }, applicationStructureAligned: { type: 'boolean' }, terminologyConsistent: { type: 'boolean' }, numericConsistent: { type: 'boolean' }, noUnnecessaryRepetition: { type: 'boolean' }, issues: stringArray
+}, required: ['masterAligned', 'applicationStructureAligned', 'terminologyConsistent', 'numericConsistent', 'noUnnecessaryRepetition', 'issues'] };
+const DRAFT_PART_SCHEMA = { type: 'object', additionalProperties: false, properties: { sections: { type: 'array', minItems: 1, items: section }, continuityCheck }, required: ['sections', 'continuityCheck'] };
 const REWRITE_SCHEMA = { type: 'object', additionalProperties: false, properties: { section }, required: ['section'] };
 
 export function validateMasterResult(result) {
@@ -220,6 +227,8 @@ export function validatePartResult(result, group) {
   const expected = Array.isArray(group?.sectionKeys) ? group.sectionKeys : [];
   const actual = Array.isArray(result?.sections) ? result.sections.map(value => value.id) : [];
   if (!expected.length || actual.length !== expected.length || new Set(actual).size !== actual.length || expected.some(key => !actual.includes(key))) return '분할 생성 결과가 요청한 신청서 항목과 일치하지 않습니다.';
+  const continuity = result?.continuityCheck;
+  if (!continuity?.masterAligned || !continuity?.applicationStructureAligned || !continuity?.terminologyConsistent || !continuity?.numericConsistent || !continuity?.noUnnecessaryRepetition || continuity?.issues?.length) return `분할 생성 결과의 마스터 정합성 또는 연속성 검증에 실패했습니다.${continuity?.issues?.length ? ` ${continuity.issues.join(' · ')}` : ''}`;
   return '';
 }
 

@@ -87,8 +87,10 @@ test('마스터 설계는 10개 호환 항목을 중복 없이 포함하고 분�
   const master = { sponsorIntent: { evidence: ['공식 근거'] }, masterLogic, evidenceMap: [{ id: 'e1' }], qualityCheck: { noticeAlignment: true, singleSubprogramOnly: true, logicConsistency: true }, sectionPlan: [{ id: 'a', title: '배경과 목적', sectionKeys: keys.slice(0, 4) }, { id: 'b', title: '수행계획', sectionKeys: keys.slice(4, 8) }, { id: 'c', title: '성과', sectionKeys: keys.slice(8) }] };
   assert.equal(validateMasterResult(master), '');
   assert.match(validateMasterResult({ ...master, sectionPlan: [{ id: 'a', title: '중복', sectionKeys: [...keys.slice(0, 9), 'necessity'] }, { id: 'b', title: '누락', sectionKeys: ['outcomes'] }] }), /한 번씩/);
-  assert.equal(validatePartResult({ sections: [{ id: 'necessity' }, { id: 'purpose' }] }, { sectionKeys: ['necessity', 'purpose'] }), '');
-  assert.match(validatePartResult({ sections: [{ id: 'necessity' }] }, { sectionKeys: ['necessity', 'purpose'] }), /일치하지 않습니다/);
+  const continuityCheck = { masterAligned: true, applicationStructureAligned: true, terminologyConsistent: true, numericConsistent: true, noUnnecessaryRepetition: true, issues: [] };
+  assert.equal(validatePartResult({ sections: [{ id: 'necessity' }, { id: 'purpose' }], continuityCheck }, { sectionKeys: ['necessity', 'purpose'] }), '');
+  assert.match(validatePartResult({ sections: [{ id: 'necessity' }], continuityCheck }, { sectionKeys: ['necessity', 'purpose'] }), /일치하지 않습니다/);
+  assert.match(validatePartResult({ sections: [{ id: 'necessity' }, { id: 'purpose' }], continuityCheck: { ...continuityCheck, numericConsistent: false, issues: ['인원 불일치'] } }, { sectionKeys: ['necessity', 'purpose'] }), /연속성 검증에 실패/);
   const variablePlan = keys.map((key, index) => ({ id: `g${index}`, title: key, sectionKeys: [key] }));
   assert.equal(validateMasterResult({ ...master, sectionPlan: variablePlan }), '');
 });
@@ -104,6 +106,18 @@ test('마스터 설계는 문제부터 성과측정까지 논리사슬과 평가
   assert.match(apiSource, /\[확인 필요\]/);
   assert.match(appSource, /마스터 논리사슬과 선정 대응/);
   assert.match(appSource, /주장별 공식 자료 근거/);
+});
+
+test('분할 생성은 이전 원고와 마스터를 기준으로 신청서 항목을 일관되게 이어 쓴다', () => {
+  const apiSource = fs.readFileSync(new URL('../functions/api/proposal.js', import.meta.url), 'utf8');
+  const appSource = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  assert.match(appSource, /previousSections/);
+  assert.match(apiSource, /<PREVIOUS_COMPLETED_SECTIONS>/);
+  assert.match(apiSource, /누가·언제·어디서·누구에게·무엇을·몇 회·어떻게/);
+  assert.match(apiSource, /noUnnecessaryRepetition/);
+  assert.match(apiSource, /numericConsistent/);
+  assert.match(apiSource, /applicationStructureAligned/);
+  assert.match(apiSource, /\[확인 필요\]를 유지/);
 });
 
 test('자료보관함은 동일 공고를 중복 저장하지 않고 내용이 바뀐 공고만 갱신한다', async () => {

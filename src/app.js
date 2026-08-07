@@ -871,7 +871,8 @@ async function generateProposalParts() {
   try {
     for (const group of groups) {
       if (completed.has(group.id)) continue;
-      const result = await draftPartWithAI({ ...generationPayload(), analysis: state.analysis, master: staged.master, group });
+      const previousSections = groups.flatMap(previousGroup => state.stagedGeneration.parts.find(part => part.groupId === previousGroup.id)?.sections || []);
+      const result = await draftPartWithAI({ ...generationPayload(), analysis: state.analysis, master: staged.master, group, previousSections });
       state.stagedGeneration.parts = [...state.stagedGeneration.parts.filter(part => part.groupId !== group.id), { groupId: group.id, sections: result.sections }];
       completed.add(group.id);
       state.stagedGeneration.completedGroupIds = [...completed];
