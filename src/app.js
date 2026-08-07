@@ -16,7 +16,7 @@ const NAVIGATION_KEY = 'ms12_workflow_navigation_v1';
 const NAVIGATION_LIMIT = 10;
 const initial = {
   step: 0, project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
-  analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [] }, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
+  analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
 let navigationHistory = loadNavigationHistory();
@@ -833,7 +833,7 @@ async function generateCompleteProposal() {
     state.qualityCheck = result.qualityCheck;
     state.analysis = engineAnalysis(result);
     state.sections = [];
-    state.stagedGeneration = { phase: 'master-ready', master: result, parts: [], completedGroupIds: [] };
+    state.stagedGeneration = { phase: 'master-ready', master: result, parts: [], completedGroupIds: [], continuitySummary: null };
     state.aiMode = 'ai';
     state.designUnavailable = false;
     state.project = { ...state.project, title: result.projectDesign.projectName || state.project.title };
@@ -871,9 +871,10 @@ async function generateProposalParts() {
   try {
     for (const group of groups) {
       if (completed.has(group.id)) continue;
-      const previousSections = groups.flatMap(previousGroup => state.stagedGeneration.parts.find(part => part.groupId === previousGroup.id)?.sections || []);
-      const result = await draftPartWithAI({ ...generationPayload(), analysis: state.analysis, master: staged.master, group, previousSections });
+      const relevantSections = relevantPreviousSections(group, state.stagedGeneration.parts);
+      const result = await draftPartWithAI({ ...generationPayload(), analysis: state.analysis, master: staged.master, group, continuitySummary: state.stagedGeneration.continuitySummary, relevantSections });
       state.stagedGeneration.parts = [...state.stagedGeneration.parts.filter(part => part.groupId !== group.id), { groupId: group.id, sections: result.sections }];
+      state.stagedGeneration.continuitySummary = result.continuitySummary;
       completed.add(group.id);
       state.stagedGeneration.completedGroupIds = [...completed];
       state.stagedGeneration.phase = completed.size === groups.length ? 'parts-ready' : 'parts-generating';
@@ -885,6 +886,12 @@ async function generateProposalParts() {
     state.stagedGeneration.phase = 'parts-generating';
     setState({ busy: '', stagedGeneration: state.stagedGeneration, error: `분할 생성이 중단되었습니다. 완료된 항목은 보존됩니다. ${error.message}` });
   }
+}
+
+const SECTION_DEPENDENCIES = { necessity: [], purpose: ['necessity'], goals: ['purpose'], target: ['necessity', 'goals'], programs: ['goals', 'target'], schedule: ['programs'], roles: ['programs', 'schedule'], budget: ['programs', 'roles'], indicators: ['goals', 'programs'], outcomes: ['goals', 'indicators'] };
+function relevantPreviousSections(group, parts) {
+  const needed = new Set((group.sectionKeys || []).flatMap(key => SECTION_DEPENDENCIES[key] || []));
+  return (parts || []).flatMap(part => part.sections || []).filter(section => needed.has(section.id)).map(section => ({ id: section.id, title: section.title, content: String(section.content || '').slice(0, 3000), citations: section.citations || [] }));
 }
 
 function assembleProposal() {

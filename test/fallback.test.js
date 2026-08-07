@@ -88,9 +88,10 @@ test('마스터 설계는 10개 호환 항목을 중복 없이 포함하고 분�
   assert.equal(validateMasterResult(master), '');
   assert.match(validateMasterResult({ ...master, sectionPlan: [{ id: 'a', title: '중복', sectionKeys: [...keys.slice(0, 9), 'necessity'] }, { id: 'b', title: '누락', sectionKeys: ['outcomes'] }] }), /한 번씩/);
   const continuityCheck = { masterAligned: true, applicationStructureAligned: true, terminologyConsistent: true, numericConsistent: true, noUnnecessaryRepetition: true, issues: [] };
-  assert.equal(validatePartResult({ sections: [{ id: 'necessity' }, { id: 'purpose' }], continuityCheck }, { sectionKeys: ['necessity', 'purpose'] }), '');
-  assert.match(validatePartResult({ sections: [{ id: 'necessity' }], continuityCheck }, { sectionKeys: ['necessity', 'purpose'] }), /일치하지 않습니다/);
-  assert.match(validatePartResult({ sections: [{ id: 'necessity' }, { id: 'purpose' }], continuityCheck: { ...continuityCheck, numericConsistent: false, issues: ['인원 불일치'] } }, { sectionKeys: ['necessity', 'purpose'] }), /연속성 검증에 실패/);
+  const continuitySummary = { fixedTerms: [], fixedValues: [], establishedDecisions: [], nextHandoff: [] };
+  assert.equal(validatePartResult({ sections: [{ id: 'necessity' }, { id: 'purpose' }], continuityCheck, continuitySummary }, { sectionKeys: ['necessity', 'purpose'] }), '');
+  assert.match(validatePartResult({ sections: [{ id: 'necessity' }], continuityCheck, continuitySummary }, { sectionKeys: ['necessity', 'purpose'] }), /일치하지 않습니다/);
+  assert.match(validatePartResult({ sections: [{ id: 'necessity' }, { id: 'purpose' }], continuityCheck: { ...continuityCheck, numericConsistent: false, issues: ['인원 불일치'] }, continuitySummary }, { sectionKeys: ['necessity', 'purpose'] }), /연속성 검증에 실패/);
   const variablePlan = keys.map((key, index) => ({ id: `g${index}`, title: key, sectionKeys: [key] }));
   assert.equal(validateMasterResult({ ...master, sectionPlan: variablePlan }), '');
 });
@@ -111,13 +112,26 @@ test('마스터 설계는 문제부터 성과측정까지 논리사슬과 평가
 test('분할 생성은 이전 원고와 마스터를 기준으로 신청서 항목을 일관되게 이어 쓴다', () => {
   const apiSource = fs.readFileSync(new URL('../functions/api/proposal.js', import.meta.url), 'utf8');
   const appSource = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
-  assert.match(appSource, /previousSections/);
-  assert.match(apiSource, /<PREVIOUS_COMPLETED_SECTIONS>/);
+  assert.doesNotMatch(appSource, /previousSections/);
+  assert.doesNotMatch(apiSource, /<PREVIOUS_COMPLETED_SECTIONS>/);
+  assert.match(apiSource, /<CONTINUITY_SUMMARY>/);
+  assert.match(apiSource, /<RELEVANT_PREVIOUS_SECTIONS>/);
   assert.match(apiSource, /누가·언제·어디서·누구에게·무엇을·몇 회·어떻게/);
   assert.match(apiSource, /noUnnecessaryRepetition/);
   assert.match(apiSource, /numericConsistent/);
   assert.match(apiSource, /applicationStructureAligned/);
   assert.match(apiSource, /\[확인 필요\]를 유지/);
+});
+
+test('장문 분할 생성은 전체 이전 원문 대신 압축 요약과 의존 항목만 전달한다', () => {
+  const apiSource = fs.readFileSync(new URL('../functions/api/proposal.js', import.meta.url), 'utf8');
+  const appSource = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  assert.match(appSource, /SECTION_DEPENDENCIES/);
+  assert.match(appSource, /content: String\(section\.content \|\| ''\)\.slice\(0, 3000\)/);
+  assert.match(appSource, /continuitySummary: state\.stagedGeneration\.continuitySummary/);
+  assert.match(apiSource, /continuitySummary\) > 20_000/);
+  assert.match(apiSource, /relevantSections\) > 40_000/);
+  assert.match(apiSource, /원문 문단을 복사하지 말고 항목당 짧은 문장/);
 });
 
 test('자료보관함은 동일 공고를 중복 저장하지 않고 내용이 바뀐 공고만 갱신한다', async () => {
