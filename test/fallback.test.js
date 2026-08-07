@@ -63,6 +63,7 @@ test('서버 함수에는 OpenAI 외부 호출이 한 곳뿐이고 재시도 루
   assert.doesNotMatch(source, /\bconsole\.(?:log|info|debug|warn|error)\b/);
   assert.doesNotMatch(source, /\bretry\b|while\s*\(/i);
   assert.match(source, /new AbortController\(\)/);
+  assert.match(source, /timeoutMs:\s*240_000/);
   assert.match(source, /max_output_tokens: LIMITS\.outputTokens\[body\.action\]/);
 });
 
