@@ -8,7 +8,7 @@ const LIMITS = Object.freeze({
   rewriteInstructionChars: 4_000,
   analysisChars: 300_000,
   timeoutMs: 300_000,
-  outputTokens: Object.freeze({ analyze: 6_000, master: 10_000, draftPart: 7_000, draft: 12_000, rewrite: 4_000 })
+  outputTokens: Object.freeze({ analyze: 6_000, master: 7_000, draftPart: 7_000, draft: 12_000, rewrite: 4_000 })
 });
 
 export async function onRequest(context) {
@@ -42,7 +42,7 @@ export async function onRequest(context) {
         signal: controller.signal,
         body: JSON.stringify({
           model: context.env.OPENAI_MODEL,
-          reasoning: { effort: ['analyze', 'master'].includes(body.action) ? 'medium' : 'low' },
+          reasoning: { effort: body.action === 'analyze' ? 'medium' : 'low' },
           safety_identifier: safetyIdentifier.slice(0, 32),
           store: false,
           input: [

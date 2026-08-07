@@ -66,6 +66,8 @@ test('서버 함수에는 OpenAI 외부 호출이 한 곳뿐이고 재시도 루
   assert.match(source, /new AbortController\(\)/);
   assert.match(source, /timeoutMs:\s*300_000/);
   assert.match(source, /max_output_tokens: LIMITS\.outputTokens\[body\.action\]/);
+  assert.match(source, /master:\s*7_000/);
+  assert.match(source, /body\.action === 'analyze' \? 'medium' : 'low'/);
 });
 
 test('모든 계획서는 마스터 설계와 신청서 항목별 분할 생성을 거쳐 완성한다', () => {
