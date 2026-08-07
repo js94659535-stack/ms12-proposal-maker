@@ -379,3 +379,29 @@ test('생성 API는 직접 자료 우선순위와 충돌을 출처별로 처리�
   assert.match(source, /각 출처를 evidenceMap에 모두 기록하고 missingInformation 질문에 포함/);
   assert.match(source, /선택된 세부사업 하나만/);
 });
+
+test('주요 작업 화면은 브라우저 이탈 없는 10단계 앱 내부 이동 기록을 사용한다', () => {
+  const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  assert.match(source, /const NAVIGATION_LIMIT = 10/);
+  assert.match(source, /sessionStorage\.getItem\(NAVIGATION_KEY\)/);
+  assert.match(source, /sessionStorage\.setItem\(NAVIGATION_KEY/);
+  assert.match(source, /backStack: validLocations/);
+  assert.match(source, /forwardStack: validLocations/);
+  assert.match(source, /return stack\.slice\(-NAVIGATION_LIMIT\)/);
+  assert.match(source, /navigationHistory\.forwardStack = \[\]/);
+  assert.match(source, /if \(!sameLocation\(stack\.at\(-1\), location\)\)/);
+  assert.doesNotMatch(source, /window\.history\.(?:back|forward|go)/);
+});
+
+test('뒤로·홈·앞으로 버튼은 모든 6단계 공통 셸에 표시되고 작성 상태를 삭제하지 않는다', () => {
+  const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  assert.match(source, /aria-label="앱 작업 화면 이동"/);
+  assert.match(source, /← 뒤로 가기/);
+  assert.match(source, /⌂ 홈으로 가기/);
+  assert.match(source, /앞으로 가기 →/);
+  assert.match(source, /document\.querySelector\('#workflow-back'\)/);
+  assert.match(source, /navigateToStep\(0\)/);
+  assert.match(source, /document\.querySelector\('#workflow-forward'\)/);
+  assert.doesNotMatch(source, /function navigateToStep[\s\S]*?structuredClone\(state\)/);
+  assert.match(source, /display:flex;flex-wrap:wrap/);
+});

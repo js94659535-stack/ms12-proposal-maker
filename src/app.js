@@ -11,11 +11,14 @@ const TYPES = [
 ];
 const STEPS = ['사업 설정', '기관 원문', '요구사항 분석', '적합성 비교', '확인 질문', '계획서 작성'];
 const SOURCE_TYPES = ['공고 공문', '세부 공고문', '공모신청서', '사업계획서 서식', '예산 편성 기준', '심사·평가기준', '기타 안내자료'];
+const NAVIGATION_KEY = 'ms12_workflow_navigation_v1';
+const NAVIGATION_LIMIT = 10;
 const initial = {
   step: 1, project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
   analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], companyFacts: [], companyFactDraft: '', noticeResults: [], selectedNoticeIndexes: [], pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
+let navigationHistory = loadNavigationHistory();
 const app = document.querySelector('#app');
 
 function loadState() {
@@ -30,6 +33,52 @@ function loadState() {
 function saveState() {
   const safe = { ...state, companyFactDraft: '', noticeResults: [], noticeUrlDraft: '', busy: '', error: '', files: state.files.map(({ text, ...meta }) => meta) };
   localStorage.setItem('ms12_project_v3', JSON.stringify(safe));
+}
+function loadNavigationHistory() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(NAVIGATION_KEY) || '{}');
+    return { backStack: validLocations(saved.backStack), forwardStack: validLocations(saved.forwardStack) };
+  } catch { return { backStack: [], forwardStack: [] }; }
+}
+function validLocations(values) {
+  return Array.isArray(values) ? values.filter(value => Number.isInteger(value?.step) && value.step >= 0 && value.step < STEPS.length).slice(-NAVIGATION_LIMIT) : [];
+}
+function currentLocation(step = state.step) {
+  return { step, view: state.pendingNoticeChoice ? 'subprogram-selection' : 'workflow-step', selectedNoticeId: state.selectedNotice?.references?.[0]?.listSn || '', selectedSubprogramId: state.selectedNotice?.selectedSubproject || '' };
+}
+function sameLocation(left, right) {
+  return left?.step === right?.step && left?.view === right?.view && left?.selectedNoticeId === right?.selectedNoticeId && left?.selectedSubprogramId === right?.selectedSubprogramId;
+}
+function limitedPush(stack, location) {
+  if (!sameLocation(stack.at(-1), location)) stack.push(location);
+  return stack.slice(-NAVIGATION_LIMIT);
+}
+function saveNavigationHistory() {
+  try { sessionStorage.setItem(NAVIGATION_KEY, JSON.stringify(navigationHistory)); } catch { /* 현재 탭에서 저장할 수 없으면 메모리 기록만 유지한다. */ }
+}
+function applyWorkflowLocation(location, patch = {}) {
+  state = { ...state, ...patch, step: location.step };
+  saveState(); render();
+}
+function navigateToStep(step, patch = {}) {
+  const target = currentLocation(Math.max(0, Math.min(STEPS.length - 1, Number(step))));
+  const current = currentLocation();
+  if (sameLocation(current, target)) return setState(patch);
+  navigationHistory.backStack = limitedPush(navigationHistory.backStack, current);
+  navigationHistory.forwardStack = [];
+  saveNavigationHistory(); applyWorkflowLocation(target, patch);
+}
+function navigateBack() {
+  const target = navigationHistory.backStack.pop();
+  if (!target) return;
+  navigationHistory.forwardStack = limitedPush(navigationHistory.forwardStack, currentLocation());
+  saveNavigationHistory(); applyWorkflowLocation(target);
+}
+function navigateForward() {
+  const target = navigationHistory.forwardStack.pop();
+  if (!target) return;
+  navigationHistory.backStack = limitedPush(navigationHistory.backStack, currentLocation());
+  saveNavigationHistory(); applyWorkflowLocation(target);
 }
 function escapeHtml(value = '') { return String(value).replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c])); }
 function nl(value = '') { return escapeHtml(value).replace(/\n/g, '<br>'); }
@@ -58,6 +107,7 @@ function shell(content) {
       </aside>
       <main class="main">
         <header class="topbar"><button id="menu-toggle" class="icon-button" aria-label="메뉴 열기">☰</button><div><p class="eyebrow">${escapeHtml(typeName())}</p><h1>${escapeHtml(STEPS[state.step])}</h1></div><span class="save-state">● 브라우저 자동 저장</span></header>
+        <nav aria-label="앱 작업 화면 이동" style="display:flex;flex-wrap:wrap;gap:8px;padding:12px 34px;background:#fff;border-bottom:1px solid var(--line)"><button class="button secondary" id="workflow-back" aria-label="직전 작업 화면으로 뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로 가기</button><button class="button secondary" id="workflow-home" aria-label="사업 설정 홈으로 가기" ${state.step === 0 ? 'disabled' : ''}>⌂ 홈으로 가기</button><button class="button secondary" id="workflow-forward" aria-label="다음 작업 화면으로 앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 가기 →</button></nav>
         ${state.notice ? `<div class="alert success">${escapeHtml(state.notice)}</div>` : ''}
         ${state.error ? `<div class="alert danger">${escapeHtml(state.error)}</div>` : ''}
         <section class="workspace">${content}</section>
@@ -196,9 +246,12 @@ function updateInputs() {
 function bind() {
   updateInputs();
   document.querySelectorAll('[data-type]').forEach(el => el.onclick = () => { state.project.type = el.dataset.type; saveState(); render(); });
-  document.querySelectorAll('[data-step]').forEach(el => el.onclick = () => setState({ step: Number(el.dataset.step), notice: '', error: '' }));
-  document.querySelector('#back')?.addEventListener('click', () => setState({ step: Math.max(0, state.step - 1), notice: '', error: '' }));
-  document.querySelector('#next')?.addEventListener('click', () => { if (state.step === 2 && !state.matches.length) state.matches = buildMatches(); setState({ step: Math.min(5, state.step + 1), notice: '', error: '' }); });
+  document.querySelectorAll('[data-step]').forEach(el => el.onclick = () => navigateToStep(Number(el.dataset.step), { notice: '', error: '' }));
+  document.querySelector('#back')?.addEventListener('click', () => navigateToStep(state.step - 1, { notice: '', error: '' }));
+  document.querySelector('#next')?.addEventListener('click', () => { if (state.step === 2 && !state.matches.length) state.matches = buildMatches(); navigateToStep(state.step + 1, { notice: '', error: '' }); });
+  document.querySelector('#workflow-back')?.addEventListener('click', navigateBack);
+  document.querySelector('#workflow-home')?.addEventListener('click', () => navigateToStep(0));
+  document.querySelector('#workflow-forward')?.addEventListener('click', navigateForward);
   document.querySelector('#menu-toggle')?.addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
   const fileInput = document.querySelector('#source-files');
   if (fileInput) fileInput.onchange = async e => {
@@ -396,7 +449,7 @@ async function analyze() {
   const payload = { sourceText: state.sourceText, projectType: typeName(), project: state.project, organization: organizationForGeneration() };
   try { const result = await analyzeWithAI(payload); state.analysis = result.analysis; state.aiMode = 'ai'; }
   catch (error) { state.analysis = localAnalyze({ sourceText: state.sourceText, projectType: typeName(), title: state.project.title }); state.aiMode = 'local'; state.notice = `서버 AI를 사용할 수 없어 로컬 분석으로 계속합니다: ${error.message}`; }
-  state.analysis.project = { ...state.project, ...state.analysis.project }; state.project = { ...state.project, ...state.analysis.project }; state.answers = state.analysis.questions || []; state.matches = buildMatches(); setState({ busy: '', step: 2 });
+  state.analysis.project = { ...state.project, ...state.analysis.project }; state.project = { ...state.project, ...state.analysis.project }; state.answers = state.analysis.questions || []; state.matches = buildMatches(); navigateToStep(2, { busy: '' });
 }
 
 async function createDraft() {
@@ -445,7 +498,7 @@ async function generateCompleteProposal() {
   }
   state.answers = state.analysis.questions || [];
   state.matches = buildMatches();
-  setState({ busy: '', step: 5 });
+  navigateToStep(5, { busy: '' });
 }
 
 function engineAnalysis(result) {
