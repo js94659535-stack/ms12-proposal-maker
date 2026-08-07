@@ -3,6 +3,7 @@ import { COACHING_QA_CASES, COACHING_QA_CRITERIA } from '../test/fixtures/coachi
 
 const baseUrl = process.argv[2] || 'https://pro.ms12.org';
 const archiveKey = randomUUID();
+const POLL_INTERVAL_MS = 5000;
 const sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 
 async function request(body) {
@@ -46,8 +47,8 @@ for (const item of COACHING_QA_CASES) {
     if (!start.response.ok) throw Object.assign(new Error(start.data.error || 'background start failed'), { httpStatus: start.response.status, data: start.data });
     let status = start.data.status;
     let resultCandidate = null;
-    while (['queued', 'in_progress'].includes(status) && pollingCount < 180) {
-      await sleep(3000);
+    while (['queued', 'in_progress'].includes(status) && pollingCount < 110) {
+      await sleep(POLL_INTERVAL_MS);
       pollingCount += 1;
       const poll = await request({ action: 'pollCoaching', jobId: start.data.jobId });
       lastDiagnostic = poll.data.diagnostic || lastDiagnostic;

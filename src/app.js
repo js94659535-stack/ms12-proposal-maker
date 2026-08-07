@@ -608,7 +608,7 @@ async function pollProposalCoaching() {
     if (!state.coaching.pendingJob || state.coaching.pendingJob.id !== jobId) return;
     state.coaching.pendingJob = { ...state.coaching.pendingJob, status: result.status, pollCount: Number(state.coaching.pendingJob.pollCount || 0) + 1, diagnostic: result.diagnostic || state.coaching.pendingJob.diagnostic };
     saveState(); render();
-    if (['queued', 'in_progress'].includes(result.status)) setTimeout(() => pollProposalCoaching(), 2500);
+    if (['queued', 'in_progress'].includes(result.status)) setTimeout(() => pollProposalCoaching(), 5000);
     else if (result.status === 'completed') await finalizeProposalCoaching(jobId, result.resultCandidate, result.diagnostic);
   } catch (error) {
     state.coaching.pendingJob = null;
