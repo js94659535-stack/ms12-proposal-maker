@@ -54,6 +54,7 @@ async function pollCoaching(env, request, payload) {
     const parseMs = Date.now() - parseStartedAt;
     const validationPayload = access.jobPayload || {};
     const validationStartedAt = Date.now();
+    normalizeUnsupportedCriticalIssues(result);
     const validation = validateCoachingResultDetailed(result, validationPayload.officialEvaluationProvided === true, Number(validationPayload.previousVersion || 0), validationPayload);
     const validationMs = Date.now() - validationStartedAt;
     const resultBytes = new TextEncoder().encode(JSON.stringify(result)).byteLength;
@@ -196,7 +197,7 @@ officialEvaluationProvided가 true이면 제공된 공식 평가표를 가장 �
 모든 evaluationMatrix와 issues의 evidenceRefs에는 sourceName, pageOrSection, proposalLocation, excerpt, verified를 기록한다. excerpt는 입력 원문에 실제로 존재하는 연속 문자열만 사용한다. sourceName과 pageOrSection도 입력에서 확인할 수 있는 명칭만 사용한다. 근거를 찾지 못하면 네 문자열을 빈 값으로 두고 verified=false로 반환하며 해당 판단을 확인필요로 낮춘다. 존재하지 않는 페이지·규정·평가기준을 만들지 않는다.
 계획서 전체 구조를 먼저 검토한 뒤 문제가 있는 부분만 issues에 기록한다. 공모 목적·평가기준 대응, 사업 필요성과 논리구조, 대상·프로그램·성과 연결, 실행가능성, 인원·기간·회기·역할·예산·성과지표 일관성, 신청 항목 누락·중복, 근거 없는 주장과 [확인 필요], 추상적 표현·약한 차별성·심사 위험을 모두 확인한다.
 finalChecks에는 자격, 필수 신청항목, 사업기간, 대상·인원, 회기, 예산 합계·예산규정, 성과목표·지표, 기관·협력 역할, 공식 평가항목 누락을 각각 정확히 한 번 기록한다. 확인 근거가 있으면 충족 또는 보완필요, 근거가 없으면 확인필요로 판단한다.
-제출 불가, 자격, 필수항목 누락, 예산규정 위반, 핵심 수치 충돌은 최우선 경고로 분류한다. 약한 필요성·차별성·성과지표·실행방법은 주요 개선, 표현·중복·문장 문제는 일반 개선으로 분류한다.
+제출 불가, 자격, 필수항목 누락, 예산규정 위반, 핵심 수치 충돌은 입력 근거에서 실제 누락·위반·상충이 명시적으로 확인될 때만 최우선 경고로 분류한다. 정보가 부족하거나 공식 규정 원문을 확인할 수 없으면 위반으로 단정하지 말고 확인필요로 처리한다. 필요성이 약한 것은 제출 불가가 아니며, 세부 설명 부족은 기간·회기 충돌이 아니고, 예산규정 원문이 없는 것은 예산규정 위반이 아니다. budget-rule과 core-conflict는 명시적인 위반 또는 서로 다른 두 원문 수치가 실제로 상충할 때만 사용한다. 약한 필요성·차별성·성과지표·실행방법은 주요 개선, 표현·중복·문장 문제는 일반 개선으로 분류한다.
 각 문제는 반드시 문제 위치 → 위험 이유 → 개선 방향 → 수정 예시 순서로 작성한다. 수정 예시는 원문과 제공 근거 범위에서만 작성하며 새 사실을 만들지 않는다. 근거가 부족하면 requiresConfirmation을 true로 하고 수정 예시에 [확인 필요: 정보]를 유지한다. 전체 계획서를 다시 쓰지 않는다.
 previousResult가 있으면 직전 문제 목록과 현재 원문을 비교하여 comparison에 해결된 문제, 남은 문제, 새로 생긴 문제, 실제 개선된 항목을 구분한다. comparison.previousVersion에는 입력의 previousVersion 값을 그대로 사용한다. 이전 버전이 없으면 previousVersion은 0이고 네 목록은 빈 배열로 둔다.`;
 
@@ -235,6 +236,24 @@ export function validateIssueRevision(result, proposalText) {
 
 export function validateCoachingResult(result, officialEvaluationProvided = false, previousVersion = 0, payload = {}) {
   return validateCoachingResultDetailed(result, officialEvaluationProvided, previousVersion, payload).error;
+}
+
+export function normalizeUnsupportedCriticalIssues(result) {
+  for (const issue of result?.issues || []) {
+    if (issue.priority !== '최우선 경고' || !['submission', 'eligibility', 'required-item', 'budget-rule', 'core-conflict'].includes(issue.riskType)) continue;
+    const excerpts = (issue.evidenceRefs || []).filter(ref => ref?.verified && ref.excerpt).map(ref => ref.excerpt);
+    const evidence = excerpts.join(' ');
+    const explicitMissingOrViolation = /확인하지 않|작성하지 않|누락|없(?:다|음)|미정|금지|불가|초과|위반/.test(evidence);
+    const explicitContrast = excerpts.length >= 2 && /그러나|하지만|반면|했으나|다른 항목|본문은|일정표는|사업개요는|세부 프로그램은/.test(evidence);
+    const wonAmounts = [...evidence.matchAll(/(\d[\d,]*)\s*원/g)].map(match => Number(match[1].replaceAll(',', ''))).filter(Number.isFinite);
+    const explicitBudgetMismatch = issue.riskType === 'budget-rule' && wonAmounts.length >= 3 && Math.max(...wonAmounts) !== wonAmounts.reduce((sum, value) => sum + value, 0) - Math.max(...wonAmounts);
+    if (explicitMissingOrViolation || explicitContrast || explicitBudgetMismatch) continue;
+    issue.priority = '주요 개선';
+    issue.riskType = 'competition';
+    issue.requiresConfirmation = true;
+    if (!String(issue.example || '').includes('[확인 필요')) issue.example = `[확인 필요: 공식 근거 확인] ${issue.example || ''}`.trim();
+  }
+  return result;
 }
 
 export function validateCoachingResultDetailed(result, officialEvaluationProvided = false, previousVersion = 0, payload = {}) {

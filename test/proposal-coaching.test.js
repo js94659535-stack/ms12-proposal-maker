@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { onRequest, validateCoachingResult, validateCoachingResultDetailed, validateIssueRevision } from '../functions/api/proposal-coaching.js';
+import { normalizeUnsupportedCriticalIssues, onRequest, validateCoachingResult, validateCoachingResultDetailed, validateIssueRevision } from '../functions/api/proposal-coaching.js';
 import { COACHING_QA_CASES, COACHING_QA_CRITERIA } from './fixtures/coaching-qa.js';
 
 function fixture() {
@@ -78,6 +78,17 @@ test('코칭 결과는 문제 위치·이유·방향·예시와 근거 안전장
   assert.equal(validateCoachingResultDetailed(invented, false, 0, payload).stage, 'evidence-validation');
   assert.equal(validateCoachingResultDetailed({ ...fixture(), finalChecks: null }, false, 0, payload).stage, 'schema-validation');
   assert.equal(validateCoachingResultDetailed({ ...fixture(), basis: 'common-criteria' }, true, 0, payload).stage, 'application-validation');
+});
+
+test('정상 계획서의 근거 부족을 제출 불가·충돌·예산 위반으로 과잉진단하지 않는다', () => {
+  const normal = fixture();
+  normal.issues = [
+    { ...normal.issues[0], priority: '최우선 경고', riskType: 'core-conflict', reason: '세부 설명이 부족합니다.', evidenceRefs: [{ sourceName: '계획서 원문', pageOrSection: '사업내용', proposalLocation: '사업내용', excerpt: '주 1회 학습코칭 20회와 보호자 교육 2회를 운영한다.', verified: true }], requiresConfirmation: false, example: '설명을 보완합니다.' },
+    { ...normal.issues[0], priority: '최우선 경고', riskType: 'budget-rule', reason: '공식 예산규정 원문이 없습니다.', evidenceRefs: [{ sourceName: '계획서 원문', pageOrSection: '예산', proposalLocation: '예산', excerpt: '총사업비 30,000,000원이며 강사비 18,000,000원, 교재비 6,000,000원, 체험비 6,000,000원이다.', verified: true }], requiresConfirmation: false, example: '규정을 확인합니다.' },
+  ];
+  normalizeUnsupportedCriticalIssues(normal);
+  assert.equal(normal.issues.filter(issue => issue.priority === '최우선 경고').length, 0);
+  assert.ok(normal.issues.every(issue => issue.priority === '주요 개선' && issue.riskType === 'competition' && issue.requiresConfirmation));
 });
 
 test('전체 코칭은 OpenAI background 생성 한 번과 짧은 polling·완료 검증으로 반환한다', async () => {
