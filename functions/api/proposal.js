@@ -7,7 +7,7 @@ const LIMITS = Object.freeze({
   answersChars: 50_000,
   rewriteInstructionChars: 4_000,
   analysisChars: 300_000,
-  timeoutMs: 240_000,
+  timeoutMs: 300_000,
   outputTokens: Object.freeze({ analyze: 6_000, draft: 12_000, rewrite: 4_000 })
 });
 
