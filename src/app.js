@@ -6,8 +6,8 @@ import { fetchNoticeDetail, fetchNoticeList, importNoticeUrl, noticeBodyText } f
 import { deleteArchivedApplicant, getArchivedProposal, getArchiveRecoveryKey, listArchivedApplicants, listArchivedProposals, saveArchivedApplicant, saveArchivedProposal, searchArchivedNotices, syncArchivedNotices, useArchiveRecoveryKey } from './archive.js';
 import { ASOF_UNKNOWN, applySafeCandidates, applyUpdateCandidate, buildUpdateCandidates, extractApplicantCandidates } from './applicant-extract.js';
 import { REFERENCE_TYPES, assessReferences, makeReference, projectContext, referenceNotices, referencePayload } from './reference-materials.js';
-import { EXTERNAL_SOURCE, appendProposalVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, proposalTextFromSections, revisionInstruction, verifyLockedValues } from './coaching-handoff.js';
-import { APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaTitle, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
+import { EXTERNAL_SOURCE, appendProposalVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, proposalTextFromSections, proposalTextFromSnapshot, revisionInstruction, verifyLockedValues } from './coaching-handoff.js';
+import { APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
 
 const TYPES = [
   ['chest', '사랑의열매', '복지·지원사업'], ['family', '가족센터', '가족지원사업'],
@@ -229,6 +229,8 @@ function applicantDocumentView(applicant) {
     <div class="field"><label for="applicant-doc-file">기관 문서 파일 (PDF·DOCX·TXT·HWPX)</label><input type="file" id="applicant-doc-file" accept=".pdf,.docx,.txt,.hwpx"><small class="muted">HWP는 한/글에서 HWPX·PDF·DOCX로 저장한 뒤 올려 주세요.</small></div>
     <div class="field"><label for="applicant-doc-text">또는 문서 내용 붙여넣기</label><textarea id="applicant-doc-text" style="min-height:110px" placeholder="예) 기관명: 사단법인 ○○센터 / 상근 인력: 5명 / 2025년 청소년 마음건강 지원사업">${escapeHtml(state.applicantDocDraft)}</textarea></div>
     <div class="actions" style="margin:0"><span class="muted">${escapeHtml(review ? `${review.documentName || '붙여넣은 문서'} · 문서 기준시점 ${review.documentAsOf || ASOF_UNKNOWN}` : '외부 AI 호출 없이 규칙 기반으로 추출합니다.')}</span><button class="button primary" id="extract-applicant-doc">업데이트 후보 만들기</button></div>
+    <div class="actions" style="margin-top:14px"><span class="muted">자료보관함에 저장된 과거 사업계획서는 다시 업로드하지 않고 바로 사용할 수 있습니다.</span><button class="button secondary" id="load-applicant-archive">보관함 계획서 목록</button></div>
+    ${state.archiveProposals.length ? `<div class="requirement-list">${state.archiveProposals.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(archiveStageLabel(item.stage))}</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(new Date(item.updatedAt).toLocaleDateString('ko-KR'))} 저장</small></div></div><button class="button secondary" data-applicant-archive="${escapeHtml(item.id)}">이 계획서에서 기관 정보 추출</button></article>`).join('')}</div>` : ''}
     ${review ? candidateReviewView(review) : ''}</div>`;
 }
 
@@ -257,12 +259,24 @@ function coachingApplicantView() {
     ${review ? candidateReviewView(review) : ''}` : '<p class="muted">등록된 신청기관이 없습니다. 상단 「신청기관 정보」에서 기관을 먼저 등록하세요.</p>'}</div>`;
 }
 
+// 어떤 문서에서 어떤 정보가 들어왔는지 확인한다. 기존 source·asOf·history 구조만 사용한다.
+function applicantSourceView(applicant) {
+  const groups = itemsBySource(applicant);
+  if (!groups.length) return '';
+  const performance = areaItems(applicant, 'performance');
+  return `<details class="card org-details"><summary>출처별 정보 ${groups.length}곳 · 사업실적 ${performance.length}건</summary>
+    <p class="muted">확인됨은 계획서 작성에 그대로 사용하고, 확인 필요·오래된 정보는 값이 전달되지 않습니다.</p>
+    <div class="requirement-list">${groups.map(group => `<article class="requirement"><div><span class="tag">확인됨 ${group.confirmed} · 확인 필요 ${group.outdated}</span><div><strong>${escapeHtml(group.source)}</strong><small>${escapeHtml(group.items.map(item => `${areaTitle(item.area)}·${item.label}${item.asOf ? `(${item.asOf})` : ''}`).join(' / '))}</small></div></div></article>`).join('')}</div>
+    ${performance.length ? `<h4>사업실적 연도순</h4><div class="cap-grid">${performance.map(item => `<div><span>${escapeHtml(item.asOf || (item.label.match(/(19|20)\d{2}/)?.[0] || ASOF_UNKNOWN))}</span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.status)}${(item.history || []).length ? ` · 이전 기록 ${item.history.length}건` : ''}</small></div>`).join('')}</div>` : ''}</details>`;
+}
+
 function applicantEditorView(applicant) {
   return `<div class="card" id="applicant-editor" tabindex="-1"><div class="card-title"><div><h3>${escapeHtml(applicant.name)} 정보 편집</h3><span>각 항목은 확인됨 / 확인 필요 / 오래된 정보로 구분합니다.</span></div><button class="button secondary" id="save-applicant">이 기관 정보 저장</button></div>
     <div class="field"><label for="applicant-name">기관명</label><input id="applicant-name" value="${escapeHtml(applicant.name)}"></div>
     <div class="field"><label for="applicant-note">기관 메모</label><input id="applicant-note" value="${escapeHtml(applicant.note)}" placeholder="예: 2026년 기준 정보"></div>
+    ${applicantSourceView(applicant)}
     ${APPLICANT_AREAS.map(area => {
-      const items = applicant.items.filter(item => item.area === area.key);
+      const items = areaItems(applicant, area.key);
       const draft = state.applicantItemDrafts[area.key] || { label: '', value: '', status: '확인 필요', source: '' };
       return `<details class="card org-details" ${items.length ? 'open' : ''}><summary>${escapeHtml(area.title)} · ${items.length}건</summary><p class="muted">${escapeHtml(area.hint)}</p>
         ${items.length ? `<div class="requirement-list">${items.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(item.label || '항목명 없음')}</span>${applicantStatusTag(item.status)}</div>
@@ -830,6 +844,8 @@ function bindApplicants() {
     el.oninput = handler; el.onchange = handler;
   });
   document.querySelectorAll('[data-add-applicant-item]').forEach(el => el.onclick = () => addApplicantItem(el.dataset.addApplicantItem));
+  document.querySelector('#load-applicant-archive')?.addEventListener('click', loadApplicantArchiveProposals);
+  document.querySelectorAll('[data-applicant-archive]').forEach(el => el.onclick = () => harvestApplicantFromArchive(el.dataset.applicantArchive));
   document.querySelector('#applicant-doc-text')?.addEventListener('input', event => { state.applicantDocDraft = event.target.value; });
   document.querySelector('#applicant-doc-file')?.addEventListener('change', loadApplicantDocument);
   document.querySelector('#extract-applicant-doc')?.addEventListener('click', () => buildApplicantCandidates(state.applicantDocDraft, '붙여넣은 기관 문서'));
@@ -909,6 +925,30 @@ function harvestApplicantFromCoaching() {
       ? `${applicant.name} 기준으로 후보 ${review.candidates.length}건을 만들었습니다. ${Object.entries(kinds).map(([kind, count]) => `${kind} ${count}건`).join(' · ')}`
       : '계획서에서 기관 정보로 쓸 사실을 찾지 못했습니다.'
   });
+}
+
+// 자료보관함에 저장된 과거 계획서를 다시 업로드하지 않고 기관 정보 보강에 사용한다.
+async function loadApplicantArchiveProposals() {
+  setAiBusy('자료보관함 계획서를 불러오는 중', { error: '', notice: '' });
+  try {
+    const result = await listArchivedProposals();
+    setState({ busy: '', archiveProposals: result.proposals || [], notice: `보관된 계획서 ${result.proposals?.length || 0}건입니다${elapsedLabel()}. 정보를 가져올 계획서를 고르세요.` });
+  } catch (error) { setState({ busy: '', error: error.message }); }
+}
+
+async function harvestApplicantFromArchive(id) {
+  const applicant = findApplicant(state.applicants, state.applicantEditingId);
+  if (!applicant) return setState({ error: '정보를 보강할 신청기관을 먼저 선택해 주세요.' });
+  setAiBusy('보관된 계획서에서 기관 정보를 찾는 중', { error: '', notice: '' });
+  try {
+    const result = await getArchivedProposal(id);
+    const proposal = result.proposal;
+    const text = proposalTextFromSnapshot(proposal?.snapshot);
+    if (text.trim().length < 30) return setState({ busy: '', error: '이 보관 계획서에는 사용할 본문이 없습니다.' });
+    const extraction = extractApplicantCandidates(text, { documentName: proposal.title || '보관된 계획서', includeNarrative: true, sourceLabel: '자료보관함 계획서' });
+    const review = buildUpdateCandidates(applicant, extraction);
+    setState({ busy: '', applicantExtraction: review, notice: `${proposal.title}에서 후보 ${review.candidates.length}건을 만들었습니다${elapsedLabel()}. 반영은 ${applicant.name}에만 적용됩니다.`, error: '' });
+  } catch (error) { setState({ busy: '', error: error.message }); }
 }
 
 function dropApplicantCandidate(candidateId, message) {

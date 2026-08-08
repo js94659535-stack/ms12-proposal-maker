@@ -174,6 +174,14 @@ export function proposalTextFromSections(sections) {
   return (Array.isArray(sections) ? sections : []).map(section => `${section.title}\n${section.content}`.trim()).join('\n\n');
 }
 
+// 자료보관함에 저장된 계획서 스냅샷에서 본문만 꺼낸다. 저장 구조를 새로 만들지 않고 기존 필드를 순서대로 본다.
+export function proposalTextFromSnapshot(snapshot) {
+  if (Array.isArray(snapshot?.sections) && snapshot.sections.length) return proposalTextFromSections(snapshot.sections);
+  if (String(snapshot?.coaching?.text || '').trim()) return String(snapshot.coaching.text);
+  const version = (Array.isArray(snapshot?.proposalVersions) ? snapshot.proposalVersions : []).at(-1);
+  return version ? proposalTextFromSections(version.sections) : '';
+}
+
 // 업로드한 외부 계획서를 원본 보존 상태로 두고 수정 가능한 작업본만 새로 만든다.
 export function buildExternalWorkingCopy(coaching = {}) {
   const originalText = String(coaching.text || '');

@@ -83,6 +83,31 @@ export function applicantAreaSummary(applicant) {
   });
 }
 
+function itemYear(item) {
+  const match = `${item?.asOf || ''} ${item?.label || ''}`.match(/(19|20)\d{2}/);
+  return match ? Number(match[0]) : 0;
+}
+
+// 사업실적은 연도가 늦은 것부터 보고, 나머지 영역은 등록 순서를 유지한다.
+export function areaItems(applicant, areaKey) {
+  const items = (applicant?.items || []).filter(item => item.area === areaKey);
+  if (areaKey !== 'performance') return items;
+  return [...items].sort((left, right) => itemYear(right) - itemYear(left));
+}
+
+// 어떤 문서에서 어떤 정보가 들어왔는지 출처별로 묶어 본다. source·asOf·history 구조를 그대로 사용한다.
+export function itemsBySource(applicant) {
+  const groups = new Map();
+  for (const item of applicant?.items || []) {
+    const source = item.source.trim() || '출처 미기록';
+    if (!groups.has(source)) groups.set(source, []);
+    groups.get(source).push({ id: item.id, area: item.area, label: item.label, status: item.status, asOf: item.asOf || '', historyCount: (item.history || []).length });
+  }
+  return [...groups.entries()]
+    .map(([source, items]) => ({ source, items, confirmed: items.filter(item => item.status === CONFIRMED_STATUS).length, outdated: items.filter(item => item.status !== CONFIRMED_STATUS).length }))
+    .sort((left, right) => right.items.length - left.items.length);
+}
+
 // 이번 사업 전용 값. 신청기관 원본 항목은 읽기만 하고 절대 덮어쓰지 않는다.
 export function normalizeProjectValues(values, applicant) {
   return (Array.isArray(values) ? values : []).slice(0, 60).map(value => {
