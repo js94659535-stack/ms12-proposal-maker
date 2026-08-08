@@ -4,6 +4,7 @@ import { validateMasterResult, validatePartResult } from '../functions/api/propo
 import { validateReviewResult } from '../functions/api/proposal-review.js';
 import { validateCoachingResult } from '../functions/api/proposal-coaching.js';
 import { saveProposal, getProposal } from '../functions/api/archive.js';
+import { buildApplicantOrganization, normalizeApplicant } from '../src/applicants.js';
 import { buildPrintDocument, exportDocx } from '../src/export.js';
 
 const sectionKeys = ['necessity', 'purpose', 'goals', 'target', 'programs', 'schedule', 'roles', 'budget', 'indicators', 'outcomes'];
@@ -85,12 +86,22 @@ test('QA fixture로 확인정보 이후 분할·완성·검토·코칭·저장·
   const coachingPayload = { proposalText: sections.map(section => section.content).join('\n'), criteriaText: '', officialEvaluationProvided: false };
   assert.equal(validateCoachingResult(coaching, false, 0, coachingPayload), '');
 
-  const snapshot = { project: { title: 'QA 전용 계획서' }, designAnswers: qaAnswers, stagedGeneration: { phase: 'complete', master, parts: master.sectionPlan.map((group, index) => ({ groupId: group.id, sections: [sections[index]] })), completedGroupIds: master.sectionPlan.map(group => group.id) }, sections, reviewResult: review, coaching: { result: coaching, version: 1 } };
+  const applicant = normalizeApplicant({ id: 'qa-applicant', name: 'QA 신청기관', items: [{ id: 'qa-1', area: 'programs', label: '보유 프로그램 회기', value: '12회', status: '확인됨', source: 'QA 운영일지' }, { id: 'qa-2', area: 'budget', label: '자부담', value: 'QA 미확인 금액', status: '확인 필요' }] });
+  const projectValues = [{ id: 'qa-pv', label: '보유 프로그램 회기', value: '16회', applicantItemId: 'qa-1' }];
+  const organization = buildApplicantOrganization(applicant, projectValues);
+  assert.equal(organization.confirmedFacts.length, 1);
+  assert.ok(!JSON.stringify(organization).includes('QA 미확인 금액'));
+  assert.equal(organization.projectSpecificValues[0].applicantOriginalValue, '12회');
+  assert.equal(applicant.items[0].value, '12회');
+
+  const snapshot = { project: { title: 'QA 전용 계획서' }, selectedApplicantId: applicant.id, applicantSnapshot: applicant, projectValues, designAnswers: qaAnswers, stagedGeneration: { phase: 'complete', master, parts: master.sectionPlan.map((group, index) => ({ groupId: group.id, sections: [sections[index]] })), completedGroupIds: master.sectionPlan.map(group => group.id) }, sections, reviewResult: review, coaching: { result: coaching, version: 1 } };
   const db = archiveDb();
   const saved = await saveProposal(db, 'qa-owner', { id: 'qa-fixture-proposal', noticeKey: 'qa:fixture', title: 'QA 전용 계획서', stage: 'review', snapshot });
   const restored = await getProposal(db, 'qa-owner', saved.id);
   assert.deepEqual(restored.snapshot, snapshot);
   assert.equal(restored.snapshot.stagedGeneration.phase, 'complete');
+  assert.equal(restored.snapshot.applicantSnapshot.items[0].value, '12회');
+  assert.equal(restored.snapshot.projectValues[0].value, '16회');
   assert.equal(restored.snapshot.sections.length, 10);
 
   const pdfHtml = buildPrintDocument(snapshot.project, sections);

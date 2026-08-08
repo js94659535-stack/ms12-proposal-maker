@@ -1,6 +1,8 @@
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 const MAX_NOTICE_BATCH = 100;
 const MAX_PROPOSAL_BYTES = 700_000;
+const MAX_APPLICANT_BYTES = 300_000;
+const APPLICANT_STATUSES = ['확인됨', '확인 필요', '오래된 정보'];
 
 export async function onRequest(context) {
   if (context.request.method !== 'POST') return json({ error: 'POST 요청만 허용됩니다.' }, 405, { Allow: 'POST' });
@@ -16,6 +18,9 @@ export async function onRequest(context) {
     if (body.action === 'saveProposal') return json(await saveProposal(context.env.ARCHIVE_DB, ownerHash, body.proposal));
     if (body.action === 'listProposals') return json({ proposals: await listProposals(context.env.ARCHIVE_DB, ownerHash) });
     if (body.action === 'getProposal') return json({ proposal: await getProposal(context.env.ARCHIVE_DB, ownerHash, body.id) });
+    if (body.action === 'saveApplicant') return json(await saveApplicant(context.env.ARCHIVE_DB, ownerHash, body.applicant));
+    if (body.action === 'listApplicants') return json({ applicants: await listApplicants(context.env.ARCHIVE_DB, ownerHash) });
+    if (body.action === 'deleteApplicant') return json(await deleteApplicant(context.env.ARCHIVE_DB, ownerHash, body.id));
     return json({ error: '지원하지 않는 자료보관함 작업입니다.' }, 400);
   } catch (error) {
     return json({ error: '자료보관함 처리 중 오류가 발생했습니다.' }, 500);
@@ -82,6 +87,54 @@ export async function listProposals(db, ownerHash) {
 export async function getProposal(db, ownerHash, id) {
   const row = await db.prepare('SELECT id, notice_key, title, stage, proposal_json, created_at, updated_at FROM archived_proposals WHERE id = ? AND owner_hash = ?').bind(clean(id, 80), ownerHash).first();
   return row ? { id: row.id, noticeKey: row.notice_key, title: row.title, stage: row.stage, snapshot: safeJson(row.proposal_json), createdAt: row.created_at, updatedAt: row.updated_at } : null;
+}
+
+// 「신청기관 정보」는 계획서와 같은 소유자 키(owner_hash) 기준으로 보관한다.
+export function normalizeApplicantRecord(value) {
+  if (!value || typeof value !== 'object') return null;
+  const id = clean(value.id, 80);
+  const name = clean(value.name, 120);
+  if (!id || !name) return null;
+  const items = (Array.isArray(value.items) ? value.items : []).slice(0, 300).map((item, index) => ({
+    id: clean(item?.id, 80) || `item-${index + 1}`,
+    area: clean(item?.area, 40) || 'basic',
+    label: clean(item?.label, 120),
+    value: clean(item?.value, 2000),
+    status: APPLICANT_STATUSES.includes(item?.status) ? item.status : '확인 필요',
+    source: clean(item?.source, 300),
+    updatedAt: clean(item?.updatedAt, 40)
+  }));
+  return {
+    id, name, note: clean(value.note, 500), items,
+    confirmedCount: items.filter(item => item.status === '확인됨').length,
+    unverifiedCount: items.filter(item => item.status !== '확인됨').length,
+    createdAt: clean(value.createdAt, 40), updatedAt: clean(value.updatedAt, 40)
+  };
+}
+
+export async function saveApplicant(db, ownerHash, value) {
+  const applicant = normalizeApplicantRecord(value);
+  if (!applicant) throw new Error('invalid applicant');
+  const payload = JSON.stringify(applicant);
+  if (new TextEncoder().encode(payload).byteLength > MAX_APPLICANT_BYTES) throw new Error('invalid applicant');
+  const existing = await db.prepare('SELECT created_at FROM applicant_organizations WHERE id = ? AND owner_hash = ?').bind(applicant.id, ownerHash).first();
+  const now = new Date().toISOString();
+  await db.prepare(`INSERT INTO applicant_organizations (id, owner_hash, name, note, confirmed_count, unverified_count, applicant_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET name=excluded.name, note=excluded.note, confirmed_count=excluded.confirmed_count, unverified_count=excluded.unverified_count, applicant_json=excluded.applicant_json, updated_at=excluded.updated_at WHERE applicant_organizations.owner_hash=excluded.owner_hash`)
+    .bind(applicant.id, ownerHash, applicant.name, applicant.note, applicant.confirmedCount, applicant.unverifiedCount, payload, existing?.created_at || now, now).run();
+  return { id: applicant.id, updatedAt: now };
+}
+
+export async function listApplicants(db, ownerHash) {
+  const rows = await db.prepare('SELECT applicant_json, created_at, updated_at FROM applicant_organizations WHERE owner_hash = ? ORDER BY updated_at DESC LIMIT 100').bind(ownerHash).all();
+  return (rows.results || []).map(row => ({ ...safeJson(row.applicant_json), createdAt: row.created_at, updatedAt: row.updated_at }));
+}
+
+export async function deleteApplicant(db, ownerHash, id) {
+  const key = clean(id, 80);
+  if (!key) throw new Error('invalid applicant');
+  await db.prepare('DELETE FROM applicant_organizations WHERE id = ? AND owner_hash = ?').bind(key, ownerHash).run();
+  return { id: key, deleted: true };
 }
 
 function normalizeNotice(value) {

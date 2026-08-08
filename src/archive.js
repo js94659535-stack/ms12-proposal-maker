@@ -25,3 +25,6 @@ export const searchArchivedNotices = filters => request('searchNotices', { filte
 export const saveArchivedProposal = proposal => request('saveProposal', { proposal });
 export const listArchivedProposals = () => request('listProposals');
 export const getArchivedProposal = id => request('getProposal', { id });
+export const saveArchivedApplicant = applicant => request('saveApplicant', { applicant });
+export const listArchivedApplicants = () => request('listApplicants');
+export const deleteArchivedApplicant = id => request('deleteApplicant', { id });

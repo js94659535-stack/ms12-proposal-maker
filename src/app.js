@@ -3,20 +3,22 @@ import { extractFile, extractFiles } from './files.js';
 import { localAnalyze } from './fallback.js';
 import { exportDocx, exportPdf, printDocument } from './export.js';
 import { fetchNoticeDetail, fetchNoticeList, importNoticeUrl, noticeBodyText } from './notices.js';
-import { getArchivedProposal, getArchiveRecoveryKey, listArchivedProposals, saveArchivedProposal, searchArchivedNotices, syncArchivedNotices, useArchiveRecoveryKey } from './archive.js';
+import { deleteArchivedApplicant, getArchivedProposal, getArchiveRecoveryKey, listArchivedApplicants, listArchivedProposals, saveArchivedApplicant, saveArchivedProposal, searchArchivedNotices, syncArchivedNotices, useArchiveRecoveryKey } from './archive.js';
+import { APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaTitle, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
 
 const TYPES = [
   ['chest', '사랑의열매', '복지·지원사업'], ['family', '가족센터', '가족지원사업'],
   ['edu', '학교·교육청', '교육기관'], ['g2b', '나라장터·학교장터', '공공조달'],
   ['general', '일반 창업·아이디어', '일반 사업']
 ];
-const STEPS = ['공고 가져오기', '공고 확인', '사업 선택', '계획서 작성', '검토·완성'];
+const STEPS = ['공고 가져오기', '공고 확인', '신청기관 선택', '사업 선택', '계획서 작성', '검토·완성'];
 const SOURCE_TYPES = ['공고 공문', '세부 공고문', '공모신청서', '사업계획서 서식', '예산 편성 기준', '심사·평가기준', '기타 안내자료'];
 const NAVIGATION_KEY = 'ms12_workflow_navigation_v1';
 const NAVIGATION_LIMIT = 10;
 const initial = {
   step: 0, activeTool: 'workflow', project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
   coaching: { title: '', text: '', validatedText: '', criteriaText: '', officialEvaluationProvided: false, sourceProposalId: '', sourceNoticeKey: '', seriesId: '', currentArchiveId: '', result: null, workItems: [], pendingJob: null, version: 0 },
+  applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [],
   analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
@@ -35,12 +37,20 @@ function loadState() {
     const stagedGeneration = saved.stagedGeneration && typeof saved.stagedGeneration === 'object'
       ? { ...structuredClone(initial.stagedGeneration), ...saved.stagedGeneration, parts: Array.isArray(saved.stagedGeneration.parts) ? saved.stagedGeneration.parts : [], completedGroupIds: Array.isArray(saved.stagedGeneration.completedGroupIds) ? saved.stagedGeneration.completedGroupIds : [] }
       : structuredClone(initial.stagedGeneration);
-    return { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(4, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '' };
+    const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' } };
+    return withMigratedApplicants(restored);
   }
   catch { return structuredClone(initial); }
 }
+// 이전 버전의 확정 회사 정보는 등록된 신청기관이 하나도 없을 때만 신청기관 한 곳으로 옮긴다.
+function withMigratedApplicants(value) {
+  const applicants = (Array.isArray(value.applicants) ? value.applicants : []).map(normalizeApplicant);
+  if (!applicants.length && (value.companyFacts || []).some(fact => fact?.confirmedByUser === true)) applicants.push(migrateCompanyFactsToApplicant(value.companyFacts));
+  const selectedApplicantId = applicants.some(item => item.id === value.selectedApplicantId) ? value.selectedApplicantId : '';
+  return { ...value, applicants, selectedApplicantId, projectValues: Array.isArray(value.projectValues) ? value.projectValues : [] };
+}
 function saveState() {
-  const safe = { ...state, companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], archiveNotices: [], archiveProposals: [], noticeUrlDraft: '', busy: '', error: '', files: state.files.map(({ text, ...meta }) => meta) };
+  const safe = { ...state, companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], archiveNotices: [], archiveProposals: [], noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', applicantComparison: null, files: state.files.map(({ text, ...meta }) => meta) };
   localStorage.setItem('ms12_project_v3', JSON.stringify(safe));
 }
 function loadNavigationHistory() {
@@ -105,17 +115,15 @@ function typeName() { return TYPES.find(([id]) => id === state.project.type)?.[1
 function isStepComplete(index) {
   if (index === 0) return Boolean(state.noticeResults.length || state.sourceText.trim().length >= 30 || state.manualSources.some(item => item.extractionStatus === 'success'));
   if (index === 1) return Boolean(state.noticePreview || state.selectedNotice || (state.sourceText.trim().length >= 30 && !state.noticeResults.length));
-  if (index === 2) return Boolean(state.selectedNotice || (state.sourceText.trim().length >= 30 && !state.noticeResults.length));
-  if (index === 3) return state.sections.length === 10;
-  if (index === 4) return Boolean(state.sections.length === 10 && state.reviewResult);
+  if (index === 2) return Boolean(selectedApplicant());
+  if (index === 3) return Boolean(state.selectedNotice || (state.sourceText.trim().length >= 30 && !state.noticeResults.length));
+  if (index === 4) return state.sections.length === 10;
+  if (index === 5) return Boolean(state.sections.length === 10 && state.reviewResult);
   return false;
 }
+function selectedApplicant() { return findApplicant(state.applicants, state.selectedApplicantId); }
 function organizationForGeneration() {
-  return {
-    organization: '마인드스토리',
-    confirmedFacts: state.companyFacts.filter(item => item.confirmedByUser === true),
-    rule: 'confirmedByUser가 true인 정보만 회사 사실로 사용하고, 그 밖의 회사 정보는 반드시 [확인 필요]로 표시한다.'
-  };
+  return buildApplicantOrganization(selectedApplicant(), state.projectValues);
 }
 
 function shell(content) {
@@ -124,7 +132,7 @@ function shell(content) {
       <main class="main">
         <header class="workflow-header">
           <div class="workflow-brand"><div class="brand"><span class="brand-mark">M</span><div><strong>Proposal Workbench</strong><small>마인드스토리 내부용</small></div></div><span class="save-state">● 브라우저 자동 저장</span></div>
-          <div class="workflow-row"><label class="type-select-label" for="business-type">사업 유형<select id="business-type">${TYPES.map(([id, name]) => `<option value="${id}" ${state.project.type === id ? 'selected' : ''}>${name}</option>`).join('')}</select></label><nav class="workflow-steps" aria-label="작성 단계">${STEPS.map((name, i) => { const complete = isStepComplete(i); return `<button data-step="${i}" class="workflow-step ${state.activeTool === 'workflow' && state.step === i ? 'active' : ''} ${complete ? 'done' : ''}" ${state.activeTool === 'workflow' && state.step === i ? 'aria-current="step"' : ''}><span>${complete ? '✓' : i + 1}</span>${name}</button>`; }).join('')}</nav><button class="history-button" id="open-coaching" aria-pressed="${state.activeTool === 'coaching'}">계획서 검증·코칭</button><nav class="workflow-history" aria-label="앱 작업 화면 이동"><button class="history-button" id="workflow-back" aria-label="직전 작업 화면으로 뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="history-button" id="workflow-home" aria-label="사업 설정 홈으로 가기" ${state.activeTool === 'workflow' && state.step === 0 ? 'disabled' : ''}>⌂ 홈</button><button class="history-button" id="workflow-forward" aria-label="다음 작업 화면으로 앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button></nav></div>
+          <div class="workflow-row"><label class="type-select-label" for="business-type">사업 유형<select id="business-type">${TYPES.map(([id, name]) => `<option value="${id}" ${state.project.type === id ? 'selected' : ''}>${name}</option>`).join('')}</select></label><nav class="workflow-steps" aria-label="작성 단계">${STEPS.map((name, i) => { const complete = isStepComplete(i); return `<button data-step="${i}" class="workflow-step ${state.activeTool === 'workflow' && state.step === i ? 'active' : ''} ${complete ? 'done' : ''}" ${state.activeTool === 'workflow' && state.step === i ? 'aria-current="step"' : ''}><span>${complete ? '✓' : i + 1}</span>${name}</button>`; }).join('')}</nav><button class="history-button" id="open-applicants" aria-pressed="${state.activeTool === 'applicants'}">신청기관 정보</button><button class="history-button" id="open-coaching" aria-pressed="${state.activeTool === 'coaching'}">계획서 검증·코칭</button><nav class="workflow-history" aria-label="앱 작업 화면 이동"><button class="history-button" id="workflow-back" aria-label="직전 작업 화면으로 뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="history-button" id="workflow-home" aria-label="사업 설정 홈으로 가기" ${state.activeTool === 'workflow' && state.step === 0 ? 'disabled' : ''}>⌂ 홈</button><button class="history-button" id="workflow-forward" aria-label="다음 작업 화면으로 앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button></nav></div>
         </header>
         ${state.notice ? `<div class="alert success">${escapeHtml(state.notice)}</div>` : ''}
         ${state.error ? `<div class="alert danger">${escapeHtml(state.error)}</div>` : ''}
@@ -150,7 +158,7 @@ function noticeListView() {
   const cards = state.noticeResults.map((item, index) => {
     const summary = String(item.summary || '상세 공고문 확인 필요').slice(0, 200);
     return `<article class="requirement"><label><input type="checkbox" data-notice-check="${index}" ${state.selectedNoticeIndexes.includes(index) ? 'checked' : ''}> 삭제할 항목 선택</label><div><span class="tag">${escapeHtml(item.sourceLabel)}</span><strong>${escapeHtml(item.title)}</strong></div><p class="muted notice-card-preview" style="margin:10px 0 0;line-height:1.65">${escapeHtml(summary)}</p><div class="actions" style="justify-content:flex-start;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="button secondary" style="padding:7px 11px;font-size:12px" data-notice-panel="summary" data-notice-index="${index}" aria-expanded="false">일반</button><button class="button secondary" style="padding:7px 11px;font-size:12px" data-notice-panel="overview" data-notice-index="${index}" aria-expanded="false">개요</button><button class="button secondary" style="padding:7px 11px;font-size:12px" data-view-notice="${index}">자세히 보기</button><button class="button primary" style="padding:7px 11px;font-size:12px" data-select-notice="${index}">계획서 작성</button><button class="button secondary" style="padding:7px 11px;font-size:12px" data-remove-notice="${index}">삭제</button></div><div data-notice-content="summary-${index}" style="display:block;margin-top:12px;padding:12px 14px;background:#f7f8fa;border-radius:9px" hidden><b>사업내용 요약</b><p class="muted">${escapeHtml(summary)}</p></div><div data-notice-content="overview-${index}" style="display:block;margin-top:12px;padding:12px 14px;background:#f7f8fa;border-radius:9px" hidden><small style="display:block;margin:5px 0"><b>주관 기관</b> ${escapeHtml(item.sourceLabel)}</small>${item.applicationPeriod ? `<small style="display:block;margin:5px 0"><b>신청 기간</b> ${escapeHtml(item.applicationPeriod)}</small>` : ''}${item.eligibility ? `<small style="display:block;margin:5px 0"><b>신청 대상</b> ${escapeHtml(item.eligibility)}</small>` : ''}${item.supportDetails ? `<small style="display:block;margin:5px 0"><b>지원 내용</b> ${escapeHtml(item.supportDetails)}</small>` : ''}${item.supportLimit ? `<small style="display:block;margin:5px 0"><b>지원 규모·한도</b> ${escapeHtml(item.supportLimit)}</small>` : ''}<small style="display:block;margin:5px 0"><b>마감일</b> ${escapeHtml(item.deadline)} · <b>dstbBsnsCode</b> ${escapeHtml(item.dstbBsnsCode)}</small></div></article>`;
-  }).join('').replaceAll('>계획서 작성</button>', '>사업 선택</button>');
+  }).join('').replaceAll('>계획서 작성</button>', '>이 공고로 진행</button>');
   return `<div class="actions"><button class="button secondary" id="remove-selected-notices" ${state.selectedNoticeIndexes.length ? '' : 'disabled'}>선택 항목을 쓰레기통으로 (${state.selectedNoticeIndexes.length})</button></div><div class="requirement-list">${cards}</div>`;
 }
 
@@ -188,6 +196,106 @@ function noticeConfirmView() {
 function businessSelectView() {
   const choice = state.pendingNoticeChoice ? `<div class="card"><div class="card-title"><div><h3>작성할 세부사업을 선택하세요</h3><span>선택한 사업 내용만 계획서에 반영됩니다.</span></div></div><div class="requirement-list">${state.pendingNoticeChoice.subprojects.map((item, index) => `<article class="requirement"><div><span class="tag">${escapeHtml(item.id)}</span><strong>${escapeHtml(item.title)}</strong></div><button class="button primary" data-select-subproject="${index}">이 사업 선택</button></article>`).join('')}</div></div>` : '';
   return `<div class="page-heading"><div><h2>작성할 사업을 확정하세요</h2><p>복수 세부사업일 때만 한 사업을 선택합니다.</p></div></div>${choice}${selectedNoticeDetailView()}${attachmentView()}${!state.pendingNoticeChoice && !state.selectedNotice ? '<div class="empty-state"><div>◉</div><h2>선택한 공고가 없습니다</h2><button class="button primary" data-step="1">공고 확인으로 이동</button></div>' : ''}`;
+}
+
+function applicantStatusTag(status) { return `<span class="status ${status === CONFIRMED_STATUS ? '충족' : status === '오래된 정보' ? '부분-충족' : '확인-필요'}">${escapeHtml(status)}</span>`; }
+function statusOptions(selected) { return APPLICANT_STATUSES.map(value => `<option value="${escapeHtml(value)}" ${value === selected ? 'selected' : ''}>${escapeHtml(value)}</option>`).join(''); }
+
+function applicantsToolView() {
+  const editing = findApplicant(state.applicants, state.applicantEditingId);
+  return `<div class="page-heading"><div><h2>신청기관 정보</h2><p>이번 사업을 신청하는 기관의 정보를 등록·수정합니다. 공고 분석 정보와는 분리해 보관하며, 확인된 정보만 계획서 작성에 전달합니다.</p></div><button class="button secondary" id="close-applicants">작성 흐름으로 돌아가기</button></div>
+    <div class="card"><div class="card-title"><div><h3>등록된 신청기관 ${state.applicants.length}곳</h3><span>마인드스토리도 등록기관 중 하나로만 취급합니다.</span></div><div><button class="button secondary" id="load-applicants">보관함에서 불러오기</button></div></div>
+    <div class="two-col"><div class="field"><label for="applicant-name-draft">새 신청기관명</label><input id="applicant-name-draft" value="${escapeHtml(state.applicantNameDraft)}" placeholder="예: 사단법인 ○○센터"></div><div class="field"><label>&nbsp;</label><button class="button primary" id="add-applicant">신청기관 추가</button></div></div>
+    ${state.applicants.length ? `<div class="requirement-list">${state.applicants.map(applicant => {
+      const confirmed = applicant.items.filter(item => item.status === CONFIRMED_STATUS).length;
+      return `<article class="requirement"><div><span class="tag">${applicant.id === state.selectedApplicantId ? '이번 사업 신청기관' : '등록기관'}</span><div><strong>${escapeHtml(applicant.name)}</strong><small>확인됨 ${confirmed}건 · 확인 필요·오래된 정보 ${applicant.items.length - confirmed}건 · 최근 수정 ${escapeHtml(String(applicant.updatedAt).slice(0, 10))}</small></div></div><div class="actions" style="margin:0;gap:8px"><button class="button secondary" data-edit-applicant="${escapeHtml(applicant.id)}">${state.applicantEditingId === applicant.id ? '수정 닫기' : '정보 수정'}</button><button class="button secondary" data-select-applicant="${escapeHtml(applicant.id)}">이번 사업 신청기관으로 선택</button><button class="button secondary" data-delete-applicant="${escapeHtml(applicant.id)}">삭제</button></div></article>`;
+    }).join('')}</div>` : '<p class="muted">등록된 신청기관이 없습니다. 기관명을 입력하고 추가하세요.</p>'}</div>
+    ${editing ? applicantEditorView(editing) : ''}`;
+}
+
+function applicantEditorView(applicant) {
+  return `<div class="card" id="applicant-editor" tabindex="-1"><div class="card-title"><div><h3>${escapeHtml(applicant.name)} 정보 편집</h3><span>각 항목은 확인됨 / 확인 필요 / 오래된 정보로 구분합니다.</span></div><button class="button secondary" id="save-applicant">이 기관 정보 저장</button></div>
+    <div class="field"><label for="applicant-name">기관명</label><input id="applicant-name" value="${escapeHtml(applicant.name)}"></div>
+    <div class="field"><label for="applicant-note">기관 메모</label><input id="applicant-note" value="${escapeHtml(applicant.note)}" placeholder="예: 2026년 기준 정보"></div>
+    ${APPLICANT_AREAS.map(area => {
+      const items = applicant.items.filter(item => item.area === area.key);
+      const draft = state.applicantItemDrafts[area.key] || { label: '', value: '', status: '확인 필요', source: '' };
+      return `<details class="card org-details" ${items.length ? 'open' : ''}><summary>${escapeHtml(area.title)} · ${items.length}건</summary><p class="muted">${escapeHtml(area.hint)}</p>
+        ${items.length ? `<div class="requirement-list">${items.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(item.label || '항목명 없음')}</span>${applicantStatusTag(item.status)}</div>
+          <div class="two-col"><div class="field"><label for="label-${escapeHtml(item.id)}">항목명</label><input id="label-${escapeHtml(item.id)}" data-applicant-field="${escapeHtml(item.id)}|label" value="${escapeHtml(item.label)}"></div><div class="field"><label for="status-${escapeHtml(item.id)}">상태</label><select id="status-${escapeHtml(item.id)}" data-applicant-status="${escapeHtml(item.id)}">${statusOptions(item.status)}</select></div></div>
+          <div class="field"><label for="value-${escapeHtml(item.id)}">내용</label><textarea id="value-${escapeHtml(item.id)}" data-applicant-field="${escapeHtml(item.id)}|value" style="min-height:70px">${escapeHtml(item.value)}</textarea></div>
+          <div class="field"><label for="source-${escapeHtml(item.id)}">근거자료·출처</label><input id="source-${escapeHtml(item.id)}" data-applicant-field="${escapeHtml(item.id)}|source" value="${escapeHtml(item.source)}" placeholder="예: 2025 법인등기부등본"></div>
+          <div class="actions" style="margin:0"><span></span><button class="button secondary" data-remove-applicant-item="${escapeHtml(item.id)}">항목 삭제</button></div></article>`).join('')}</div>` : '<p class="muted">등록한 항목이 없습니다.</p>'}
+        <div class="two-col"><div class="field"><label for="draft-label-${area.key}">새 항목명</label><input id="draft-label-${area.key}" data-applicant-draft="${area.key}|label" value="${escapeHtml(draft.label)}"></div><div class="field"><label for="draft-status-${area.key}">상태</label><select id="draft-status-${area.key}" data-applicant-draft="${area.key}|status">${statusOptions(draft.status)}</select></div></div>
+        <div class="field"><label for="draft-value-${area.key}">새 항목 내용</label><textarea id="draft-value-${area.key}" data-applicant-draft="${area.key}|value" style="min-height:70px">${escapeHtml(draft.value)}</textarea></div>
+        <div class="field"><label for="draft-source-${area.key}">근거자료·출처</label><input id="draft-source-${area.key}" data-applicant-draft="${area.key}|source" value="${escapeHtml(draft.source)}"></div>
+        <div class="actions" style="margin:0"><span></span><button class="button primary" data-add-applicant-item="${area.key}">${escapeHtml(area.title)} 항목 추가</button></div></details>`;
+    }).join('')}</div>`;
+}
+
+function comparisonRequirements() {
+  if (state.analysis?.requirements?.length) return state.analysis.requirements;
+  const sourceText = [state.selectedNotice?.detailText || state.sourceText, ...state.manualSources.filter(item => item.extractionStatus === 'success').map(item => item.extractedText)].filter(Boolean).join('\n\n');
+  if (sourceText.trim().length < 30) return [];
+  return localAnalyze({ sourceText, projectType: typeName(), title: state.project.title }).requirements;
+}
+
+function applicantSelectView() {
+  const applicant = selectedApplicant();
+  return `<div class="page-heading"><div><h2>이번 사업의 신청기관을 선택하세요</h2><p>선택한 기관의 ‘확인됨’ 정보만 마스터 설계와 계획서 작성 요청에 전달합니다.</p></div><button class="button secondary" data-open-applicants="1">신청기관 정보 관리</button></div>
+    <div class="card"><div class="card-title"><div><h3>등록된 신청기관 ${state.applicants.length}곳</h3><span>공고 정보와 분리해 보관한 기관 정보입니다.</span></div><button class="button secondary" id="load-applicants">보관함에서 불러오기</button></div>
+    ${state.applicants.length ? `<div class="requirement-list">${state.applicants.map(item => {
+      const confirmed = item.items.filter(value => value.status === CONFIRMED_STATUS).length;
+      return `<article class="requirement"><div><span class="tag ${item.id === state.selectedApplicantId ? '' : 'mandatory'}">${item.id === state.selectedApplicantId ? '선택됨' : '미선택'}</span><div><strong>${escapeHtml(item.name)}</strong><small>확인됨 ${confirmed}건 · 확인 필요·오래된 정보 ${item.items.length - confirmed}건</small></div></div><button class="button ${item.id === state.selectedApplicantId ? 'secondary' : 'primary'}" data-select-applicant="${escapeHtml(item.id)}">${item.id === state.selectedApplicantId ? '다시 불러오기' : '이 기관으로 신청'}</button></article>`;
+    }).join('')}</div>` : '<div class="empty-state"><div>▣</div><h2>등록된 신청기관이 없습니다</h2><p>먼저 신청기관 정보를 등록하세요.</p><button class="button primary" data-open-applicants="1">신청기관 정보 등록</button></div>'}</div>
+    ${applicant ? applicantLoadedView(applicant) : ''}
+    ${applicant ? applicantFitView(applicant) : ''}
+    ${applicant ? projectValuesView(applicant) : ''}
+    ${applicant ? applicantQuestionsView(applicant) : ''}
+    ${footer({ nextLabel: '사업 선택' })}`;
+}
+
+function applicantLoadedView(applicant) {
+  const confirmed = confirmedItems(applicant);
+  return `<div class="card"><div class="card-title"><div><h3>불러온 신청기관 정보 · ${escapeHtml(applicant.name)}</h3><span>확인된 정보만 계획서 작성에 전달됩니다.</span></div></div>
+    <div class="summary-grid">${applicantAreaSummary(applicant).map(area => `<div><span>${escapeHtml(area.title)}</span><strong>${area.confirmed}건 확인됨</strong><small>확인 필요·오래된 정보 ${area.needsCheck}건</small></div>`).join('')}</div>
+    <details open><summary>계획서 작성에 전달할 확인된 정보 ${confirmed.length}건</summary><div class="cap-grid">${confirmed.length ? confirmed.map(item => `<div><span>${escapeHtml(areaTitle(item.area))}</span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.value)}</small></div>`).join('') : '<p class="muted">확인됨으로 표시된 정보가 없습니다. 기관 사실은 [확인 필요]로만 처리됩니다.</p>'}</div></details>
+    <details><summary>전달하지 않는 확인 필요·오래된 정보 ${applicant.items.length - confirmed.length}건</summary><p class="muted">아래 항목은 항목명만 표시하며 내용은 계획서 작성 요청에 포함하지 않습니다.</p><div class="cap-grid">${applicant.items.filter(item => item.status !== CONFIRMED_STATUS).map(item => `<div><span>${escapeHtml(areaTitle(item.area))}</span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.status)}</small></div>`).join('') || '<p class="muted">없음</p>'}</div></details></div>`;
+}
+
+function applicantFitView(applicant) {
+  const requirements = comparisonRequirements();
+  const comparison = compareNoticeWithApplicant(requirements, applicant);
+  state.applicantComparison = comparison;
+  if (!requirements.length) return '<div class="card"><h3>공고 × 신청기관 비교</h3><p class="muted">비교할 공고 원문이 아직 없습니다. 공고를 선택하거나 원문을 추가하세요.</p></div>';
+  const groups = [
+    ['확인된 강점', comparison.confirmedStrengths, '충족'],
+    ['신청자격 또는 근거 확인이 필요한 사항', comparison.needsEvidence, '부분-충족'],
+    ['기관정보에 없는 사항', comparison.missingFromApplicant, '부족'],
+    ['이번 사업에서 새로 결정해야 할 사항', comparison.decideInThisProject, '확인-필요']
+  ];
+  return `<div class="card"><div class="card-title"><div><h3>공고 × 신청기관 비교</h3><span>AI 호출 없이 공고 원문과 등록 정보만으로 구분합니다.</span></div></div>
+    <div class="match-summary">${groups.map(([name, items, status]) => `<div><span class="status ${status}">${escapeHtml(name)}</span><strong>${items.length}</strong></div>`).join('')}</div>
+    ${groups.map(([name, items, status]) => `<details ${items.length ? 'open' : ''}><summary>${escapeHtml(name)} ${items.length}건</summary><div class="requirement-list">${items.length ? items.map(item => `<article class="requirement"><div><span class="status ${status}">${escapeHtml(name)}</span><div><strong>${escapeHtml(item.requirement)}</strong><small>${escapeHtml(item.location || '공고 원문')} · ${escapeHtml(item.action)}</small></div></div>${item.matchedItems.length ? `<p class="muted">연결된 기관 정보: ${escapeHtml(item.matchedItems.map(value => `${value.label}(${value.status})`).join(', '))}</p>` : ''}</article>`).join('') : '<p class="muted">해당 항목이 없습니다.</p>'}</div></details>`).join('')}</div>`;
+}
+
+function projectValuesView(applicant) {
+  const draft = state.projectValueDraft;
+  return `<div class="card"><div class="card-title"><div><h3>이번 사업 전용 값</h3><span>기관 원본은 그대로 두고 이번 계획서에만 사용할 값을 지정합니다.</span></div></div>
+    <p class="muted">예: 기관 보유 프로그램 12회 → 이번 공모 설계 16회. 이번 사업 값을 지정해도 신청기관 원본 정보는 변경되지 않습니다.</p>
+    <div class="two-col"><div class="field"><label for="project-value-item">연결할 기관 정보</label><select id="project-value-item"><option value="">기관 정보와 연결하지 않음</option>${applicant.items.map(item => `<option value="${escapeHtml(item.id)}" ${draft.applicantItemId === item.id ? 'selected' : ''}>${escapeHtml(`${areaTitle(item.area)} · ${item.label}`)}</option>`).join('')}</select></div>
+    <div class="field"><label for="project-value-label">항목명</label><input id="project-value-label" value="${escapeHtml(draft.label)}" placeholder="예: 프로그램 회기"></div></div>
+    <div class="field"><label for="project-value-value">이번 사업 값</label><input id="project-value-value" value="${escapeHtml(draft.value)}" placeholder="예: 16회"></div>
+    <div class="actions" style="margin:0"><span></span><button class="button primary" id="add-project-value">이번 사업 값 추가</button></div>
+    ${state.projectValues.length ? `<div class="requirement-list">${state.projectValues.map(item => { const source = applicant.items.find(value => value.id === item.applicantItemId); return `<article class="requirement"><div><span class="tag">이번 사업</span><div><strong>${escapeHtml(item.label)}: ${escapeHtml(item.value)}</strong><small>신청기관 원본: ${escapeHtml(source ? `${source.label} = ${source.value}` : '기관 정보에 없음')} (변경되지 않음)</small></div></div><button class="button secondary" data-remove-project-value="${escapeHtml(item.id)}">삭제</button></article>`; }).join('')}</div>` : '<p class="muted">지정한 이번 사업 값이 없습니다.</p>'}</div>`;
+}
+
+function applicantQuestionsView(applicant) {
+  const questions = state.missingInformation.length ? state.missingInformation : comparisonRequirements().filter(item => item.mandatory).slice(0, 5).map(item => `“${String(item.requirement).slice(0, 70)}” 요건을 충족하는 신청기관 정보를 확인해 주세요.`);
+  const plan = planApplicantQuestions(questions, applicant);
+  return `<div class="card"><div class="card-title"><div><h3>부족한 정보만 확인</h3><span>신청기관 정보에서 이미 확인되는 내용은 다시 묻지 않습니다.</span></div></div>
+    ${plan.resolved.length ? `<details open><summary>신청기관 정보로 이미 확인된 질문 ${plan.resolved.length}건 · 다시 묻지 않음</summary><div class="requirement-list">${plan.resolved.map(item => `<article class="requirement"><div><span class="tag">확인됨</span><div><strong>${escapeHtml(item.question)}</strong><small>${escapeHtml(item.answer)}</small></div></div></article>`).join('')}</div></details>` : ''}
+    ${plan.ask.length ? plan.ask.slice(0, 5).map((question, index) => `<div class="field"><label>${escapeHtml(question)}</label><textarea data-applicant-answer="${index}" data-question="${escapeHtml(question)}">${escapeHtml(state.designAnswers[question] || '')}</textarea></div>`).join('') : '<p class="muted">신청기관 정보만으로 현재 확인이 필요한 질문이 없습니다.</p>'}</div>`;
 }
 
 function sourceView() {
@@ -263,7 +371,7 @@ function analysisView() {
 
 function listOrEmpty(items = []) { return items.length ? `<ul>${items.map(v => `<li>${escapeHtml(typeof v === 'string' ? v : v.name || v.criterion)}</li>`).join('')}</ul>` : '<p class="muted">원문에서 확인되지 않음</p>'; }
 function buildMatches() {
-  const caps = state.companyFacts.filter(item => item.confirmedByUser === true);
+  const caps = confirmedItems(selectedApplicant()).map(item => ({ title: item.label, content: item.value, category: areaTitle(item.area) }));
   return state.analysis.requirements.map(r => {
     const tokens = r.requirement.replace(/[^가-힣A-Za-z0-9]/g, ' ').split(/\s+/).filter(v => v.length > 1);
     const found = caps.filter(c => tokens.some(t => `${c.title} ${c.content} ${c.category}`.includes(t))).slice(0, 3);
@@ -290,11 +398,11 @@ function documentView() {
   const strategy = strategyView();
   const questions = designQuestionsView();
   if (!state.sections.length) return `${strategy}${questions}${stagedGenerationView()}${state.designUnavailable ? `<div class="empty-state"><div>▤</div><h2>AI 정밀 사업설계를 실행할 수 없음</h2><p>공고 자료 분석은 완료되었지만 AI 정밀 사업설계를 실행하지 못했습니다. 아래에는 공식 원문에서 직접 추출한 사실만 표시합니다.</p>${directFactsView()}</div>` : ''}`;
-  const completionMode = state.step === 4;
+  const completionMode = state.step === STEPS.length - 1;
   const toolbarActions = completionMode
     ? `<button class="button secondary" id="save-proposal-archive">자료보관함에 저장</button><button class="button secondary" id="proposal-review">${state.reviewResult ? '명시적으로 재검토' : '심사 검토·고도화'}</button><button class="button secondary" id="print">인쇄</button><button class="button secondary" id="pdf">PDF 인쇄·저장</button><button class="button primary" id="docx">검토용 DOCX</button>`
     : '<button class="button secondary" id="save-proposal-archive">자료보관함에 저장</button><button class="button primary" id="go-to-review">검토·완성으로 이동 →</button>';
-  return `${strategy}${questions}${assemblyCheckView()}<div class="document-toolbar"><div><h2>${escapeHtml(state.project.title || '사업계획서 검토본')}</h2><p><span class="mode">${state.selectedNotice?.officialTextExtracted ? '공고문 반영 초안' : '안내 페이지 기반 임시 초안'}</span> <span class="mode ${state.aiMode === 'ai' ? 'ai' : ''}">${state.aiMode === 'ai' ? 'AI 정밀 사업설계' : '로컬 사실 추출'}</span> ${completionMode ? '심사 검토와 출력 전 최종 편집을 진행하세요. DOCX는 공식 신청서 양식이 아닌 검토본입니다.' : '필요한 질문을 확인하고 초안을 편집하세요.'}</p></div><div>${toolbarActions}</div></div>
+  return `${strategy}${questions}${assemblyCheckView()}<div class="document-toolbar"><div><h2>${escapeHtml(state.project.title || '사업계획서 검토본')}</h2><p><span class="mode">신청기관 ${escapeHtml(selectedApplicant()?.name || '미선택')}</span> <span class="mode">${state.selectedNotice?.officialTextExtracted ? '공고문 반영 초안' : '안내 페이지 기반 임시 초안'}</span> <span class="mode ${state.aiMode === 'ai' ? 'ai' : ''}">${state.aiMode === 'ai' ? 'AI 정밀 사업설계' : '로컬 사실 추출'}</span> ${completionMode ? '심사 검토와 출력 전 최종 편집을 진행하세요. DOCX는 공식 신청서 양식이 아닌 검토본입니다.' : '필요한 질문을 확인하고 초안을 편집하세요.'}</p></div><div>${toolbarActions}</div></div>
     ${completionMode ? proposalReviewView() : ''}
     <div class="editor-layout"><aside class="outline">${state.sections.map((s, i) => `<a href="#section-${i}"><span>${i + 1}</span>${escapeHtml(s.title.replace(/^\d+[.)]?\s*/, ''))}</a>`).join('')}</aside><div class="paper">${state.sections.map((s, i) => `<section id="section-${i}" class="doc-section"><div class="section-head"><input data-section-title="${i}" value="${escapeHtml(s.title)}"><span class="status ${s.status?.replace(' ', '-')}">${escapeHtml(s.status || '검토 필요')}</span></div><textarea data-section-content="${i}">${escapeHtml(s.content)}</textarea><div class="section-meta"><span>근거 ${s.citations?.length || 0}개</span><span><button data-confirm-fact="${i}">회사 정보로 확정 저장</button><button data-rewrite="${i}">이 항목 재작성</button></span></div>${s.citations?.length ? `<details><summary>반영한 원문 근거</summary>${s.citations.map(id => { const r = state.analysis.requirements.find(v => v.id === id); return r ? `<blockquote>${escapeHtml(r.evidence)} <small>${escapeHtml(r.location)}</small></blockquote>` : ''; }).join('')}</details>` : ''}</section>`).join('')}</div></div>`;
 }
@@ -310,7 +418,7 @@ function assemblyCheckView() {
 function stagedGenerationView() {
   const staged = state.stagedGeneration || initial.stagedGeneration;
   const master = staged.master;
-  if (!master) return state.designUnavailable ? '' : '<div class="empty-state"><div>▤</div><h2>마스터 설계가 없습니다</h2><p>사업을 선택하면 전체 구조를 먼저 설계합니다.</p><button class="button primary" data-step="2">사업 선택으로 이동</button></div>';
+  if (!master) return state.designUnavailable ? '' : '<div class="empty-state"><div>▤</div><h2>마스터 설계가 없습니다</h2><p>사업을 선택하면 전체 구조를 먼저 설계합니다.</p><button class="button primary" data-step="3">사업 선택으로 이동</button></div>';
   const groups = master.sectionPlan || [];
   const logic = master.masterLogic || {};
   const completed = new Set(staged.completedGroupIds || []);
@@ -358,8 +466,9 @@ function directFactsView() {
 }
 
 function render() {
-  const views = [noticeImportView, noticeConfirmView, businessSelectView, documentView, documentView];
-  app.innerHTML = shell(state.activeTool === 'coaching' ? coachingView() : views[state.step]()); bind(); startBusyElapsedTimer();
+  const views = [noticeImportView, noticeConfirmView, applicantSelectView, businessSelectView, documentView, documentView];
+  const tools = { coaching: coachingView, applicants: applicantsToolView };
+  app.innerHTML = shell((tools[state.activeTool] || views[state.step] || views[0])()); bind(); startBusyElapsedTimer();
 }
 
 function coachingView() {
@@ -446,6 +555,10 @@ function bind() {
   document.querySelectorAll('[data-step]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(Number(el.dataset.step), { notice: '', error: '' }); });
   document.querySelector('#open-coaching')?.addEventListener('click', () => setState({ activeTool: 'coaching', notice: '', error: '' }));
   document.querySelector('#close-coaching')?.addEventListener('click', () => setState({ activeTool: 'workflow', notice: '', error: '' }));
+  document.querySelector('#open-applicants')?.addEventListener('click', () => setState({ activeTool: 'applicants', notice: '', error: '' }));
+  document.querySelectorAll('[data-open-applicants]').forEach(el => el.onclick = () => setState({ activeTool: 'applicants', notice: '', error: '' }));
+  document.querySelector('#close-applicants')?.addEventListener('click', () => setState({ activeTool: 'workflow', notice: '', error: '' }));
+  bindApplicants();
   document.querySelector('#back')?.addEventListener('click', () => navigateToStep(state.step - 1, { notice: '', error: '' }));
   document.querySelector('#next')?.addEventListener('click', () => navigateToStep(state.step + 1, { notice: '', error: '' }));
   document.querySelector('#workflow-back')?.addEventListener('click', () => { state.activeTool = 'workflow'; navigateBack(); });
@@ -533,6 +646,127 @@ function bind() {
   document.querySelectorAll('[data-coaching-undo]').forEach(el => el.onclick = () => undoCoachingRevision(Number(el.dataset.coachingUndo)));
   document.querySelector('#print-coaching-report')?.addEventListener('click', printCoachingReport);
   if (state.activeTool === 'coaching' && state.coaching.pendingJob && !coachingPollActive) setTimeout(() => pollProposalCoaching(), 250);
+}
+
+function bindApplicants() {
+  document.querySelector('#applicant-name-draft')?.addEventListener('input', event => { state.applicantNameDraft = event.target.value; });
+  document.querySelector('#add-applicant')?.addEventListener('click', addApplicant);
+  document.querySelector('#load-applicants')?.addEventListener('click', loadApplicantsFromArchive);
+  document.querySelectorAll('[data-edit-applicant]').forEach(el => el.onclick = () => setState({ activeTool: 'applicants', applicantEditingId: state.applicantEditingId === el.dataset.editApplicant ? '' : el.dataset.editApplicant, notice: '', error: '' }));
+  document.querySelectorAll('[data-select-applicant]').forEach(el => el.onclick = () => selectApplicantForProject(el.dataset.selectApplicant));
+  document.querySelectorAll('[data-delete-applicant]').forEach(el => el.onclick = () => removeApplicant(el.dataset.deleteApplicant));
+  document.querySelector('#save-applicant')?.addEventListener('click', () => persistApplicant(state.applicantEditingId, true));
+  document.querySelector('#applicant-name')?.addEventListener('input', event => { updateEditingApplicant(applicant => { applicant.name = event.target.value; }); });
+  document.querySelector('#applicant-note')?.addEventListener('input', event => { updateEditingApplicant(applicant => { applicant.note = event.target.value; }); });
+  document.querySelectorAll('[data-applicant-field]').forEach(el => el.oninput = () => {
+    const [itemId, field] = el.dataset.applicantField.split('|');
+    updateEditingApplicant(applicant => { const item = applicant.items.find(value => value.id === itemId); if (item) { item[field] = el.value; item.updatedAt = new Date().toISOString(); } });
+  });
+  document.querySelectorAll('[data-applicant-status]').forEach(el => el.onchange = () => {
+    updateEditingApplicant(applicant => { const item = applicant.items.find(value => value.id === el.dataset.applicantStatus); if (item) { item.status = el.value; item.updatedAt = new Date().toISOString(); } });
+    setState({ applicants: state.applicants, notice: '항목 상태를 변경했습니다. 저장 버튼으로 보관함에도 반영하세요.' });
+  });
+  document.querySelectorAll('[data-remove-applicant-item]').forEach(el => el.onclick = () => {
+    updateEditingApplicant(applicant => { applicant.items = applicant.items.filter(item => item.id !== el.dataset.removeApplicantItem); });
+    setState({ applicants: state.applicants, notice: '항목을 삭제했습니다.' });
+  });
+  document.querySelectorAll('[data-applicant-draft]').forEach(el => {
+    const handler = () => {
+      const [areaKey, field] = el.dataset.applicantDraft.split('|');
+      state.applicantItemDrafts[areaKey] = { label: '', value: '', status: '확인 필요', source: '', ...state.applicantItemDrafts[areaKey], [field]: el.value };
+    };
+    el.oninput = handler; el.onchange = handler;
+  });
+  document.querySelectorAll('[data-add-applicant-item]').forEach(el => el.onclick = () => addApplicantItem(el.dataset.addApplicantItem));
+  document.querySelector('#project-value-label')?.addEventListener('input', event => { state.projectValueDraft.label = event.target.value; });
+  document.querySelector('#project-value-value')?.addEventListener('input', event => { state.projectValueDraft.value = event.target.value; });
+  document.querySelector('#project-value-item')?.addEventListener('change', event => { state.projectValueDraft.applicantItemId = event.target.value; });
+  document.querySelector('#add-project-value')?.addEventListener('click', addProjectValue);
+  document.querySelectorAll('[data-remove-project-value]').forEach(el => el.onclick = () => setState({ projectValues: state.projectValues.filter(item => item.id !== el.dataset.removeProjectValue), notice: '이번 사업 값을 삭제했습니다.' }));
+  document.querySelectorAll('[data-applicant-answer]').forEach(el => el.oninput = () => { state.designAnswers[el.dataset.question] = el.value; saveState(); });
+}
+
+function updateEditingApplicant(mutate) {
+  const applicant = findApplicant(state.applicants, state.applicantEditingId);
+  if (!applicant) return null;
+  const next = structuredClone(applicant);
+  mutate(next);
+  state.applicants = upsertApplicant(state.applicants, next);
+  saveState();
+  return findApplicant(state.applicants, next.id);
+}
+
+function addApplicant() {
+  const name = state.applicantNameDraft.trim();
+  if (!name) return setState({ error: '추가할 신청기관명을 입력해 주세요.' });
+  const applicant = normalizeApplicant({ name });
+  state.applicants = upsertApplicant(state.applicants, applicant);
+  state.applicantNameDraft = '';
+  setState({ applicants: state.applicants, applicantNameDraft: '', applicantEditingId: applicant.id, notice: `${name} 신청기관을 추가했습니다. 항목을 등록하세요.`, error: '' });
+  void persistApplicant(applicant.id, false);
+}
+
+function addApplicantItem(areaKey) {
+  const draft = state.applicantItemDrafts[areaKey] || {};
+  if (!String(draft.label || '').trim()) return setState({ error: '추가할 항목명을 입력해 주세요.' });
+  const item = makeApplicantItem({ area: areaKey, label: draft.label, value: draft.value, status: draft.status, source: draft.source });
+  updateEditingApplicant(applicant => { applicant.items = [...applicant.items, item]; });
+  state.applicantItemDrafts[areaKey] = { label: '', value: '', status: '확인 필요', source: '' };
+  setState({ applicants: state.applicants, applicantItemDrafts: state.applicantItemDrafts, notice: `${areaTitle(areaKey)} 항목을 추가했습니다.`, error: '' });
+}
+
+function selectApplicantForProject(id) {
+  const applicant = findApplicant(state.applicants, id);
+  if (!applicant) return setState({ error: '선택한 신청기관을 찾지 못했습니다.' });
+  const confirmed = confirmedItems(applicant).length;
+  state.activeTool = 'workflow';
+  navigateToStep(2, { selectedApplicantId: applicant.id, applicantComparison: null, notice: `${applicant.name}의 확인된 정보 ${confirmed}건을 이번 사업에 불러왔습니다.`, error: '' });
+}
+
+function removeApplicant(id) {
+  const applicant = findApplicant(state.applicants, id);
+  if (!applicant) return;
+  if (!window.confirm(`${applicant.name} 신청기관 정보를 삭제할까요? 이미 저장된 계획서는 삭제되지 않습니다.`)) return;
+  state.applicants = state.applicants.filter(item => item.id !== id);
+  setState({ applicants: state.applicants, applicantEditingId: state.applicantEditingId === id ? '' : state.applicantEditingId, selectedApplicantId: state.selectedApplicantId === id ? '' : state.selectedApplicantId, notice: '신청기관 정보를 삭제했습니다.' });
+  deleteArchivedApplicant(id).catch(() => setState({ error: '보관함에서 신청기관을 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.' }));
+}
+
+function addProjectValue() {
+  const draft = state.projectValueDraft;
+  const applicant = selectedApplicant();
+  const source = applicant?.items.find(item => item.id === draft.applicantItemId) || null;
+  const label = String(draft.label || '').trim() || source?.label || '';
+  const value = String(draft.value || '').trim();
+  if (!label || !value) return setState({ error: '이번 사업에 사용할 항목명과 값을 입력해 주세요.' });
+  const entry = { id: `project-value-${Date.now().toString(36)}`, label, value, applicantItemId: source?.id || '' };
+  state.projectValueDraft = { label: '', value: '', applicantItemId: '' };
+  setState({ projectValues: [...state.projectValues, entry], projectValueDraft: state.projectValueDraft, notice: '이번 사업 전용 값을 추가했습니다. 신청기관 원본은 변경되지 않습니다.', error: '' });
+}
+
+async function persistApplicant(id, announce) {
+  const applicant = findApplicant(state.applicants, id);
+  if (!applicant) return;
+  try {
+    await saveArchivedApplicant(applicant);
+    if (announce) setState({ notice: `${applicant.name} 신청기관 정보를 보관함에 저장했습니다.`, error: '' });
+  } catch (error) {
+    if (announce) setState({ error: `신청기관 정보를 보관함에 저장하지 못했습니다: ${error.message}` });
+  }
+}
+
+async function loadApplicantsFromArchive() {
+  setState({ busy: '보관된 신청기관 정보를 불러오는 중...', error: '', notice: '' });
+  try {
+    const result = await listArchivedApplicants();
+    let applicants = state.applicants;
+    for (const value of result.applicants || []) {
+      const stored = normalizeApplicant(value);
+      const local = findApplicant(applicants, stored.id);
+      if (!local || String(local.updatedAt) <= String(stored.updatedAt)) applicants = upsertApplicant(applicants, stored);
+    }
+    setState({ busy: '', applicants, notice: `보관된 신청기관 ${result.applicants?.length || 0}곳을 불러왔습니다.` });
+  } catch (error) { setState({ busy: '', error: error.message }); }
 }
 
 async function loadCoachingFile(event) {
@@ -734,12 +968,13 @@ async function runProposalReview(force = false) {
 }
 
 function reviewPayload() {
+  const applicantOrganization = organizationForGeneration();
   return {
     selectedNotice: state.selectedNotice, selectedSubprogram: state.selectedNotice?.selectedSubproject || state.project.title,
     officialDetailText: state.sourceText, manualSources: state.manualSources, applicationQuestions: state.analysis?.questions || [],
     evaluationCriteria: state.analysis?.evaluationCriteria || [], budgetCriteria: state.manualSources.filter(item => item.sourceType === '예산 편성 기준'),
     sponsorIntent: state.sponsorIntent, projectDesign: state.projectDesign, masterDesign: state.stagedGeneration?.master, assemblyCheck: state.assemblyCheck, evidenceMap: state.evidenceMap,
-    confirmedOrganizationFacts: state.companyFacts.filter(item => item.confirmedByUser === true), sections: state.sections
+    applicantOrganization, confirmedOrganizationFacts: applicantOrganization.confirmedFacts, sections: state.sections
   };
 }
 
@@ -903,8 +1138,9 @@ async function openArchivedProposal(id) {
       if (state.coaching.result && state.coaching.workItems?.length !== state.coaching.result.issues?.length) state.coaching.workItems = makeCoachingWorkItems(state.coaching.result);
       return setState({ activeTool: 'coaching', busy: '', notice: '보관된 검증·코칭 버전을 열었습니다.' });
     }
-    state = { ...state, ...snapshot, archiveProposalId: result.proposal.id, archiveNotices: state.archiveNotices, archiveProposals: state.archiveProposals, noticeResults: state.noticeResults, busy: '', error: '' };
-    navigateToStep(result.proposal.stage === 'review' ? 4 : 3, { notice: '보관된 계획서를 열었습니다. 이어서 수정할 수 있습니다.' });
+    const applicants = snapshot.applicantSnapshot && !findApplicant(state.applicants, snapshot.applicantSnapshot.id) ? upsertApplicant(state.applicants, snapshot.applicantSnapshot) : state.applicants;
+    state = { ...state, ...snapshot, applicants, archiveProposalId: result.proposal.id, archiveNotices: state.archiveNotices, archiveProposals: state.archiveProposals, noticeResults: state.noticeResults, busy: '', error: '' };
+    navigateToStep(result.proposal.stage === 'review' ? 5 : 4, { notice: '보관된 계획서를 열었습니다. 이어서 수정할 수 있습니다.' });
   } catch (error) { setState({ busy: '', error: error.message }); }
 }
 
@@ -963,7 +1199,7 @@ async function previewOfficialNotice(value) {
 function choosePreviewNotice() {
   const notice = state.noticePreview;
   if (!notice) return;
-  if (notice.subprojects?.length > 1) return navigateToStep(2, { noticePreview: null, pendingNoticeChoice: { notice, subprojects: notice.subprojects }, notice: '계획서에 반영할 세부사업을 선택해 주세요.' });
+  if (notice.subprojects?.length > 1) return navigateToStep(2, { noticePreview: null, pendingNoticeChoice: { notice, subprojects: notice.subprojects }, notice: '신청기관을 선택한 뒤 사업 선택 단계에서 세부사업을 확정해 주세요.' });
   state.noticePreview = null;
   applyNoticeSelection(notice);
   navigateToStep(2);
@@ -976,7 +1212,7 @@ async function selectOfficialNotice(value) {
   try {
     const { notice } = await fetchNoticeDetail(selected);
     void syncArchivedNotices([{ ...selected, ...notice }]).catch(() => {});
-    if (notice.subprojects?.length > 1) return navigateToStep(2, { busy: '', pendingNoticeChoice: { notice, subprojects: notice.subprojects }, notice: '계획서에 반영할 세부사업을 선택해 주세요.' });
+    if (notice.subprojects?.length > 1) return navigateToStep(2, { busy: '', pendingNoticeChoice: { notice, subprojects: notice.subprojects }, notice: '신청기관을 선택한 뒤 사업 선택 단계에서 세부사업을 확정해 주세요.' });
     applyNoticeSelection(notice);
     navigateToStep(2);
   } catch (error) { setState({ busy: '', error: error.message }); }
@@ -1094,7 +1330,7 @@ async function generateCompleteProposal() {
     const result = await masterWithAI(completePayload);
     state.sponsorIntent = result.sponsorIntent;
     state.projectDesign = result.projectDesign;
-    state.missingInformation = (result.missingInformation || []).slice(0, 5);
+    state.missingInformation = applyApplicantAnswers((result.missingInformation || []).slice(0, 5));
     state.evidenceMap = result.evidenceMap || [];
     state.qualityCheck = result.qualityCheck;
     state.analysis = engineAnalysis(result);
@@ -1109,7 +1345,7 @@ async function generateCompleteProposal() {
     state.analysis = localAnalyze({ sourceText: localSource, projectType: typeName(), title: state.project.title });
     state.sponsorIntent = localSponsorIntent(state.analysis);
     state.projectDesign = null;
-    state.missingInformation = (state.analysis.questions || []).slice(0, 5).map(value => value.question);
+    state.missingInformation = applyApplicantAnswers((state.analysis.questions || []).slice(0, 5).map(value => value.question));
     state.evidenceMap = state.analysis.requirements.map(value => ({ id: value.id, claim: value.requirement, evidence: value.evidence, location: value.location }));
     state.qualityCheck = null;
     state.sections = [];
@@ -1120,11 +1356,19 @@ async function generateCompleteProposal() {
   }
   state.answers = state.analysis.questions || [];
   state.matches = buildMatches();
-  navigateToStep(3, { busy: '' });
+  navigateToStep(4, { busy: '' });
 }
 
 function generationPayload() {
   return { sourceText: state.sourceText, manualSources: state.manualSources.map(({ id, fileName, sourceType, extractedText, extractionStatus, extractionError }) => ({ id, fileName, sourceType, extractedText, extractionStatus, extractionError })), projectType: typeName(), project: state.project, selectedSubprogram: state.selectedNotice?.selectedSubproject || state.selectedNotice?.title || state.project.title, organization: organizationForGeneration(), userAnswers: state.designAnswers };
+}
+
+// 신청기관의 확인된 정보로 답할 수 있는 질문은 답변으로 채우고 사용자에게 다시 묻지 않는다.
+function applyApplicantAnswers(questions) {
+  const plan = planApplicantQuestions(questions, selectedApplicant());
+  for (const item of plan.resolved) if (!String(state.designAnswers[item.question] || '').trim()) state.designAnswers[item.question] = `신청기관 정보에서 확인됨 · ${item.answer}`;
+  state.applicantResolvedQuestions = plan.resolved;
+  return plan.ask;
 }
 
 async function generateProposalParts() {
@@ -1216,8 +1460,9 @@ async function archiveCurrentProposal(forcedStage, announce = false) {
   state.archiveProposalId = id;
   saveState();
   const stage = forcedStage || (state.reviewResult ? 'review' : state.sections.length ? 'complete' : state.stagedGeneration?.phase === 'parts-ready' ? 'parts' : 'master');
-  const fields = ['project', 'sourceText', 'analysis', 'sponsorIntent', 'projectDesign', 'missingInformation', 'evidenceMap', 'qualityCheck', 'designAnswers', 'designUnavailable', 'stagedGeneration', 'assemblyCheck', 'manualSources', 'matches', 'answers', 'sections', 'reviewResult', 'reviewOriginalDraft', 'reviewFingerprint', 'companyFacts', 'selectedNotice', 'aiMode'];
-  const snapshot = Object.fromEntries(fields.map(key => [key, structuredClone(state[key])]));
+  const fields = ['project', 'sourceText', 'analysis', 'sponsorIntent', 'projectDesign', 'missingInformation', 'evidenceMap', 'qualityCheck', 'designAnswers', 'designUnavailable', 'stagedGeneration', 'assemblyCheck', 'manualSources', 'matches', 'answers', 'sections', 'reviewResult', 'reviewOriginalDraft', 'reviewFingerprint', 'companyFacts', 'selectedNotice', 'aiMode', 'selectedApplicantId', 'projectValues', 'applicantResolvedQuestions'];
+  // 계획서에는 사용 시점의 신청기관 사본만 남기고, 신청기관 원본은 별도 보관 항목으로만 수정한다.
+  const snapshot = { ...Object.fromEntries(fields.map(key => [key, structuredClone(state[key])])), applicantSnapshot: selectedApplicant() ? structuredClone(selectedApplicant()) : null };
   const result = await saveArchivedProposal({ id, noticeKey: archiveNoticeKey(state.selectedNotice), title: state.project.title || state.selectedNotice?.title, stage, snapshot });
   state.archiveProposalId = result.id;
   if (announce) setState({ notice: `${archiveStageLabel(stage)}을 자료보관함에 저장했습니다.`, error: '' });
@@ -1226,7 +1471,7 @@ async function archiveCurrentProposal(forcedStage, announce = false) {
 
 function engineAnalysis(result) {
   const requirements = (result.evidenceMap || []).map((item, index) => ({ id: item.id || `evidence-${index + 1}`, category: '공모 근거', requirement: item.claim, mandatory: false, evidence: item.evidence, location: item.location, confidence: '높음' }));
-  return { mode: 'ai', project: { ...state.project, title: result.projectDesign.projectName, budget: result.projectDesign.budgetStructure.join(' · ') }, requirements, evaluationCriteria: result.sponsorIntent.selectionLogic, submissionItems: [], warnings: [], questions: (result.missingInformation || []).slice(0, 5).map((question, index) => ({ id: `design-q-${index + 1}`, question, required: true, answer: state.designAnswers[question] || '' })) };
+  return { mode: 'ai', project: { ...state.project, title: result.projectDesign.projectName, budget: result.projectDesign.budgetStructure.join(' · ') }, requirements, evaluationCriteria: result.sponsorIntent.selectionLogic, submissionItems: [], warnings: [], questions: (state.missingInformation || []).slice(0, 5).map((question, index) => ({ id: `design-q-${index + 1}`, question, required: true, answer: state.designAnswers[question] || '' })) };
 }
 
 function localSponsorIntent(analysis) {
@@ -1235,30 +1480,41 @@ function localSponsorIntent(analysis) {
   return { coreProblem: first('대상') || facts[0]?.evidence || '', policyPurpose: first('운영'), requiredTarget: first('대상'), expectedChange: first('평가'), selectionLogic: analysis.evaluationCriteria || [], mandatoryConditions: facts.filter(value => value.mandatory).map(value => value.requirement), budgetRestrictions: facts.filter(value => value.category === '예산').map(value => value.requirement), evidence: facts.map(value => value.evidence).filter(Boolean) };
 }
 
+// 계획서 본문을 신청기관 정보로 올릴 때는 기존 항목을 덮어쓰지 않고 새 항목으로만 추가한다.
 function confirmCompanyFact(index) {
   const section = state.sections[index];
-  if (!window.confirm('이 내용이 실제 회사 정보임을 확인했습니까? 확인되지 않은 AI 문구는 저장하지 마세요.')) return;
-  const fact = { id: section.id, category: companyFactCategory(section.title), title: section.title, content: section.content, confirmedByUser: true, confirmedAt: new Date().toISOString() };
-  state.companyFacts = [...state.companyFacts.filter(item => item.id !== fact.id), fact];
-  setState({ companyFacts: state.companyFacts, notice: '확정한 회사 정보를 다음 사업계획서에 재사용합니다.' });
+  const applicant = selectedApplicant();
+  if (!applicant) return setState({ error: '먼저 이번 사업의 신청기관을 선택해 주세요.' });
+  if (!window.confirm(`이 내용이 ${applicant.name}의 실제 기관 정보임을 확인했습니까? 확인되지 않은 AI 문구는 저장하지 마세요.`)) return;
+  const item = makeApplicantItem({ area: applicantAreaForTitle(section.title), label: section.title.replace(/^\d+[.)]?\s*/, ''), value: section.content, status: CONFIRMED_STATUS, source: `${state.project.title || '이번 사업'} 계획서에서 담당자 확인` });
+  const next = structuredClone(applicant);
+  next.items = [...next.items, item];
+  state.applicants = upsertApplicant(state.applicants, next);
+  setState({ applicants: state.applicants, notice: `${applicant.name} 신청기관 정보에 새 항목으로 추가했습니다. 기존 항목은 변경되지 않았습니다.` });
+  void persistApplicant(applicant.id, false);
 }
 
 function confirmCompanyFactDraft() {
   const content = state.companyFactDraft.trim();
-  if (!content) return setState({ error: '확정할 회사 정보를 입력해 주세요.' });
-  if (!window.confirm('입력한 내용이 실제 회사 정보임을 확인했습니까?')) return;
-  const fact = { id: `manual-${Date.now()}`, category: '사용자 확정', title: '사용자 확정 회사 정보', content, confirmedByUser: true, confirmedAt: new Date().toISOString() };
-  state.companyFacts = [...state.companyFacts, fact];
+  const applicant = selectedApplicant();
+  if (!applicant) return setState({ error: '먼저 이번 사업의 신청기관을 선택해 주세요.' });
+  if (!content) return setState({ error: '확정할 신청기관 정보를 입력해 주세요.' });
+  if (!window.confirm(`입력한 내용이 ${applicant.name}의 실제 기관 정보임을 확인했습니까?`)) return;
+  const next = structuredClone(applicant);
+  next.items = [...next.items, makeApplicantItem({ area: 'basic', label: '담당자 확정 정보', value: content, status: CONFIRMED_STATUS, source: '담당자 직접 입력' })];
+  state.applicants = upsertApplicant(state.applicants, next);
   state.companyFactDraft = '';
-  setState({ companyFacts: state.companyFacts, notice: '확정한 회사 정보를 다음 사업계획서에 재사용합니다.', error: '' });
+  setState({ applicants: state.applicants, companyFactDraft: '', notice: `${applicant.name} 신청기관 정보에 추가했습니다.`, error: '' });
+  void persistApplicant(applicant.id, false);
 }
 
-function companyFactCategory(title) {
-  if (/인력|조직|담당/.test(title)) return '인력';
-  if (/실적|경험/.test(title)) return '실적';
-  if (/예산|사업비|수익/.test(title)) return '예산';
-  if (/프로그램|내용/.test(title)) return '프로그램';
-  if (/지역|장소/.test(title)) return '지역';
-  return '운영조건';
+function applicantAreaForTitle(title) {
+  if (/인력|조직|담당|역할/.test(title)) return 'staff';
+  if (/실적|경험|성과/.test(title)) return 'performance';
+  if (/예산|사업비|수익/.test(title)) return 'budget';
+  if (/프로그램|내용/.test(title)) return 'programs';
+  if (/지역|장소|시설/.test(title)) return 'facilities';
+  if (/협력|협약/.test(title)) return 'partners';
+  return 'basic';
 }
 render();

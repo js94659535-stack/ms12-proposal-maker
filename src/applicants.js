@@ -1,0 +1,184 @@
+// 「신청기관 정보」 도메인 규칙. DOM에 의존하지 않으므로 브라우저와 node --test에서 동일하게 사용한다.
+export const APPLICANT_STATUSES = ['확인됨', '확인 필요', '오래된 정보'];
+export const CONFIRMED_STATUS = '확인됨';
+
+export const APPLICANT_AREAS = [
+  { key: 'basic', title: '기관 기본정보', hint: '기관명·설립연도·소재지·대표자·연락처' },
+  { key: 'legal', title: '법적 유형·신청자격', hint: '법인 유형·고유번호·등록증·공모 신청자격 충족 여부' },
+  { key: 'staff', title: '수행인력', hint: '상근·비상근 인원, 자격증, 담당 역할' },
+  { key: 'programs', title: '보유 프로그램·사업역량', hint: '프로그램명·대상·회기·운영 방식' },
+  { key: 'performance', title: '주요 사업실적·성과', hint: '연도·사업명·규모·성과' },
+  { key: 'facilities', title: '시설·운영자원', hint: '공간·장비·차량·운영 지역' },
+  { key: 'partners', title: '협력기관', hint: '기관명·협약 여부·역할' },
+  { key: 'budget', title: '예산 관련 기본정보', hint: '연간 예산 규모·자부담 가능액·회계 처리' },
+  { key: 'measurement', title: '성과측정 경험', hint: '사용한 척도·측정 시기·평가 방식' },
+  { key: 'references', title: '근거자료·출처', hint: '증빙 문서명·발급일·확인 위치' }
+];
+
+const AREA_KEYS = APPLICANT_AREAS.map(area => area.key);
+const ELIGIBILITY_PATTERN = /(자격|법인|등록|인가|허가|신청 ?대상|결격|의무|증빙|서류)/;
+const PROJECT_DECISION_PATTERN = /(회기|횟수|일정|기간|예산|사업비|목표|지표|인원|모집|배치|산출|성과)/;
+
+export const ORGANIZATION_RULE = 'confirmedFacts에 있는 신청기관 정보만 확정된 기관 사실로 사용한다. needsVerification 항목은 값을 전달하지 않았으므로 사실처럼 쓰지 말고 필요하면 [확인 필요]로 표시한다. projectSpecificValues.thisProjectValue는 이번 사업에서만 사용하는 설계값이며 신청기관 원본(applicantOriginalValue)을 대체하거나 수정하지 않는다.';
+export const NO_APPLICANT_RULE = '이번 사업의 신청기관이 선택되지 않았다. 기관 인력·실적·자격·예산·시설을 만들지 말고 필요한 위치에 [확인 필요]를 유지한다.';
+
+function text(value, max) { return String(value ?? '').trim().slice(0, max); }
+function uniqueId(prefix) {
+  const random = globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 10)}`;
+  return `${prefix}-${random}`.slice(0, 80);
+}
+export function areaTitle(key) { return APPLICANT_AREAS.find(area => area.key === key)?.title || key; }
+
+export function makeApplicantItem(value = {}) {
+  return {
+    id: text(value.id, 80) || uniqueId('item'),
+    area: AREA_KEYS.includes(value.area) ? value.area : 'basic',
+    label: text(value.label, 120),
+    value: text(value.value, 2000),
+    status: APPLICANT_STATUSES.includes(value.status) ? value.status : '확인 필요',
+    source: text(value.source, 300),
+    updatedAt: text(value.updatedAt, 40) || new Date().toISOString()
+  };
+}
+
+export function normalizeApplicant(value = {}) {
+  const now = new Date().toISOString();
+  return {
+    id: text(value.id, 80) || uniqueId('applicant'),
+    name: text(value.name, 120) || '이름 없는 신청기관',
+    note: text(value.note, 500),
+    items: (Array.isArray(value.items) ? value.items : []).slice(0, 300).map(makeApplicantItem),
+    createdAt: text(value.createdAt, 40) || now,
+    updatedAt: text(value.updatedAt, 40) || now
+  };
+}
+
+export function upsertApplicant(applicants, applicant) {
+  const normalized = { ...normalizeApplicant(applicant), updatedAt: new Date().toISOString() };
+  const list = Array.isArray(applicants) ? applicants : [];
+  const index = list.findIndex(item => item.id === normalized.id);
+  return index < 0 ? [...list, normalized] : list.map((item, position) => (position === index ? normalized : item));
+}
+
+export function findApplicant(applicants, id) {
+  return (Array.isArray(applicants) ? applicants : []).find(item => item.id === id) || null;
+}
+
+export function confirmedItems(applicant) {
+  return (applicant?.items || []).filter(item => item.status === CONFIRMED_STATUS && item.value.trim());
+}
+export function unverifiedItems(applicant) {
+  return (applicant?.items || []).filter(item => item.status !== CONFIRMED_STATUS);
+}
+export function applicantAreaSummary(applicant) {
+  return APPLICANT_AREAS.map(area => {
+    const items = (applicant?.items || []).filter(item => item.area === area.key);
+    return { ...area, total: items.length, confirmed: items.filter(item => item.status === CONFIRMED_STATUS).length, needsCheck: items.filter(item => item.status !== CONFIRMED_STATUS).length };
+  });
+}
+
+// 이번 사업 전용 값. 신청기관 원본 항목은 읽기만 하고 절대 덮어쓰지 않는다.
+export function normalizeProjectValues(values, applicant) {
+  return (Array.isArray(values) ? values : []).slice(0, 60).map(value => {
+    const source = (applicant?.items || []).find(item => item.id === value.applicantItemId) || null;
+    return {
+      id: text(value.id, 80) || uniqueId('project-value'),
+      label: text(value.label, 120) || source?.label || '이번 사업 값',
+      thisProjectValue: text(value.value ?? value.thisProjectValue, 500),
+      applicantItemId: source?.id || '',
+      applicantOriginalValue: source ? source.value : '기관 정보에 없음',
+      appliesToThisProposalOnly: true
+    };
+  });
+}
+
+export function buildApplicantOrganization(applicant, projectValues = []) {
+  if (!applicant) return { applicantId: '', organization: '신청기관 미선택', confirmedFacts: [], needsVerification: [], projectSpecificValues: [], rule: NO_APPLICANT_RULE };
+  const snapshot = structuredClone(applicant);
+  return {
+    applicantId: snapshot.id,
+    organization: snapshot.name,
+    confirmedFacts: confirmedItems(snapshot).map(item => ({ id: item.id, category: areaTitle(item.area), title: item.label, content: item.value, source: item.source, status: CONFIRMED_STATUS, confirmedByUser: true })),
+    needsVerification: unverifiedItems(snapshot).map(item => ({ id: item.id, category: areaTitle(item.area), title: item.label, status: item.status })),
+    projectSpecificValues: normalizeProjectValues(projectValues, snapshot),
+    rule: ORGANIZATION_RULE
+  };
+}
+
+function tokens(value) {
+  return [...new Set(String(value || '').replace(/[^가-힣A-Za-z0-9]/g, ' ').split(/\s+/).filter(token => token.length > 1))];
+}
+function matchItems(text_, items) {
+  const keys = tokens(text_);
+  return items.filter(item => {
+    const haystack = `${item.label} ${item.value} ${areaTitle(item.area)}`;
+    return keys.some(token => haystack.includes(token));
+  });
+}
+
+// 공고 요구사항과 신청기관 정보를 비교해 네 갈래로 구분한다.
+export function compareNoticeWithApplicant(requirements, applicant) {
+  const items = applicant?.items || [];
+  const result = { applicantId: applicant?.id || '', applicantName: applicant?.name || '', confirmedStrengths: [], needsEvidence: [], missingFromApplicant: [], decideInThisProject: [] };
+  for (const requirement of Array.isArray(requirements) ? requirements : []) {
+    const label = String(requirement?.requirement || '');
+    const matched = matchItems(`${label} ${requirement?.category || ''}`, items);
+    const confirmed = matched.filter(item => item.status === CONFIRMED_STATUS);
+    const eligibility = ELIGIBILITY_PATTERN.test(`${label} ${requirement?.category || ''}`);
+    const entry = {
+      requirementId: requirement?.id || '',
+      requirement: label,
+      location: requirement?.location || '',
+      mandatory: Boolean(requirement?.mandatory),
+      matchedItems: matched.map(item => ({ id: item.id, label: item.label, status: item.status, area: areaTitle(item.area), source: item.source }))
+    };
+    if (confirmed.length && !(eligibility && confirmed.every(item => !item.source))) {
+      result.confirmedStrengths.push({ ...entry, action: '확인된 기관 정보를 근거로 사용한다.' });
+      continue;
+    }
+    if (matched.length) {
+      result.needsEvidence.push({ ...entry, action: eligibility ? '신청자격 근거자료를 확인한 뒤 확인됨으로 변경한다.' : '오래되었거나 확인되지 않은 정보이므로 증빙 확인이 필요하다.' });
+      continue;
+    }
+    if (PROJECT_DECISION_PATTERN.test(label)) {
+      result.decideInThisProject.push({ ...entry, action: '기관 원본이 아니라 이번 사업 설계에서 새로 결정한다.' });
+      continue;
+    }
+    result.missingFromApplicant.push({ ...entry, action: '신청기관 정보에 없는 항목이므로 등록하거나 담당자에게 확인한다.' });
+  }
+  return result;
+}
+
+// missingInformation 질문 중 신청기관의 확인된 정보로 이미 답할 수 있는 질문은 다시 묻지 않는다.
+export function planApplicantQuestions(questions, applicant) {
+  const confirmed = confirmedItems(applicant);
+  const plan = { ask: [], resolved: [] };
+  for (const question of Array.isArray(questions) ? questions : []) {
+    const label = String(question || '');
+    const matched = matchItems(label, confirmed);
+    if (matched.length) plan.resolved.push({ question: label, answer: matched.map(item => `${item.label}: ${item.value}`).join(' / '), items: matched.map(item => ({ id: item.id, label: item.label })) });
+    else plan.ask.push(label);
+  }
+  return plan;
+}
+
+// 향후 기존 사업계획서·기관소개서·결과보고서에서 만든 후보를 등록하기 위한 확장 지점.
+// 후보는 항상 '확인 필요'로만 들어가고 기존 확정 항목을 덮어쓰지 않는다.
+export function addCandidateItems(applicant, candidates) {
+  const base = normalizeApplicant(applicant);
+  const existing = new Set(base.items.map(item => `${item.area}:${item.label}`));
+  const additions = (Array.isArray(candidates) ? candidates : [])
+    .map(candidate => makeApplicantItem({ ...candidate, status: '확인 필요' }))
+    .filter(item => item.label && !existing.has(`${item.area}:${item.label}`));
+  return { ...base, items: [...base.items, ...additions], updatedAt: new Date().toISOString() };
+}
+
+const LEGACY_AREA_BY_CATEGORY = { 인력: 'staff', 실적: 'performance', 예산: 'budget', 프로그램: 'programs', 지역: 'facilities', 운영조건: 'basic', '사용자 확정': 'basic' };
+
+// 이전 버전의 확정 회사 정보(companyFacts)를 신청기관 한 곳으로 옮긴다.
+export function migrateCompanyFactsToApplicant(companyFacts, name = '마인드스토리') {
+  const items = (Array.isArray(companyFacts) ? companyFacts : [])
+    .filter(fact => fact?.confirmedByUser === true && String(fact.content || '').trim())
+    .map(fact => makeApplicantItem({ id: fact.id, area: LEGACY_AREA_BY_CATEGORY[fact.category] || 'basic', label: fact.title || '확정 정보', value: fact.content, status: CONFIRMED_STATUS, source: '이전 버전에서 담당자가 확정한 정보', updatedAt: fact.confirmedAt }));
+  return normalizeApplicant({ name, note: '이전 버전의 확정 회사 정보에서 옮겨온 신청기관입니다.', items });
+}

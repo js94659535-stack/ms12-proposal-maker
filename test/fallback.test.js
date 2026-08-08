@@ -210,7 +210,9 @@ test('자료보관함 복구키로 새 브라우저에서도 동일한 D1 소유
 test('앱은 공고문 입력에서 시작하고 사용자 확정 회사 정보만 생성에 사용한다', () => {
   const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   assert.match(source, /step: 0,/);
-  assert.match(source, /confirmedFacts: state\.companyFacts\.filter\(item => item\.confirmedByUser === true\)/);
+  assert.match(source, /return buildApplicantOrganization\(selectedApplicant\(\), state\.projectValues\)/);
+  const applicantSource = fs.readFileSync(new URL('../src/applicants.js', import.meta.url), 'utf8');
+  assert.match(applicantSource, /confirmedFacts: confirmedItems\(snapshot\)/);
   assert.doesNotMatch(source, /profileForPrompt|organizationProfile/);
   assert.match(source, /delete saved\.manualCompanyFacts/);
   assert.match(source, /addEventListener\('click', confirmCompanyFactDraft\)/);
@@ -632,5 +634,5 @@ test('완료 체크는 방문 순서가 아니라 단계별 필수 데이터로 
   assert.doesNotMatch(source, /i < state\.step \? '✓'/);
   assert.doesNotMatch(source, /<div class="type-grid">\$\{TYPES\.map/);
   assert.match(source, /class="history-button"/);
-  assert.match(source, /const STEPS = \['공고 가져오기', '공고 확인', '사업 선택', '계획서 작성', '검토·완성'\]/);
+  assert.match(source, /const STEPS = \['공고 가져오기', '공고 확인', '신청기관 선택', '사업 선택', '계획서 작성', '검토·완성'\]/);
 });
