@@ -7,6 +7,7 @@ import { deleteArchivedApplicant, getArchivedProposal, getArchiveRecoveryKey, li
 import { ASOF_UNKNOWN, applySafeCandidates, applyUpdateCandidate, buildUpdateCandidates, extractApplicantCandidates } from './applicant-extract.js';
 import { REFERENCE_TYPES, assessReferences, makeReference, projectContext, referenceNotices, referencePayload } from './reference-materials.js';
 import { analyzeProposalStructure, buildStructuralRevision, reviewProposalStructure } from './proposal-structure.js';
+import { applyRepairPlans, buildRepairPlans, repairPlanSummary } from './repair-plan.js';
 import { EXTERNAL_SOURCE, appendProposalVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, proposalTextFromSections, proposalTextFromSnapshot, revisionInstruction, verifyLockedValues } from './coaching-handoff.js';
 import { APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
 
@@ -576,6 +577,7 @@ function coachingView() {
     ${coaching.pendingJob ? `<div class="alert warning"><strong>검증 중 · ${escapeHtml(coaching.pendingJob.status || 'queued')}</strong><p>작업 ID ${escapeHtml(coaching.pendingJob.id)} · polling ${Number(coaching.pendingJob.pollCount || 0)}회</p><p>새로고침 후에도 같은 탭에서 작업을 이어 확인합니다.<span data-ai-elapsed data-started-at="${Number(coaching.pendingJob.startedAt || Date.now())}" style="display:block">경과시간 00초</span></p></div>` : ''}
     ${state.archiveProposals.length ? `<div class="card"><h3>자료보관함에서 불러오기</h3><div class="requirement-list">${state.archiveProposals.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(archiveStageLabel(item.stage))}</span><strong>${escapeHtml(item.title)}</strong></div><button class="button secondary" data-coach-archive="${escapeHtml(item.id)}">${String(item.stage).startsWith('coaching-v') ? '이 버전으로 돌아가기' : '검증 대상으로 불러오기'}</button></article>`).join('')}</div></div>` : ''}
     ${result ? coachingResultView(result) : ''}
+    ${result ? repairPlanView() : ''}
     ${result ? coachingApplicantView() : ''}`;
 }
 
@@ -609,6 +611,39 @@ function proposalStructureView() {
       <p><b>보완 방향</b> ${escapeHtml(item.direction)}</p>
       <details open><summary>수정 문장(자동 적용되지 않음)</summary><blockquote>${escapeHtml(item.suggestion)}</blockquote></details>
       ${item.evidenceRefs.length ? `<details><summary>원문 근거</summary><blockquote>${escapeHtml(item.evidenceRefs[0].excerpt)}</blockquote></details>` : '<p class="muted">원문에서 직접 확인되는 근거가 없어 [확인 필요]로 남깁니다.</p>'}</article>`).join('')}</div></div>`;
+}
+
+// 검증 문제를 수정계획으로 구조화한다. V2는 이 수정계획을 통해서만 만든다.
+function currentRepairPlans() {
+  const issues = state.coaching.result?.issues || [];
+  if (!issues.length) return [];
+  const sections = state.sections.length ? state.sections : (state.coaching.structure?.structure.sections || []);
+  const organization = organizationForGeneration();
+  return buildRepairPlans(issues, {
+    sections,
+    references: referencePayload(state.coaching.references || [], coachingContext()).references,
+    projectValues: state.projectValues || [],
+    confirmedFacts: organization.confirmedFacts || []
+  });
+}
+
+function repairPlanView() {
+  const plans = currentRepairPlans();
+  if (!plans.length) return '';
+  const summary = repairPlanSummary(plans);
+  const levelTag = { AUTO: 'status 충족', EVIDENCE_BASED: 'status 부분-충족', USER_CONFIRMATION: 'status 확인-필요' };
+  return `<div class="card"><div class="card-title"><div><h3>수정계획 ${plans.length}건</h3><span>문제를 수정 유형과 수정 가능성으로 나눕니다. AI가 확정값을 임의로 고르지 않습니다.</span></div><button class="button primary" id="apply-repair-plans">수정계획으로 수정본(V2) 만들기</button></div>
+    <div class="summary-grid"><div><span>바로 수정(AUTO)</span><strong>${summary.byLevel.AUTO || 0}건</strong><small>사실을 바꾸지 않는 표현·구조</small></div>
+    <div><span>근거 확인 후(EVIDENCE_BASED)</span><strong>${summary.byLevel.EVIDENCE_BASED || 0}건</strong><small>공고·기관정보·원문 근거 필요</small></div>
+    <div><span>사용자 확인 필요</span><strong>${summary.byLevel.USER_CONFIRMATION || 0}건</strong><small>어느 값이 맞는지 판단 불가</small></div>
+    <div><span>수정 유형</span><strong>${Object.keys(summary.byType).length}종</strong><small>${escapeHtml(Object.entries(summary.byType).map(([type, count]) => `${type} ${count}`).join(' · '))}</small></div></div>
+    <div class="requirement-list">${plans.map(plan => `<article class="requirement"><div><span class="${levelTag[plan.repairLevel]}">${escapeHtml(plan.repairLevel)}</span><div><strong>${escapeHtml(plan.issueTypeLabel)}</strong><small>대상: ${escapeHtml(plan.targetSection.map(target => target.title).join(' + ') || '자동 연결 실패 · 직접 지정 필요')}</small></div></div>
+      <p><b>문제</b> ${escapeHtml(plan.problem)}</p>
+      <p><b>수정 방법</b> ${escapeHtml(plan.repairMethod)}</p>
+      <p><b>근거 우선순위</b> ${escapeHtml(plan.sourceOfTruth.level)} · ${escapeHtml(plan.sourceOfTruth.detail)}</p>
+      ${plan.lockedValues.length ? `<p><b>유지할 확정값</b> ${escapeHtml(plan.lockedValues.slice(0, 8).join(' · '))}</p>` : ''}
+      ${plan.repairLevel === 'USER_CONFIRMATION' ? `<div class="alert warning"><strong>확인이 필요합니다</strong><p>${escapeHtml(plan.confirmationQuestion)}</p><div class="field"><label for="answer-${escapeHtml(plan.id)}">확인값 입력</label><input id="answer-${escapeHtml(plan.id)}" data-repair-answer="${escapeHtml(plan.id)}" value="${escapeHtml(state.coaching.repairAnswers?.[plan.id] || '')}" placeholder="예: 전담 5명(조직도 8명 중 5명 참여)"></div></div>` : `<details><summary>수정 문장</summary><blockquote>${escapeHtml(plan.proposedRevision)}</blockquote></details>`}
+      <p class="muted">검증 규칙: ${escapeHtml(plan.verificationRule)}</p></article>`).join('')}</div></div>`;
 }
 
 function coachingContext() {
@@ -854,6 +889,11 @@ function bind() {
     saveState();
   });
   document.querySelector('#apply-structure-revision')?.addEventListener('click', applyStructureRevision);
+  document.querySelectorAll('[data-repair-answer]').forEach(el => el.oninput = () => {
+    state.coaching = { ...state.coaching, repairAnswers: { ...(state.coaching.repairAnswers || {}), [el.dataset.repairAnswer]: el.value } };
+    saveState();
+  });
+  document.querySelector('#apply-repair-plans')?.addEventListener('click', applyRepairPlansToProposal);
   document.querySelector('#coaching-applicant-target')?.addEventListener('change', event => setState({ coachingApplicantId: event.target.value, applicantExtraction: null }));
   document.querySelector('#harvest-coaching-applicant')?.addEventListener('click', harvestApplicantFromCoaching);
   if (state.activeTool === 'coaching' && state.coaching.pendingJob && !coachingPollActive) setTimeout(() => pollProposalCoaching(), 250);
@@ -1317,6 +1357,38 @@ function applyStructureRevision() {
   navigateToStep(4, {
     sections: state.sections, proposalVersions: state.proposalVersions, revisionPlan: state.revisionPlan, project: state.project,
     notice: `문제 ${findings.length}건을 반영해 수정본 V${version}을 만들었습니다. 수정한 항목 ${revision.changedSectionIds.length}개 외에는 원문 그대로입니다.${revision.unassigned.length ? ` 위치를 찾지 못한 ${revision.unassigned.length}건은 수정 요청 목록에서 직접 지정하세요.` : ''}`,
+    error: ''
+  });
+  void archiveCurrentProposal(`revision-v${version}`).catch(() => {});
+}
+
+// V2는 수정계획을 통해서만 만든다. 확인이 필요한 문제는 답을 받기 전까지 본문을 바꾸지 않는다.
+function applyRepairPlansToProposal() {
+  const plans = currentRepairPlans();
+  if (!plans.length) return setState({ error: '수정계획으로 만들 검증 문제가 없습니다.' });
+  if (!state.sections.length) {
+    const source = state.coaching.structure?.structure.sections;
+    if (!source?.length) return setState({ error: '먼저 「원문 구조 분석」을 실행해 작업본을 준비해 주세요.' });
+    state.sections = structuredClone(source);
+    state.proposalVersions = appendProposalVersion([], { sections: state.sections, label: '외부 원본', source: EXTERNAL_SOURCE, originalText: state.coaching.text });
+    if (!state.project.title) state.project.title = state.coaching.title || '검증 대상 계획서';
+  } else if (!(state.proposalVersions || []).length) {
+    state.proposalVersions = appendProposalVersion([], { sections: state.sections, label: '수정 전 원본' });
+  }
+
+  const answers = Object.fromEntries(Object.entries(state.coaching.repairAnswers || {}).filter(([, value]) => String(value).trim()));
+  const run = applyRepairPlans(state.sections, plans, { confirmations: answers });
+  if (!run.applied.length) {
+    return setState({ coaching: state.coaching, error: '', notice: `수정한 문단이 없습니다. 확인 필요 ${run.questions.length}건에 답을 입력하면 해당 문제만 수정합니다.${run.blocked.length ? ` 근거 부족으로 보류한 문제 ${run.blocked.length}건이 있습니다.` : ''}` });
+  }
+  state.sections = run.sections;
+  state.proposalVersions = appendProposalVersion(state.proposalVersions, { sections: state.sections, label: '수정계획 반영 수정본', source: '계획서 검증·코칭' });
+  const version = state.proposalVersions[state.proposalVersions.length - 1].version;
+  state.revisionPlan = buildCoachingHandoff({ coaching: { ...state.coaching, result: { issues: state.coaching.result.issues } }, sections: state.sections, selectedIndexes: null });
+  state.activeTool = 'workflow';
+  navigateToStep(4, {
+    sections: state.sections, proposalVersions: state.proposalVersions, revisionPlan: state.revisionPlan, project: state.project, coaching: state.coaching,
+    notice: `수정계획 ${run.applied.length}건을 반영해 V${version}을 만들었습니다. 확인 필요 ${run.questions.length}건 · 근거 부족 보류 ${run.blocked.length}건은 그대로 두었습니다.`,
     error: ''
   });
   void archiveCurrentProposal(`revision-v${version}`).catch(() => {});
