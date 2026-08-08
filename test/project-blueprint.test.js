@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { BLUEPRINT_STATUSES, blueprintInputs, buildBlueprint, checkBlueprintLogic } from '../src/project-blueprint.js';
+import { BLUEPRINT_STATUSES, blueprintInputs, buildBlueprint, checkBlueprintLogic, detectApplicationTypes } from '../src/project-blueprint.js';
 import { analyzeNoticeStructure } from '../src/notice-logic.js';
 import { matchApplicantToNotice } from '../src/fit-matching.js';
 import { CONFIRMED_STATUS, normalizeApplicant } from '../src/applicants.js';
@@ -48,10 +48,10 @@ test('공고·기관·이번 사업 세 가지 입력을 분리한다', () => {
   assert.ok(inputs.applicant.records.GENERAL.length > 0);
 });
 
-test('설계도 15개 항목에 상태를 붙인다', () => {
+test('설계도 항목에 상태를 붙인다', () => {
   const blueprint = blueprintOf();
   assert.deepEqual(blueprint.items.map(entry => entry.title), [
-    '사업 한 줄 정의', '해결하려는 문제', '핵심 대상', '사업 목적', '세부 목표', '핵심 프로그램',
+    '신청유형', '사업 한 줄 정의', '해결하려는 문제', '핵심 대상', '사업 목적', '세부 목표', '핵심 프로그램',
     '프로그램별 대상/회기/담당', '수행체계', '기관 강점을 활용하는 부분', '필요한 협력', '예산 구조',
     '성과목표', '성과지표/측정방법', '공고 선정요건과의 연결', '아직 결정되지 않은 사항'
   ]);
@@ -112,10 +112,14 @@ test('문제→대상→목적→프로그램→회기·인력→예산→성과
   assert.ok(blueprint.logic.every(link => ['연결됨', '잠정 연결', '설계 보완 필요'].includes(link.state)));
   // 끊어진 연결에는 반드시 질문이 붙는다.
   assert.ok(blueprint.logic.filter(link => link.state === '설계 보완 필요').every(link => link.question));
-  // 확정되지 않은 설계로는 본문 작성으로 넘어가지 않는다.
-  assert.equal(blueprint.readyToWrite, false);
-  assert.equal(blueprint.verdict, '설계 보완 필요');
+  // 설계가 덜 됐어도 초안 작성 자체는 막지 않는다.
+  assert.equal(blueprint.readiness, 'DESIGN_INCOMPLETE');
+  assert.equal(blueprint.canDraft, true);
+  assert.match(blueprint.verdict, /초안 작성 가능/);
   assert.ok(blueprint.verdictReasons.length > 0);
+  // 미확정 값은 초안에서 [확인 필요] 자리로 남는다.
+  assert.ok(blueprint.draftPlaceholders.some(entry => entry.placeholder.includes('[확인 필요]')));
+  assert.ok(blueprint.submissionChecklist.length > 0);
 });
 
 test('설계가 모두 확정되면 본문 작성 단계로 넘어간다', () => {
@@ -133,8 +137,45 @@ test('설계가 모두 확정되면 본문 작성 단계로 넘어간다', () =>
     { key: 'indicators', value: '아동 심리정서 사전·사후 검사, 보호자 상담 만족도 조사' }
   ]);
   assert.ok(blueprint.logic.every(link => link.state !== '설계 보완 필요'), JSON.stringify(blueprint.logic.filter(link => link.state === '설계 보완 필요')));
-  assert.equal(blueprint.readyToWrite, true);
-  assert.equal(blueprint.verdict, '계획서 본문 작성 가능');
+  assert.ok(['DRAFT_READY', 'SUBMISSION_READY'].includes(blueprint.readiness));
+  assert.equal(blueprint.canDraft, true);
+});
+
+test('신청유형이 갈리면 유형을 먼저 고르게 하고 유형별 조건을 섞지 않는다', () => {
+  const TWO_TYPES = analyzeNoticeStructure({
+    title: '가족기능 강화사업 공고',
+    overview: `사업목적 : 아동의 건강한 성장발달과 가족기능 회복.
+신청유형 ○ 재학대예방형 - 아동보호전문기관에서 사례관리 중인 학대피해아동, 아동학대행위자, 가족구성원을 대상으로 개입이 가능한 기관 ○ 아동보호형 - 지역사회 내 어려움으로 보호를 필요로 하는 요보호아동, 보호자를 대상으로 개입이 가능한 기관.
+주요사업내용 : 아동 심리정서 회복 프로그램과 보호자 상담을 운영한다.`
+  });
+  const types = detectApplicationTypes(TWO_TYPES);
+  assert.deepEqual(types.map(entry => entry.name), ['재학대예방형', '아동보호형']);
+
+  // 고르기 전 — 유형 항목은 NEEDS_CONFIRMATION이고 두 유형의 차이와 선택 질문을 준다.
+  const before = buildBlueprint({ structure: TWO_TYPES, applicant: SUWAN, fitResult: matchApplicantToNotice(TWO_TYPES, SUWAN), projectValues: [] });
+  const beforeType = before.items.find(entry => entry.key === 'applicationType');
+  assert.equal(beforeType.status, 'NEEDS_CONFIRMATION');
+  assert.match(beforeType.value, /재학대예방형/);
+  assert.match(beforeType.value, /아동보호형/);
+  assert.match(beforeType.question, /어느 유형으로 신청/);
+  assert.equal(before.applicationTypes.blocked, true);
+  assert.equal(before.canDraft, false);
+  assert.equal(before.readiness, 'DESIGN_INCOMPLETE');
+  // 두 유형이 섞인 문장은 그대로 설계값으로 쓰지 않는다.
+  assert.equal(before.items.find(entry => entry.key === 'target').status, 'NEEDS_CONFIRMATION');
+
+  // 고른 뒤 — 선택한 유형만 적용하고 다른 유형 조건은 설계에서 빠진다.
+  const after = buildBlueprint({ structure: TWO_TYPES, applicant: SUWAN, fitResult: matchApplicantToNotice(TWO_TYPES, SUWAN), projectValues: [{ key: 'applicationType', value: '재학대예방형' }] });
+  const afterType = after.items.find(entry => entry.key === 'applicationType');
+  assert.equal(afterType.status, 'CONFIRMED');
+  assert.match(afterType.basis, /아동보호형/);
+  assert.equal(after.applicationTypes.selected, '재학대예방형');
+  assert.equal(after.canDraft, true);
+  const design = JSON.stringify(after.items.filter(entry => ['target', 'problem', 'programs', 'objectives'].includes(entry.key)).map(entry => entry.value));
+  assert.match(design, /학대피해아동/);
+  assert.doesNotMatch(design, /요보호아동/);
+  // 공고 원문 자체는 유지한다.
+  assert.ok(after.applicationTypes.options.some(entry => entry.name === '아동보호형' && /요보호아동/.test(entry.description)));
 });
 
 test('공고 선정요건 11개를 설계도 항목과 연결한다', () => {

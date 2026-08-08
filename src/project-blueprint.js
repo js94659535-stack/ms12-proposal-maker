@@ -37,8 +37,9 @@ export const PROJECT_FIELDS = [
   { key: 'indicators', title: '성과지표', mustConfirm: false }
 ];
 
-// 설계도 한 장의 최소 구조
+// 설계도 한 장의 최소 구조. 신청유형은 다른 설계보다 먼저 결정한다.
 export const BLUEPRINT_SECTIONS = [
+  { key: 'applicationType', title: '신청유형' },
   { key: 'summary', title: '사업 한 줄 정의' },
   { key: 'problem', title: '해결하려는 문제' },
   { key: 'target', title: '핵심 대상' },
@@ -81,17 +82,105 @@ const SECTION_SENTENCE = {
   submissionItems: { want: [/제출\s*(?:서류|항목|양식)/, /구비\s*서류|첨부\s*서류/] }
 };
 
-function noticeField(structure, key) {
+// 공고가 신청유형(재학대예방형 / 아동보호형 …)을 나눠 두었으면 유형별 조건을 섞지 않는다.
+const TYPE_NAME = /^([가-힣A-Za-z0-9·]{2,20}형)\s*[-–—:：]?\s*(.*)$/;
+
+const LABEL_ONLY = /^(?:신청|사업|지원)?유형$/;
+
+function collectTypes(segments, source) {
+  const types = [];
+  for (const segment of segments) {
+    const matched = TYPE_NAME.exec(clean(segment, 400));
+    if (!matched) continue;
+    const name = matched[1];
+    // 「신청유형」 같은 머리말 자체는 유형 이름이 아니다.
+    if (LABEL_ONLY.test(name) || types.some(type => type.name === name)) continue;
+    types.push({ name, description: clean(matched[2], 300), source });
+  }
+  return types;
+}
+
+function typesInSentence(entry) {
+  const bullets = entry.sentence.split(/\s*[○●▶□■☐▢]\s*/).map(part => part.trim()).filter(Boolean);
+  const found = collectTypes(bullets, entry.source);
+  if (found.length >= 2) return found;
+  // 글머리표 없이 이어 쓴 문장은 유형 이름 위치로 자른다.
+  const names = [...entry.sentence.matchAll(/([가-힣A-Za-z0-9·]{2,15}형)/g)].filter(match => !LABEL_ONLY.test(match[1]));
+  const segments = names.map((match, index) => entry.sentence.slice(match.index, index + 1 < names.length ? names[index + 1].index : entry.sentence.length));
+  const sliced = collectTypes(segments, entry.source);
+  return sliced.length >= 2 ? sliced : found;
+}
+
+export function detectApplicationTypes(structure) {
+  const sentences = (structure?.fields || []).flatMap(field => (field.evidence || []).map(entry => ({ source: entry.source, sentence: clean(entry.sentence, 400) })));
+  // 신청유형이 적힌 문장이 여러 개면 유형 설명이 가장 잘 남는 문장을 쓴다(양식의 체크박스 줄이 아니라 공고문 설명 줄).
+  let source = null;
+  let types = [];
+  let best = -1;
+  for (const entry of sentences.filter(item => /신청\s*유형/.test(item.sentence))) {
+    const found = typesInSentence(entry);
+    const score = found.filter(type => type.description.length >= 10).length * 10 + found.length;
+    if (found.length >= 2 && score > best) { best = score; types = found; source = entry; }
+  }
+  if (!source || types.length < 2) return [];
+  // 유형 이름이 등장하는 다른 문장까지 모아 유형 간 차이를 보여준다.
+  for (const type of types) {
+    type.mentions = sentences
+      .filter(entry => entry.sentence.includes(type.name) && entry.sentence !== source.sentence)
+      .slice(0, 2)
+      // 유형 이름이 나오는 부분을 보여준다. 앞부분만 잘라 보이면 근거가 엉뚱해 보인다.
+      .map(entry => {
+        const index = entry.sentence.indexOf(type.name);
+        const start = Math.max(0, index - 30);
+        return { source: entry.source, sentence: `${start ? '…' : ''}${shorten(entry.sentence.slice(start), 160)}` };
+      });
+  }
+  return types;
+}
+
+// 선택한 유형의 조건만 남긴다. 다른 유형만 설명하는 문장은 이번 설계에서 쓰지 않는다(공고 원문은 그대로 보존).
+function narrowToType(sentence, types) {
+  if (!types?.selected) return sentence;
+  const others = types.all.filter(name => name !== types.selected);
+  if (!others.some(name => sentence.includes(name))) return sentence;
+  if (!sentence.includes(types.selected)) return null;
+  const bullets = sentence.split(/\s*[○●▶□■☐▢]\s*/).filter(part => part.trim());
+  const kept = bullets.filter(part => part.includes(types.selected) || !others.some(name => part.includes(name)));
+  const joined = clean(kept.join(' '), 300);
+  if (kept.length && !others.some(name => joined.includes(name))) return joined;
+  // 글머리표가 없으면 유형 이름 위치를 경계로 잘라 선택한 유형 부분만 남긴다.
+  const marks = [];
+  for (const name of types.all) {
+    for (let index = sentence.indexOf(name); index >= 0; index = sentence.indexOf(name, index + name.length)) marks.push({ name, index });
+  }
+  marks.sort((left, right) => left.index - right.index);
+  const mine = marks.find(mark => mark.name === types.selected);
+  if (!mine) return null;
+  const next = marks.find(mark => mark.index > mine.index && mark.name !== types.selected);
+  return clean(sentence.slice(mine.index, next ? next.index : sentence.length), 300);
+}
+
+function countTypes(sentence, types) {
+  return (types?.all || []).filter(name => sentence.includes(name)).length;
+}
+
+function noticeField(structure, key, types = null, exclude = '') {
   const field = (structure?.fields || []).find(item => item.key === key);
   if (!field || field.status !== '공식 근거 확인') return null;
-  const toHit = entry => ({ source: entry.source, sentence: clean(entry.sentence, 300) });
-  const own = (field.evidence || []).map(toHit);
+  const toHit = entry => {
+    const sentence = narrowToType(clean(entry.sentence, 300), types);
+    return sentence ? { source: entry.source, sentence } : null;
+  };
+  const own = (field.evidence || []).map(toHit).filter(Boolean);
   // 자료묶음이 크면 항목별 첫 문장이 다른 내용일 수 있다. 같은 공고 안의 다른 문장까지 후보로 본다.
-  const others = (structure.fields || []).filter(entry => entry.key !== key).flatMap(entry => (entry.evidence || []).map(toHit));
+  const others = (structure.fields || []).filter(entry => entry.key !== key).flatMap(entry => (entry.evidence || []).map(toHit).filter(Boolean));
   const rule = SECTION_SENTENCE[key];
+  // 다른 항목이 이미 쓴 문장은 되도록 다시 쓰지 않는다.
+  const fresh = pool => (exclude ? pool.filter(entry => entry.sentence !== exclude) : pool);
   let best = null;
   if (rule) {
-    for (const pool of [own, others]) {
+    // 해당 항목의 근거 문장을 먼저 다 살펴본 뒤에야 다른 항목의 문장을 본다.
+    for (const pool of [fresh(own), own, fresh(others)]) {
       const allowed = rule.avoid ? pool.filter(entry => !rule.avoid.test(entry.sentence)) : pool;
       for (const want of rule.want) {
         best = allowed.find(entry => want.test(entry.sentence));
@@ -100,9 +189,12 @@ function noticeField(structure, key) {
       if (best) break;
     }
   }
+  // 겹침을 피하려다 엉뚱한 문장을 고르지 않는다. 마땅한 후보가 없으면 원래 문장을 그대로 쓰고 중복은 논리 검사에서 잡는다.
   best = best || own[0];
   if (!best) return null;
-  return { text: best.sentence, evidence: [best], title: field.title };
+  // 유형을 고르지 않았는데 한 문장에 여러 유형이 섞여 있으면 그대로 설계값으로 쓰지 않는다.
+  const mixed = Boolean(types?.all?.length > 1 && !types.selected && countTypes(best.sentence, types) > 1);
+  return { text: best.sentence, evidence: [best], title: field.title, mixed };
 }
 
 // 공고가 쓰는 ○·□ 글머리표를 기준으로 사업내용을 나눈다. 괄호 안 열거는 쪼개지 않는다.
@@ -183,21 +275,43 @@ function confirmedArea(split, areas) {
   return split.profile.filter(entry => areas.includes(entry.area) && entry.status === CONFIRMED_STATUS);
 }
 
-function buildItems(structure, applicant, fitResult, confirmed) {
+function buildItems(structure, applicant, fitResult, confirmed, types, typeList) {
   const split = splitApplicantProfile(applicant);
   const name = applicant?.name || '[신청기관 확인 필요]';
-  const purpose = noticeField(structure, 'purpose');
-  const problem = noticeField(structure, 'problem');
-  const target = noticeField(structure, 'target');
-  const content = noticeField(structure, 'requiredContent');
-  const budget = noticeField(structure, 'periodBudget');
-  const outcomes = noticeField(structure, 'outcomes');
+  const purpose = noticeField(structure, 'purpose', types);
+  const problem = noticeField(structure, 'problem', types);
+  const target = noticeField(structure, 'target', types, problem?.text || '');
+  const content = noticeField(structure, 'requiredContent', types);
+  const budget = noticeField(structure, 'periodBudget', types);
+  const outcomes = noticeField(structure, 'outcomes', types);
   const useful = (fitResult?.recordRelevance || []).filter(record => record.level !== 'GENERAL' && record.status === CONFIRMED_STATUS);
   const items = [];
+  const typeQuestion = `공고에 신청유형이 ${typeList.map(entry => entry.name).join(' / ')}로 나뉘어 있습니다. 어느 유형으로 신청하시겠습니까? 유형에 따라 대상·사업내용·요건이 달라집니다.`;
+  // 유형이 정해지지 않은 채로 서로 다른 유형의 조건을 한 설계에 섞지 않는다.
+  const typeMixed = (field, options) => item(field, 'NEEDS_CONFIRMATION', options.value, { basis: '신청유형이 정해지지 않아 두 유형의 조건이 한 문장에 섞여 있습니다. 유형을 먼저 고른 뒤 이 항목을 확정합니다.', evidence: options.evidence, question: typeQuestion });
+
+  // 0. 신청유형 — 다른 설계보다 먼저 결정한다.
+  const typeValue = confirmed.get('applicationType');
+  if (!typeList.length) {
+    items.push(item('applicationType', 'CONFIRMED', '신청유형 구분 없음', { basis: '공고에서 유형 구분을 찾지 못했습니다. 하나의 사업으로 설계합니다.' }));
+  } else if (types.selected) {
+    const chosen = typeList.find(entry => entry.name === types.selected);
+    items.push(item('applicationType', 'CONFIRMED', `${chosen.name} — ${shorten(chosen.description, 160)}`, {
+      basis: `사용자 확정 (${typeValue?.source || '사용자 선택'}). 이 유형의 대상·사업내용·요건만 설계에 적용하고 다른 유형(${typeList.filter(entry => entry.name !== chosen.name).map(entry => entry.name).join(' · ')}) 조건은 제외했습니다.`,
+      evidence: [{ source: chosen.source, sentence: shorten(`${chosen.name} - ${chosen.description}`, 200) }]
+    }));
+  } else {
+    items.push(item('applicationType', 'NEEDS_CONFIRMATION', typeList.map(entry => `${entry.name}: ${shorten(entry.description, 110)}`).join('\n'), {
+      basis: '공고가 신청유형을 나눠 두었습니다. 유형을 고르기 전에는 유형별 대상·사업내용을 하나로 합치지 않습니다.',
+      evidence: typeList.flatMap(entry => [{ source: entry.source, sentence: shorten(`${entry.name} - ${entry.description}`, 200) }, ...(entry.mentions || [])]).slice(0, 4),
+      question: typeQuestion
+    }));
+  }
 
   // 1. 사업 한 줄 정의
   const nameValue = confirmed.get('name');
   if (nameValue) items.push(item('summary', 'CONFIRMED', nameValue.value, { basis: `사용자 확정 (${nameValue.source})` }));
+  else if (target?.mixed || content?.mixed) items.push(typeMixed('summary', { value: '', evidence: target?.evidence || [] }));
   else if (target && content) {
     items.push(item('summary', 'PROPOSED', withoutQuantities(`${name}이(가) ${shorten(target.text, 60)} 대상으로 ${shorten(content.text, 70)}을(를) 수행하는 사업(가칭)`), {
       basis: '공고의 대상·필수 사업내용에서 도출한 설계안', evidence: [...target.evidence, ...content.evidence],
@@ -206,12 +320,14 @@ function buildItems(structure, applicant, fitResult, confirmed) {
   } else items.push(item('summary', 'NEEDS_CONFIRMATION', '', { basis: '공고에서 대상·사업내용이 확인되지 않았습니다.', question: '이번 사업을 한 줄로 어떻게 정의하시겠습니까?' }));
 
   // 2. 해결하려는 문제
-  if (problem) items.push(item('problem', 'CONFIRMED', problem.text, { basis: '공고 원문', evidence: problem.evidence }));
+  if (problem?.mixed) items.push(typeMixed('problem', { value: problem.text, evidence: problem.evidence }));
+  else if (problem) items.push(item('problem', 'CONFIRMED', problem.text, { basis: '공고 원문', evidence: problem.evidence }));
   else items.push(item('problem', 'NEEDS_CONFIRMATION', '', { basis: '공고에서 문제·필요성 문장을 찾지 못했습니다.', question: '이번 사업이 해결하려는 문제를 어떤 근거(지역 통계·사례·실태조사)로 제시하시겠습니까?' }));
 
   // 3. 핵심 대상
   const targetValue = confirmed.get('target');
   if (targetValue) items.push(item('target', 'CONFIRMED', targetValue.value, { basis: `사용자 확정 (${targetValue.source})` }));
+  else if (target?.mixed) items.push(typeMixed('target', { value: target.text, evidence: target.evidence }));
   else if (target) items.push(item('target', 'CONFIRMED', target.text, { basis: '공고가 정한 대상', evidence: target.evidence }));
   else items.push(item('target', 'NEEDS_CONFIRMATION', '', { basis: '공고에서 대상이 확인되지 않았습니다.', question: '이번 사업의 핵심 대상은 누구입니까?' }));
 
@@ -220,8 +336,9 @@ function buildItems(structure, applicant, fitResult, confirmed) {
   else items.push(item('purpose', 'NEEDS_CONFIRMATION', '', { basis: '공고에서 목적이 확인되지 않았습니다.', question: '이번 사업의 목적을 어떻게 잡으시겠습니까?' }));
 
   // 5. 세부 목표 — 공고의 필수 사업내용을 쪼갠 설계안일 뿐 확정값이 아니다.
-  const objectiveSeeds = content ? bulletsOf(content.text, 3) : [];
-  if (objectiveSeeds.length) {
+  const objectiveSeeds = content && !content.mixed ? bulletsOf(content.text, 3) : [];
+  if (content?.mixed) items.push(typeMixed('objectives', { value: shorten(content.text, 200), evidence: content.evidence }));
+  else if (objectiveSeeds.length) {
     items.push(item('objectives', 'PROPOSED', objectiveSeeds.map(seed => withoutQuantities(`${seed} 관련 목표`)).join(' / '), {
       basis: '공고의 필수 사업내용에서 도출한 설계안', evidence: content.evidence,
       question: '세부 목표를 이 방향으로 확정하시겠습니까? 목표마다 달성 기준(수치)은 별도로 확인이 필요합니다.'
@@ -233,6 +350,7 @@ function buildItems(structure, applicant, fitResult, confirmed) {
   const programSeeds = objectiveSeeds.slice(0, 3);
   const supportingRecords = useful.filter(record => programSeeds.some(seed => tokensOf(seed).some(token => `${record.label} ${record.value}`.includes(token))));
   if (programValue) items.push(item('programs', 'CONFIRMED', programValue.value, { basis: `사용자 확정 (${programValue.source})` }));
+  else if (content?.mixed) items.push(typeMixed('programs', { value: shorten(content.text, 200), evidence: content.evidence }));
   else if (programSeeds.length && supportingRecords.length) {
     items.push(item('programs', 'SUPPORTED', withoutQuantities(programSeeds.join(' / ')), {
       basis: '공고 필수 사업내용 + 기관의 DIRECT/RELATED 실적으로 뒷받침 가능',
@@ -427,11 +545,17 @@ export function linkRequirements(items, fitResult) {
 }
 
 const CORE_SECTIONS = ['target', 'programs', 'programDetails', 'budget', 'outcomeGoals', 'indicators'];
+// 초안은 만들 수 있다. 다만 미확정 값은 [확인 필요]로 남기고 만들어 쓰지 않는다.
+export const READINESS_STATES = ['DRAFT_READY', 'DESIGN_INCOMPLETE', 'SUBMISSION_READY'];
 
 export function buildBlueprint({ structure, applicant, fitResult, projectValues } = {}) {
   const confirmed = normalizeProjectValues(projectValues);
   const inputs = blueprintInputs(structure, applicant, fitResult, confirmed);
-  const items = buildItems(structure, applicant, fitResult, confirmed);
+  const typeList = detectApplicationTypes(structure);
+  const chosenType = confirmed.get('applicationType')?.value || '';
+  const selectedType = typeList.find(entry => chosenType.includes(entry.name))?.name || '';
+  const types = { all: typeList.map(entry => entry.name), selected: selectedType };
+  const items = buildItems(structure, applicant, fitResult, confirmed, types, typeList);
   const logic = checkBlueprintLogic(items);
   const requirementLinks = linkRequirements(items, fitResult);
 
@@ -447,13 +571,34 @@ export function buildBlueprint({ structure, applicant, fitResult, projectValues 
   const byStatus = Object.fromEntries(BLUEPRINT_STATUSES.map(status => [status, items.filter(entry => entry.status === status).length]));
   const brokenLinks = logic.filter(link => link.state === '설계 보완 필요');
   const coreOpen = items.filter(entry => CORE_SECTIONS.includes(entry.key) && entry.status === 'NEEDS_CONFIRMATION');
-  const ready = brokenLinks.length === 0 && coreOpen.length === 0;
   const questions = [
     ...items.filter(entry => entry.question).map(entry => ({ section: entry.title, status: entry.status, question: entry.question })),
     ...brokenLinks.filter(link => link.question).map(link => ({ section: link.link, status: '설계 보완 필요', question: link.question }))
   ];
   const seen = new Set();
   const openQuestions = questions.filter(entry => !seen.has(entry.question) && seen.add(entry.question));
+
+  // 신청유형이 갈리는데 고르지 않았을 때만 먼저 선택을 요구한다. 그 밖에는 초안 작성을 막지 않는다.
+  const typeBlocked = typeList.length > 1 && !selectedType;
+  const design = items.filter(entry => !['requirementLinks', 'openItems'].includes(entry.key));
+  // 초안에서 [확인 필요]로 남길 자리
+  const draftPlaceholders = design
+    .filter(entry => entry.status === 'NEEDS_CONFIRMATION' || entry.status === 'PROPOSED')
+    .map(entry => ({ section: entry.title, status: entry.status, placeholder: entry.status === 'PROPOSED' ? `${entry.title}: 설계안(확정 전) — 확정 전까지 [확인 필요] 표기 유지` : `${entry.title}: [확인 필요]`, question: entry.question }));
+  // 제출 전 반드시 확인해야 하는 것: 미확정 설계값 + 설계로 대응하지 못한 공식 요건
+  const submissionChecklist = [
+    ...design.filter(entry => entry.status !== 'CONFIRMED').map(entry => ({ item: entry.title, kind: '설계값', why: entry.status === 'PROPOSED' ? '사용자 확정 전 설계안입니다.' : entry.basis })),
+    ...requirementLinks.filter(link => !link.covered || !link.hasApplicantEvidence).map(link => ({ item: link.requirement, kind: '공고 요건', why: link.gap || '기관 근거가 필요합니다.' }))
+  ];
+  const readiness = typeBlocked || coreOpen.length || brokenLinks.length
+    ? 'DESIGN_INCOMPLETE'
+    : (submissionChecklist.length ? 'DRAFT_READY' : 'SUBMISSION_READY');
+  const canDraft = !typeBlocked;
+  const headline = !canDraft
+    ? `신청유형 선택 필요 — ${typeList.map(entry => entry.name).join(' / ')} 중 하나를 먼저 고르세요`
+    : readiness === 'SUBMISSION_READY'
+      ? '제출 문서 확정 단계로 진행 가능'
+      : `초안 작성 가능 — 제출 전 ${submissionChecklist.length}개 항목 확인 필요`;
 
   return {
     noticeTitle: structure?.noticeTitle || '',
@@ -464,13 +609,18 @@ export function buildBlueprint({ structure, applicant, fitResult, projectValues 
     logic,
     requirementLinks,
     openQuestions,
-    readyToWrite: ready,
-    verdict: ready ? '계획서 본문 작성 가능' : '설계 보완 필요',
+    applicationTypes: { options: typeList, selected: selectedType, blocked: typeBlocked },
+    readiness,
+    canDraft,
+    draftPlaceholders,
+    submissionChecklist,
+    verdict: headline,
     verdictReasons: [
-      ...(coreOpen.length ? [`핵심 설계 항목이 확정되지 않았습니다: ${coreOpen.map(entry => entry.title).join(' · ')}`] : []),
+      ...(typeBlocked ? [`공고의 신청유형이 ${typeList.length}개(${typeList.map(entry => entry.name).join(' · ')})로 나뉘어 있어 유형을 먼저 골라야 서로 다른 유형의 대상·사업내용이 섞이지 않습니다.`] : []),
+      ...(coreOpen.length ? [`핵심 설계 항목이 확정되지 않았습니다(초안에는 [확인 필요]로 남습니다): ${coreOpen.map(entry => entry.title).join(' · ')}`] : []),
       ...(brokenLinks.length ? [`논리 연결이 끊어진 구간 ${brokenLinks.length}개: ${brokenLinks.map(link => link.link).join(' · ')}`] : []),
-      ...(ready ? ['문제 → 대상 → 프로그램 → 성과 연결이 모두 확인되었습니다.'] : [])
+      ...(readiness === 'SUBMISSION_READY' ? ['문제 → 대상 → 프로그램 → 성과 연결과 공고 요건 대응이 모두 확인되었습니다.'] : [])
     ],
-    rule: 'PROPOSED 값은 사용자가 확정하기 전까지 확정 사실처럼 계획서에 쓰지 않는다. 과거 사업의 인원·회기·기간·예산은 이번 사업 값으로 복사하지 않는다. 모르는 기관 사실(전문인력·협력기관·특정 대상 개입 경험)은 만들지 않고 NEEDS_CONFIRMATION으로 남긴다.'
+    rule: '정보가 부족해도 초안은 만들 수 있다. 다만 미확정 값은 [확인 필요]로 남기고 만들어 쓰지 않는다. PROPOSED 값은 사용자가 확정하기 전까지 확정 사실처럼 계획서에 쓰지 않는다. 과거 사업의 인원·회기·기간·예산은 이번 사업 값으로 복사하지 않는다. 모르는 기관 사실(전문인력·협력기관·특정 대상 개입 경험)은 만들지 않고 NEEDS_CONFIRMATION으로 남긴다.'
   };
 }
