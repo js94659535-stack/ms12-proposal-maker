@@ -5,6 +5,7 @@ import { exportDocx, exportPdf, printDocument } from './export.js';
 import { fetchNoticeDetail, fetchNoticeList, importNoticeUrl, noticeBodyText } from './notices.js';
 import { deleteArchivedApplicant, getArchivedProposal, getArchiveRecoveryKey, listArchivedApplicants, listArchivedProposals, saveArchivedApplicant, saveArchivedProposal, searchArchivedNotices, syncArchivedNotices, useArchiveRecoveryKey } from './archive.js';
 import { ASOF_UNKNOWN, applySafeCandidates, applyUpdateCandidate, buildUpdateCandidates, extractApplicantCandidates } from './applicant-extract.js';
+import { appendProposalVersion, applySectionRevision, buildCoachingHandoff, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, revisionInstruction, verifyLockedValues } from './coaching-handoff.js';
 import { APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaTitle, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
 
 const TYPES = [
@@ -20,6 +21,7 @@ const initial = {
   step: 0, activeTool: 'workflow', project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
   coaching: { title: '', text: '', validatedText: '', criteriaText: '', officialEvaluationProvided: false, sourceProposalId: '', sourceNoticeKey: '', seriesId: '', currentArchiveId: '', result: null, workItems: [], pendingJob: null, version: 0 },
   applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null,
+  revisionPlan: null, proposalVersions: [], coachingSelection: [],
   analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
@@ -38,7 +40,7 @@ function loadState() {
     const stagedGeneration = saved.stagedGeneration && typeof saved.stagedGeneration === 'object'
       ? { ...structuredClone(initial.stagedGeneration), ...saved.stagedGeneration, parts: Array.isArray(saved.stagedGeneration.parts) ? saved.stagedGeneration.parts : [], completedGroupIds: Array.isArray(saved.stagedGeneration.completedGroupIds) ? saved.stagedGeneration.completedGroupIds : [] }
       : structuredClone(initial.stagedGeneration);
-    const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantDocDraft: '', applicantExtraction: null };
+    const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantDocDraft: '', applicantExtraction: null, coachingSelection: [] };
     return withMigratedApplicants(restored);
   }
   catch { return structuredClone(initial); }
@@ -185,7 +187,7 @@ function archiveView() {
     <details><summary>다른 기기에서 같은 보관함 사용</summary><p class="muted">현재 복구키를 비밀번호 관리도구 등 안전한 장소에 보관하세요. 새 기기에서 같은 키를 입력하면 기존 계획서 보관함에 연결됩니다. 복구키를 잃으면 서버에서도 복원할 수 없습니다.</p><div class="actions"><button class="button secondary" id="copy-archive-key">현재 복구키 복사</button></div><div class="field"><label for="archive-recovery-key">기존 보관함 복구키</label><input id="archive-recovery-key" type="password" autocomplete="off" value="${escapeHtml(state.archiveKeyDraft)}" placeholder="다른 기기에서 보관한 복구키 붙여넣기"><button class="button primary" id="apply-archive-key">이 기기에 기존 보관함 연결</button></div></details></details>`;
 }
 
-function archiveStageLabel(stage) { return String(stage).startsWith('coaching-v') ? `검증·코칭 ${String(stage).replace('coaching-', '')}` : ({ master: '마스터 설계', parts: '분할 생성', complete: '완성본', review: '검토본' })[stage] || stage; }
+function archiveStageLabel(stage) { if (String(stage).startsWith('revision-v')) return `코칭 반영 수정본 ${String(stage).replace('revision-', '')}`; return String(stage).startsWith('coaching-v') ? `검증·코칭 ${String(stage).replace('coaching-', '')}` : ({ master: '마스터 설계', parts: '분할 생성', complete: '완성본', review: '검토본' })[stage] || stage; }
 
 function noticeConfirmView() {
   return `<div class="page-heading"><div><h2>공고 내용을 확인하세요</h2><p>공식 상세 원문에서 추출한 요약·대상·기간·지원내용을 확인합니다.</p></div></div>
@@ -425,7 +427,36 @@ function documentView() {
     : '<button class="button secondary" id="save-proposal-archive">자료보관함에 저장</button><button class="button primary" id="go-to-review">검토·완성으로 이동 →</button>';
   return `${strategy}${questions}${assemblyCheckView()}<div class="document-toolbar"><div><h2>${escapeHtml(state.project.title || '사업계획서 검토본')}</h2><p><span class="mode">신청기관 ${escapeHtml(selectedApplicant()?.name || '미선택')}</span> <span class="mode">${state.selectedNotice?.officialTextExtracted ? '공고문 반영 초안' : '안내 페이지 기반 임시 초안'}</span> <span class="mode ${state.aiMode === 'ai' ? 'ai' : ''}">${state.aiMode === 'ai' ? 'AI 정밀 사업설계' : '로컬 사실 추출'}</span> ${completionMode ? '심사 검토와 출력 전 최종 편집을 진행하세요. DOCX는 공식 신청서 양식이 아닌 검토본입니다.' : '필요한 질문을 확인하고 초안을 편집하세요.'}</p></div><div>${toolbarActions}</div></div>
     ${completionMode ? proposalReviewView() : ''}
-    <div class="editor-layout"><aside class="outline">${state.sections.map((s, i) => `<a href="#section-${i}"><span>${i + 1}</span>${escapeHtml(s.title.replace(/^\d+[.)]?\s*/, ''))}</a>`).join('')}</aside><div class="paper">${state.sections.map((s, i) => `<section id="section-${i}" class="doc-section"><div class="section-head"><input data-section-title="${i}" value="${escapeHtml(s.title)}"><span class="status ${s.status?.replace(' ', '-')}">${escapeHtml(s.status || '검토 필요')}</span></div><textarea data-section-content="${i}">${escapeHtml(s.content)}</textarea><div class="section-meta"><span>근거 ${s.citations?.length || 0}개</span><span><button data-confirm-fact="${i}">회사 정보로 확정 저장</button><button data-rewrite="${i}">이 항목 재작성</button></span></div>${s.citations?.length ? `<details><summary>반영한 원문 근거</summary>${s.citations.map(id => { const r = state.analysis.requirements.find(v => v.id === id); return r ? `<blockquote>${escapeHtml(r.evidence)} <small>${escapeHtml(r.location)}</small></blockquote>` : ''; }).join('')}</details>` : ''}</section>`).join('')}</div></div>`;
+    ${revisionPlanView()}
+    <div class="editor-layout"><aside class="outline">${state.sections.map((s, i) => `<a href="#section-${i}"><span>${i + 1}</span>${escapeHtml(s.title.replace(/^\d+[.)]?\s*/, ''))}</a>`).join('')}</aside><div class="paper">${state.sections.map((s, i) => `<section id="section-${i}" class="doc-section"><div class="section-head"><input data-section-title="${i}" value="${escapeHtml(s.title)}"><span class="status ${s.status?.replace(' ', '-')}">${escapeHtml(s.status || '검토 필요')}</span></div><textarea data-section-content="${i}">${escapeHtml(s.content)}</textarea><div class="section-meta"><span>근거 ${s.citations?.length || 0}개</span><span><button data-confirm-fact="${i}">회사 정보로 확정 저장</button><button data-rewrite="${i}">이 항목 재작성</button></span></div>${sectionCoachingView(s)}${s.citations?.length ? `<details><summary>반영한 원문 근거</summary>${s.citations.map(id => { const r = state.analysis.requirements.find(v => v.id === id); return r ? `<blockquote>${escapeHtml(r.evidence)} <small>${escapeHtml(r.location)}</small></blockquote>` : ''; }).join('')}</details>` : ''}</section>`).join('')}</div></div>`;
+}
+
+// 검증·코칭에서 전달받은 수정 요청. 실제 재작성은 「계획서 쓰기」에서 한다.
+function revisionPlanView() {
+  const plan = state.revisionPlan;
+  const versions = state.proposalVersions || [];
+  if (!plan && !versions.length) return '';
+  const versionList = versions.length ? `<details ${plan ? '' : 'open'}><summary>저장된 계획서 버전 ${versions.length}개</summary><div class="requirement-list">${versions.map(item => `<article class="requirement"><div><span class="tag">V${item.version}</span><div><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(String(item.savedAt).slice(0, 16).replace('T', ' '))} · ${escapeHtml(item.source)}${item.verdict ? ` · ${escapeHtml(item.verdict)}` : ''}</small></div></div><button class="button secondary" data-restore-version="${item.version}">이 버전 내용으로 되돌리기</button></article>`).join('')}</div></details>` : '';
+  if (!plan) return `<div class="card"><div class="card-title"><div><h3>계획서 버전</h3><span>수정해도 이전 버전은 지우지 않습니다.</span></div></div>${versionList}</div>`;
+  return `<div class="card"><div class="card-title"><div><h3>검증·코칭 v${plan.fromVersion} 수정 요청 ${plan.items.length}건</h3><span>내부 판정 ${escapeHtml(plan.verdict.verdict)} · 전달받은 위치만 수정합니다.</span></div><div><button class="button secondary" id="discard-revision-plan">수정 요청 닫기</button><button class="button secondary" id="save-revision-version">수정본 버전 저장</button><button class="button primary" id="send-revision-to-coaching">다시 검증하기</button></div></div>
+    <p class="muted">${escapeHtml(plan.writerRule)}</p>
+    ${plan.lockedValues.length ? `<p><b>변경 금지 확정값</b> ${escapeHtml(plan.lockedValues.join(' · '))}</p>` : ''}
+    ${plan.verdict.needsConfirmation.length ? `<p><b>사용자 확인 필요</b> ${escapeHtml(plan.verdict.needsConfirmation.join(' · '))}</p>` : ''}
+    <div class="requirement-list">${plan.items.map(item => `<article class="requirement"><div><span class="tag mandatory">${escapeHtml(item.priority)}</span><div><strong>${escapeHtml(item.location)}</strong><small>${escapeHtml(item.problem)} · 대상 항목 ${escapeHtml(item.sectionId ? sectionTitleById(item.sectionId) : '자동 연결 실패 · 직접 선택')}</small></div><span class="status ${item.status === '수정 완료' ? '충족' : '확인-필요'}">${escapeHtml(item.status)}</span></div>
+      <p><b>문제가 되는 이유</b> ${escapeHtml(item.reason)}</p><p><b>개선 방향</b> ${escapeHtml(item.direction)}</p>
+      ${item.evidence.length ? `<details><summary>근거 ${item.evidence.length}건</summary>${item.evidence.map(ref => `<blockquote><b>${escapeHtml(ref.sourceName)}</b> ${escapeHtml(ref.pageOrSection)}<br>${escapeHtml(ref.excerpt)}</blockquote>`).join('')}</details>` : '<p class="muted">확인된 근거가 없어 사실을 새로 만들 수 없습니다. [확인 필요]로 남기세요.</p>'}
+      ${item.confirmation ? `<p><b>확인 필요</b> ${escapeHtml(item.confirmation)}</p>` : ''}
+      ${item.lockedValues.length ? `<p><b>이 위치에서 유지할 값</b> ${escapeHtml(item.lockedValues.join(' · '))}</p>` : ''}
+      <div class="actions" style="margin:0;gap:8px"><span>${escapeHtml(item.example ? `참고 예시: ${item.example.slice(0, 120)}` : '')}</span><span><select data-revision-section="${escapeHtml(item.id)}" aria-label="${escapeHtml(item.location)} 대상 항목"><option value="">대상 항목 선택</option>${state.sections.map(section => `<option value="${escapeHtml(section.id)}" ${section.id === item.sectionId ? 'selected' : ''}>${escapeHtml(section.title)}</option>`).join('')}</select><button class="button secondary" data-revision-rewrite="${escapeHtml(item.id)}" ${item.sectionId ? '' : 'disabled'}>이 항목 AI 수정</button><button class="button secondary" data-revision-done="${escapeHtml(item.id)}">수정 완료 표시</button></span></div></article>`).join('')}</div>
+    ${versionList}</div>`;
+}
+
+function sectionTitleById(id) { return state.sections.find(section => section.id === id)?.title || id; }
+
+function sectionCoachingView(section) {
+  const items = handoffItemsForSection(state.revisionPlan, section);
+  if (!items.length) return '';
+  return `<details open class="org-details"><summary>검증·코칭 수정 요청 ${items.length}건</summary>${items.map(item => `<blockquote><b>${escapeHtml(item.priority)} · ${escapeHtml(item.problem)}</b><br>이유: ${escapeHtml(item.reason)}<br>개선 방향: ${escapeHtml(item.direction)}${item.lockedValues.length ? `<br>유지할 값: ${escapeHtml(item.lockedValues.join(' · '))}` : ''}</blockquote>`).join('')}</details>`;
 }
 
 function assemblyCheckView() {
@@ -516,7 +547,7 @@ function coachingResultView(result) {
     ${submissionCheckView(result, submission)}
     ${result.evaluationMatrix?.length ? `<details open><summary>평가기준 대응표</summary><div class="requirement-list">${result.evaluationMatrix.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(item.status)}</span><div><strong>${escapeHtml(item.criterion)}${item.officialPoints ? ` · ${escapeHtml(item.officialPoints)}` : ''}</strong><small>${escapeHtml(item.requirement)}</small></div></div><p><b>계획서 대응 위치</b> ${escapeHtml(item.proposalLocations.join(' · ') || '연결 위치 없음')}</p>${coachingEvidenceView(item.evidenceRefs)}</article>`).join('')}</div></details>` : ''}
     ${comparison.previousVersion ? `<details open><summary>v${comparison.previousVersion} 대비 재검증 결과</summary><div class="summary-grid"><div><span>해결된 문제</span><strong>${comparison.resolvedIssues.length}건</strong><small>${escapeHtml(comparison.resolvedIssues.join(' · ') || '없음')}</small></div><div><span>남은 문제</span><strong>${comparison.remainingIssues.length}건</strong><small>${escapeHtml(comparison.remainingIssues.join(' · ') || '없음')}</small></div><div><span>새로 생긴 문제</span><strong>${comparison.newIssues.length}건</strong><small>${escapeHtml(comparison.newIssues.join(' · ') || '없음')}</small></div><div><span>실제 개선 항목</span><strong>${comparison.improvedAreas.length}건</strong><small>${escapeHtml(comparison.improvedAreas.join(' · ') || '없음')}</small></div></div></details>` : ''}
-    <h3>개선 작업판</h3><div class="requirement-list">${issues.length ? issues.map(item => { const originalIndex = result.issues.indexOf(item); const work = workItems[originalIndex] || { status: '미수정' }; return `<article class="requirement"><div><span class="tag mandatory">${escapeHtml(item.priority)}</span><div><strong>${escapeHtml(item.location)}</strong><small>${escapeHtml(item.category)}</small></div><select data-coaching-status="${originalIndex}" aria-label="${escapeHtml(item.location)} 상태"><option ${work.status === '미수정' ? 'selected' : ''}>미수정</option><option ${work.status === '수정중' ? 'selected' : ''}>수정중</option><option ${work.status === '해결' ? 'selected' : ''}>해결</option><option ${work.status === '확인필요' ? 'selected' : ''}>확인필요</option></select></div><p><b>위험 이유</b> ${escapeHtml(item.reason)}</p><p><b>개선 방향</b> ${escapeHtml(item.direction)}</p>${coachingEvidenceView(item.evidenceRefs)}<details><summary>기존 수정 예시${item.requiresConfirmation ? ' · 확인 필요' : ''}</summary><blockquote>${escapeHtml(item.example)}</blockquote></details><div class="actions"><span>상태: ${escapeHtml(work.status)}</span><button class="button secondary" data-coaching-revise="${originalIndex}">이 문제만 AI 수정안 만들기</button></div>${work.revision ? `<div class="two-col"><details open><summary>원문</summary><blockquote>${escapeHtml(work.revision.originalExcerpt)}</blockquote></details><details open><summary>AI 수정안${work.revision.requiresConfirmation ? ' · 확인 필요' : ''}</summary><blockquote>${escapeHtml(work.revision.revisedText)}</blockquote><small>${escapeHtml(work.revision.explanation)}</small></details></div><div class="actions"><span>자동 적용되지 않습니다.</span>${work.applied ? `<button class="button secondary" data-coaching-undo="${originalIndex}">적용 되돌리기</button>` : `<button class="button primary" data-coaching-apply="${originalIndex}">수정안 적용</button>`}</div>` : ''}</article>`; }).join('') : '<p class="muted">현재 기준에서 발견된 주요 문제가 없습니다.</p>'}</div></div>`;
+    <h3>개선 작업판</h3><div class="actions"><span>수정이 필요한 문제를 골라 「계획서 쓰기」로 보냅니다. 검증코치는 계획서를 직접 다시 쓰지 않습니다.</span><span><button class="button secondary" id="select-all-issues">전체 선택</button><button class="button primary" id="send-issues-to-writer" ${state.sections.length ? '' : 'disabled'}>계획서 쓰기에서 수정</button></span></div>${state.sections.length ? '' : '<p class="muted">작성 중인 계획서가 없어 전달할 수 없습니다. 작성 흐름에서 계획서를 먼저 준비하세요.</p>'}<div class="requirement-list">${issues.length ? issues.map(item => { const originalIndex = result.issues.indexOf(item); const work = workItems[originalIndex] || { status: '미수정' }; return `<article class="requirement"><div><span class="tag mandatory">${escapeHtml(item.priority)}</span><div><strong><label><input type="checkbox" data-coaching-select="${originalIndex}" ${(state.coachingSelection || []).includes(originalIndex) ? 'checked' : ''}> ${escapeHtml(item.location)}</label></strong><small>${escapeHtml(item.category)}</small></div><select data-coaching-status="${originalIndex}" aria-label="${escapeHtml(item.location)} 상태"><option ${work.status === '미수정' ? 'selected' : ''}>미수정</option><option ${work.status === '수정중' ? 'selected' : ''}>수정중</option><option ${work.status === '해결' ? 'selected' : ''}>해결</option><option ${work.status === '확인필요' ? 'selected' : ''}>확인필요</option></select></div><p><b>위험 이유</b> ${escapeHtml(item.reason)}</p><p><b>개선 방향</b> ${escapeHtml(item.direction)}</p>${coachingEvidenceView(item.evidenceRefs)}<details><summary>기존 수정 예시${item.requiresConfirmation ? ' · 확인 필요' : ''}</summary><blockquote>${escapeHtml(item.example)}</blockquote></details><div class="actions"><span>상태: ${escapeHtml(work.status)}</span><button class="button secondary" data-coaching-revise="${originalIndex}">이 문제만 AI 수정안 만들기</button></div>${work.revision ? `<div class="two-col"><details open><summary>원문</summary><blockquote>${escapeHtml(work.revision.originalExcerpt)}</blockquote></details><details open><summary>AI 수정안${work.revision.requiresConfirmation ? ' · 확인 필요' : ''}</summary><blockquote>${escapeHtml(work.revision.revisedText)}</blockquote><small>${escapeHtml(work.revision.explanation)}</small></details></div><div class="actions"><span>자동 적용되지 않습니다.</span>${work.applied ? `<button class="button secondary" data-coaching-undo="${originalIndex}">적용 되돌리기</button>` : `<button class="button primary" data-coaching-apply="${originalIndex}">수정안 적용</button>`}</div>` : ''}</article>`; }).join('') : '<p class="muted">현재 기준에서 발견된 주요 문제가 없습니다.</p>'}</div></div>`;
 }
 
 function coachingEvidenceView(refs = []) {
@@ -536,7 +567,10 @@ function coachingSubmissionDecision(result, workItems) {
 
 function submissionCheckView(result, decision) {
   const checks = result.finalChecks || [];
-  return `<section class="alert ${decision === '제출 검토 완료' ? 'success' : 'warning'}"><div class="card-title"><div><h3>제출 전 점검</h3><strong>${escapeHtml(decision)}</strong></div><span>합격확률·임의 점수 없음</span></div><div class="requirement-list">${checks.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(item.status)}</span><strong>${escapeHtml(item.area)}</strong></div><p>${escapeHtml(item.note)}</p>${coachingEvidenceView(item.evidenceRefs)}</article>`).join('')}</div></section>`;
+  const verdict = coachingVerdict(result, state.coaching.workItems || []);
+  return `<section class="alert ${decision === '제출 검토 완료' ? 'success' : 'warning'}"><div class="card-title"><div><h3>제출 전 점검</h3><strong>${escapeHtml(decision)}</strong></div><span>합격확률·임의 점수 없음</span></div>
+    <p><b>내부 판정</b> ${escapeHtml(verdict.verdict)} — ${escapeHtml(verdict.reason)}${verdict.blockingIssues.length ? ` (근거 확인된 중대 문제: ${escapeHtml(verdict.blockingIssues.join(' · '))})` : ''}</p>
+    <small>내부 품질관리 판정이며 공모기관의 선정·탈락 판정이 아닙니다. 정보가 부족하다는 이유만으로 반려하지 않습니다.</small><div class="requirement-list">${checks.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(item.status)}</span><strong>${escapeHtml(item.area)}</strong></div><p>${escapeHtml(item.note)}</p>${coachingEvidenceView(item.evidenceRefs)}</article>`).join('')}</div></section>`;
 }
 
 function makeCoachingWorkItems(result) {
@@ -642,6 +676,13 @@ function bind() {
   document.querySelectorAll('[data-section-title]').forEach(el => el.oninput = () => { state.sections[Number(el.dataset.sectionTitle)].title = el.value; saveState(); });
   document.querySelectorAll('[data-section-content]').forEach(el => el.oninput = () => { state.sections[Number(el.dataset.sectionContent)].content = el.value; saveState(); });
   document.querySelectorAll('[data-rewrite]').forEach(el => el.onclick = () => rewriteSection(Number(el.dataset.rewrite)));
+  document.querySelectorAll('[data-revision-section]').forEach(el => el.onchange = () => updateRevisionTarget(el.dataset.revisionSection, el.value));
+  document.querySelectorAll('[data-revision-rewrite]').forEach(el => el.onclick = () => rewriteFromCoaching(el.dataset.revisionRewrite));
+  document.querySelectorAll('[data-revision-done]').forEach(el => el.onclick = () => markRevisionDone(el.dataset.revisionDone));
+  document.querySelectorAll('[data-restore-version]').forEach(el => el.onclick = () => restoreProposalVersion(Number(el.dataset.restoreVersion)));
+  document.querySelector('#save-revision-version')?.addEventListener('click', () => saveRevisionVersion());
+  document.querySelector('#send-revision-to-coaching')?.addEventListener('click', sendRevisionToCoaching);
+  document.querySelector('#discard-revision-plan')?.addEventListener('click', () => setState({ revisionPlan: null, notice: '수정 요청 목록을 닫았습니다. 저장된 버전은 유지됩니다.' }));
   document.querySelectorAll('[data-confirm-fact]').forEach(el => el.onclick = () => confirmCompanyFact(Number(el.dataset.confirmFact)));
   document.querySelector('#confirm-company-fact')?.addEventListener('click', confirmCompanyFactDraft);
   document.querySelector('#save-proposal-archive')?.addEventListener('click', () => archiveCurrentProposal(undefined, true).catch(showError));
@@ -666,6 +707,9 @@ function bind() {
   document.querySelectorAll('[data-coaching-apply]').forEach(el => el.onclick = () => applyCoachingRevision(Number(el.dataset.coachingApply)));
   document.querySelectorAll('[data-coaching-undo]').forEach(el => el.onclick = () => undoCoachingRevision(Number(el.dataset.coachingUndo)));
   document.querySelector('#print-coaching-report')?.addEventListener('click', printCoachingReport);
+  document.querySelectorAll('[data-coaching-select]').forEach(el => el.onchange = () => toggleCoachingSelection(Number(el.dataset.coachingSelect), el.checked));
+  document.querySelector('#select-all-issues')?.addEventListener('click', () => setState({ coachingSelection: (state.coaching.result?.issues || []).map((_, index) => index), notice: '모든 문제를 선택했습니다.' }));
+  document.querySelector('#send-issues-to-writer')?.addEventListener('click', sendIssuesToWriter);
   if (state.activeTool === 'coaching' && state.coaching.pendingJob && !coachingPollActive) setTimeout(() => pollProposalCoaching(), 250);
 }
 
@@ -936,11 +980,13 @@ async function completeProposalCoaching(result) {
   try {
     const version = Number(state.coaching.version || 0) + 1;
     const seriesId = String(state.coaching.seriesId || state.coaching.sourceProposalId || crypto.randomUUID()).slice(0, 60);
-    state.coaching = { ...state.coaching, result, workItems: makeCoachingWorkItems(result), pendingJob: null, version, seriesId, validatedText: state.coaching.text };
+    // 재검증이면 이전 결과와 비교해 해결·남은·새 문제를 알려준다.
+    const rounds = state.coaching.result ? compareCoachingRounds(state.coaching.result, result) : null;
+    state.coaching = { ...state.coaching, result, workItems: makeCoachingWorkItems(result), pendingJob: null, version, seriesId, validatedText: state.coaching.text, lastComparison: rounds };
     const id = `${seriesId}-coaching-v${version}`.slice(0, 80);
     state.coaching.currentArchiveId = id;
     await saveArchivedProposal({ id, noticeKey: state.coaching.sourceNoticeKey, title: `${state.coaching.title || '외부 계획서'} · 코칭 v${version}`, stage: `coaching-v${version}`, snapshot: { coaching: structuredClone(state.coaching), parentProposalId: state.coaching.sourceProposalId || '', coachingSeriesId: seriesId } });
-    setState({ busy: '', coaching: state.coaching, notice: `검증·코칭 v${version} 결과를 자료보관함에 저장했습니다.` });
+    setState({ busy: '', coaching: state.coaching, coachingSelection: [], notice: `검증·코칭 v${version} 결과를 자료보관함에 저장했습니다.${rounds ? ` 해결 ${rounds.resolved.length}건 · 남은 문제 ${rounds.remaining.length}건 · 새 문제 ${rounds.added.length}건` : ''}` });
   } catch (error) {
     state.coaching.pendingJob = null;
     setState({ busy: '', coaching: state.coaching, error: error.message });
@@ -995,6 +1041,95 @@ function undoCoachingRevision(index) {
   state.coaching.workItems[index] = { ...work, applied: false, status: '수정중' };
   setState({ coaching: state.coaching, notice: '수정안 적용을 되돌렸습니다.' });
   void persistCoachingWorkboard();
+}
+
+function toggleCoachingSelection(index, checked) {
+  const selection = new Set(state.coachingSelection || []);
+  if (checked) selection.add(index); else selection.delete(index);
+  state.coachingSelection = [...selection].sort((left, right) => left - right);
+  saveState();
+}
+
+// 검증·코칭 → 계획서 쓰기. 문제 목록만 전달하고 본문은 여기서 바꾸지 않는다.
+function sendIssuesToWriter() {
+  const result = state.coaching.result;
+  if (!result?.issues?.length) return setState({ error: '전달할 검증 결과가 없습니다.' });
+  if (!state.sections.length) return setState({ error: '수정할 계획서 본문이 없습니다. 작성 흐름에서 계획서를 먼저 준비하세요.' });
+  const plan = buildCoachingHandoff({ coaching: state.coaching, sections: state.sections, selectedIndexes: state.coachingSelection });
+  if (!plan.items.length) return setState({ error: '전달할 문제를 선택해 주세요.' });
+  // 수정 전 원본을 먼저 버전으로 남긴다.
+  if (!(state.proposalVersions || []).length) state.proposalVersions = appendProposalVersion([], { sections: state.sections, label: '최초 작성', source: '계획서 쓰기', verdict: plan.verdict.verdict });
+  state.activeTool = 'workflow';
+  navigateToStep(4, { revisionPlan: plan, proposalVersions: state.proposalVersions, coachingSelection: [], notice: `검증·코칭 문제 ${plan.items.length}건을 계획서 쓰기로 전달했습니다. 전달된 위치만 수정하세요.`, error: '' });
+}
+
+function updateRevisionPlanItem(itemId, mutate) {
+  if (!state.revisionPlan) return;
+  const items = state.revisionPlan.items.map(item => (item.id === itemId ? { ...item, ...mutate(item) } : item));
+  state.revisionPlan = { ...state.revisionPlan, items };
+}
+
+function updateRevisionTarget(itemId, sectionId) {
+  updateRevisionPlanItem(itemId, () => ({ sectionId }));
+  setState({ revisionPlan: state.revisionPlan, notice: '수정할 계획서 항목을 지정했습니다.' });
+}
+
+function markRevisionDone(itemId) {
+  updateRevisionPlanItem(itemId, item => ({ status: item.status === '수정 완료' ? '전달됨' : '수정 완료' }));
+  setState({ revisionPlan: state.revisionPlan, notice: '수정 요청 상태를 변경했습니다.' });
+}
+
+// 전달받은 항목 하나만 기존 재작성 엔진으로 고친다. 확정값이 바뀌면 적용하지 않는다.
+async function rewriteFromCoaching(itemId) {
+  const item = state.revisionPlan?.items.find(value => value.id === itemId);
+  const index = state.sections.findIndex(section => section.id === item?.sectionId);
+  if (!item || index < 0) return setState({ error: '수정할 계획서 항목을 먼저 지정해 주세요.' });
+  const before = state.sections[index].content;
+  setAiBusy('전달받은 코칭 내용으로 해당 항목만 수정하는 중...', { error: '', notice: '' });
+  try {
+    const result = await rewriteWithAI({ section: state.sections[index], instruction: revisionInstruction([item]), analysis: state.analysis, organization: organizationForGeneration() });
+    const after = result.section?.content || '';
+    const locked = verifyLockedValues(before, after, item.lockedValues.length ? item.lockedValues : null);
+    if (!locked.ok) return setState({ busy: '', error: `확정값이 변경되어 수정안을 적용하지 않았습니다: ${[...locked.removed, ...locked.added].join(' · ')}` });
+    state.sections = applySectionRevision(state.sections, item.sectionId, after, result.section?.status || '검토 필요');
+    updateRevisionPlanItem(itemId, () => ({ status: '수정 완료' }));
+    setState({ busy: '', sections: state.sections, revisionPlan: state.revisionPlan, notice: `${sectionTitleById(item.sectionId)} 항목을 수정했습니다. 확정값은 그대로 유지했습니다.` });
+  } catch (error) { setState({ busy: '', error: error.message }); }
+}
+
+// 수정본을 새 버전으로 저장한다. 이전 버전은 지우지 않는다.
+function saveRevisionVersion(announce = true) {
+  if (!state.sections.length) return null;
+  const plan = state.revisionPlan;
+  const baseline = (state.proposalVersions || [])[0];
+  const check = baseline ? verifyLockedValues(baseline.sections.map(section => section.content).join('\n'), state.sections.map(section => section.content).join('\n'), plan?.lockedValues || null) : { ok: true, removed: [], added: [] };
+  const label = plan ? `검증·코칭 v${plan.fromVersion} 반영 수정본` : '수정본';
+  state.proposalVersions = appendProposalVersion(state.proposalVersions, { sections: state.sections, label, source: '계획서 쓰기', verdict: plan?.verdict.verdict || '' });
+  const version = state.proposalVersions[state.proposalVersions.length - 1].version;
+  if (announce) setState({ proposalVersions: state.proposalVersions, notice: `수정본 V${version}을 저장했습니다. 이전 버전은 그대로 보존됩니다.${check.ok ? '' : ` 확인 필요: 확정값 변경 ${[...check.removed, ...check.added].join(' · ')}`}`, error: '' });
+  void archiveCurrentProposal(`revision-v${version}`).catch(() => {});
+  return version;
+}
+
+function restoreProposalVersion(version) {
+  const saved = findProposalVersion(state.proposalVersions, version);
+  if (!saved) return;
+  // 되돌리기 전 현재 본문도 버전으로 남겨 이전 문서를 잃지 않는다.
+  const current = JSON.stringify(state.sections);
+  if (!(state.proposalVersions || []).some(item => JSON.stringify(item.sections) === current)) {
+    state.proposalVersions = appendProposalVersion(state.proposalVersions, { sections: state.sections, label: '되돌리기 전 작업본', source: '계획서 쓰기' });
+  }
+  state.sections = structuredClone(saved.sections);
+  setState({ sections: state.sections, proposalVersions: state.proposalVersions, notice: `V${version} ${saved.label} 내용으로 되돌렸습니다. 저장된 버전은 모두 유지됩니다.`, error: '' });
+}
+
+// 계획서 쓰기 → 검증·코칭. 이전 결과와 버전을 유지해 재검증에서 해결·잔존·신규를 비교한다.
+function sendRevisionToCoaching() {
+  if (!state.sections.length) return setState({ error: '재검증할 계획서 본문이 없습니다.' });
+  const version = saveRevisionVersion(false);
+  const text = state.sections.map(section => `${section.title}\n${section.content}`).join('\n\n');
+  state.coaching = { ...state.coaching, text, title: state.coaching.title || state.project.title || '수정본', sourceProposalId: state.archiveProposalId || state.coaching.sourceProposalId, seriesId: state.coaching.seriesId || state.archiveProposalId || '' };
+  setState({ activeTool: 'coaching', coaching: state.coaching, proposalVersions: state.proposalVersions, sections: state.sections, notice: `수정본 V${version}을 재검증 대상으로 보냈습니다. 「수정본 다시 검증」을 실행하면 v${state.coaching.version} 결과와 비교합니다.`, error: '' });
 }
 
 async function persistCoachingWorkboard() {
@@ -1537,7 +1672,7 @@ async function archiveCurrentProposal(forcedStage, announce = false) {
   state.archiveProposalId = id;
   saveState();
   const stage = forcedStage || (state.reviewResult ? 'review' : state.sections.length ? 'complete' : state.stagedGeneration?.phase === 'parts-ready' ? 'parts' : 'master');
-  const fields = ['project', 'sourceText', 'analysis', 'sponsorIntent', 'projectDesign', 'missingInformation', 'evidenceMap', 'qualityCheck', 'designAnswers', 'designUnavailable', 'stagedGeneration', 'assemblyCheck', 'manualSources', 'matches', 'answers', 'sections', 'reviewResult', 'reviewOriginalDraft', 'reviewFingerprint', 'companyFacts', 'selectedNotice', 'aiMode', 'selectedApplicantId', 'projectValues', 'applicantResolvedQuestions'];
+  const fields = ['project', 'sourceText', 'analysis', 'sponsorIntent', 'projectDesign', 'missingInformation', 'evidenceMap', 'qualityCheck', 'designAnswers', 'designUnavailable', 'stagedGeneration', 'assemblyCheck', 'manualSources', 'matches', 'answers', 'sections', 'reviewResult', 'reviewOriginalDraft', 'reviewFingerprint', 'companyFacts', 'selectedNotice', 'aiMode', 'selectedApplicantId', 'projectValues', 'applicantResolvedQuestions', 'proposalVersions', 'revisionPlan'];
   // 계획서에는 사용 시점의 신청기관 사본만 남기고, 신청기관 원본은 별도 보관 항목으로만 수정한다.
   const snapshot = { ...Object.fromEntries(fields.map(key => [key, structuredClone(state[key])])), applicantSnapshot: selectedApplicant() ? structuredClone(selectedApplicant()) : null };
   const result = await saveArchivedProposal({ id, noticeKey: archiveNoticeKey(state.selectedNotice), title: state.project.title || state.selectedNotice?.title, stage, snapshot });
