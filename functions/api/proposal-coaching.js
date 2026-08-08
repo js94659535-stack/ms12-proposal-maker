@@ -240,18 +240,30 @@ export function validateCoachingResult(result, officialEvaluationProvided = fals
   return validateCoachingResultDetailed(result, officialEvaluationProvided, previousVersion, payload).error;
 }
 
+const CRITICAL_RISK_TYPES = ['submission', 'eligibility', 'required-item', 'budget-rule', 'core-conflict'];
+
+// 입력 근거에서 실제 누락·위반·상충이 확인되는 중대 문제인지 판단한다. 과잉진단 방지 기준을 그대로 사용한다.
+export function hasExplicitCriticalEvidence(issue) {
+  const excerpts = (issue?.evidenceRefs || []).filter(ref => ref?.verified && ref.excerpt).map(ref => ref.excerpt);
+  const evidence = excerpts.join(' ');
+  const explicitMissingOrViolation = /확인하지 않|작성하지 않|누락|없(?:다|음)|미정|금지|불가|초과|위반/.test(evidence);
+  const explicitContrast = excerpts.length >= 2 && /그러나|하지만|반면|했으나|다른 항목|본문은|일정표는|사업개요는|세부 프로그램은/.test(evidence);
+  // 근거 한 문장 안에서 자격·필수조건과 실제 내용이 명시적으로 어긋나는 경우도 중대 문제로 본다.
+  const explicitRestrictionContrast = /(?:만|이상|이내|필수|의무|자격|해야|하여야)[^\n]{0,40}?(?:이나|으나|지만|하지만|반면|그러나)/.test(evidence)
+    && /(?:아니|영리|미달|초과|불가|없|미정|누락|위반)/.test(evidence);
+  const wonAmounts = [...evidence.matchAll(/(\d[\d,]*)\s*원/g)].map(match => Number(match[1].replaceAll(',', ''))).filter(Number.isFinite);
+  const explicitBudgetMismatch = issue?.riskType === 'budget-rule' && wonAmounts.length >= 3 && Math.max(...wonAmounts) !== wonAmounts.reduce((sum, value) => sum + value, 0) - Math.max(...wonAmounts);
+  return explicitMissingOrViolation || explicitContrast || explicitRestrictionContrast || explicitBudgetMismatch;
+}
+
+// riskType과 priority가 어긋난 정상 결과를 통째로 버리지 않고 같은 기준으로 맞춘다.
+// 근거가 확인되면 최우선 경고로 올리고, 근거가 부족하면 비중대 유형으로 낮추고 확인 필요 상태를 유지한다.
 export function normalizeUnsupportedCriticalIssues(result) {
   for (const issue of result?.issues || []) {
     if (issue.riskType === 'expression') { issue.priority = '일반 개선'; continue; }
     if (issue.riskType === 'competition') { issue.priority = '주요 개선'; continue; }
-    if (issue.priority !== '최우선 경고' || !['submission', 'eligibility', 'required-item', 'budget-rule', 'core-conflict'].includes(issue.riskType)) continue;
-    const excerpts = (issue.evidenceRefs || []).filter(ref => ref?.verified && ref.excerpt).map(ref => ref.excerpt);
-    const evidence = excerpts.join(' ');
-    const explicitMissingOrViolation = /확인하지 않|작성하지 않|누락|없(?:다|음)|미정|금지|불가|초과|위반/.test(evidence);
-    const explicitContrast = excerpts.length >= 2 && /그러나|하지만|반면|했으나|다른 항목|본문은|일정표는|사업개요는|세부 프로그램은/.test(evidence);
-    const wonAmounts = [...evidence.matchAll(/(\d[\d,]*)\s*원/g)].map(match => Number(match[1].replaceAll(',', ''))).filter(Number.isFinite);
-    const explicitBudgetMismatch = issue.riskType === 'budget-rule' && wonAmounts.length >= 3 && Math.max(...wonAmounts) !== wonAmounts.reduce((sum, value) => sum + value, 0) - Math.max(...wonAmounts);
-    if (explicitMissingOrViolation || explicitContrast || explicitBudgetMismatch) continue;
+    if (!CRITICAL_RISK_TYPES.includes(issue.riskType)) continue;
+    if (hasExplicitCriticalEvidence(issue)) { issue.priority = '최우선 경고'; continue; }
     issue.priority = '주요 개선';
     issue.riskType = 'competition';
     issue.requiresConfirmation = true;
@@ -280,7 +292,8 @@ export function validateCoachingResultDetailed(result, officialEvaluationProvide
     if (verified.some(ref => !ref.excerpt || !sourceText.includes(ref.excerpt))) return invalid('evidence-validation', '입력 원문에서 확인되지 않는 근거가 포함되었습니다.');
     if (!verified.length && ((judgement.status && !['확인필요'].includes(judgement.status)) || (judgement.priority && !judgement.requiresConfirmation))) return invalid('evidence-validation', '근거를 찾지 못한 판단은 확인 필요로 표시해야 합니다.');
   }
-  const critical = new Set(['submission', 'eligibility', 'required-item', 'budget-rule', 'core-conflict']);
+  // 요청 경로에서는 normalizeUnsupportedCriticalIssues가 먼저 등급을 맞추므로, 여기서는 최종 안전장치로만 남긴다.
+  const critical = new Set(CRITICAL_RISK_TYPES);
   if (result.issues.some(value => critical.has(value.riskType) && value.priority !== '최우선 경고')) return invalid('application-validation', '제출·자격·필수항목·예산·핵심 수치 위험은 최우선 경고여야 합니다.');
   if (result.issues.some(value => value.riskType === 'competition' && value.priority !== '주요 개선')) return invalid('application-validation', '선정 경쟁력 위험은 주요 개선으로 분류해야 합니다.');
   if (result.issues.some(value => value.riskType === 'expression' && value.priority !== '일반 개선')) return invalid('application-validation', '표현 문제는 일반 개선으로 분류해야 합니다.');
