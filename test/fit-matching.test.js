@@ -99,6 +99,21 @@ test('과거 실적을 DIRECT / RELATED / GENERAL로 나누고 일반 실적은 
   assert.notEqual(generalOnly.matches.find(match => match.key === 'requiredContent').state, 'MATCHED');
 });
 
+test('DIRECT는 핵심 요소가 실제로 겹칠 때만 부여한다', () => {
+  const result = matchApplicantToNotice(NOTICE, applicant([
+    // 예산·회기·인력 같은 운영 기록은 주제와 무관한 일반 역량이다.
+    { id: 'r1', area: 'performance', label: '총사업비', value: '아동 프로그램 총사업비 50,000,000원', status: CONFIRMED_STATUS, source: '결산서', asOf: '2024' },
+    // 흔한 분야 낱말만 겹치면 직접 실적이 아니다.
+    { id: 'r2', area: 'performance', label: '2019년 사업실적', value: '다문화가정 아동 대상 진로교육 사업', status: CONFIRMED_STATUS, source: '결과보고서', asOf: '2019' },
+    // 대상·사업내용이 함께 겹쳐야 DIRECT.
+    { id: 'r3', area: 'performance', label: '2023년 사업실적', value: '아동 심리정서 회복 프로그램과 보호자 상담 운영', status: CONFIRMED_STATUS, source: '결과보고서', asOf: '2023' }
+  ]));
+  const levels = Object.fromEntries(result.recordRelevance.map(item => [item.label, item.level]));
+  assert.equal(levels['총사업비'], 'GENERAL');
+  assert.equal(levels['2019년 사업실적'], 'RELATED');
+  assert.equal(levels['2023년 사업실적'], 'DIRECT');
+});
+
 test('점수를 만들지 않고 네 단계 결론만 낸다', () => {
   const strong = matchApplicantToNotice(NOTICE, applicant([
     { id: 'i1', area: 'legal', label: '법인 유형', value: '사회복지법인 지역아동센터', status: CONFIRMED_STATUS, source: '등기부', asOf: '2026' },

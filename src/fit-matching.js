@@ -30,17 +30,44 @@ const EXPLICIT_EXCLUSION = [
 const CAPACITY_ONLY = /개입이?\s*가능한\s*기관|수행이?\s*가능한\s*기관|운영\s*가능한\s*기관|역량을?\s*갖춘/;
 
 export const RELEVANCE_LEVELS = ['DIRECT', 'RELATED', 'GENERAL'];
-// 공고의 대상·문제·필수내용과 얼마나 가까운 실적인지 나눈다.
+// DIRECT = 이 공모의 대상·문제·개입방식·성과목적과 직접 연결되는 실적
+// RELATED = 일부 대상·역량·방법만 관련되고 같은 사업 근거는 아님
+// GENERAL = 예산관리·회기운영·성과측정·조직운영처럼 주제와 무관한 수행능력 경험
+const OPERATIONAL_RECORD = /사업비|예산|정산|회기|차시|시수|인력|직원|조직|성과\s*측정|측정\s*도구|만족도\s*조사|운영\s*기간/;
+// 분야에서 흔히 쓰여 그 자체로는 직접성을 보장하지 못하는 낱말
+const GENERIC_DOMAIN = new Set(['아동', '청소년', '청년', '학생', '가족', '보호자', '지역', '상담', '교육', '프로그램', '운영', '서비스', '참여', '활동', '제공', '센터', '기관', '성과', '평가', '측정', '목표', '예산', '회기', '인력', '지원사업', '맞춤형']);
+
 export function recordRelevance(item, structure) {
-  const scope = ['target', 'problem', 'requiredContent', 'purpose']
-    .map(key => structure?.fields?.find(field => field.key === key)?.value || '')
-    .join(' ');
-  const keys = tokensOf(scope).filter(token => !STOPWORDS.has(token) && token.length > 1);
   const haystack = `${item.label} ${item.value}`;
-  const hits = keys.filter(token => haystack.includes(token));
-  if (hits.length >= 2) return { level: 'DIRECT', hits };
-  if (hits.length === 1) return { level: 'RELATED', hits };
-  return { level: 'GENERAL', hits: [] };
+  // 예산·회기·인력·성과측정 같은 운영 경험은 주제와 무관한 일반 역량으로 본다.
+  if (OPERATIONAL_RECORD.test(item.label) || ['budget', 'measurement', 'staff'].includes(item.area)) {
+    return { level: 'GENERAL', hits: [], reason: '예산·회기·인력·성과측정 등 일반 사업수행 역량 경험입니다.' };
+  }
+  const categories = ['target', 'problem', 'requiredContent', 'purpose'];
+  const distinctive = [];
+  const generic = [];
+  const matchedCategories = new Set();
+  for (const key of categories) {
+    const field = structure?.fields?.find(item => item.key === key);
+    // 항목 전체가 아니라 대표 근거 문장과 겹치는지 본다. 첨부 전체 문장과의 우연한 겹침을 피한다.
+    const text = field?.evidence?.[0]?.sentence || String(field?.value || '').slice(0, 300);
+    for (const token of tokensOf(text)) {
+      // 숫자만으로는 직접 실적 근거가 되지 않는다.
+      if (STOPWORDS.has(token) || token.length < 2 || /^\d+$/.test(token) || !haystack.includes(token)) continue;
+      if (GENERIC_DOMAIN.has(token)) { generic.push(token); continue; }
+      distinctive.push(token);
+      matchedCategories.add(key);
+    }
+  }
+  const uniqueDistinctive = [...new Set(distinctive)];
+  // 낱말 하나로는 직접 실적이 되지 않는다. 고유한 낱말 2개 이상이 서로 다른 항목 2개 이상에서 겹칠 때만 DIRECT.
+  if (uniqueDistinctive.length >= 2 && matchedCategories.size >= 2) {
+    return { level: 'DIRECT', hits: uniqueDistinctive, reason: `공모의 핵심 요소와 직접 겹칩니다: ${uniqueDistinctive.join(' · ')}` };
+  }
+  if (uniqueDistinctive.length === 1 || generic.length) {
+    return { level: 'RELATED', hits: [...new Set([...uniqueDistinctive, ...generic])], reason: '대상·방법 일부만 관련되고 같은 사업의 근거는 아닙니다.' };
+  }
+  return { level: 'GENERAL', hits: [], reason: '공모 주제와 직접 연결되지 않는 일반 수행경험입니다.' };
 }
 // 일반 수행역량 실적만 근거로 쓸 수 있는 항목
 const GENERAL_ALLOWED_KEYS = ['evaluation', 'periodBudget', 'selectionFactors', 'outcomes'];
