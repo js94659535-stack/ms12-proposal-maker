@@ -20,7 +20,7 @@ const NAVIGATION_LIMIT = 10;
 const initial = {
   step: 0, activeTool: 'workflow', project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
   coaching: { title: '', text: '', validatedText: '', criteriaText: '', officialEvaluationProvided: false, sourceProposalId: '', sourceNoticeKey: '', seriesId: '', currentArchiveId: '', result: null, workItems: [], pendingJob: null, version: 0 },
-  applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null,
+  applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, coachingApplicantId: '',
   revisionPlan: null, proposalVersions: [], coachingSelection: [], applicantSkipped: false,
   analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
@@ -222,18 +222,36 @@ function applicantsToolView() {
 // 기존 기관 문서에서 정보를 뽑아 ‘업데이트 후보’로만 만든다. 사용자가 반영을 눌러야 기관 정보가 바뀐다.
 function applicantDocumentView(applicant) {
   const review = state.applicantExtraction?.applicantId === applicant.id ? state.applicantExtraction : null;
-  const kindTag = { 신규: 'status 확인-필요', '누적 추가': 'status 확인-필요', 동일: 'status 충족', '변경 가능성': 'status 부분-충족', 충돌: 'status 미충족', '이전 시점 정보': 'status 부분-충족' };
   return `<div class="card"><div class="card-title"><div><h3>기관 문서에서 정보 추출</h3><span>사업계획서·결과보고서·기관소개서를 넣으면 기관정보 업데이트 후보를 만듭니다. 기존 정보는 자동으로 덮어쓰지 않습니다.</span></div></div>
     <div class="field"><label for="applicant-doc-file">기관 문서 파일 (PDF·DOCX·TXT·HWPX)</label><input type="file" id="applicant-doc-file" accept=".pdf,.docx,.txt,.hwpx"><small class="muted">HWP는 한/글에서 HWPX·PDF·DOCX로 저장한 뒤 올려 주세요.</small></div>
     <div class="field"><label for="applicant-doc-text">또는 문서 내용 붙여넣기</label><textarea id="applicant-doc-text" style="min-height:110px" placeholder="예) 기관명: 사단법인 ○○센터 / 상근 인력: 5명 / 2025년 청소년 마음건강 지원사업">${escapeHtml(state.applicantDocDraft)}</textarea></div>
     <div class="actions" style="margin:0"><span class="muted">${escapeHtml(review ? `${review.documentName || '붙여넣은 문서'} · 문서 기준시점 ${review.documentAsOf || ASOF_UNKNOWN}` : '외부 AI 호출 없이 규칙 기반으로 추출합니다.')}</span><button class="button primary" id="extract-applicant-doc">업데이트 후보 만들기</button></div>
-    ${review ? `<div class="actions" style="margin-top:12px"><strong>업데이트 후보 ${review.candidates.length}건</strong><button class="button secondary" id="apply-safe-candidates">신규·누적 후보만 일괄 반영</button></div>
+    ${review ? candidateReviewView(review) : ''}</div>`;
+}
+
+// 두 화면(신청기관 정보·검증 결과)이 같은 후보 목록 UI를 쓴다.
+function candidateReviewView(review) {
+  const kindTag = { 신규: 'status 확인-필요', '누적 추가': 'status 확인-필요', 동일: 'status 충족', '변경 가능성': 'status 부분-충족', 충돌: 'status 미충족', '이전 시점 정보': 'status 부분-충족' };
+  return `<div class="actions" style="margin-top:12px"><strong>업데이트 후보 ${review.candidates.length}건</strong><button class="button secondary" id="apply-safe-candidates">신규·누적·근거 추가만 일괄 반영</button></div>
     ${review.candidates.length ? `<div class="requirement-list">${review.candidates.map(candidate => `<article class="requirement"><div><span class="${kindTag[candidate.kind] || 'tag'}">${escapeHtml(candidate.kind)}</span><div><strong>${escapeHtml(areaTitle(candidate.area))} · ${escapeHtml(candidate.label)}</strong>
       <small>새 정보: ${escapeHtml(candidate.value)}</small>
       <small>기존 정보: ${escapeHtml(candidate.existingItemId ? `${candidate.existingValue} (${candidate.existingStatus})` : '기관 정보에 없음')}</small>
-      <small>기준시점: ${escapeHtml(candidate.asOf || ASOF_UNKNOWN)} · ${escapeHtml(candidate.action)}</small></div></div>
-      <div class="actions" style="margin:0;gap:8px">${candidate.kind === '동일' ? '' : `<button class="button secondary" data-apply-candidate="${escapeHtml(candidate.id)}">반영</button>`}<button class="button secondary" data-ignore-candidate="${escapeHtml(candidate.id)}">무시</button></div></article>`).join('')}</div>`
-      : '<p class="muted">문서에서 기관 정보 후보를 찾지 못했습니다. 항목을 직접 등록하세요.</p>'}` : ''}</div>`;
+      <small>기준시점: ${escapeHtml(candidate.asOf || ASOF_UNKNOWN)} · ${escapeHtml(candidate.action)}</small>
+      ${candidate.excerpt ? `<small>문서 근거: ${escapeHtml(candidate.excerpt)}</small>` : ''}</div></div>
+      <div class="actions" style="margin:0;gap:8px"><button class="button secondary" data-apply-candidate="${escapeHtml(candidate.id)}">${candidate.kind === '동일' ? '근거 추가' : '반영'}</button><button class="button secondary" data-ignore-candidate="${escapeHtml(candidate.id)}">무시</button></div></article>`).join('')}</div>`
+    : '<p class="muted">문서에서 기관 정보 후보를 찾지 못했습니다. 항목을 직접 등록하세요.</p>'}`;
+}
+
+// 검증·코칭에 넣은 계획서를 신청기관 정보 보강에도 재사용한다. 추가 AI 호출은 하지 않는다.
+function coachingApplicantView() {
+  if (!state.coaching.text.trim()) return '';
+  const targetId = state.applicants.some(item => item.id === state.coachingApplicantId) ? state.coachingApplicantId : state.selectedApplicantId;
+  const applicant = findApplicant(state.applicants, targetId);
+  const review = applicant && state.applicantExtraction?.applicantId === applicant.id ? state.applicantExtraction : null;
+  return `<div class="card"><div class="card-title"><div><h3>이 계획서로 신청기관 정보 보강</h3><span>검증한 계획서에서 기관 사실만 규칙 기반으로 뽑습니다. 추가 AI 호출 없이 동작하며 개인 신상정보는 수집하지 않습니다.</span></div></div>
+    ${state.applicants.length ? `<div class="two-col"><div class="field"><label for="coaching-applicant-target">반영할 신청기관</label><select id="coaching-applicant-target">${state.applicants.map(item => `<option value="${escapeHtml(item.id)}" ${item.id === targetId ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}</select></div><div class="field"><label>&nbsp;</label><button class="button primary" id="harvest-coaching-applicant">계획서에서 기관 정보 추출</button></div></div>
+    <p class="muted">과거 문서의 인력·주소·협력기관은 현재값으로 자동 변경하지 않습니다. 사업실적은 연도별로 누적하고, 기존과 다른 값은 이력·확인 대상으로만 남깁니다.</p>
+    ${review ? candidateReviewView(review) : ''}` : '<p class="muted">등록된 신청기관이 없습니다. 상단 「신청기관 정보」에서 기관을 먼저 등록하세요.</p>'}</div>`;
 }
 
 function applicantEditorView(applicant) {
@@ -536,7 +554,8 @@ function coachingView() {
     <div class="actions"><div><button class="button secondary" id="coach-current-proposal" ${state.sections.length ? '' : 'disabled'}>현재 계획서 불러오기</button><button class="button secondary" id="coach-list-archive">자료보관함 계획서</button></div><button class="button primary" id="run-coaching" ${coaching.pendingJob ? 'disabled' : ''}>${coaching.pendingJob ? '검증 중' : result ? '수정본 다시 검증' : '검증·코칭 실행'}</button></div><small>전체 검증은 OpenAI background mode로 실행됩니다. store=false이지만 polling을 위해 응답 데이터가 약 10분간 일시 저장될 수 있습니다.</small></div>
     ${coaching.pendingJob ? `<div class="alert warning"><strong>검증 중 · ${escapeHtml(coaching.pendingJob.status || 'queued')}</strong><p>작업 ID ${escapeHtml(coaching.pendingJob.id)} · polling ${Number(coaching.pendingJob.pollCount || 0)}회</p><p>새로고침 후에도 같은 탭에서 작업을 이어 확인합니다.<span data-ai-elapsed data-started-at="${Number(coaching.pendingJob.startedAt || Date.now())}" style="display:block">경과시간 00초</span></p></div>` : ''}
     ${state.archiveProposals.length ? `<div class="card"><h3>자료보관함에서 불러오기</h3><div class="requirement-list">${state.archiveProposals.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(archiveStageLabel(item.stage))}</span><strong>${escapeHtml(item.title)}</strong></div><button class="button secondary" data-coach-archive="${escapeHtml(item.id)}">${String(item.stage).startsWith('coaching-v') ? '이 버전으로 돌아가기' : '검증 대상으로 불러오기'}</button></article>`).join('')}</div></div>` : ''}
-    ${result ? coachingResultView(result) : ''}`;
+    ${result ? coachingResultView(result) : ''}
+    ${result ? coachingApplicantView() : ''}`;
 }
 
 function coachingResultView(result) {
@@ -714,6 +733,8 @@ function bind() {
   document.querySelector('#select-all-issues')?.addEventListener('click', () => setState({ coachingSelection: (state.coaching.result?.issues || []).map((_, index) => index), notice: '모든 문제를 선택했습니다.' }));
   document.querySelector('#send-issues-to-writer')?.addEventListener('click', sendIssuesToWriter);
   document.querySelector('#adopt-external-proposal')?.addEventListener('click', adoptExternalProposal);
+  document.querySelector('#coaching-applicant-target')?.addEventListener('change', event => setState({ coachingApplicantId: event.target.value, applicantExtraction: null }));
+  document.querySelector('#harvest-coaching-applicant')?.addEventListener('click', harvestApplicantFromCoaching);
   if (state.activeTool === 'coaching' && state.coaching.pendingJob && !coachingPollActive) setTimeout(() => pollProposalCoaching(), 250);
 }
 
@@ -813,6 +834,23 @@ function buildApplicantCandidates(text, documentName) {
   setState({ applicantExtraction: review, notice: `업데이트 후보 ${review.candidates.length}건을 만들었습니다. 반영할 항목을 확인하세요.`, error: '' });
 }
 
+// 검증·코칭에 넣은 계획서에서 신청기관 정보 후보를 만든다. 코칭 결과·본문은 바꾸지 않는다.
+function harvestApplicantFromCoaching() {
+  const targetId = state.applicants.some(item => item.id === state.coachingApplicantId) ? state.coachingApplicantId : state.selectedApplicantId;
+  const applicant = findApplicant(state.applicants, targetId);
+  if (!applicant) return setState({ error: '반영할 신청기관을 먼저 선택해 주세요.' });
+  if (state.coaching.text.trim().length < 30) return setState({ error: '검증한 계획서 원문이 없습니다.' });
+  const extraction = extractApplicantCandidates(state.coaching.text, { documentName: state.coaching.title || '검증한 계획서', includeNarrative: true, sourceLabel: '검증·코칭 계획서' });
+  const review = buildUpdateCandidates(applicant, extraction);
+  const kinds = review.candidates.reduce((counts, candidate) => ({ ...counts, [candidate.kind]: (counts[candidate.kind] || 0) + 1 }), {});
+  setState({
+    coachingApplicantId: applicant.id, applicantExtraction: review, error: '',
+    notice: review.candidates.length
+      ? `${applicant.name} 기준으로 후보 ${review.candidates.length}건을 만들었습니다. ${Object.entries(kinds).map(([kind, count]) => `${kind} ${count}건`).join(' · ')}`
+      : '계획서에서 기관 정보로 쓸 사실을 찾지 못했습니다.'
+  });
+}
+
 function dropApplicantCandidate(candidateId, message) {
   const review = state.applicantExtraction;
   if (!review) return;
@@ -826,7 +864,9 @@ function applyApplicantCandidate(candidateId) {
   const applicant = findApplicant(state.applicants, review?.applicantId);
   if (!candidate || !applicant) return;
   state.applicants = upsertApplicant(state.applicants, applyUpdateCandidate(applicant, candidate));
-  dropApplicantCandidate(candidateId, `${candidate.label} 후보를 ‘확인 필요’ 상태로 반영했습니다. 확인 후 상태를 변경하고 저장하세요.`);
+  dropApplicantCandidate(candidateId, candidate.kind === '동일'
+    ? `${candidate.label}은 기존 값 그대로 두고 이 문서를 근거로 추가했습니다.`
+    : `${candidate.label} 후보를 ‘확인 필요’ 상태로 반영했습니다. 확인 후 상태를 변경하고 저장하세요.`);
   void persistApplicant(applicant.id, false);
 }
 
@@ -835,10 +875,10 @@ function applySafeApplicantCandidates() {
   const applicant = findApplicant(state.applicants, review?.applicantId);
   if (!review || !applicant) return;
   const { applicant: updated, applied } = applySafeCandidates(applicant, review.candidates);
-  if (!applied) return setState({ notice: '일괄 반영할 신규·누적 후보가 없습니다. 변경·충돌 후보는 개별 확인이 필요합니다.' });
+  if (!applied) return setState({ notice: '일괄 반영할 신규·누적·근거 추가 후보가 없습니다. 변경·충돌 후보는 개별 확인이 필요합니다.' });
   state.applicants = upsertApplicant(state.applicants, updated);
-  const remaining = review.candidates.filter(candidate => candidate.kind !== '신규' && candidate.kind !== '누적 추가');
-  setState({ applicants: state.applicants, applicantExtraction: { ...review, candidates: remaining }, notice: `신규·누적 후보 ${applied}건을 ‘확인 필요’ 상태로 반영했습니다.`, error: '' });
+  const remaining = review.candidates.filter(candidate => !['신규', '누적 추가'].includes(candidate.kind) && !(candidate.kind === '동일' && candidate.existingItemId));
+  setState({ applicants: state.applicants, applicantExtraction: { ...review, candidates: remaining }, notice: `후보 ${applied}건을 반영했습니다. 신규·누적은 ‘확인 필요’ 상태로 추가하고, 같은 정보는 근거만 추가했습니다.`, error: '' });
   void persistApplicant(applicant.id, false);
 }
 

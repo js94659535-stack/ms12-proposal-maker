@@ -88,8 +88,12 @@ test('반영은 사용자가 고른 후보만 적용하고 기존 값은 이력�
   assert.equal(conflicted.status, '확인 필요');
   assert.deepEqual(conflicted.history.map(entry => entry.value), ['사회복지법인']);
 
-  // 동일 후보는 아무 것도 바꾸지 않는다.
-  assert.deepEqual(applyUpdateCandidate(base, pick(result, '기관명')).items, base.items);
+  // 동일 후보는 값·상태를 바꾸지 않고 근거만 덧붙인다.
+  const same = applyUpdateCandidate(base, pick(result, '기관명')).items.find(item => item.id === 'a-basic');
+  assert.equal(same.value, 'QA 신청기관 A');
+  assert.equal(same.status, CONFIRMED_STATUS);
+  assert.match(same.source, /^QA 등기부등본 \/ QA문서\.txt에서 추출/);
+  assert.deepEqual(same.history, []);
 
   // 이전 시점 문서는 현재 값을 바꾸지 않고 이력만 추가한다.
   const older = applyUpdateCandidate(base, pick(review(OLD_DOCUMENT, base), '운영 시설')).items.find(item => item.id === 'a-facilities');
@@ -98,13 +102,16 @@ test('반영은 사용자가 고른 후보만 적용하고 기존 값은 이력�
   assert.deepEqual(older.history.map(entry => entry.value), ['상담실 2실']);
 });
 
-test('일괄 반영은 기존 값을 바꾸지 않는 신규·누적 후보만 처리한다', () => {
+test('일괄 반영은 기존 값을 바꾸지 않는 신규·누적·근거 추가 후보만 처리한다', () => {
   const base = applicant();
   const result = review(RECENT_DOCUMENT, base);
   const { applicant: updated, applied } = applySafeCandidates(base, result.candidates);
-  assert.equal(applied, 2);
+  assert.equal(applied, 3);
   assert.equal(updated.items.find(item => item.id === 'a-legal').value, '사회복지법인');
   assert.equal(updated.items.find(item => item.id === 'a-staff').value, '3명');
+  // 동일 후보는 값을 유지한 채 근거만 늘어난다.
+  assert.equal(updated.items.find(item => item.id === 'a-basic').value, 'QA 신청기관 A');
+  assert.match(updated.items.find(item => item.id === 'a-basic').source, /QA문서\.txt에서 추출/);
   assert.equal(updated.items.filter(item => item.status === '확인 필요' && item.label === '보유 자격').length, 1);
 });
 

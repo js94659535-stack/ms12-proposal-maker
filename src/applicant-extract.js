@@ -26,6 +26,22 @@ const LABELED_RULES = [
   { area: 'references', label: '근거자료', pattern: /^(?:증빙|근거\s*자료|첨부\s*서류)\s*[:：]\s*(.+)$/ }
 ];
 
+// 사업계획서·결과보고서 같은 서술형 문서에서 계획서 작성에 실제로 쓰이는 기관 사실만 좁게 뽑는다.
+const NARRATIVE_RULES = [
+  { area: 'staff', label: '상근 인력', pattern: /(?:상근|전담)\s*(?:직원|인력|종사자|실무자)\s*(\d+\s*명)/ },
+  { area: 'staff', label: '보유 자격', pattern: /((?:사회복지사|상담사|청소년지도사|임상심리사|간호사|영양사|평생교육사)[^\n.]{0,12}?\s*\d+\s*명)/ },
+  { area: 'programs', label: '운영 회기', pattern: /(?:프로그램|과정|교육|상담)[^\n.]{0,20}?(?:총\s*)?(\d+\s*(?:회기|회))/ },
+  { area: 'facilities', label: '운영 시설', pattern: /((?:상담실|교육실|강의실|치료실|집단상담실|사무실|프로그램실)\s*\d+\s*(?:실|개))/ },
+  { area: 'partners', label: '협력기관', pattern: /([가-힣A-Za-z0-9()·\s]{2,30}?)(?:과|와)\s*(?:업무\s*)?(?:협약|MOU)[^\n.]{0,10}?(?:체결|맺)/i },
+  { area: 'budget', label: '총사업비', pattern: /(?:총\s*사업비|총사업비)\s*(?:는|은)?\s*([\d,]+\s*(?:원|만원|억원))/ },
+  { area: 'budget', label: '자부담', pattern: /자부담[^\n.]{0,10}?([\d,]+\s*(?:원|만원|억원)|\d+\s*%)/ },
+  { area: 'measurement', label: '성과측정 경험', pattern: /((?:사전[·\-\s]?사후\s*(?:검사|평가|조사)|만족도\s*조사|[가-힣A-Za-z]{2,20}\s*척도))/ },
+  { area: 'performance', label: '주요 성과', pattern: /(출석률|만족도|재참여율|이수율)\s*(\d+(?:\.\d+)?\s*%)/ }
+];
+
+// 개인 신상정보는 기관 정보로 수집하지 않는다.
+const PERSONAL_INFO_PATTERN = /(\d{6}\s*[-–]\s*\d{7})|(01[016-9][-.\s]?\d{3,4}[-.\s]?\d{4})|(\d{2,4}[-.\s]\d{3,4}[-.\s]\d{4})|([\w.+-]+@[\w-]+\.[\w.]+)|(생년월일|주민등록번호|휴대(?:전화|폰)|연락처|이메일|e-?mail)/i;
+
 // 라벨이 없어도 실적 줄은 연도와 함께 누적 정보로 모은다.
 const PERFORMANCE_PATTERN = /^(20\d{2})\s*년?\s*[.\-·]?\s*(.{4,80}?(?:사업|프로그램|공모|위탁|용역))\s*$/;
 const DOCUMENT_DATE_PATTERN = /(?:작성일|기준일|기준\s*시점|발행일|보고일)\s*[:：]?\s*(20\d{2})[.\-년\s]*(\d{1,2})?/;
@@ -49,33 +65,38 @@ export function documentAsOf(text) {
   return head ? asOfFrom(head) : '';
 }
 
-export function extractApplicantCandidates(text, { documentName = '' } = {}) {
+export function extractApplicantCandidates(text, { documentName = '', includeNarrative = false, sourceLabel = '' } = {}) {
   const body = String(text || '');
   const docAsOf = documentAsOf(body);
-  const source = clean(documentName, 200) ? `${clean(documentName, 200)}에서 추출` : '업로드한 기관 문서에서 추출';
+  const name = clean(documentName, 200);
+  const source = name ? `${name}${sourceLabel ? `(${sourceLabel})` : ''}에서 추출` : `${sourceLabel || '업로드한 기관 문서'}에서 추출`;
   const seen = new Set();
   const candidates = [];
+  const add = (area, label, value, lineAsOf, excerpt) => {
+    if (!value || candidates.length >= 60) return;
+    // 개인 신상정보가 섞인 문장은 기관 정보 후보로 만들지 않는다.
+    if (PERSONAL_INFO_PATTERN.test(excerpt) || PERSONAL_INFO_PATTERN.test(value)) return;
+    const key = `${area}:${normalizeKey(label)}:${normalizeKey(value)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    candidates.push({ id: `cand-${candidates.length + 1}`, area, label, value, source, asOf: lineAsOf, asOfStatus: lineAsOf ? '기준시점 확인됨' : ASOF_UNKNOWN, excerpt: clean(excerpt, 300) });
+  };
   for (const line of body.split(/\n+/).map(value => value.trim()).filter(Boolean)) {
     if (candidates.length >= 60) break;
+    const lineAsOf = asOfFrom(line.match(ANY_DATE_PATTERN)) || docAsOf;
     const performance = line.match(PERFORMANCE_PATTERN);
-    const rule = performance ? null : LABELED_RULES.find(item => item.pattern.test(line));
-    if (!performance && !rule) continue;
-    const area = performance ? 'performance' : rule.area;
-    const label = performance ? `${performance[1]}년 사업실적` : rule.label;
-    const value = clean(performance ? performance[2] : line.match(rule.pattern)[1], 500);
-    if (!value) continue;
-    const key = `${area}:${normalizeKey(label)}:${normalizeKey(value)}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const lineAsOf = performance ? performance[1] : asOfFrom(line.match(ANY_DATE_PATTERN)) || docAsOf;
-    candidates.push({
-      id: `cand-${candidates.length + 1}`,
-      area, label, value, source,
-      asOf: lineAsOf,
-      asOfStatus: lineAsOf ? '기준시점 확인됨' : ASOF_UNKNOWN
-    });
+    if (performance) { add('performance', `${performance[1]}년 사업실적`, clean(performance[2], 500), performance[1], line); continue; }
+    const rule = LABELED_RULES.find(item => item.pattern.test(line));
+    if (rule) { add(rule.area, rule.label, clean(line.match(rule.pattern)[1], 500), lineAsOf, line); continue; }
+    if (!includeNarrative) continue;
+    for (const narrative of NARRATIVE_RULES) {
+      const match = line.match(narrative.pattern);
+      if (!match) continue;
+      const value = clean(match.slice(1).filter(Boolean).join(' '), 200);
+      add(narrative.area, narrative.label, value, lineAsOf, line);
+    }
   }
-  return { documentName: clean(documentName, 200), documentAsOf: docAsOf, candidates };
+  return { documentName: name, documentAsOf: docAsOf, candidates };
 }
 
 function findExistingItem(applicant, candidate) {
@@ -103,11 +124,11 @@ export function buildUpdateCandidates(applicant, extraction) {
       existingAsOf: existing?.asOf || ''
     };
     if (CUMULATIVE_AREAS.includes(candidate.area)) {
-      if (existing && normalizeKey(existing.value) === normalizeKey(candidate.value)) return { ...base, kind: '동일', action: '기존 실적과 같은 내용이므로 추가하지 않습니다.' };
+      if (existing && normalizeKey(existing.value) === normalizeKey(candidate.value)) return { ...base, kind: '동일', action: '이미 있는 실적이므로 값은 그대로 두고 이 문서를 근거로만 추가합니다.' };
       return { ...base, kind: '누적 추가', action: '사업실적은 누적 정보이므로 기존 기록을 두고 새 항목으로 추가합니다.' };
     }
     if (!existing) return { ...base, kind: '신규', action: '기관 정보에 없는 항목이므로 ‘확인 필요’ 상태로 추가합니다.' };
-    if (normalizeKey(existing.value) === normalizeKey(candidate.value)) return { ...base, kind: '동일', action: '기존 정보와 같으므로 변경하지 않습니다.' };
+    if (normalizeKey(existing.value) === normalizeKey(candidate.value)) return { ...base, kind: '동일', action: '기존 정보와 같으므로 값·상태는 바꾸지 않고 이 문서를 근거로만 추가합니다.' };
     if (candidate.asOf && existing.asOf && asOfYear(candidate.asOf) < asOfYear(existing.asOf)) {
       return { ...base, kind: '이전 시점 정보', action: '기존 정보보다 이전 시점 문서이므로 현재 값을 바꾸지 않고 이력으로만 남깁니다.' };
     }
@@ -130,9 +151,20 @@ function historyEntry(item, replacedAt) {
 // 사용자가 반영을 누른 후보 한 건만 적용한다. 기존 값은 삭제하지 않고 이력으로 남긴다.
 export function applyUpdateCandidate(applicant, candidate) {
   const base = normalizeApplicant(applicant);
-  if (!candidate || candidate.kind === '동일') return base;
+  if (!candidate) return base;
   const now = new Date().toISOString();
   const source = candidate.asOf ? `${candidate.source} (기준시점 ${candidate.asOf})` : `${candidate.source} (${ASOF_UNKNOWN})`;
+  // 같은 정보는 값·상태를 그대로 두고 근거 출처만 덧붙인다.
+  if (candidate.kind === '동일') {
+    if (!candidate.existingItemId) return base;
+    return {
+      ...base,
+      items: base.items.map(item => (item.id === candidate.existingItemId && !item.source.includes(candidate.source)
+        ? { ...item, source: `${item.source ? `${item.source} / ` : ''}${source}`.slice(0, 300), updatedAt: now }
+        : item)),
+      updatedAt: now
+    };
+  }
   if (candidate.kind === '신규' || candidate.kind === '누적 추가' || !candidate.existingItemId) {
     const item = makeApplicantItem({ area: candidate.area, label: candidate.label, value: candidate.value, status: '확인 필요', source, asOf: candidate.asOf, updatedAt: now });
     return { ...base, items: [...base.items, item], updatedAt: now };
@@ -155,8 +187,9 @@ export function applyUpdateCandidate(applicant, candidate) {
   return { ...base, items, updatedAt: now };
 }
 
-// 신규·누적처럼 기존 값을 바꾸지 않는 후보만 한 번에 반영한다. 충돌·변경은 개별 확인이 필요하다.
+// 신규·누적·근거 추가처럼 기존 값을 바꾸지 않는 후보만 한 번에 반영한다. 충돌·변경은 개별 확인이 필요하다.
+const SAFE_KINDS = ['신규', '누적 추가', '동일'];
 export function applySafeCandidates(applicant, candidates) {
-  const safe = (Array.isArray(candidates) ? candidates : []).filter(candidate => candidate.kind === '신규' || candidate.kind === '누적 추가');
+  const safe = (Array.isArray(candidates) ? candidates : []).filter(candidate => SAFE_KINDS.includes(candidate.kind) && (candidate.kind !== '동일' || candidate.existingItemId));
   return { applicant: safe.reduce((current, candidate) => applyUpdateCandidate(current, candidate), normalizeApplicant(applicant)), applied: safe.length };
 }
