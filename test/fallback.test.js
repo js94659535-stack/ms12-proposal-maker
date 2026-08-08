@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { localAnalyze, localDraft } from '../src/fallback.js';
-import { draftReviewState, incompleteFailure, masterReviewState, mixedApplicationType, normalizeManualSources, onRequest, validateEngineResult, validateMasterResult, validatePartResult } from '../functions/api/proposal.js';
+import { draftReviewState, incompleteFailure, masterReviewState, mixedApplicationType, normalizeManualSources, onRequest, partContext, validateEngineResult, validateMasterResult, validatePartResult } from '../functions/api/proposal.js';
 import { buildOfficialSummary, classifyAttachment, handleNoticeRequest, isBusinessNotice, isOpenDeadline, mergeNoticeCandidates, parseProposalList, splitSubprojects } from '../functions/api/notices.js';
 import { buildPrintDocument } from '../src/export.js';
 import { onRequest as handleArchiveRequest, syncNotices } from '../functions/api/archive.js';
@@ -98,6 +98,59 @@ test('마스터 설계는 10개 호환 항목을 중복 없이 포함하고 분�
   assert.match(validatePartResult({ sections: [{ id: 'necessity' }, { id: 'purpose' }], continuityCheck: { ...continuityCheck, numericConsistent: false, issues: ['인원 불일치'] }, continuitySummary }, { sectionKeys: ['necessity', 'purpose'] }), /연속성 검증에 실패/);
   const variablePlan = keys.map((key, index) => ({ id: `g${index}`, title: key, sectionKeys: [key] }));
   assert.equal(validateMasterResult({ ...master, sectionPlan: variablePlan }), '');
+});
+
+test('분할 생성은 공고 원문 전체 대신 master가 확정한 경량 문맥만 다시 쓴다', () => {
+  const payload = {
+    sourceText: '공'.repeat(70_000),
+    selectedSubprogram: '재학대예방형 사업',
+    group: { id: 'g1', title: '문제 의식과 목적', sectionKeys: ['necessity', 'purpose'] },
+    master: {
+      masterLogic: {
+        problem: '학대피해아동 가족기능 약화', causes: '보호자 양육부담', coreStrategy: '가정방문 사례관리',
+        baselineValues: [{ item: '핵심 참여자', value: '공고 70명 이상 / 설계 15명 충돌로 [확인 필요]' }],
+        outputOutcomeMeasurementLinks: [{ output: '가정방문 기록', outcome: '재학대 위험 감소' }, { output: '예산 집행', outcome: '예산 적정성' }],
+        evaluationResponsePlan: [{ criterion: '사업 필요성', plan: '지역 문제 근거 제시' }, { criterion: '예산 적정성', plan: '단가 근거 제시' }],
+        claimEvidencePlan: [{ claim: '문제 규모', evidence: '공고문: 재학대 예방이 필요하다', location: '공고문 3쪽' }, { claim: '예산 한도', evidence: '1개소당 140,000,000원', location: '공고문 7쪽' }]
+      },
+      evidenceMap: [{ id: 'e1', claim: '대상', evidence: '학대피해아동 대상', location: '공고문' }, { id: 'e2', claim: '예산', evidence: '예산 한도', location: '공고문' }],
+      sponsorIntent: { coreProblem: '재학대 위험', expectedChange: '가족기능 회복', selectionLogic: ['가정 단위 개입'] }
+    },
+    organization: {
+      confirmedFacts: [{ title: '기관명', content: '수완지역아동센터' }, { title: '운영 시설', content: '상담실 보유' }],
+      needsVerification: [{ title: '전문인력' }],
+      projectSpecificValues: [{ label: '인원', thisProjectValue: '학대피해아동 15명, 보호자 15명' }],
+      pastProjectRecords: [{ year: '2024', records: [{ title: '운영 회기', content: '주 2회 20회기 운영' }, { title: '총사업비', content: '16,100,000원' }] }]
+    },
+    projectBlueprint: {
+      applicationType: '재학대예방형', otherApplicationTypes: ['아동보호형'],
+      officialConflicts: [{ field: '인원', officialValue: '70명 이상', userValue: '15명' }],
+      items: [{ section: '핵심 대상', status: '확정', value: '학대피해아동' }, { section: '예산 구조', status: '확인 필요', value: '[확인 필요]' }, { section: '세부 목표', status: '설계안', proposedOnly: true }],
+      unresolvedSections: [{ sectionKey: 'budget', from: ['예산 구조'] }], rule: '규칙'
+    }
+  };
+  const context = partContext(payload);
+  const text = JSON.stringify(context);
+  // 공고 원문 전체와 과거 실적 전체는 다시 넣지 않는다.
+  assert.ok(text.length < 6_000, `경량 문맥이 너무 큽니다: ${text.length}`);
+  assert.doesNotMatch(text, /공공공공/);
+  assert.doesNotMatch(text, /20회기/);
+  assert.doesNotMatch(text, /16,100,000/);
+  // 반드시 유지할 기준은 남긴다.
+  assert.equal(context.fixedBasis.applicationType, '재학대예방형');
+  assert.deepEqual(context.fixedBasis.excludedApplicationTypes, ['아동보호형']);
+  assert.equal(context.fixedBasis.baselineValues.length, 1);
+  assert.ok(context.officialEvidence.length > 0 && context.officialEvidence.every(item => item.evidence && item.location));
+  assert.equal(context.officialConflicts.length, 1);
+  assert.equal(context.thisProject.confirmedValues.length, 1);
+  assert.deepEqual(context.thisProject.unresolved, ['예산 구조']);
+  assert.deepEqual(context.thisProject.proposedOnly, ['세부 목표']);
+  assert.equal(context.thisProject.projectSpecificValues[0].thisProjectValue, '학대피해아동 15명, 보호자 15명');
+  assert.ok(context.applicantConfirmed.length > 0);
+  assert.deepEqual(context.applicantNeedsVerification, ['전문인력']);
+  // 현재 항목과 관련된 근거만 골라 담는다.
+  const budgetContext = partContext({ ...payload, group: { id: 'g2', title: '예산', sectionKeys: ['budget'] } });
+  assert.ok(budgetContext.fixedBasis.claimEvidencePlan.some(item => /예산/.test(JSON.stringify(item))));
 });
 
 test('마스터 단계에서 자기점검 실패는 경고이고 다른 신청유형 설계만 막는다', () => {

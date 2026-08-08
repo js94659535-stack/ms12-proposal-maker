@@ -104,7 +104,10 @@ const SYSTEM_POLICY = `당신은 대한민국 기관 제출용 사업계획서 �
 
 function validate(action, payload) {
   if (!payload || typeof payload !== 'object') return '요청 내용이 없습니다.';
-  const includesSource = action === 'analyze' || action === 'master' || action === 'draftPart' || (action === 'draft' && typeof payload.sourceText === 'string');
+  // 분할 생성은 master가 확정한 경량 문맥만 쓰므로 공고 원문을 다시 받지 않는다.
+  const includesSource = action === 'analyze' || action === 'master' || (action === 'draft' && typeof payload.sourceText === 'string');
+  if (action === 'draftPart' && (!payload.master?.masterLogic || !Array.isArray(payload.group?.sectionKeys) || !payload.group.sectionKeys.length)) return '분할 생성에는 확정된 마스터 설계와 작성할 항목이 필요합니다.';
+  if (action === 'draftPart' && jsonLength(payload.master) > 200_000) return '마스터 설계가 허용 길이를 초과했습니다.';
   const manualSources = normalizeManualSources(payload.manualSources);
   const manualChars = manualSources.reduce((sum, value) => sum + value.extractedText.length, 0);
   if (Array.isArray(payload.manualSources) && payload.manualSources.length > 30) return '직접 자료는 최대 30개까지 추가할 수 있습니다.';
@@ -120,6 +123,71 @@ function validate(action, payload) {
   if (action === 'draftPart' && jsonLength(payload.relevantSections) > 40_000) return '현재 항목에 필요한 이전 내용이 허용 길이를 초과했습니다.';
   if (action !== 'analyze' && !payload.analysis && !includesSource) return '확정된 분석 결과가 없습니다.';
   return '';
+}
+
+// 분할 생성은 master에서 이미 확정된 기준만 다시 쓴다. 공고 원문 전체를 매번 넣지 않고
+// master가 검증해 연결한 근거 문장과 출처만 전달해 근거 추적 가능성을 유지한다.
+const SECTION_TOPICS = {
+  necessity: ['문제', '필요', '배경', '위기', '학대', '대상'],
+  purpose: ['목적', '방향', '회복', '예방'],
+  goals: ['목표', '산출', '성과'],
+  target: ['대상', '참여자', '모집', '선정'],
+  programs: ['프로그램', '사업내용', '활동', '개입', '서비스'],
+  schedule: ['일정', '기간', '월', '추진'],
+  roles: ['인력', '역할', '담당', '연계', '협력', '수행'],
+  budget: ['예산', '사업비', '금액', '단가', '한도'],
+  indicators: ['지표', '측정', '평가', '도구', '검사'],
+  outcomes: ['기대', '효과', '활용', '지속']
+};
+function topicsOf(group) { return [...new Set((group?.sectionKeys || []).flatMap(key => SECTION_TOPICS[key] || []))]; }
+function relevantEntries(list, topics, limit) {
+  const rows = Array.isArray(list) ? list : [];
+  const hit = rows.filter(row => topics.some(topic => JSON.stringify(row).includes(topic)));
+  return (hit.length ? hit : rows).slice(0, limit);
+}
+
+export function partContext(payload) {
+  const group = payload.group || {};
+  const master = payload.master || {};
+  const topics = topicsOf(group);
+  const logic = master.masterLogic || {};
+  const blueprint = payload.projectBlueprint || {};
+  const organization = payload.organization || {};
+  return {
+    group: { id: group.id, title: group.title, sectionKeys: group.sectionKeys || [] },
+    fixedBasis: {
+      selectedSubprogram: payload.selectedSubprogram || payload.project?.title || '',
+      applicationType: blueprint.applicationType || '',
+      excludedApplicationTypes: blueprint.otherApplicationTypes || [],
+      baselineValues: logic.baselineValues || [],
+      problem: logic.problem || '',
+      causes: logic.causes || '',
+      targetRationale: logic.targetRationale || '',
+      coreStrategy: logic.coreStrategy || '',
+      differentiation: logic.differentiation || '',
+      executionMethods: logic.executionMethods || '',
+      outputOutcomeMeasurementLinks: relevantEntries(logic.outputOutcomeMeasurementLinks, topics, 6),
+      evaluationResponsePlan: relevantEntries(logic.evaluationResponsePlan, topics, 6),
+      claimEvidencePlan: relevantEntries(logic.claimEvidencePlan, topics, 8)
+    },
+    officialEvidence: relevantEntries(master.evidenceMap, topics, 12),
+    sponsorIntent: {
+      coreProblem: master.sponsorIntent?.coreProblem || '',
+      expectedChange: master.sponsorIntent?.expectedChange || '',
+      selectionLogic: (master.sponsorIntent?.selectionLogic || []).slice(0, 6)
+    },
+    officialConflicts: blueprint.officialConflicts || [],
+    thisProject: {
+      confirmedValues: (blueprint.items || []).filter(item => item.status === '확정'),
+      proposedOnly: (blueprint.items || []).filter(item => item.proposedOnly).map(item => item.section),
+      unresolved: (blueprint.items || []).filter(item => item.status === '확인 필요').map(item => item.section),
+      unresolvedSections: blueprint.unresolvedSections || [],
+      projectSpecificValues: organization.projectSpecificValues || []
+    },
+    applicantConfirmed: relevantEntries(organization.confirmedFacts, topics, 8),
+    applicantNeedsVerification: (organization.needsVerification || []).map(item => item.title || item),
+    rule: blueprint.rule || ''
+  };
 }
 
 // 사업 설계도를 작성 기준으로 넘긴다. 설계도 자체는 앱에서 만든 결과이며 여기서 다시 설계하지 않는다.
@@ -151,8 +219,10 @@ sectionPlan은 실제 공모신청서·사업계획서 서식의 질문과 목�
   };
   if (action === 'draftPart') return {
     name: 'proposal_draft_part', schema: DRAFT_PART_SCHEMA,
-    prompt: `<MASTER_DESIGN>${JSON.stringify(payload.master)}</MASTER_DESIGN>\n<CURRENT_APPLICATION_GROUP>${JSON.stringify(payload.group)}</CURRENT_APPLICATION_GROUP>\n<CONTINUITY_SUMMARY>${JSON.stringify(payload.continuitySummary || {})}</CONTINUITY_SUMMARY>\n<RELEVANT_PREVIOUS_SECTIONS>${JSON.stringify(payload.relevantSections || [])}</RELEVANT_PREVIOUS_SECTIONS>\n<OFFICIAL_NOTICE_TEXT>${payload.sourceText}</OFFICIAL_NOTICE_TEXT>\n<MANUAL_SOURCES>${JSON.stringify(normalizeManualSources(payload.manualSources))}</MANUAL_SOURCES>\n<CONFIRMED_USER_ANSWERS>${JSON.stringify(payload.userAnswers || {})}</CONFIRMED_USER_ANSWERS>\n<CANDIDATE_ASSETS>${JSON.stringify(payload.organization)}</CANDIDATE_ASSETS>\n${blueprintBlock(payload)}
-MASTER_DESIGN을 변경하거나 다시 설계하지 말고 CURRENT_APPLICATION_GROUP.sectionKeys에 지정된 공식 신청서 질문·목차에 정확히 대응하는 항목만 이어서 작성하라. MASTER_DESIGN의 공모 의도, 문제→원인→대상→전략→실행→산출→변화→성과측정 논리와 대상·인원·기간·회기·역할·예산·성과지표 기준값은 모든 분할의 변경 불가능한 공통 기준이다.
+    prompt: `<MASTER_CONTEXT>${JSON.stringify(partContext(payload))}</MASTER_CONTEXT>\n<CURRENT_APPLICATION_GROUP>${JSON.stringify(payload.group)}</CURRENT_APPLICATION_GROUP>\n<CONTINUITY_SUMMARY>${JSON.stringify(payload.continuitySummary || {})}</CONTINUITY_SUMMARY>\n<RELEVANT_PREVIOUS_SECTIONS>${JSON.stringify(payload.relevantSections || [])}</RELEVANT_PREVIOUS_SECTIONS>\n<CONFIRMED_USER_ANSWERS>${JSON.stringify(payload.userAnswers || {})}</CONFIRMED_USER_ANSWERS>\n${BLUEPRINT_RULE}\n
+MASTER_CONTEXT는 master 단계에서 이미 확정·검증된 기준이다. 다시 설계하거나 값을 바꾸지 말고 CURRENT_APPLICATION_GROUP.sectionKeys에 지정된 공식 신청서 질문·목차에 정확히 대응하는 항목만 이어서 작성하라. fixedBasis의 문제→원인→대상→전략→실행→산출→변화→성과측정 논리와 baselineValues(대상·인원·기간·회기·역할·예산·성과지표 기준값)는 모든 분할의 변경 불가능한 공통 기준이다.
+공고 원문 전체는 다시 제공되지 않는다. 근거가 필요한 문장은 officialEvidence와 fixedBasis.claimEvidencePlan에 있는 근거 문장·출처만 사용하고, 그 안에 없는 공고 조건·자격·배점·수치는 새로 만들지 말고 [확인 필요]로 남긴다.
+fixedBasis.applicationType의 조건만 사용하고 excludedApplicationTypes의 대상·사업내용은 쓰지 않는다. thisProject.confirmedValues와 projectSpecificValues의 값은 그대로 유지하고 다른 수치로 바꾸지 않는다. thisProject.unresolved 항목과 officialConflicts는 임의로 확정·해결하지 말고 두 값을 함께 드러내며 [확인 필요]를 유지한다. applicantConfirmed에 없는 기관 인력·실적·자격·예산은 사실로 쓰지 않는다.
 CONTINUITY_SUMMARY는 앞 분할에서 확정된 핵심 결정·용어·수치·논리의 압축본이며 RELEVANT_PREVIOUS_SECTIONS는 현재 항목 작성에 실제 필요한 이전 내용만 담는다. 두 자료를 기준으로 동일한 계획서를 이어 쓰되, 전달되지 않은 과거 분할 원문을 추측하거나 다시 작성하지 않는다. 사업명·대상 명칭·프로그램명·담당 역할·수치·단위·기간·성과지표 용어를 그대로 유지하고 충돌하는 새 값을 만들지 않는다. 앞 분할에서 이미 충분히 설명한 배경이나 목적을 반복하지 말고 현재 신청 항목에 필요한 연결 문장만 사용한다. 추상적 당위보다 누가·언제·어디서·누구에게·무엇을·몇 회·어떻게 수행하고 어떤 근거와 산출물을 남기는지 구체적으로 작성한다.
 sections의 id는 sectionKeys와 정확히 같아야 하며 그 밖의 섹션은 반환하지 않는다. 제목은 necessity=사업 필요성, purpose=목적, goals=목표, target=대상, programs=세부 프로그램, schedule=추진 일정, roles=운영 인력·역할, budget=예산, indicators=성과지표, outcomes=기대효과를 사용한다. 공식 자료와 사용자 확정 정보에 없는 사실은 만들지 않고 필요한 위치에 [확인 필요]를 유지한다. 검토·심사·수정 의견은 작성하지 않는다.
 작성 후 continuityCheck에서 마스터 정합성, 공식 신청서 구조 대응, 용어·수치 일관성, 불필요한 반복 여부를 스스로 대조하라. 하나라도 충족하지 못하면 임의로 통과 처리하지 말고 issues에 구체적으로 기록하라. continuitySummary에는 이번 분할까지 확정된 핵심 결정만 압축하여 갱신하되 원문 문단을 복사하지 말고 항목당 짧은 문장으로 유지하라.`

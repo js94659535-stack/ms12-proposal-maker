@@ -2198,6 +2198,12 @@ function generationPayload() {
   return { sourceText: state.sourceText, manualSources: state.manualSources.map(({ id, fileName, sourceType, extractedText, extractionStatus, extractionError }) => ({ id, fileName, sourceType, extractedText, extractionStatus, extractionError })), projectType: typeName(), project: state.project, selectedSubprogram: state.selectedNotice?.selectedSubproject || state.selectedNotice?.title || state.project.title, organization: organizationForGeneration(), userAnswers: state.designAnswers, projectBlueprint: blueprintHandoff() };
 }
 
+// 분할 생성은 master가 확정한 기준만 다시 쓴다. 공고 원문·직접자료를 매 분할마다 다시 보내지 않는다.
+function partPayload() {
+  const { sourceText, manualSources, ...rest } = generationPayload();
+  return rest;
+}
+
 // 설계도를 초안 작성으로 넘긴다. 확정값은 그대로, 설계안은 설계안으로, 미확정은 [확인 필요]로만 넘긴다.
 function blueprintHandoff() {
   const blueprint = currentBlueprint();
@@ -2243,7 +2249,7 @@ async function generateProposalParts() {
     for (const group of groups) {
       if (completed.has(group.id)) continue;
       const relevantSections = relevantPreviousSections(group, state.stagedGeneration.parts);
-      const result = await draftPartWithAI({ ...generationPayload(), analysis: state.analysis, master: staged.master, group, continuitySummary: state.stagedGeneration.continuitySummary, relevantSections });
+      const result = await draftPartWithAI({ ...partPayload(), analysis: state.analysis, master: staged.master, group, continuitySummary: state.stagedGeneration.continuitySummary, relevantSections });
       state.stagedGeneration.parts = [...state.stagedGeneration.parts.filter(part => part.groupId !== group.id), { groupId: group.id, sections: result.sections }];
       state.stagedGeneration.continuitySummary = result.continuitySummary;
       completed.add(group.id);
