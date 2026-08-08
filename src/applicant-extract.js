@@ -29,12 +29,15 @@ const LABELED_RULES = [
 // 사업계획서·결과보고서 같은 서술형 문서에서 계획서 작성에 실제로 쓰이는 기관 사실만 좁게 뽑는다.
 const NARRATIVE_RULES = [
   { area: 'staff', label: '상근 인력', pattern: /(?:상근|전담)\s*(?:직원|인력|종사자|실무자)\s*(\d+\s*명)/ },
+  { area: 'staff', label: '참여 인력', pattern: /참여\s*인력\s*수?\s*[:：]?\s*(\d+\s*명)/ },
   { area: 'staff', label: '보유 자격', pattern: /((?:사회복지사|상담사|청소년지도사|임상심리사|간호사|영양사|평생교육사)[^\n.]{0,12}?\s*\d+\s*명)/ },
   { area: 'programs', label: '운영 회기', pattern: /(?:프로그램|과정|교육|상담|시행|운영)[^\n.]{0,20}?(?:총\s*)?(\d+\s*(?:회기|회))|총\s*(\d+\s*회기)/ },
   { area: 'facilities', label: '운영 시설', pattern: /((?:상담실|교육실|강의실|치료실|집단상담실|사무실|프로그램실)\s*\d+\s*(?:실|개))/ },
   { area: 'partners', label: '협력기관', pattern: /([가-힣A-Za-z0-9()·\s]{2,30}?)(?:과|와)\s*(?:업무\s*)?(?:협약|MOU)[^\n.]{0,10}?(?:체결|맺)/i },
-  { area: 'budget', label: '총사업비', pattern: /(?:총\s*사업비|총사업비)\s*(?:는|은)?\s*([\d,]+\s*(?:원|만원|억원))/ },
-  { area: 'budget', label: '자부담', pattern: /자부담[^\n.]{0,10}?([\d,]+\s*(?:원|만원|억원)|\d+\s*%)/ },
+  { area: 'budget', label: '총사업비', pattern: /(?:총\s*사업비|총사업비|총\s*액)\s*(?:는|은)?\s*[:：]?\s*([\d,]{3,}\s*(?:천원|만원|억원|원))/ },
+  { area: 'budget', label: '자부담', pattern: /자부담[^\n.]{0,10}?([\d,]{3,}\s*(?:천원|만원|억원|원)|\d+\s*%)/ },
+  // 서식형 실적표는 "2024년   ○○사업   …" 형태로 줄 끝이 사업명이 아닐 수 있다. 문서 제목·신청 문구는 제외한다.
+  { area: 'performance', label: '연도별 수행실적', pattern: /(20\d{2})\s*년\s+(?!.{0,40}(?:계획서|신청|공고|양식))(.{4,50}?(?:사업|프로그램|과정|용역|위탁))/ },
   { area: 'measurement', label: '성과측정 경험', pattern: /((?:사전[·\-\s]?사후\s*(?:검사|평가|조사)|만족도\s*조사|[가-힣A-Za-z]{2,20}\s*척도))/ },
   { area: 'performance', label: '주요 성과', pattern: /(출석률|만족도|재참여율|이수율)\s*(\d+(?:\.\d+)?\s*%)/ }
 ];
@@ -69,6 +72,10 @@ function usableValue(segment, rule = null) {
   const value = String(segment ?? '').trim();
   if (value.length < 2 || value.length > 200 || !/[가-힣A-Za-z0-9]/.test(value)) return false;
   if (segmentRule(value) || HEADER_VALUE_PATTERN.test(value)) return false;
+  // 빈 서식의 라벨 줄("법인등기번호 사업자등록번호 소재지 대표자")이나 한두 글자 칸은 값이 아니다.
+  const key = labelKey(value);
+  if (!/\d/.test(value) && key.length <= 3) return false;
+  if ([...LABEL_KEY_MAP.keys()].filter(label => label.length > 2 && key.includes(label)).length >= 2) return false;
   // 예산·번호 항목은 숫자가 있어야 실제 값으로 본다.
   if ((rule?.area === 'budget' || rule?.label === '고유번호') && !/\d/.test(value)) return false;
   return true;
@@ -124,6 +131,11 @@ export function extractApplicantCandidates(text, { documentName = '', includeNar
     const rule = LABELED_RULES.find(item => item.pattern.test(line));
     if (rule) { add(rule.area, rule.label, clean(line.match(rule.pattern)[1], 500), lineAsOf, line); continue; }
     if (!includeNarrative) continue;
+    // 줄 전체에서 먼저 확인한다("참여 인력 수 : 5 명"처럼 칸이 나뉘면 놓치기 때문).
+    for (const narrative of NARRATIVE_RULES) {
+      const match = line.match(narrative.pattern);
+      if (match) add(narrative.area, narrative.label, clean(match.slice(1).filter(Boolean).join(' '), 200), lineAsOf, line);
+    }
     // 표·서식형 문서는 한 줄에 여러 칸이 붙어 오므로 칸 단위로도 확인한다.
     const segments = line.split(SEGMENT_SPLIT).map(value => value.trim()).filter(Boolean);
     for (let index = 0; index < segments.length; index += 1) {
@@ -133,6 +145,13 @@ export function extractApplicantCandidates(text, { documentName = '', includeNar
       if (performanceSegment) { add('performance', `${performanceSegment[1]}년 사업실적`, clean(performanceSegment[2], 500), performanceSegment[1], segment); continue; }
       const labeled = LABELED_RULES.find(item => item.pattern.test(segment));
       if (labeled) { add(labeled.area, labeled.label, clean(segment.match(labeled.pattern)[1], 500), segmentAsOf, segment); continue; }
+      // 실적표는 "2024년 | ○○사업 | 규모"처럼 연도 칸이 따로 온다.
+      const yearOnly = segment.match(/^(20\d{2})\s*년?$/);
+      if (yearOnly && usableValue(segments[index + 1]) && /사업|프로그램|과정|교육|용역|위탁/.test(segments[index + 1])) {
+        add('performance', `${yearOnly[1]}년 사업실적`, clean(segments[index + 1], 300), yearOnly[1], `${segment} ${segments[index + 1]} ${segments[index + 2] || ''}`);
+        index += 1;
+        continue;
+      }
       const keyed = segments.length > 1 ? segmentRule(segment) : null;
       if (keyed && usableValue(segments[index + 1], keyed)) {
         add(keyed.area, keyed.label, clean(segments[index + 1], 300), segmentAsOf, `${segment} ${segments[index + 1]}`);
