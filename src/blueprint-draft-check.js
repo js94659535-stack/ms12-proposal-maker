@@ -7,7 +7,15 @@ const QUANTITY = /\d[\d,]*\s*(?:명|인|회기|회|차시|시간|개월|주|원)
 const STOPWORDS = new Set(['사업', '지원', '기관', '내용', '경우', '해당', '관련', '통해', '위한', '있는', '대상', '제출', '작성', '확인', '필요', '수행', '운영', '제공']);
 
 function textOf(sections) { return (sections || []).map(section => `${section.title || ''}\n${section.body || section.content || ''}`).join('\n\n'); }
-function sectionText(sections, id) { const found = (sections || []).find(section => section.id === id); return found ? `${found.title || ''} ${found.body || found.content || ''}` : ''; }
+// 10개 항목의 표준 순서. 생성 결과가 id 대신 번호를 쓰더라도 같은 자리를 찾는다.
+const SECTION_ORDER = ['necessity', 'purpose', 'goals', 'target', 'programs', 'schedule', 'roles', 'budget', 'indicators', 'outcomes'];
+function sectionText(sections, id) {
+  const list = sections || [];
+  const byId = list.find(section => section.id === id);
+  const index = SECTION_ORDER.indexOf(id);
+  const found = byId || (list.length === SECTION_ORDER.length && index >= 0 ? list[index] : null);
+  return found ? `${found.title || ''} ${found.body || found.content || ''}` : '';
+}
 function tokensOf(value) {
   return [...new Set(String(value || '').replace(/[^가-힣A-Za-z0-9]/g, ' ').split(/\s+/).filter(token => token.length > 1 && !STOPWORDS.has(token) && !/^\d+$/.test(token)))];
 }

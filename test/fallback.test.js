@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { localAnalyze, localDraft } from '../src/fallback.js';
-import { normalizeManualSources, onRequest, validateEngineResult, validateMasterResult, validatePartResult } from '../functions/api/proposal.js';
+import { draftReviewState, normalizeManualSources, onRequest, validateEngineResult, validateMasterResult, validatePartResult } from '../functions/api/proposal.js';
 import { buildOfficialSummary, classifyAttachment, handleNoticeRequest, isBusinessNotice, isOpenDeadline, mergeNoticeCandidates, parseProposalList, splitSubprojects } from '../functions/api/notices.js';
 import { buildPrintDocument } from '../src/export.js';
 import { onRequest as handleArchiveRequest, syncNotices } from '../functions/api/archive.js';
@@ -537,8 +537,37 @@ test('핵심 사업계획 엔진 결과는 근거·단일 세부사업·질문 �
   };
   assert.equal(validateEngineResult(result), '');
   assert.match(validateEngineResult({ ...result, missingInformation: Array(6).fill('질문') }), /최대 5개/);
-  assert.match(validateEngineResult({ ...result, sections: result.sections.map((section, index) => index ? section : { ...section, content: '[확인 필요]' }) }), /가짜 완성 문구/);
-  assert.match(validateEngineResult({ ...result, qualityCheck: { ...result.qualityCheck, singleSubprogramOnly: false } }), /단일 세부사업/);
+  assert.match(validateEngineResult({ ...result, sections: result.sections.map((section, index) => index ? section : { ...section, content: '짧음' }) }), /본문이 비어 있는/);
+  // 요청한 신청유형이 전혀 없고 다른 유형으로만 작성된 경우는 구조적 실패다.
+  const wrongType = { ...result, sections: result.sections.map(section => ({ ...section, content: '아동보호형 요보호아동을 대상으로 하는 설계 내용' })) };
+  assert.match(validateEngineResult(wrongType, { projectBlueprint: { applicationType: '재학대예방형', otherApplicationTypes: ['아동보호형'] } }), /다른 유형/);
+  assert.equal(validateEngineResult(result, { projectBlueprint: { applicationType: '재학대예방형', otherApplicationTypes: ['아동보호형'] } }), '');
+});
+
+test('초안 단계에서는 [확인 필요]와 자기점검 실패로 초안을 폐기하지 않는다', () => {
+  const base = {
+    sponsorIntent: { evidence: ['공식 공고 근거'] },
+    projectDesign: { projectName: '아동 회복 지원사업' },
+    sections: Array.from({ length: 10 }, (_, index) => ({ id: `s-${index + 1}`, title: `${index + 1}. 항목`, content: '공식 근거와 연결된 설계 내용', citations: ['e-1'], status: '검토 필요' })),
+    missingInformation: ['실제 참여 가능 인원은 몇 명입니까?'],
+    evidenceMap: [{ id: 'e-1', claim: '지원 대상', evidence: '공식 원문', location: '공고문' }],
+    qualityCheck: { noticeAlignment: true, singleSubprogramOnly: false, logicConsistency: true, budgetConsistency: true, measurableOutcomes: true }
+  };
+  const withOpen = { ...base, sections: base.sections.map((section, index) => index ? section : { ...section, content: `${section.content} 총 사업비는 [확인 필요]로 남긴다.` }) };
+  // 초안 생성 실패가 아니다.
+  assert.equal(validateEngineResult(withOpen), '');
+  const state = draftReviewState(withOpen);
+  assert.equal(state.draftStatus, 'NEEDS_REVIEW');
+  assert.equal(state.submissionReady, false);
+  assert.equal(state.unresolvedItems.length, 1);
+  assert.equal(state.unresolvedItems[0].marks, 1);
+  assert.deepEqual(state.warnings.map(item => item.check), ['singleSubprogramOnly']);
+
+  // 경고도 미확정도 없으면 NEEDS_REVIEW가 아니지만 제출 가능으로 표시하지 않는다.
+  const clean = draftReviewState({ ...base, qualityCheck: { ...base.qualityCheck, singleSubprogramOnly: true } });
+  assert.equal(clean.draftStatus, 'DRAFT_READY');
+  assert.equal(clean.submissionReady, false);
+  assert.equal(clean.warnings.length, 0);
 });
 
 test('AI 실패 시 가짜 로컬 완성본을 만들지 않고 정밀 설계 불가 상태를 표시한다', () => {

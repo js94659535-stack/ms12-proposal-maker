@@ -67,8 +67,10 @@ export async function onRequest(context) {
     try { result = JSON.parse(outputText); } catch { return json({ error: 'AI 응답 형식을 해석하지 못했습니다.' }, 502); }
     if (body.action === 'analyze') result.analysis.mode = 'ai';
     if (body.action === 'draft' && typeof body.payload.sourceText === 'string') {
-      const qualityError = validateEngineResult(result);
+      const qualityError = validateEngineResult(result, body.payload);
       if (qualityError) return json({ error: qualityError }, 502);
+      // 모델 자기점검 실패나 [확인 필요]만으로는 초안을 폐기하지 않는다. 상태로 알린다.
+      Object.assign(result, draftReviewState(result));
     }
     if (body.action === 'master') {
       const masterError = validateMasterResult(result);
@@ -250,13 +252,50 @@ export function validatePartResult(result, group) {
   return '';
 }
 
-export function validateEngineResult(result) {
+// 초안으로 쓸 수 없는 구조적 실패만 실패로 본다. 초안 품질 경고와 초안 생성 실패를 분리한다.
+export function validateEngineResult(result, payload = {}) {
   if (!result || !Array.isArray(result.sections) || result.sections.length !== 10) return 'AI 사업설계 결과에 10개 계획서 항목이 없습니다.';
   if (!Array.isArray(result.missingInformation) || result.missingInformation.length > 5) return '부족한 정보 질문은 최대 5개여야 합니다.';
   if (!result.sponsorIntent?.evidence?.length || !result.evidenceMap?.length) return '공모 의도와 사업설계에 공식 원문 근거가 연결되지 않았습니다.';
-  if (!result.qualityCheck?.noticeAlignment || !result.qualityCheck?.singleSubprogramOnly || !result.qualityCheck?.logicConsistency) return '공고 정합성 또는 단일 세부사업 검증을 통과하지 못했습니다.';
-  if (result.sections.some(value => /\[확인 필요\]/.test(value.content || ''))) return '부족한 정보가 계획서 본문에 가짜 완성 문구로 포함되었습니다.';
+  if (result.sections.some(value => String(value.content || '').trim().length < 10)) return '계획서 본문이 비어 있는 항목이 있습니다.';
+  // 요청한 신청유형이 본문에 전혀 없고 다른 유형만 쓰인 경우는 초안으로 쓸 수 없다.
+  const selected = String(payload.projectBlueprint?.applicationType || '').trim();
+  const others = (payload.projectBlueprint?.otherApplicationTypes || []).filter(name => name && name !== selected);
+  if (selected && !selected.startsWith('[') && others.length) {
+    const draft = result.sections.map(value => `${value.title || ''} ${value.content || ''}`).join('\n');
+    const usedOther = others.filter(name => draft.includes(name));
+    if (!draft.includes(selected) && usedOther.length) return `요청한 신청유형(${selected})이 아니라 다른 유형(${usedOther.join(' · ')})으로 작성되었습니다.`;
+  }
   return '';
+}
+
+// 초안은 반환하되 사람이 확인해야 하는 부분을 상태로 알린다.
+export function draftReviewState(result) {
+  const flags = { noticeAlignment: '공고 정합성', singleSubprogramOnly: '단일 세부사업', logicConsistency: '논리 일관성', budgetConsistency: '예산 일관성', measurableOutcomes: '측정 가능한 성과' };
+  const warnings = Object.entries(flags)
+    .filter(([key]) => result?.qualityCheck?.[key] === false)
+    .map(([key, label]) => ({ check: key, label, message: `모델 자기점검에서 ${label} 항목이 통과되지 않았습니다. 초안은 유지하고 사람이 확인해야 합니다.` }));
+  // 본문의 [확인 필요] 표기와 항목 상태('확인 필요') 둘 다 미해결로 본다.
+  const unresolvedItems = (result?.sections || [])
+    .filter(value => /\[확인 필요/.test(value.content || '') || value.status === '확인 필요')
+    .map(value => ({
+      sectionId: value.id,
+      section: value.title,
+      status: value.status || '',
+      marks: (String(value.content || '').match(/\[확인 필요[^\]]*\]/g) || []).length,
+      samples: [...new Set(String(value.content || '').match(/[^.\n]{0,40}\[확인 필요[^\]]*\][^.\n]{0,20}/g) || [])].slice(0, 3)
+    }));
+  const needsReview = warnings.length > 0 || unresolvedItems.length > 0;
+  return {
+    draftStatus: needsReview ? 'NEEDS_REVIEW' : 'DRAFT_READY',
+    // 초안 작성 가능 ≠ 제출 가능. 제출 가능 판단은 기존 제출 전 검증이 따로 한다.
+    submissionReady: false,
+    unresolvedItems,
+    warnings,
+    note: needsReview
+      ? '초안은 정상 생성되었습니다. [확인 필요] 항목과 경고를 확인한 뒤 제출 단계로 넘어가야 합니다.'
+      : '초안은 정상 생성되었습니다. 제출 가능 여부는 제출 전 검증에서 따로 판단합니다.'
+  };
 }
 
 export function normalizeManualSources(values) {

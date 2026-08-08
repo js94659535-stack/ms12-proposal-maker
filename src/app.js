@@ -30,7 +30,7 @@ const initial = {
   step: 0, activeTool: 'workflow', project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
   coaching: { title: '', text: '', validatedText: '', criteriaText: '', officialEvaluationProvided: false, sourceProposalId: '', sourceNoticeKey: '', seriesId: '', currentArchiveId: '', result: null, workItems: [], pendingJob: null, version: 0, references: [], referenceType: REFERENCE_TYPES[0], referenceDraft: '', referenceNameDraft: '' },
   applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, coachingApplicantId: '',
-  revisionPlan: null, proposalVersions: [], coachingSelection: [], applicantSkipped: false, noticeLogic: null,
+  revisionPlan: null, draftReview: null, proposalVersions: [], coachingSelection: [], applicantSkipped: false, noticeLogic: null,
   analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
@@ -639,11 +639,15 @@ function draftBlueprintCheckView() {
   if (!blueprint) return '';
   const report = checkDraftAgainstBlueprint({ blueprint, sections: state.sections, applicant: selectedApplicant() });
   const stateClass = { PASS: '충족', 주의: '부분-충족', FAIL: '부족' };
+  const draftState = state.draftReview || null;
   return `<div class="card"><div class="card-title"><div><h3>설계도 대비 V1 자동 점검</h3><span>V1 원문은 그대로 두고 설계도와 비교만 합니다. 점수를 만들지 않습니다.</span></div><strong>${escapeHtml(report.verdict)}</strong></div>
     <div class="summary-grid"><div><span>신청유형</span><strong>${escapeHtml(report.applicationType || '구분 없음')}</strong><small>선택한 유형만 사용</small></div>
     <div><span>통과</span><strong>${report.byState.PASS}</strong><small>설계도와 일치</small></div>
     <div><span>보완 확인</span><strong>${report.byState['주의']}</strong><small>사람이 확인 필요</small></div>
     <div><span>위반</span><strong>${report.byState.FAIL}</strong><small>설계도와 어긋남</small></div></div>
+    ${draftState ? `<div class="alert ${draftState.submissionReady ? 'success' : 'warning'}"><strong>초안 상태 ${escapeHtml(draftState.draftStatus)} · 제출 가능 ${draftState.submissionReady ? '예' : '아니오'}</strong><p>${escapeHtml(draftState.note || '')}</p>
+      ${draftState.warnings?.length ? `<p>모델 자기점검 경고: ${escapeHtml(draftState.warnings.map(item => item.label).join(' · '))} — 초안은 유지하고 사람이 확인합니다.</p>` : ''}
+      ${draftState.unresolvedItems?.length ? `<p>[확인 필요] 남은 항목 ${draftState.unresolvedItems.length}개: ${escapeHtml(draftState.unresolvedItems.map(item => `${item.section}(${item.marks})`).join(' · '))}</p>` : ''}</div>` : ''}
     <div class="requirement-list">${report.checks.map(item => `<article class="requirement"><div><span class="status ${stateClass[item.state]}">${escapeHtml(item.state)}</span><div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.detail)}</small></div></div></article>`).join('')}</div></div>`;
 }
 
@@ -2181,6 +2185,8 @@ function blueprintHandoff() {
   if (!blueprint) return null;
   return {
     applicationType: blueprint.applicationTypes.selected || '[확인 필요]',
+    // 선택하지 않은 유형 이름도 함께 넘겨, 다른 유형으로 작성되면 서버가 구조적 실패로 잡을 수 있게 한다.
+    otherApplicationTypes: blueprint.applicationTypes.options.filter(option => option.name !== blueprint.applicationTypes.selected).map(option => option.name),
     readiness: blueprint.readiness,
     items: blueprint.items.filter(item => !['requirementLinks', 'openItems'].includes(item.key)).map(item => ({
       section: item.title,
