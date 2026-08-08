@@ -37,6 +37,12 @@ export function makeApplicantItem(value = {}) {
     value: text(value.value, 2000),
     status: APPLICANT_STATUSES.includes(value.status) ? value.status : '확인 필요',
     source: text(value.source, 300),
+    // asOf는 이 정보의 기준시점이다. 비어 있으면 기준시점 확인이 필요하다는 뜻이며 파일 업로드 날짜로 대신하지 않는다.
+    asOf: text(value.asOf, 40),
+    history: (Array.isArray(value.history) ? value.history : []).slice(-20).map(entry => ({
+      value: text(entry?.value, 2000), status: APPLICANT_STATUSES.includes(entry?.status) ? entry.status : '확인 필요',
+      source: text(entry?.source, 300), asOf: text(entry?.asOf, 40), recordedAt: text(entry?.recordedAt, 40)
+    })),
     updatedAt: text(value.updatedAt, 40) || new Date().toISOString()
   };
 }

@@ -4,6 +4,7 @@ import { localAnalyze } from './fallback.js';
 import { exportDocx, exportPdf, printDocument } from './export.js';
 import { fetchNoticeDetail, fetchNoticeList, importNoticeUrl, noticeBodyText } from './notices.js';
 import { deleteArchivedApplicant, getArchivedProposal, getArchiveRecoveryKey, listArchivedApplicants, listArchivedProposals, saveArchivedApplicant, saveArchivedProposal, searchArchivedNotices, syncArchivedNotices, useArchiveRecoveryKey } from './archive.js';
+import { ASOF_UNKNOWN, applySafeCandidates, applyUpdateCandidate, buildUpdateCandidates, extractApplicantCandidates } from './applicant-extract.js';
 import { APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaTitle, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
 
 const TYPES = [
@@ -18,7 +19,7 @@ const NAVIGATION_LIMIT = 10;
 const initial = {
   step: 0, activeTool: 'workflow', project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
   coaching: { title: '', text: '', validatedText: '', criteriaText: '', officialEvaluationProvided: false, sourceProposalId: '', sourceNoticeKey: '', seriesId: '', currentArchiveId: '', result: null, workItems: [], pendingJob: null, version: 0 },
-  applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [],
+  applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null,
   analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
@@ -37,7 +38,7 @@ function loadState() {
     const stagedGeneration = saved.stagedGeneration && typeof saved.stagedGeneration === 'object'
       ? { ...structuredClone(initial.stagedGeneration), ...saved.stagedGeneration, parts: Array.isArray(saved.stagedGeneration.parts) ? saved.stagedGeneration.parts : [], completedGroupIds: Array.isArray(saved.stagedGeneration.completedGroupIds) ? saved.stagedGeneration.completedGroupIds : [] }
       : structuredClone(initial.stagedGeneration);
-    const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' } };
+    const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantDocDraft: '', applicantExtraction: null };
     return withMigratedApplicants(restored);
   }
   catch { return structuredClone(initial); }
@@ -50,7 +51,7 @@ function withMigratedApplicants(value) {
   return { ...value, applicants, selectedApplicantId, projectValues: Array.isArray(value.projectValues) ? value.projectValues : [] };
 }
 function saveState() {
-  const safe = { ...state, companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], archiveNotices: [], archiveProposals: [], noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', applicantComparison: null, files: state.files.map(({ text, ...meta }) => meta) };
+  const safe = { ...state, companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], archiveNotices: [], archiveProposals: [], noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', applicantComparison: null, applicantDocDraft: '', applicantExtraction: null, files: state.files.map(({ text, ...meta }) => meta) };
   localStorage.setItem('ms12_project_v3', JSON.stringify(safe));
 }
 function loadNavigationHistory() {
@@ -210,7 +211,25 @@ function applicantsToolView() {
       const confirmed = applicant.items.filter(item => item.status === CONFIRMED_STATUS).length;
       return `<article class="requirement"><div><span class="tag">${applicant.id === state.selectedApplicantId ? '이번 사업 신청기관' : '등록기관'}</span><div><strong>${escapeHtml(applicant.name)}</strong><small>확인됨 ${confirmed}건 · 확인 필요·오래된 정보 ${applicant.items.length - confirmed}건 · 최근 수정 ${escapeHtml(String(applicant.updatedAt).slice(0, 10))}</small></div></div><div class="actions" style="margin:0;gap:8px"><button class="button secondary" data-edit-applicant="${escapeHtml(applicant.id)}">${state.applicantEditingId === applicant.id ? '수정 닫기' : '정보 수정'}</button><button class="button secondary" data-select-applicant="${escapeHtml(applicant.id)}">이번 사업 신청기관으로 선택</button><button class="button secondary" data-delete-applicant="${escapeHtml(applicant.id)}">삭제</button></div></article>`;
     }).join('')}</div>` : '<p class="muted">등록된 신청기관이 없습니다. 기관명을 입력하고 추가하세요.</p>'}</div>
+    ${editing ? applicantDocumentView(editing) : ''}
     ${editing ? applicantEditorView(editing) : ''}`;
+}
+
+// 기존 기관 문서에서 정보를 뽑아 ‘업데이트 후보’로만 만든다. 사용자가 반영을 눌러야 기관 정보가 바뀐다.
+function applicantDocumentView(applicant) {
+  const review = state.applicantExtraction?.applicantId === applicant.id ? state.applicantExtraction : null;
+  const kindTag = { 신규: 'status 확인-필요', '누적 추가': 'status 확인-필요', 동일: 'status 충족', '변경 가능성': 'status 부분-충족', 충돌: 'status 미충족', '이전 시점 정보': 'status 부분-충족' };
+  return `<div class="card"><div class="card-title"><div><h3>기관 문서에서 정보 추출</h3><span>사업계획서·결과보고서·기관소개서를 넣으면 기관정보 업데이트 후보를 만듭니다. 기존 정보는 자동으로 덮어쓰지 않습니다.</span></div></div>
+    <div class="field"><label for="applicant-doc-file">기관 문서 파일 (PDF·DOCX·TXT)</label><input type="file" id="applicant-doc-file" accept=".pdf,.docx,.txt"></div>
+    <div class="field"><label for="applicant-doc-text">또는 문서 내용 붙여넣기</label><textarea id="applicant-doc-text" style="min-height:110px" placeholder="예) 기관명: 사단법인 ○○센터 / 상근 인력: 5명 / 2025년 청소년 마음건강 지원사업">${escapeHtml(state.applicantDocDraft)}</textarea></div>
+    <div class="actions" style="margin:0"><span class="muted">${escapeHtml(review ? `${review.documentName || '붙여넣은 문서'} · 문서 기준시점 ${review.documentAsOf || ASOF_UNKNOWN}` : '외부 AI 호출 없이 규칙 기반으로 추출합니다.')}</span><button class="button primary" id="extract-applicant-doc">업데이트 후보 만들기</button></div>
+    ${review ? `<div class="actions" style="margin-top:12px"><strong>업데이트 후보 ${review.candidates.length}건</strong><button class="button secondary" id="apply-safe-candidates">신규·누적 후보만 일괄 반영</button></div>
+    ${review.candidates.length ? `<div class="requirement-list">${review.candidates.map(candidate => `<article class="requirement"><div><span class="${kindTag[candidate.kind] || 'tag'}">${escapeHtml(candidate.kind)}</span><div><strong>${escapeHtml(areaTitle(candidate.area))} · ${escapeHtml(candidate.label)}</strong>
+      <small>새 정보: ${escapeHtml(candidate.value)}</small>
+      <small>기존 정보: ${escapeHtml(candidate.existingItemId ? `${candidate.existingValue} (${candidate.existingStatus})` : '기관 정보에 없음')}</small>
+      <small>기준시점: ${escapeHtml(candidate.asOf || ASOF_UNKNOWN)} · ${escapeHtml(candidate.action)}</small></div></div>
+      <div class="actions" style="margin:0;gap:8px">${candidate.kind === '동일' ? '' : `<button class="button secondary" data-apply-candidate="${escapeHtml(candidate.id)}">반영</button>`}<button class="button secondary" data-ignore-candidate="${escapeHtml(candidate.id)}">무시</button></div></article>`).join('')}</div>`
+      : '<p class="muted">문서에서 기관 정보 후보를 찾지 못했습니다. 항목을 직접 등록하세요.</p>'}` : ''}</div>`;
 }
 
 function applicantEditorView(applicant) {
@@ -224,7 +243,9 @@ function applicantEditorView(applicant) {
         ${items.length ? `<div class="requirement-list">${items.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(item.label || '항목명 없음')}</span>${applicantStatusTag(item.status)}</div>
           <div class="two-col"><div class="field"><label for="label-${escapeHtml(item.id)}">항목명</label><input id="label-${escapeHtml(item.id)}" data-applicant-field="${escapeHtml(item.id)}|label" value="${escapeHtml(item.label)}"></div><div class="field"><label for="status-${escapeHtml(item.id)}">상태</label><select id="status-${escapeHtml(item.id)}" data-applicant-status="${escapeHtml(item.id)}">${statusOptions(item.status)}</select></div></div>
           <div class="field"><label for="value-${escapeHtml(item.id)}">내용</label><textarea id="value-${escapeHtml(item.id)}" data-applicant-field="${escapeHtml(item.id)}|value" style="min-height:70px">${escapeHtml(item.value)}</textarea></div>
-          <div class="field"><label for="source-${escapeHtml(item.id)}">근거자료·출처</label><input id="source-${escapeHtml(item.id)}" data-applicant-field="${escapeHtml(item.id)}|source" value="${escapeHtml(item.source)}" placeholder="예: 2025 법인등기부등본"></div>
+          <div class="two-col"><div class="field"><label for="source-${escapeHtml(item.id)}">근거자료·출처</label><input id="source-${escapeHtml(item.id)}" data-applicant-field="${escapeHtml(item.id)}|source" value="${escapeHtml(item.source)}" placeholder="예: 2025 법인등기부등본"></div>
+          <div class="field"><label for="asof-${escapeHtml(item.id)}">정보 기준시점</label><input id="asof-${escapeHtml(item.id)}" data-applicant-field="${escapeHtml(item.id)}|asOf" value="${escapeHtml(item.asOf || '')}" placeholder="${escapeHtml(ASOF_UNKNOWN)} (예: 2026 또는 2026-03)"></div></div>
+          ${(item.history || []).length ? `<details><summary>이전 기록 ${item.history.length}건</summary><div class="cap-grid">${item.history.map(entry => `<div><span>${escapeHtml(entry.asOf || ASOF_UNKNOWN)}</span><strong>${escapeHtml(entry.value)}</strong><small>${escapeHtml(entry.source || '출처 없음')}</small></div>`).join('')}</div></details>` : ''}
           <div class="actions" style="margin:0"><span></span><button class="button secondary" data-remove-applicant-item="${escapeHtml(item.id)}">항목 삭제</button></div></article>`).join('')}</div>` : '<p class="muted">등록한 항목이 없습니다.</p>'}
         <div class="two-col"><div class="field"><label for="draft-label-${area.key}">새 항목명</label><input id="draft-label-${area.key}" data-applicant-draft="${area.key}|label" value="${escapeHtml(draft.label)}"></div><div class="field"><label for="draft-status-${area.key}">상태</label><select id="draft-status-${area.key}" data-applicant-draft="${area.key}|status">${statusOptions(draft.status)}</select></div></div>
         <div class="field"><label for="draft-value-${area.key}">새 항목 내용</label><textarea id="draft-value-${area.key}" data-applicant-draft="${area.key}|value" style="min-height:70px">${escapeHtml(draft.value)}</textarea></div>
@@ -678,6 +699,12 @@ function bindApplicants() {
     el.oninput = handler; el.onchange = handler;
   });
   document.querySelectorAll('[data-add-applicant-item]').forEach(el => el.onclick = () => addApplicantItem(el.dataset.addApplicantItem));
+  document.querySelector('#applicant-doc-text')?.addEventListener('input', event => { state.applicantDocDraft = event.target.value; });
+  document.querySelector('#applicant-doc-file')?.addEventListener('change', loadApplicantDocument);
+  document.querySelector('#extract-applicant-doc')?.addEventListener('click', () => buildApplicantCandidates(state.applicantDocDraft, '붙여넣은 기관 문서'));
+  document.querySelector('#apply-safe-candidates')?.addEventListener('click', applySafeApplicantCandidates);
+  document.querySelectorAll('[data-apply-candidate]').forEach(el => el.onclick = () => applyApplicantCandidate(el.dataset.applyCandidate));
+  document.querySelectorAll('[data-ignore-candidate]').forEach(el => el.onclick = () => dropApplicantCandidate(el.dataset.ignoreCandidate, '후보를 무시했습니다.'));
   document.querySelector('#project-value-label')?.addEventListener('input', event => { state.projectValueDraft.label = event.target.value; });
   document.querySelector('#project-value-value')?.addEventListener('input', event => { state.projectValueDraft.value = event.target.value; });
   document.querySelector('#project-value-item')?.addEventListener('change', event => { state.projectValueDraft.applicantItemId = event.target.value; });
@@ -713,6 +740,56 @@ function addApplicantItem(areaKey) {
   updateEditingApplicant(applicant => { applicant.items = [...applicant.items, item]; });
   state.applicantItemDrafts[areaKey] = { label: '', value: '', status: '확인 필요', source: '' };
   setState({ applicants: state.applicants, applicantItemDrafts: state.applicantItemDrafts, notice: `${areaTitle(areaKey)} 항목을 추가했습니다.`, error: '' });
+}
+
+async function loadApplicantDocument(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  setState({ busy: '기관 문서를 읽는 중...', error: '', notice: '' });
+  try {
+    const parsed = await extractFile(file);
+    state.applicantDocDraft = parsed.text;
+    setState({ busy: '', applicantDocDraft: parsed.text });
+    buildApplicantCandidates(parsed.text, parsed.name);
+  } catch (error) { setState({ busy: '', error: error.message }); }
+}
+
+// 추출 결과는 후보 목록일 뿐이며 이 단계에서 기관 정보는 바뀌지 않는다.
+function buildApplicantCandidates(text, documentName) {
+  const applicant = findApplicant(state.applicants, state.applicantEditingId);
+  if (!applicant) return setState({ error: '정보를 추출할 신청기관을 먼저 선택해 주세요.' });
+  if (String(text || '').trim().length < 20) return setState({ error: '추출할 문서 내용이 너무 짧습니다.' });
+  const review = buildUpdateCandidates(applicant, extractApplicantCandidates(text, { documentName }));
+  setState({ applicantExtraction: review, notice: `업데이트 후보 ${review.candidates.length}건을 만들었습니다. 반영할 항목을 확인하세요.`, error: '' });
+}
+
+function dropApplicantCandidate(candidateId, message) {
+  const review = state.applicantExtraction;
+  if (!review) return;
+  const remaining = review.candidates.filter(candidate => candidate.id !== candidateId);
+  setState({ applicantExtraction: { ...review, candidates: remaining }, notice: message, error: '' });
+}
+
+function applyApplicantCandidate(candidateId) {
+  const review = state.applicantExtraction;
+  const candidate = review?.candidates.find(item => item.id === candidateId);
+  const applicant = findApplicant(state.applicants, review?.applicantId);
+  if (!candidate || !applicant) return;
+  state.applicants = upsertApplicant(state.applicants, applyUpdateCandidate(applicant, candidate));
+  dropApplicantCandidate(candidateId, `${candidate.label} 후보를 ‘확인 필요’ 상태로 반영했습니다. 확인 후 상태를 변경하고 저장하세요.`);
+  void persistApplicant(applicant.id, false);
+}
+
+function applySafeApplicantCandidates() {
+  const review = state.applicantExtraction;
+  const applicant = findApplicant(state.applicants, review?.applicantId);
+  if (!review || !applicant) return;
+  const { applicant: updated, applied } = applySafeCandidates(applicant, review.candidates);
+  if (!applied) return setState({ notice: '일괄 반영할 신규·누적 후보가 없습니다. 변경·충돌 후보는 개별 확인이 필요합니다.' });
+  state.applicants = upsertApplicant(state.applicants, updated);
+  const remaining = review.candidates.filter(candidate => candidate.kind !== '신규' && candidate.kind !== '누적 추가');
+  setState({ applicants: state.applicants, applicantExtraction: { ...review, candidates: remaining }, notice: `신규·누적 후보 ${applied}건을 ‘확인 필요’ 상태로 반영했습니다.`, error: '' });
+  void persistApplicant(applicant.id, false);
 }
 
 function selectApplicantForProject(id) {

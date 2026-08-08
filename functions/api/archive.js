@@ -102,6 +102,11 @@ export function normalizeApplicantRecord(value) {
     value: clean(item?.value, 2000),
     status: APPLICANT_STATUSES.includes(item?.status) ? item.status : '확인 필요',
     source: clean(item?.source, 300),
+    asOf: clean(item?.asOf, 40),
+    history: (Array.isArray(item?.history) ? item.history : []).slice(-20).map(entry => ({
+      value: clean(entry?.value, 2000), status: APPLICANT_STATUSES.includes(entry?.status) ? entry.status : '확인 필요',
+      source: clean(entry?.source, 300), asOf: clean(entry?.asOf, 40), recordedAt: clean(entry?.recordedAt, 40)
+    })),
     updatedAt: clean(item?.updatedAt, 40)
   }));
   return {
