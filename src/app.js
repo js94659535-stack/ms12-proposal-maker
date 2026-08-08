@@ -10,6 +10,8 @@ import { analyzeProposalStructure, buildStructuralRevision, reviewProposalStruct
 import { applyRepairPlans, buildRepairPlans, repairPlanSummary } from './repair-plan.js';
 import { analyzeNoticeStructure, buildSelectionLogic, noticeLogicSummary, selectionRequirements } from './notice-logic.js';
 import { bundleSummary, expandBundle, mergeBundleStructures } from './notice-bundle.js';
+import { matchApplicantToNotice } from './fit-matching.js';
+import { buildBlueprint } from './project-blueprint.js';
 import { EXTERNAL_SOURCE, appendProposalVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, proposalTextFromSections, proposalTextFromSnapshot, revisionInstruction, verifyLockedValues } from './coaching-handoff.js';
 import { splitApplicantProfile } from './applicants.js';
 import { APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
@@ -234,9 +236,96 @@ function noticeConfirmView() {
     ${!state.noticeResults.length ? '<div class="empty-state"><div>⌕</div><h2>가져온 공고가 없습니다</h2><button class="button primary" data-step="0">공고 가져오기로 이동</button></div>' : ''}`;
 }
 
+// 사업 설계도. 엔진(project-blueprint.js)의 결과만 그려 주고 화면에서 다시 계산하지 않는다.
+const BLUEPRINT_STATUS_LABEL = { CONFIRMED: '확정', SUPPORTED: '근거 있음', PROPOSED: '설계안', NEEDS_CONFIRMATION: '확인 필요' };
+const BLUEPRINT_STATUS_CLASS = { CONFIRMED: '충족', SUPPORTED: '부분-충족', PROPOSED: '검토-필요', NEEDS_CONFIRMATION: '확인-필요' };
+// 설계도 항목에서 사용자가 바로 값을 넣을 수 있는 자리. 값은 이번 사업 값(projectSpecificValues)으로만 저장한다.
+const BLUEPRINT_INPUTS = {
+  summary: [['name', '사업명']],
+  target: [['target', '대상']],
+  programs: [['programs', '핵심 프로그램']],
+  programDetails: [['headcount', '인원'], ['sessions', '회기'], ['staff', '담당 인력']],
+  delivery: [['staff', '수행인력']],
+  partners: [['partners', '협력기관']],
+  budget: [['budget', '예산']],
+  outcomeGoals: [['outcomeGoals', '성과목표']],
+  indicators: [['indicators', '성과지표']]
+};
+const BLUEPRINT_CARD_KEYS = ['summary', 'problem', 'target', 'purpose', 'objectives', 'programs', 'programDetails', 'delivery', 'strengths', 'partners', 'budget', 'outcomeGoals', 'indicators'];
+
+// 설계도에 넣는 이번 사업 값. 신청기관 원본은 읽기만 한다.
+function blueprintProjectValues() {
+  return (state.projectValues || []).filter(item => item.blueprintKey).map(item => ({ key: item.blueprintKey, value: item.value, source: '사용자 확정' }));
+}
+function blueprintValueOf(key) { return (state.projectValues || []).find(item => item.blueprintKey === key)?.value || ''; }
+function currentBlueprint() {
+  const structure = state.noticeLogic?.structure;
+  const applicant = selectedApplicant();
+  if (!structure || !applicant) return null;
+  return buildBlueprint({ structure, applicant, fitResult: matchApplicantToNotice(structure, applicant), projectValues: blueprintProjectValues() });
+}
+
+function blueprintTypeView(blueprint) {
+  const { options, selected, blocked } = blueprint.applicationTypes;
+  if (!options.length) return '';
+  return `<div class="card-title" style="margin-top:6px"><div><h4 style="margin:0">신청유형</h4><span>${blocked ? '유형에 따라 대상·사업내용·요건이 다릅니다. 먼저 하나를 고르세요.' : '선택한 유형의 조건만 설계에 반영했습니다. 다른 유형 조건은 제외됩니다.'}</span></div></div>
+    <div class="requirement-list">${options.map(option => `<article class="requirement"><div><span class="status ${selected === option.name ? '충족' : '확인-필요'}">${selected === option.name ? '선택함' : '선택 가능'}</span><div><strong>${escapeHtml(option.name)}</strong><small>${escapeHtml(option.description || '공고에 설명 문장이 없습니다.')}</small></div></div><button class="button ${selected === option.name ? 'secondary' : 'primary'}" data-blueprint-type="${escapeHtml(option.name)}">${selected === option.name ? '선택됨' : '이 유형으로 설계'}</button></article>`).join('')}</div>`;
+}
+
+function blueprintItemCard(item) {
+  const inputs = BLUEPRINT_INPUTS[item.key] || [];
+  const needsInput = item.status === 'NEEDS_CONFIRMATION' || item.status === 'PROPOSED';
+  return `<article class="requirement"><div><span class="status ${BLUEPRINT_STATUS_CLASS[item.status]}">${BLUEPRINT_STATUS_LABEL[item.status]}</span><div><strong>${escapeHtml(item.title)}${item.status === 'PROPOSED' ? ' <span class="tag">설계안 · 확정 아님</span>' : ''}</strong>
+    <small>${item.value ? nl(String(item.value).slice(0, 400)) : '<b>[확인 필요]</b> 값을 만들지 않았습니다.'}</small>
+    ${item.basis ? `<small class="muted">${escapeHtml(item.basis)}</small>` : ''}</div></div>
+    ${item.evidence?.length ? `<details><summary>근거 ${item.evidence.length}건</summary>${item.evidence.map(evidence => `<blockquote>[${escapeHtml(String(evidence.source).split(' > ').pop())}] ${escapeHtml(evidence.sentence)}</blockquote>`).join('')}</details>` : ''}
+    ${needsInput && inputs.length ? `<div class="two-col" style="margin:10px 0 0 64px">${inputs.map(([key, label]) => `<div class="field" style="margin:0"><label for="bp-${key}">${escapeHtml(label)}</label><input id="bp-${key}" data-blueprint-input="${key}" value="${escapeHtml(blueprintValueOf(key))}" placeholder="확인된 값만 입력하세요. 모르면 비워 두세요."></div>`).join('')}<div class="field" style="margin:0"><label>&nbsp;</label><button class="button secondary" data-blueprint-save="${escapeHtml(item.key)}">이번 사업 값으로 저장</button></div></div>` : ''}
+    ${item.question && !inputs.length ? `<p class="muted" style="margin:8px 0 0 64px">${escapeHtml(item.question)}</p>` : ''}</article>`;
+}
+
+function blueprintView() {
+  if (!state.selectedNotice && !state.noticePreview) return '';
+  const structure = state.noticeLogic?.structure;
+  const applicant = selectedApplicant();
+  if (!structure || !applicant) {
+    return `<div class="card" id="project-blueprint"><div class="card-title"><div><h3>사업 설계도</h3><span>계획서 초안 전에 이번 사업 설계를 한 장으로 정리합니다.</span></div>${structure ? '' : '<button class="button primary" data-step="1">공고 선정 논리 분석</button>'}</div>
+      <p class="muted">${structure ? '' : '먼저 「공고 확인」 단계에서 선정 논리를 분석하세요. '}${applicant ? '' : '이번 사업의 신청기관을 선택하면 설계도를 만듭니다.'}</p>
+      ${applicant ? '' : '<button class="button secondary" data-step="2">신청기관 선택으로 이동</button>'}</div>`;
+  }
+  const blueprint = currentBlueprint();
+  const cards = BLUEPRINT_CARD_KEYS.map(key => blueprint.items.find(item => item.key === key)).filter(Boolean);
+  const design = blueprint.items.filter(item => !['requirementLinks', 'openItems'].includes(item.key));
+  const coreTitles = new Set(design.filter(item => item.status === 'NEEDS_CONFIRMATION').map(item => item.title));
+  const coreQuestions = blueprint.openQuestions.filter(entry => coreTitles.has(entry.section)).slice(0, 7);
+  const restQuestions = blueprint.openQuestions.filter(entry => !coreQuestions.includes(entry));
+  const noticeChecks = blueprint.submissionChecklist.filter(entry => entry.kind === '공고 요건');
+  const draftHint = !blueprint.canDraft
+    ? '<span class="status 확인-필요">신청유형을 먼저 선택하세요</span>'
+    : blueprint.readiness === 'SUBMISSION_READY'
+      ? '<span class="status 충족">제출 문서 확정 단계로 진행 가능</span>'
+      : `<span class="status 부분-충족">제출 전 확인이 필요한 항목이 있습니다 · ${blueprint.submissionChecklist.length}개</span>`;
+  return `<div class="card" id="project-blueprint"><div class="card-title"><div><h3>사업 설계도</h3><span>공고 값·기관 값·이번 사업 값을 섞지 않습니다. 확정하지 않은 값은 [확인 필요]로 남깁니다.</span></div>
+      <button class="button primary" id="blueprint-draft" ${blueprint.canDraft ? '' : 'disabled'}>초안 작성</button></div>
+    <p class="muted">${escapeHtml(blueprint.verdict)} · 신청기관 ${escapeHtml(blueprint.applicantName)}</p>
+    <div style="margin-bottom:12px">${draftHint}</div>
+    ${blueprintTypeView(blueprint)}
+    <div class="summary-grid" style="margin-top:16px"><div><span>확정</span><strong>${blueprint.byStatus.CONFIRMED}</strong><small>공고·사용자 확정 값</small></div>
+    <div><span>근거 있음</span><strong>${blueprint.byStatus.SUPPORTED}</strong><small>확인된 기관 정보·관련 실적</small></div>
+    <div><span>설계안</span><strong>${blueprint.byStatus.PROPOSED}</strong><small>확정 전 · 사실로 쓰지 않음</small></div>
+    <div><span>확인 필요</span><strong>${blueprint.byStatus.NEEDS_CONFIRMATION}</strong><small>사용자 확인 전까지 [확인 필요]</small></div></div>
+    ${coreQuestions.length ? `<div class="alert warning"><strong>필수 확인 ${coreQuestions.length}개</strong>${coreQuestions.map(entry => `<p>· [${escapeHtml(entry.section)}] ${escapeHtml(entry.question)}</p>`).join('')}</div>` : ''}
+    <div class="requirement-list">${cards.map(blueprintItemCard).join('')}</div>
+    <details><summary>공고 선정요건 점검 ${noticeChecks.length}개 · 남은 질문 ${restQuestions.length}개</summary>
+      <div class="requirement-list">${blueprint.requirementLinks.map(link => `<article class="requirement"><div><span class="status ${link.covered ? (link.hasApplicantEvidence ? '충족' : '부분-충족') : '확인-필요'}">${link.covered ? (link.hasApplicantEvidence ? '대응+근거' : '설계 대응') : '미대응'}</span><div><strong>${escapeHtml(link.requirement)}</strong><small>${escapeHtml(link.sections.map(section => `${section.title}(${BLUEPRINT_STATUS_LABEL[section.status]})`).join(' · ') || '설계 항목이 아니라 제출 준비 단계에서 확인')}</small>${link.gap ? `<small class="muted">${escapeHtml(link.gap)}</small>` : ''}</div></div></article>`).join('')}</div>
+      ${restQuestions.length ? `<div class="questions" style="margin-top:12px">${restQuestions.map(entry => `<p class="muted">· [${escapeHtml(entry.section)}] ${escapeHtml(entry.question)}</p>`).join('')}</div>` : ''}
+    </details>
+    <details><summary>설계 논리 점검 (문제 → 대상 → 프로그램 → 예산 → 성과)</summary><div class="cap-grid">${blueprint.logic.map(link => `<div><span>${escapeHtml(link.state)}</span><strong>${escapeHtml(link.link)}</strong><small>${escapeHtml(link.reason)}</small></div>`).join('')}</div></details>
+    <p class="muted">${escapeHtml(blueprint.rule)}</p></div>`;
+}
+
 function businessSelectView() {
   const choice = state.pendingNoticeChoice ? `<div class="card"><div class="card-title"><div><h3>작성할 세부사업을 선택하세요</h3><span>선택한 사업 내용만 계획서에 반영됩니다.</span></div></div><div class="requirement-list">${state.pendingNoticeChoice.subprojects.map((item, index) => `<article class="requirement"><div><span class="tag">${escapeHtml(item.id)}</span><strong>${escapeHtml(item.title)}</strong></div><button class="button primary" data-select-subproject="${index}">이 사업 선택</button></article>`).join('')}</div></div>` : '';
-  return `<div class="page-heading"><div><h2>작성할 사업을 확정하세요</h2><p>복수 세부사업일 때만 한 사업을 선택합니다.</p></div></div>${choice}${selectedNoticeDetailView()}${attachmentView()}${!state.pendingNoticeChoice && !state.selectedNotice ? '<div class="empty-state"><div>◉</div><h2>선택한 공고가 없습니다</h2><button class="button primary" data-step="1">공고 확인으로 이동</button></div>' : ''}`;
+  return `<div class="page-heading"><div><h2>작성할 사업을 확정하세요</h2><p>복수 세부사업일 때만 한 사업을 선택합니다. 아래 사업 설계도를 확인한 뒤 초안 작성으로 넘어갑니다.</p></div></div>${choice}${selectedNoticeDetailView()}${blueprintView()}${attachmentView()}${!state.pendingNoticeChoice && !state.selectedNotice ? '<div class="empty-state"><div>◉</div><h2>선택한 공고가 없습니다</h2><button class="button primary" data-step="1">공고 확인으로 이동</button></div>' : ''}`;
 }
 
 function applicantStatusTag(status) { return `<span class="status ${status === CONFIRMED_STATUS ? '충족' : status === '오래된 정보' ? '부분-충족' : '확인-필요'}">${escapeHtml(status)}</span>`; }
@@ -865,6 +954,9 @@ function bind() {
   document.querySelectorAll('[data-notice-check]').forEach(el => el.onchange = () => toggleNoticeSelection(el.dataset.noticeCheck, el.checked));
   document.querySelector('#analyze-notice-logic')?.addEventListener('click', analyzeNoticeSelectionLogic);
   document.querySelector('#analyze-notice-bundle')?.addEventListener('click', analyzeNoticeBundleFiles);
+  document.querySelectorAll('[data-blueprint-type]').forEach(el => el.onclick = () => setBlueprintValue('applicationType', '신청유형', el.dataset.blueprintType));
+  document.querySelectorAll('[data-blueprint-save]').forEach(el => el.onclick = () => saveBlueprintInputs(el.dataset.blueprintSave));
+  document.querySelector('#blueprint-draft')?.addEventListener('click', createDraft);
   document.querySelector('#remove-selected-notices')?.addEventListener('click', removeSelectedNotices);
   document.querySelectorAll('[data-restore-notice]').forEach(el => el.onclick = () => restoreNotice(el.dataset.restoreNotice));
   document.querySelectorAll('[data-delete-notice-forever]').forEach(el => el.onclick = () => deleteNoticeForever(el.dataset.deleteNoticeForever));
@@ -1136,6 +1228,24 @@ function removeApplicant(id) {
   state.applicants = state.applicants.filter(item => item.id !== id);
   setState({ applicants: state.applicants, applicantEditingId: state.applicantEditingId === id ? '' : state.applicantEditingId, selectedApplicantId: state.selectedApplicantId === id ? '' : state.selectedApplicantId, notice: '신청기관 정보를 삭제했습니다.' });
   deleteArchivedApplicant(id).catch(() => setState({ error: '보관함에서 신청기관을 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.' }));
+}
+
+// 설계도에서 받은 값은 이번 사업 값으로만 저장한다. 신청기관 원본 항목은 건드리지 않는다.
+function setBlueprintValue(key, label, value) {
+  const text = String(value || '').trim();
+  const rest = (state.projectValues || []).filter(item => item.blueprintKey !== key);
+  const next = text ? [...rest, { id: `blueprint-${key}`, blueprintKey: key, label, value: text, applicantItemId: '' }] : rest;
+  setState({ projectValues: next, notice: text ? `${label}을(를) 이번 사업 값으로 저장했습니다. 설계도를 다시 계산했습니다.` : `${label} 값을 지웠습니다.`, error: '' });
+}
+function saveBlueprintInputs(sectionKey) {
+  const inputs = BLUEPRINT_INPUTS[sectionKey] || [];
+  const rest = (state.projectValues || []).filter(item => !inputs.some(([key]) => item.blueprintKey === key));
+  const added = [];
+  for (const [key, label] of inputs) {
+    const text = String(document.querySelector(`[data-blueprint-input="${key}"]`)?.value || '').trim();
+    if (text) added.push({ id: `blueprint-${key}`, blueprintKey: key, label, value: text, applicantItemId: '' });
+  }
+  setState({ projectValues: [...rest, ...added], notice: added.length ? `이번 사업 값 ${added.length}건을 저장하고 설계도를 다시 계산했습니다. 신청기관 원본은 변경되지 않았습니다.` : '입력값이 없어 저장하지 않았습니다.', error: '' });
 }
 
 function addProjectValue() {
@@ -2046,7 +2156,27 @@ async function generateCompleteProposal() {
 }
 
 function generationPayload() {
-  return { sourceText: state.sourceText, manualSources: state.manualSources.map(({ id, fileName, sourceType, extractedText, extractionStatus, extractionError }) => ({ id, fileName, sourceType, extractedText, extractionStatus, extractionError })), projectType: typeName(), project: state.project, selectedSubprogram: state.selectedNotice?.selectedSubproject || state.selectedNotice?.title || state.project.title, organization: organizationForGeneration(), userAnswers: state.designAnswers };
+  return { sourceText: state.sourceText, manualSources: state.manualSources.map(({ id, fileName, sourceType, extractedText, extractionStatus, extractionError }) => ({ id, fileName, sourceType, extractedText, extractionStatus, extractionError })), projectType: typeName(), project: state.project, selectedSubprogram: state.selectedNotice?.selectedSubproject || state.selectedNotice?.title || state.project.title, organization: organizationForGeneration(), userAnswers: state.designAnswers, projectBlueprint: blueprintHandoff() };
+}
+
+// 설계도를 초안 작성으로 넘긴다. 확정값은 그대로, 설계안은 설계안으로, 미확정은 [확인 필요]로만 넘긴다.
+function blueprintHandoff() {
+  const blueprint = currentBlueprint();
+  if (!blueprint) return null;
+  return {
+    applicationType: blueprint.applicationTypes.selected || '[확인 필요]',
+    readiness: blueprint.readiness,
+    items: blueprint.items.filter(item => !['requirementLinks', 'openItems'].includes(item.key)).map(item => ({
+      section: item.title,
+      status: BLUEPRINT_STATUS_LABEL[item.status],
+      value: item.status === 'NEEDS_CONFIRMATION' ? '[확인 필요]' : item.value,
+      basis: item.basis,
+      proposedOnly: item.status === 'PROPOSED'
+    })),
+    openQuestions: blueprint.openQuestions.map(entry => entry.question),
+    submissionChecklist: blueprint.submissionChecklist.map(entry => `${entry.item} (${entry.kind})`),
+    rule: blueprint.rule
+  };
 }
 
 // 신청기관의 확인된 정보로 답할 수 있는 질문은 답변으로 채우고 사용자에게 다시 묻지 않는다.
