@@ -65,6 +65,32 @@ export function conflictingValues(issue) {
 }
 function unitOf(value) { return String(value).replace(/[\d,]/g, ''); }
 
+// 산식을 읽어 입력값과 결과가 모두 확정되어 있는지 확인한다.
+// A) 입력값이 확정되고 결과만 틀림 → 자동 산출 가능, B) 어느 입력값이 틀렸는지 알 수 없음 → 사용자 확인.
+const FORMULA_PATTERN = /([\d,]+)\s*(천원|만원|억원|원|명|주|회기|회|시간|개월)?\s*[×xX*]\s*([\d,]+)\s*(천원|만원|억원|원|명|주|회기|회|시간|개월)?(?:\s*[×xX*]\s*([\d,]+)\s*(천원|만원|억원|원|명|주|회기|회|시간|개월)?)?/;
+function numeric(value) { return Number(String(value ?? '').replace(/[^\d.]/g, '')); }
+
+export function analyzeCalculation(issue, context = {}) {
+  const evidence = (issue?.evidenceRefs || []).map(ref => ref.excerpt || '').join(' ');
+  const scope = `${evidence} ${issue?.reason || ''}`;
+  const match = evidence.match(FORMULA_PATTERN) || scope.match(FORMULA_PATTERN);
+  if (!match) return { hasFormula: false, operandsConfirmed: false, computed: null, stated: [], ambiguous: numbersIn(scope).length >= 2 };
+  const operands = [match[1], match[3], match[5]].filter(Boolean).map(numeric).filter(Number.isFinite);
+  const unit = match[2] || match[4] || match[6] || '';
+  const computed = operands.length >= 2 ? operands.reduce((product, value) => product * value, 1) : null;
+  // 문서에 적힌 결과값만 본다. 검증 설명에 나온 계산값은 문서의 확정값이 아니다.
+  const stated = numbersIn(evidence || scope).filter(value => unitOf(value) === unit).map(numeric).filter(value => Number.isFinite(value) && !operands.includes(value));
+  const confirmedValues = [
+    ...(context.projectValues || []).map(value => String(value.value ?? value.thisProjectValue ?? '')),
+    ...(context.confirmedFacts || []).map(fact => String(fact.content ?? '')),
+    ...(context.references || []).filter(reference => reference.usage === '공식 근거로 사용 가능').map(reference => String(reference.text ?? ''))
+  ].join(' ');
+  const operandsConfirmed = operands.length >= 2 && operands.every(value => confirmedValues.includes(value.toLocaleString()) || confirmedValues.includes(String(value)));
+  // 결과값이 두 개 이상 경합하면 어느 입력이 틀렸는지 알 수 없다.
+  const ambiguous = stated.length > 0 && computed !== null && !stated.includes(computed);
+  return { hasFormula: true, operands, unit, computed, stated, operandsConfirmed, ambiguous };
+}
+
 function sourceForIssue(issue, context = {}) {
   const officialReference = (context.references || []).find(reference => reference.usage === '공식 근거로 사용 가능');
   if (officialReference) return { level: SOURCE_OF_TRUTH[0], detail: officialReference.fileName };
@@ -107,10 +133,27 @@ export function buildRepairPlan(issue, context = {}) {
   const source = sourceForIssue(issue, context);
   const hasPlaceholder = /\[확인 필요/.test(proposedRevision);
 
+  // 실제로 믿을 수 있는 근거(공고·이번 사업 확정값·확인된 기관정보)가 있는지
+  const trustedSource = [SOURCE_OF_TRUTH[0], SOURCE_OF_TRUTH[1], SOURCE_OF_TRUTH[2]].includes(source.level);
+  const calculation = type === 'calculation-error' ? analyzeCalculation(issue, context) : null;
+  const needsExternalFact = ['missing-information', 'outcome-gap', 'evidence-gap'].includes(type);
+
   let level = 'AUTO';
-  if (values.length >= 2) level = 'USER_CONFIRMATION';
-  else if (type === 'expression') level = 'AUTO';
-  else if (hasPlaceholder || source.level === SOURCE_OF_TRUTH[4]) level = source.level === SOURCE_OF_TRUTH[4] && !hasPlaceholder ? 'USER_CONFIRMATION' : 'EVIDENCE_BASED';
+  let autoFixable = false;
+  if (type === 'expression') { level = 'AUTO'; autoFixable = true; }
+  else if (calculation?.hasFormula && calculation.operandsConfirmed && !calculation.ambiguous) {
+    // A) 입력값이 모두 확정되고 결과만 틀린 경우 → 결과를 자동 산출한다.
+    level = trustedSource ? 'EVIDENCE_BASED' : 'AUTO';
+    autoFixable = true;
+  } else if (type === 'calculation-error' || values.length >= 2) {
+    // B) 어느 입력값이 맞는지 알 수 없는 경우 → 임의 선택하지 않는다.
+    level = 'USER_CONFIRMATION';
+  } else if (needsExternalFact) {
+    // 없는 내용을 채우는 문제는 믿을 수 있는 근거가 있을 때만 수정한다.
+    level = trustedSource ? 'EVIDENCE_BASED' : 'USER_CONFIRMATION';
+  } else if (hasPlaceholder || !trustedSource) {
+    level = source.level === SOURCE_OF_TRUTH[4] ? 'USER_CONFIRMATION' : 'EVIDENCE_BASED';
+  }
 
   return {
     id: `repair-${type}-${text(issue?.location, 24).replace(/\s+/g, '') || 'general'}`,
@@ -125,9 +168,14 @@ export function buildRepairPlan(issue, context = {}) {
     lockedValues: [...new Set(targets.flatMap(section => extractLockedValues([section])))],
     conflictingValues: values,
     sourceOfTruth: source,
-    requiresConfirmation: needsConfirmation,
-    confirmationQuestion: level === 'USER_CONFIRMATION' ? confirmationQuestionFor(issue, values, type) : '',
-    proposedRevision,
+    requiresConfirmation: needsConfirmation || level === 'USER_CONFIRMATION',
+    confirmationQuestion: level === 'USER_CONFIRMATION' ? confirmationQuestionFor(issue, calculation?.ambiguous ? [...new Set([...values, ...calculation.stated.map(value => `${value.toLocaleString()}${calculation.unit}`), `${calculation.computed?.toLocaleString()}${calculation.unit}`])].filter(Boolean) : values, type) : '',
+    proposedRevision: autoFixable && calculation?.computed && !calculation.ambiguous
+      ? `${proposedRevision} → 자동 산출 결과 ${calculation.computed.toLocaleString()}${calculation.unit}`.trim()
+      : proposedRevision,
+    autoFixable,
+    computedValue: autoFixable && calculation?.computed ? `${calculation.computed.toLocaleString()}${calculation.unit}` : '',
+    calculation: calculation ? { hasFormula: calculation.hasFormula, operands: calculation.operands || [], computed: calculation.computed, stated: calculation.stated, operandsConfirmed: calculation.operandsConfirmed, ambiguous: calculation.ambiguous } : null,
     verificationRule: verificationRuleFor(type),
     priority: text(issue?.priority, 20)
   };
@@ -157,7 +205,10 @@ export function applyRepairPlans(sections, plans, { confirmations = {} } = {}) {
       const before = target.content;
       const after = `${before}\n\n[수정 · ${plan.issueTypeLabel}] ${revision}`.trim();
       const check = verifyLockedValues(before, after, plan.lockedValues);
-      if (!check.ok && !answer) { blocked.push({ plan, reason: `확정 수치가 바뀔 수 있어 수정하지 않았습니다: ${[...check.removed, ...check.added].join(' · ')}` }); continue; }
+      // 자동 산출한 계산 결과와 사용자가 확인해 준 값은 새 수치로 보지 않는다.
+      const allowed = [plan.computedValue, answer ? String(answer) : ''].filter(Boolean).map(value => value.replace(/\s+/g, ''));
+      const unexpected = [...check.removed, ...check.added].filter(value => !allowed.some(item => item.includes(value) || value.includes(item)));
+      if (unexpected.length) { blocked.push({ plan, reason: `확정 수치가 바뀔 수 있어 수정하지 않았습니다: ${unexpected.join(' · ')}` }); continue; }
       target.content = after;
       target.status = plan.repairLevel === 'AUTO' ? '검토 필요' : '확인 필요';
     }

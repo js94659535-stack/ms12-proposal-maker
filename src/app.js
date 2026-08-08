@@ -637,13 +637,20 @@ function repairPlanView() {
     <div><span>근거 확인 후(EVIDENCE_BASED)</span><strong>${summary.byLevel.EVIDENCE_BASED || 0}건</strong><small>공고·기관정보·원문 근거 필요</small></div>
     <div><span>사용자 확인 필요</span><strong>${summary.byLevel.USER_CONFIRMATION || 0}건</strong><small>어느 값이 맞는지 판단 불가</small></div>
     <div><span>수정 유형</span><strong>${Object.keys(summary.byType).length}종</strong><small>${escapeHtml(Object.entries(summary.byType).map(([type, count]) => `${type} ${count}`).join(' · '))}</small></div></div>
-    <div class="requirement-list">${plans.map(plan => `<article class="requirement"><div><span class="${levelTag[plan.repairLevel]}">${escapeHtml(plan.repairLevel)}</span><div><strong>${escapeHtml(plan.issueTypeLabel)}</strong><small>대상: ${escapeHtml(plan.targetSection.map(target => target.title).join(' + ') || '자동 연결 실패 · 직접 지정 필요')}</small></div></div>
+    <div class="requirement-list">${plans.map(plan => {
+      const answer = state.coaching.repairAnswers?.[plan.id] || '';
+      const after = plan.repairLevel === 'USER_CONFIRMATION' && !answer ? '' : String(plan.proposedRevision).replace(/\[확인 필요[^\]]*\]/g, answer || '[확인 필요]');
+      return `<article class="requirement"><div><span class="${levelTag[plan.repairLevel]}">${escapeHtml(plan.repairLevel)}</span><div><strong>${escapeHtml(plan.issueTypeLabel)} · ${escapeHtml(plan.issueType)}</strong><small>대상: ${escapeHtml(plan.targetSection.map(target => target.title).join(' + ') || '자동 연결 실패 · 직접 지정 필요')}</small></div><span class="status ${plan.autoFixable ? '충족' : '확인-필요'}">${plan.autoFixable ? '자동 수정 가능' : '자동 수정 불가'}</span></div>
       <p><b>문제</b> ${escapeHtml(plan.problem)}</p>
       <p><b>수정 방법</b> ${escapeHtml(plan.repairMethod)}</p>
-      <p><b>근거 우선순위</b> ${escapeHtml(plan.sourceOfTruth.level)} · ${escapeHtml(plan.sourceOfTruth.detail)}</p>
+      <p><b>사용할 근거</b> ${escapeHtml(plan.sourceOfTruth.level)} · ${escapeHtml(plan.sourceOfTruth.detail)}${plan.evidence.length ? ` · 원문 근거 ${plan.evidence.length}건` : ' · 원문 근거 없음'}</p>
+      ${plan.evidence.length ? `<details><summary>근거 문장</summary>${plan.evidence.map(item => `<blockquote>${escapeHtml(item.excerpt)}<br><small>${escapeHtml(item.location)}</small></blockquote>`).join('')}</details>` : ''}
+      ${plan.calculation?.hasFormula ? `<p><b>계산 확인</b> 입력값 ${escapeHtml(plan.calculation.operands.join(' × '))} → 산출 ${escapeHtml(String(plan.calculation.computed ?? '-'))} · 문서 기재 ${escapeHtml(plan.calculation.stated.join(' / ') || '없음')} · ${plan.calculation.ambiguous ? '어느 입력값이 맞는지 확인 필요' : '입력값 확정'}</p>` : ''}
       ${plan.lockedValues.length ? `<p><b>유지할 확정값</b> ${escapeHtml(plan.lockedValues.slice(0, 8).join(' · '))}</p>` : ''}
-      ${plan.repairLevel === 'USER_CONFIRMATION' ? `<div class="alert warning"><strong>확인이 필요합니다</strong><p>${escapeHtml(plan.confirmationQuestion)}</p><div class="field"><label for="answer-${escapeHtml(plan.id)}">확인값 입력</label><input id="answer-${escapeHtml(plan.id)}" data-repair-answer="${escapeHtml(plan.id)}" value="${escapeHtml(state.coaching.repairAnswers?.[plan.id] || '')}" placeholder="예: 전담 5명(조직도 8명 중 5명 참여)"></div></div>` : `<details><summary>수정 문장</summary><blockquote>${escapeHtml(plan.proposedRevision)}</blockquote></details>`}
-      <p class="muted">검증 규칙: ${escapeHtml(plan.verificationRule)}</p></article>`).join('')}</div></div>`;
+      ${plan.repairLevel === 'USER_CONFIRMATION' ? `<div class="alert warning"><strong>확인이 필요합니다</strong><p>${escapeHtml(plan.confirmationQuestion)}</p><div class="field"><label for="answer-${escapeHtml(plan.id)}">확인값 입력</label><input id="answer-${escapeHtml(plan.id)}" data-repair-answer="${escapeHtml(plan.id)}" value="${escapeHtml(answer)}" placeholder="예: 전담 5명(조직도 8명 중 5명 참여)"></div></div>` : ''}
+      <div class="two-col"><details open><summary>수정 전</summary><blockquote>${escapeHtml(plan.currentContent.slice(-220) || '연결된 문단 없음')}</blockquote></details><details open><summary>수정 후</summary><blockquote>${escapeHtml(after || '확인값을 입력하기 전에는 수정하지 않습니다.')}</blockquote></details></div>
+      <p class="muted">검증 규칙: ${escapeHtml(plan.verificationRule)}</p></article>`;
+    }).join('')}</div></div>`;
 }
 
 function coachingContext() {

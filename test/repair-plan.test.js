@@ -139,3 +139,47 @@ test('수정계획 레이어는 외부 호출 없이 화면에 연결된다', ()
   assert.match(appSource, /id="apply-repair-plans"/);
   assert.match(appSource, /buildRepairPlans\(/);
 });
+
+test('계산 오류는 입력값 확정 여부로 자동 산출과 확인 요청을 나눈다', () => {
+  const official = [{ fileName: '공고.pdf', usage: '공식 근거로 사용 가능', text: '단가 50천원, 인원 50명, 기간 12주' }];
+  // A) 입력값이 확정되고 결과가 적혀 있지 않은 경우 → 결과를 자동 산출한다.
+  const onlyFormula = buildRepairPlan(issue({
+    location: '3. 예산', reason: '산출내역의 계산 결과가 표기되지 않아 합계가 맞지 않습니다.',
+    example: '청년 체류지원비 =',
+    evidenceRefs: [{ sourceName: '계획서', pageOrSection: '3. 예산', proposalLocation: '3. 예산', excerpt: '청년 체류지원비 50천원×50명×12주', verified: true }]
+  }), { sections, references: official });
+  assert.equal(onlyFormula.calculation.operandsConfirmed, true);
+  assert.equal(onlyFormula.calculation.ambiguous, false);
+  assert.equal(onlyFormula.autoFixable, true);
+  assert.equal(onlyFormula.computedValue, '30,000천원');
+  assert.equal(onlyFormula.repairLevel, 'EVIDENCE_BASED');
+
+  // B) 문서에 다른 결과가 적혀 있으면 어느 값이 맞는지 임의로 고르지 않는다.
+  const conflicting = buildRepairPlan(issue({
+    location: '3. 예산', reason: '산출내역 50천원×50명×12주는 30,000천원인데 표에는 9,000천원으로 기재되어 맞지 않습니다.',
+    example: '청년 체류지원비: [확인 필요: 금액]',
+    evidenceRefs: [{ sourceName: '계획서', pageOrSection: '3. 예산', proposalLocation: '3. 예산', excerpt: '청년 체류지원비 50천원×50명×12주 9,000천원', verified: true }]
+  }), { sections, references: official });
+  assert.equal(conflicting.calculation.ambiguous, true);
+  assert.equal(conflicting.repairLevel, 'USER_CONFIRMATION');
+  assert.equal(conflicting.autoFixable, false);
+  assert.match(conflicting.confirmationQuestion, /9,000천원/);
+  assert.match(conflicting.confirmationQuestion, /30,000천원/);
+});
+
+test('없는 내용을 채우는 문제는 믿을 수 있는 근거가 있을 때만 수정한다', () => {
+  const missing = issue({ location: '4. 성과지표', reason: '성과지표의 목표값이 기재되지 않았습니다.', example: '성과지표: [확인 필요: 목표값]' });
+  const withoutTrusted = buildRepairPlan(missing, { sections });
+  assert.equal(withoutTrusted.repairLevel, 'USER_CONFIRMATION');
+  assert.match(withoutTrusted.confirmationQuestion, /확정/);
+
+  const withTrusted = buildRepairPlan(missing, { sections, confirmedFacts: [{ title: '성과지표', content: '출석률 80%' }] });
+  assert.equal(withTrusted.sourceOfTruth.level, SOURCE_OF_TRUTH[2]);
+  assert.equal(withTrusted.repairLevel, 'EVIDENCE_BASED');
+
+  // 근거가 없으면 문장을 만들어 채우지 않는다.
+  const run = applyRepairPlans(structuredClone(sections), [withoutTrusted]);
+  assert.equal(run.applied.length, 0);
+  assert.equal(run.questions.length, 1);
+  assert.deepEqual(run.sections.map(section => section.content), sections.map(section => section.content));
+});
