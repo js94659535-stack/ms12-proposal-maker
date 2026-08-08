@@ -9,6 +9,7 @@ import { REFERENCE_TYPES, assessReferences, makeReference, projectContext, refer
 import { analyzeProposalStructure, buildStructuralRevision, reviewProposalStructure } from './proposal-structure.js';
 import { applyRepairPlans, buildRepairPlans, repairPlanSummary } from './repair-plan.js';
 import { analyzeNoticeStructure, buildSelectionLogic, noticeLogicSummary, selectionRequirements } from './notice-logic.js';
+import { bundleSummary, expandBundle, mergeBundleStructures } from './notice-bundle.js';
 import { EXTERNAL_SOURCE, appendProposalVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, proposalTextFromSections, proposalTextFromSnapshot, revisionInstruction, verifyLockedValues } from './coaching-handoff.js';
 import { splitApplicantProfile } from './applicants.js';
 import { APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
@@ -210,7 +211,7 @@ function selectionLogicView() {
   const notice = noticeLogicSource();
   if (!notice) return '';
   const analysis = state.noticeLogic;
-  const header = `<div class="card"><div class="card-title"><div><h3>선정 논리 구조화</h3><span>공고·요강·평가기준에서 확인되는 내용만 정리합니다. 없는 기준은 만들지 않습니다.</span></div><button class="button primary" id="analyze-notice-logic">이 공고의 선정 논리 분석</button></div>`;
+  const header = `<div class="card"><div class="card-title"><div><h3>선정 논리 구조화</h3><span>공고·요강·평가기준에서 확인되는 내용만 정리합니다. 없는 기준은 만들지 않습니다.</span></div><button class="button secondary" id="analyze-notice-logic">공고 본문만 분석</button><button class="button primary" id="analyze-notice-bundle">첨부까지 완전 분석</button></div>`;
   if (!analysis) return `${header}<p class="muted">AI 호출 없이 공고 원문에서 목적·자격·필수내용·평가배점·성과 요구를 구조화합니다.</p></div>`;
   const { structure, logic, requirements, summary } = analysis;
   return `${header}
@@ -218,7 +219,8 @@ function selectionLogicView() {
     <div><span>공식 근거 확인 항목</span><strong>${summary.confirmedFields}/${structure.fields.length}</strong><small>확인 필요 ${structure.fields.length - summary.confirmedFields}개</small></div>
     <div><span>배점</span><strong>${escapeHtml(logic.scoring.mode)}</strong><small>${escapeHtml(logic.scoring.items.map(item => `${item.criterion} ${item.points}점`).join(' · ') || '공식 평가표 없음 · 점수 임의 생성 안 함')}</small></div>
     <div><span>선정 요건</span><strong>${requirements.length}개</strong><small>공식 근거 ${summary.officialRequirements} · 확인 필요 ${summary.checkRequirements}</small></div></div>
-    ${structure.unreadAttachments.length ? `<div class="alert warning"><strong>첨부에만 있는 기준</strong><p>${escapeHtml(structure.unreadAttachments.join(' / '))} — 이 안의 조건은 읽지 못했습니다. 파일을 직접 자료로 추가하면 함께 분석합니다.</p></div>` : ''}
+    ${analysis.files ? `<details open><summary>공고 자료묶음 ${analysis.files.length}건 · 읽음 ${analysis.summary.bundle.read} · 변환 필요 ${analysis.summary.bundle.conversionNeeded} · 미지원 ${analysis.summary.bundle.unsupported}</summary><div class="cap-grid">${analysis.files.map(file => `<div><span>${escapeHtml(file.role)} · ${escapeHtml(file.status)}</span><strong>${escapeHtml(String(file.name).split(" > ").pop())}</strong><small>${file.chars ? file.chars.toLocaleString() + "자" : escapeHtml(file.error || "")}</small></div>`).join("")}</div>${analysis.conflicts?.length ? `<p><b>자료 간 충돌</b> ${analysis.conflicts.map(item => `${escapeHtml(item.field)} · ${escapeHtml(item.label)}: ${escapeHtml(item.values.join(" vs "))}`).join(" / ")}</p>` : ""}</details>` : ""}
+    ${structure.unreadAttachments.length ? `<div class="alert warning"><strong>읽지 못한 자료</strong><p>${escapeHtml(structure.unreadAttachments.join(' / '))} — 이 안의 조건은 읽지 못했습니다. 파일을 직접 자료로 추가하면 함께 분석합니다.</p></div>` : ''}
     <details open><summary>이 공고에서 선정되려면 무엇을 증명해야 하는가 (${requirements.length}개)</summary><div class="requirement-list">${requirements.map((item, index) => `<article class="requirement"><div><span class="status ${item.basis === '공식 근거' ? '충족' : '확인-필요'}">${escapeHtml(item.basis)}</span><div><strong>${index + 1}. ${escapeHtml(item.title)}</strong><small>${escapeHtml(item.prove)}</small></div></div>${item.evidence.length ? `<details><summary>공고 근거</summary>${item.evidence.map(evidence => `<blockquote>[${escapeHtml(evidence.source)}] ${escapeHtml(evidence.sentence)}</blockquote>`).join('')}</details>` : ''}</article>`).join('')}</div></details>
     <details open><summary>선정 논리 흐름</summary><div class="cap-grid">${logic.chain.map(item => `<div><span>${escapeHtml(item.step)}</span><strong>${escapeHtml(item.basis)}</strong><small>${escapeHtml(String(item.content).slice(0, 120))}</small></div>`).join('')}</div>${logic.brokenLinks.length ? `<p class="muted">끊긴 고리: ${escapeHtml(logic.brokenLinks.join(' · '))} — 공고 원문·요강을 추가하면 채울 수 있습니다.</p>` : ''}</details>
     <details><summary>항목별 구조화 ${structure.fields.length}개</summary><div class="requirement-list">${structure.fields.map(field => `<article class="requirement"><div><span class="status ${field.status === '공식 근거 확인' ? '충족' : '확인-필요'}">${escapeHtml(field.status)}</span><strong>${escapeHtml(field.title)}</strong></div>${field.evidence.map(evidence => `<blockquote>[${escapeHtml(evidence.source)}] ${escapeHtml(evidence.sentence)}</blockquote>`).join('') || '<p class="muted">공고에서 확인되지 않았습니다. 추론으로 채우지 않습니다.</p>'}</article>`).join('')}</div></details></div>`;
@@ -862,6 +864,7 @@ function bind() {
   document.querySelectorAll('[data-remove-notice]').forEach(el => el.onclick = () => removeOfficialNotice(el.dataset.removeNotice));
   document.querySelectorAll('[data-notice-check]').forEach(el => el.onchange = () => toggleNoticeSelection(el.dataset.noticeCheck, el.checked));
   document.querySelector('#analyze-notice-logic')?.addEventListener('click', analyzeNoticeSelectionLogic);
+  document.querySelector('#analyze-notice-bundle')?.addEventListener('click', analyzeNoticeBundleFiles);
   document.querySelector('#remove-selected-notices')?.addEventListener('click', removeSelectedNotices);
   document.querySelectorAll('[data-restore-notice]').forEach(el => el.onclick = () => restoreNotice(el.dataset.restoreNotice));
   document.querySelectorAll('[data-delete-notice-forever]').forEach(el => el.onclick = () => deleteNoticeForever(el.dataset.deleteNoticeForever));
@@ -1367,6 +1370,41 @@ function toggleCoachingSelection(index, checked) {
   if (checked) selection.add(index); else selection.delete(index);
   state.coachingSelection = [...selection].sort((left, right) => left - right);
   saveState();
+}
+
+// 공고 본문 + 첨부파일을 하나의 자료묶음으로 읽어 선정 논리를 다시 완성한다. AI 호출 없음.
+async function analyzeNoticeBundleFiles() {
+  const notice = noticeLogicSource();
+  if (!notice) return setState({ error: '분석할 공고를 먼저 선택해 주세요.' });
+  const attachments = (notice.attachments || []).filter(item => item?.dstbBsnsCode);
+  if (!attachments.length) return setState({ error: '이 공고에는 내려받을 첨부파일이 없습니다.' });
+  setAiBusy(`공고 첨부 ${attachments.length}건을 읽는 중`, { error: '', notice: '' });
+  try {
+    const downloaded = [];
+    for (const attachment of attachments) {
+      const response = await fetch('/api/notices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'downloadAttachment', attachment }) });
+      if (!response.ok) { downloaded.push({ name: attachment.name, error: `내려받지 못했습니다 (${response.status})` }); continue; }
+      downloaded.push({ name: attachment.name, bytes: new Uint8Array(await response.arrayBuffer()) });
+    }
+    // PDF·DOCX는 기존 추출 기능을 그대로 사용한다.
+    const files = await expandBundle(downloaded, {
+      extractText: async ({ name, buffer, extension }) => {
+        if (!['pdf', 'docx', 'txt', 'hwpx'].includes(extension)) return '';
+        const parsed = await extractFile(new File([buffer], name));
+        return parsed.text;
+      }
+    });
+    const base = analyzeNoticeStructure(notice);
+    const { structure, conflicts } = mergeBundleStructures(base, files);
+    const logic = buildSelectionLogic(structure);
+    const requirements = selectionRequirements(structure);
+    const summary = { ...noticeLogicSummary(structure, logic, requirements), bundle: bundleSummary(files, conflicts) };
+    setState({
+      busy: '', noticeLogic: { structure, logic, requirements, summary, files, conflicts },
+      notice: `자료묶음 ${files.length}건 중 ${summary.bundle.read}건을 읽었습니다${elapsedLabel()}. 공식 근거 확인 ${summary.confirmedFields}/${structure.fields.length} · 확정 선정요건 ${summary.officialRequirements}개${summary.bundle.conversionNeeded ? ` · 변환 필요 ${summary.bundle.conversionNeeded}건` : ''}`,
+      error: ''
+    });
+  } catch (error) { setState({ busy: '', error: error.message }); }
 }
 
 // 공고에서 선정 논리를 구조화한다. AI 호출 없이 공고 원문만 사용한다.
