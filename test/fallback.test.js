@@ -563,6 +563,20 @@ test('초안 단계에서는 [확인 필요]와 자기점검 실패로 초안을
   assert.equal(state.unresolvedItems[0].marks, 1);
   assert.deepEqual(state.warnings.map(item => item.check), ['singleSubprogramOnly']);
 
+  // 설계도에서 미확정인 항목은 AI가 '확인 필요'로 표시하지 않아도 같은 기준으로 집계한다.
+  const withBlueprint = draftReviewState(withOpen, { projectBlueprint: { unresolvedSections: [{ sectionKey: 'goals', from: ['성과목표'] }] } });
+  const goals = withBlueprint.unresolvedItems.find(item => item.sectionId === 's-3');
+  assert.ok(goals, JSON.stringify(withBlueprint.unresolvedItems));
+  assert.deepEqual(goals.fromBlueprint, ['성과목표']);
+  assert.equal(withBlueprint.unresolvedItems.length, 2);
+  assert.equal(withBlueprint.draftStatus, 'NEEDS_REVIEW');
+
+  // 공고 기준 충돌만 있어도 제출 준비 완료로 올리지 않는다.
+  const conflicted = draftReviewState({ ...base, qualityCheck: { ...base.qualityCheck, singleSubprogramOnly: true } }, { projectBlueprint: { officialConflicts: [{ field: '인원', officialValue: '70명 이상', userValue: '15명' }] } });
+  assert.equal(conflicted.draftStatus, 'NEEDS_REVIEW');
+  assert.equal(conflicted.submissionReady, false);
+  assert.equal(conflicted.officialConflicts[0].type, 'OFFICIAL_REQUIREMENT_CONFLICT');
+
   // 경고도 미확정도 없으면 NEEDS_REVIEW가 아니지만 제출 가능으로 표시하지 않는다.
   const clean = draftReviewState({ ...base, qualityCheck: { ...base.qualityCheck, singleSubprogramOnly: true } });
   assert.equal(clean.draftStatus, 'DRAFT_READY');

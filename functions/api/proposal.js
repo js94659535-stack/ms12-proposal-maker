@@ -270,20 +270,32 @@ export function validateEngineResult(result, payload = {}) {
   return '';
 }
 
+// 호환용 10개 항목 순서. 생성 결과가 id 대신 번호를 쓰더라도 같은 자리를 찾는다.
+const DRAFT_SECTION_ORDER = ['necessity', 'purpose', 'goals', 'target', 'programs', 'schedule', 'roles', 'budget', 'indicators', 'outcomes'];
+
 // 초안은 반환하되 사람이 확인해야 하는 부분을 상태로 알린다.
 export function draftReviewState(result, payload = {}) {
   const flags = { noticeAlignment: '공고 정합성', singleSubprogramOnly: '단일 세부사업', logicConsistency: '논리 일관성', budgetConsistency: '예산 일관성', measurableOutcomes: '측정 가능한 성과' };
   const warnings = Object.entries(flags)
     .filter(([key]) => result?.qualityCheck?.[key] === false)
     .map(([key, label]) => ({ check: key, label, message: `모델 자기점검에서 ${label} 항목이 통과되지 않았습니다. 초안은 유지하고 사람이 확인해야 합니다.` }));
-  // 본문의 [확인 필요] 표기와 항목 상태('확인 필요') 둘 다 미해결로 본다.
-  const unresolvedItems = (result?.sections || [])
-    .filter(value => /\[확인 필요/.test(value.content || '') || value.status === '확인 필요')
+  // 미해결 판단 기준은 셋이며 같은 의미로 합친다.
+  // (1) 본문의 [확인 필요] 표기 (2) 항목 상태 '확인 필요' (3) 설계도에서 미확정인 항목이 대응되는 자리
+  const sections = result?.sections || [];
+  const fromBlueprint = new Map();
+  for (const entry of payload.projectBlueprint?.unresolvedSections || []) {
+    const index = DRAFT_SECTION_ORDER.indexOf(entry.sectionKey);
+    const target = sections.find(value => value.id === entry.sectionKey) || (sections.length === DRAFT_SECTION_ORDER.length && index >= 0 ? sections[index] : null);
+    if (target) fromBlueprint.set(target, entry.from || []);
+  }
+  const unresolvedItems = sections
+    .filter(value => /\[확인 필요/.test(value.content || '') || value.status === '확인 필요' || fromBlueprint.has(value))
     .map(value => ({
       sectionId: value.id,
       section: value.title,
       status: value.status || '',
       marks: (String(value.content || '').match(/\[확인 필요[^\]]*\]/g) || []).length,
+      fromBlueprint: fromBlueprint.get(value) || [],
       samples: [...new Set(String(value.content || '').match(/[^.\n]{0,40}\[확인 필요[^\]]*\][^.\n]{0,20}/g) || [])].slice(0, 3)
     }));
   // 공고 공식 기준과 사용자 확정값 충돌은 어느 쪽도 고치지 않고 상태로만 전달한다.

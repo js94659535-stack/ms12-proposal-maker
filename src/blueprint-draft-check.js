@@ -39,7 +39,7 @@ function containsNumber(text, number) {
 const CHAIN = [['necessity', '사업 필요성'], ['target', '대상'], ['programs', '세부 프로그램'], ['indicators', '성과지표']];
 
 // 설계도 항목이 V1의 어느 계획서 항목에 해당하는지. 미확정 항목을 그 자리에서 추적하기 위한 대응표다.
-const SECTION_FOR_BLUEPRINT = {
+export const BLUEPRINT_SECTION_MAP = {
   summary: 'purpose', problem: 'necessity', target: 'target', purpose: 'purpose', objectives: 'goals',
   programs: 'programs', programDetails: 'programs', delivery: 'roles', strengths: 'roles', partners: 'roles',
   budget: 'budget', outcomeGoals: 'goals', indicators: 'indicators'
@@ -48,11 +48,11 @@ export const UNRESOLVED_MARK = '[확인 필요]';
 
 // AI 원본 V1은 바꾸지 않는다. 표시용 사본에만 미확정 표시를 붙인다.
 export function annotateDraftSections({ blueprint, sections } = {}) {
-  const open = (blueprint?.items || []).filter(item => item.status === 'NEEDS_CONFIRMATION' && SECTION_FOR_BLUEPRINT[item.key]);
+  const open = (blueprint?.items || []).filter(item => item.status === 'NEEDS_CONFIRMATION' && BLUEPRINT_SECTION_MAP[item.key]);
   const list = sections || [];
   return list.map((section, index) => {
     const key = section.id && SECTION_ORDER.includes(section.id) ? section.id : (list.length === SECTION_ORDER.length ? SECTION_ORDER[index] : section.id);
-    const fromBlueprint = open.filter(item => SECTION_FOR_BLUEPRINT[item.key] === key).map(item => item.title);
+    const fromBlueprint = open.filter(item => BLUEPRINT_SECTION_MAP[item.key] === key).map(item => item.title);
     const markedInText = /\[확인 필요/.test(section.content || section.body || '');
     const unresolved = Boolean(fromBlueprint.length) || markedInText || section.status === '확인 필요';
     return {
@@ -182,7 +182,7 @@ export function checkDraftAgainstBlueprint({ blueprint, sections, applicant, str
   const trackedTitles = new Set(annotated.flatMap(section => section.unresolvedFrom));
   // 초안에 그 항목 자체가 있는데도 표시되지 않은 경우만 실패로 본다.
   const presentKeys = new Set(annotated.map(section => section.sectionKey));
-  const untracked = openItems.filter(item => SECTION_FOR_BLUEPRINT[item.key] && presentKeys.has(SECTION_FOR_BLUEPRINT[item.key]) && !trackedTitles.has(item.title));
+  const untracked = openItems.filter(item => BLUEPRINT_SECTION_MAP[item.key] && presentKeys.has(BLUEPRINT_SECTION_MAP[item.key]) && !trackedTitles.has(item.title));
   checks.push(openItems.length && untracked.length
     ? check('미확정 값 표기', 'FAIL', `설계도 미확정 ${untracked.length}건이 V1 어느 항목에도 표시되지 않았습니다.`, untracked.map(item => item.title))
     : check('미확정 값 표기', 'PASS', `미확정 ${openItems.length}건 · [확인 필요] 표시 항목 ${markedSections.length}개 (본문 표기 ${marks}곳 · 구조화 표시 ${markedSections.length - annotated.filter(section => section.markedInText).length}개)`));

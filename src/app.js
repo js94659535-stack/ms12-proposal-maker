@@ -12,7 +12,7 @@ import { analyzeNoticeStructure, buildSelectionLogic, noticeLogicSummary, select
 import { bundleSummary, expandBundle, mergeBundleStructures } from './notice-bundle.js';
 import { matchApplicantToNotice } from './fit-matching.js';
 import { buildBlueprint } from './project-blueprint.js';
-import { annotateDraftSections, checkDraftAgainstBlueprint, officialRequirementConflicts } from './blueprint-draft-check.js';
+import { BLUEPRINT_SECTION_MAP, annotateDraftSections, checkDraftAgainstBlueprint, officialRequirementConflicts } from './blueprint-draft-check.js';
 import { EXTERNAL_SOURCE, appendProposalVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, proposalTextFromSections, proposalTextFromSnapshot, revisionInstruction, verifyLockedValues } from './coaching-handoff.js';
 import { splitApplicantProfile } from './applicants.js';
 import { APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
@@ -259,6 +259,15 @@ function blueprintProjectValues() {
   return (state.projectValues || []).filter(item => item.blueprintKey).map(item => ({ key: item.blueprintKey, value: item.value, source: '사용자 확정' }));
 }
 function blueprintValueOf(key) { return (state.projectValues || []).find(item => item.blueprintKey === key)?.value || ''; }
+// 설계도 미확정 항목 → 계획서 항목 자리. 화면 표시와 서버 집계가 같은 기준을 쓰게 한다.
+function unresolvedSectionsOf(blueprint) {
+  const grouped = new Map();
+  for (const item of (blueprint?.items || []).filter(entry => entry.status === 'NEEDS_CONFIRMATION' && BLUEPRINT_SECTION_MAP[entry.key])) {
+    const key = BLUEPRINT_SECTION_MAP[item.key];
+    grouped.set(key, [...(grouped.get(key) || []), item.title]);
+  }
+  return [...grouped.entries()].map(([sectionKey, from]) => ({ sectionKey, from }));
+}
 // 공고의 최소·최대 기준과 사용자가 확정한 이번 사업 값의 충돌만 뽑는다.
 function currentOfficialConflicts() {
   return officialRequirementConflicts(state.noticeLogic?.structure, (state.projectValues || []).filter(item => item.blueprintKey));
@@ -657,7 +666,7 @@ function draftBlueprintCheckView() {
       ${draftState.unresolvedItems?.length ? `<p>[확인 필요] 남은 항목 ${draftState.unresolvedItems.length}개: ${escapeHtml(draftState.unresolvedItems.map(item => `${item.section}(${item.marks})`).join(' · '))}</p>` : ''}</div>` : ''}
     ${conflicts.length ? `<div class="alert danger"><strong>공고 기준과 이번 사업 확정값 충돌 ${conflicts.length}건 · OFFICIAL_REQUIREMENT_CONFLICT</strong><p>어느 쪽도 자동으로 고치지 않았습니다. 확정 전에는 제출 준비 완료로 올리지 않습니다.</p>
       ${conflicts.map(item => `<p>· <b>${escapeHtml(item.field)}</b> — 공고 <b>${escapeHtml(item.officialValue)}</b> / 확정값 <b>${escapeHtml(item.userValue)}</b><br><small>공고 근거 [${escapeHtml(String(item.officialEvidence.source).split(' > ').pop())}] “${escapeHtml(item.officialEvidence.sentence)}”</small><br><small>확인 질문: ${escapeHtml(item.question)}</small></p>`).join('')}</div>` : ''}
-    ${unresolvedSections.length ? `<details open><summary>[확인 필요] 표시 ${unresolvedSections.length}개 항목 — AI 원본은 그대로 두고 상태만 붙였습니다</summary><div class="requirement-list">${unresolvedSections.map(section => `<article class="requirement"><div><span class="status 확인-필요">[확인 필요]</span><div><strong>${escapeHtml(section.title)}</strong><small>${escapeHtml(section.unresolvedFrom.length ? `설계도 미확정: ${section.unresolvedFrom.join(' · ')}` : (section.markedInText ? '본문에 [확인 필요] 표기' : '항목 상태: 확인 필요'))}</small></div></div></article>`).join('')}</div></details>` : ''}
+    ${unresolvedSections.length ? `<details open><summary>[확인 필요] 표시 ${unresolvedSections.length}개 항목 · 설계도 미확정 ${unresolvedSectionsOf(blueprint).length}자리${draftState?.unresolvedItems ? ` · 서버 집계 ${draftState.unresolvedItems.length}개` : ''} — AI 원본은 그대로 두고 상태만 붙였습니다</summary><div class="requirement-list">${unresolvedSections.map(section => `<article class="requirement"><div><span class="status 확인-필요">[확인 필요]</span><div><strong>${escapeHtml(section.title)}</strong><small>${escapeHtml(section.unresolvedFrom.length ? `설계도 미확정: ${section.unresolvedFrom.join(' · ')}` : (section.markedInText ? '본문에 [확인 필요] 표기' : '항목 상태: 확인 필요'))}</small></div></div></article>`).join('')}</div></details>` : ''}
     <div class="requirement-list">${report.checks.map(item => `<article class="requirement"><div><span class="status ${stateClass[item.state]}">${escapeHtml(item.state)}</span><div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.detail)}</small></div></div></article>`).join('')}</div></div>`;
 }
 
@@ -2200,6 +2209,8 @@ function blueprintHandoff() {
     readiness: blueprint.readiness,
     // 공고 기준과 이번 사업 확정값의 충돌. 어느 쪽도 고치지 않고 함께 넘긴다.
     officialConflicts: currentOfficialConflicts(),
+    // 설계도에서 미확정인 항목이 계획서 어느 자리에 해당하는지. 미해결 집계를 같은 기준으로 맞춘다.
+    unresolvedSections: unresolvedSectionsOf(blueprint),
     items: blueprint.items.filter(item => !['requirementLinks', 'openItems'].includes(item.key)).map(item => ({
       section: item.title,
       status: BLUEPRINT_STATUS_LABEL[item.status],
