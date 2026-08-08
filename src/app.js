@@ -5,6 +5,7 @@ import { exportDocx, exportPdf, printDocument } from './export.js';
 import { fetchNoticeDetail, fetchNoticeList, importNoticeUrl, noticeBodyText } from './notices.js';
 import { deleteArchivedApplicant, getArchivedProposal, getArchiveRecoveryKey, listArchivedApplicants, listArchivedProposals, saveArchivedApplicant, saveArchivedProposal, searchArchivedNotices, syncArchivedNotices, useArchiveRecoveryKey } from './archive.js';
 import { ASOF_UNKNOWN, applySafeCandidates, applyUpdateCandidate, buildUpdateCandidates, extractApplicantCandidates } from './applicant-extract.js';
+import { REFERENCE_TYPES, assessReferences, makeReference, projectContext, referenceNotices, referencePayload } from './reference-materials.js';
 import { EXTERNAL_SOURCE, appendProposalVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, proposalTextFromSections, revisionInstruction, verifyLockedValues } from './coaching-handoff.js';
 import { APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaTitle, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
 
@@ -19,7 +20,7 @@ const NAVIGATION_KEY = 'ms12_workflow_navigation_v1';
 const NAVIGATION_LIMIT = 10;
 const initial = {
   step: 0, activeTool: 'workflow', project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
-  coaching: { title: '', text: '', validatedText: '', criteriaText: '', officialEvaluationProvided: false, sourceProposalId: '', sourceNoticeKey: '', seriesId: '', currentArchiveId: '', result: null, workItems: [], pendingJob: null, version: 0 },
+  coaching: { title: '', text: '', validatedText: '', criteriaText: '', officialEvaluationProvided: false, sourceProposalId: '', sourceNoticeKey: '', seriesId: '', currentArchiveId: '', result: null, workItems: [], pendingJob: null, version: 0, references: [], referenceType: REFERENCE_TYPES[0], referenceDraft: '', referenceNameDraft: '' },
   applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, coachingApplicantId: '',
   revisionPlan: null, proposalVersions: [], coachingSelection: [], applicantSkipped: false,
   analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
@@ -54,7 +55,9 @@ function withMigratedApplicants(value) {
 }
 function saveState() {
   const safe = { ...state, companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], archiveNotices: [], archiveProposals: [], noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', applicantComparison: null, applicantDocDraft: '', applicantExtraction: null, files: state.files.map(({ text, ...meta }) => meta) };
-  localStorage.setItem('ms12_project_v3', JSON.stringify(safe));
+  // 참고자료처럼 큰 원문이 들어오면 브라우저 저장 한도를 넘을 수 있다. 저장 실패가 화면을 멈추지 않게 한다.
+  try { localStorage.setItem('ms12_project_v3', JSON.stringify(safe)); }
+  catch { console.warn('브라우저 자동 저장 용량을 초과해 이번 상태는 저장하지 못했습니다.'); }
 }
 function loadNavigationHistory() {
   try {
@@ -549,13 +552,45 @@ function coachingView() {
   const result = coaching.result;
   return `<div class="page-heading"><div><h2>계획서 검증·코칭</h2><p>내부·외부 계획서를 전체 구조부터 검토하고 문제가 있는 위치만 구체적으로 코칭합니다.</p></div><button class="button secondary" id="close-coaching">작성 흐름으로 돌아가기</button></div>
     <div class="card"><div class="two-col"><div class="field"><label for="coaching-title">계획서명</label><input id="coaching-title" value="${escapeHtml(coaching.title)}" placeholder="검증할 계획서명"></div><div class="field"><label for="coaching-file">PDF·DOCX·TXT·HWPX 불러오기</label><input id="coaching-file" type="file" accept=".pdf,.docx,.txt,.hwpx"><small class="muted">HWP(한글 바이너리)는 직접 읽을 수 없습니다. 한/글에서 [다른 이름으로 저장] → HWPX·PDF·DOCX로 저장해 올려 주세요.</small></div></div>
+    <label class="dropzone" id="coaching-dropzone" for="coaching-file"><strong>평가받을 사업계획서를 여기에 끌어다 놓으세요</strong><small>클릭 선택과 같은 방식으로 처리합니다 · PDF · DOCX · TXT · HWPX</small></label>
     <div class="field"><label for="coaching-text">계획서 원문</label><textarea id="coaching-text" class="source-text" placeholder="직원이 작성한 계획서를 붙여넣거나 파일을 업로드하세요.">${escapeHtml(coaching.text)}</textarea></div>
     <div class="field"><label for="coaching-criteria">연결할 공고·신청서·공식 평가기준</label><textarea id="coaching-criteria" class="source-text" placeholder="평가표가 있으면 최우선 기준으로 사용합니다.">${escapeHtml(coaching.criteriaText)}</textarea><label><input id="coaching-official-evaluation" type="checkbox" ${coaching.officialEvaluationProvided ? 'checked' : ''}> 입력 자료에 공식 평가표가 포함되어 있음</label></div>
     <div class="actions"><div><button class="button secondary" id="coach-current-proposal" ${state.sections.length ? '' : 'disabled'}>현재 계획서 불러오기</button><button class="button secondary" id="coach-list-archive">자료보관함 계획서</button></div><button class="button primary" id="run-coaching" ${coaching.pendingJob ? 'disabled' : ''}>${coaching.pendingJob ? '검증 중' : result ? '수정본 다시 검증' : '검증·코칭 실행'}</button></div><small>전체 검증은 OpenAI background mode로 실행됩니다. store=false이지만 polling을 위해 응답 데이터가 약 10분간 일시 저장될 수 있습니다.</small></div>
+    ${coachingReferenceView(coaching)}
     ${coaching.pendingJob ? `<div class="alert warning"><strong>검증 중 · ${escapeHtml(coaching.pendingJob.status || 'queued')}</strong><p>작업 ID ${escapeHtml(coaching.pendingJob.id)} · polling ${Number(coaching.pendingJob.pollCount || 0)}회</p><p>새로고침 후에도 같은 탭에서 작업을 이어 확인합니다.<span data-ai-elapsed data-started-at="${Number(coaching.pendingJob.startedAt || Date.now())}" style="display:block">경과시간 00초</span></p></div>` : ''}
     ${state.archiveProposals.length ? `<div class="card"><h3>자료보관함에서 불러오기</h3><div class="requirement-list">${state.archiveProposals.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(archiveStageLabel(item.stage))}</span><strong>${escapeHtml(item.title)}</strong></div><button class="button secondary" data-coach-archive="${escapeHtml(item.id)}">${String(item.stage).startsWith('coaching-v') ? '이 버전으로 돌아가기' : '검증 대상으로 불러오기'}</button></article>`).join('')}</div></div>` : ''}
     ${result ? coachingResultView(result) : ''}
     ${result ? coachingApplicantView() : ''}`;
+}
+
+function coachingContext() {
+  return projectContext({ proposalText: state.coaching.text, proposalTitle: state.coaching.title || state.project.title, noticeTitle: state.selectedNotice?.title || '', noticeDeadline: state.selectedNotice?.deadline || '', today: new Date().toISOString() });
+}
+
+// 참고자료는 평가받는 계획서와 분리해 보관하고, 공식 기준으로 쓸 수 있는지 먼저 판별한다.
+function coachingReferenceView(coaching) {
+  const references = coaching.references || [];
+  const review = assessReferences(references, coachingContext());
+  const usageTag = { '공식 근거로 사용 가능': 'status 충족', '관련 있으나 참고용': 'status 부분-충족', '이번 사업과 맞지 않음': 'status 미충족', '출처/진위 확인 필요': 'status 확인-필요', '내용끼리 충돌함': 'status 미충족' };
+  return `<div class="card"><div class="card-title"><div><h3>참고자료 ${references.length}건</h3><span>공고문·사업요강·평가기준·원본 등 계획서를 판단할 근거 자료입니다. 평가받는 계획서와 섞지 않습니다.</span></div></div>
+    <div class="two-col"><div class="field"><label for="reference-type">자료 유형</label><select id="reference-type">${REFERENCE_TYPES.map(type => `<option value="${escapeHtml(type)}" ${coaching.referenceType === type ? 'selected' : ''}>${escapeHtml(type)}</option>`).join('')}</select></div>
+    <div class="field"><label for="reference-file">참고자료 파일 추가</label><input id="reference-file" type="file" accept=".pdf,.docx,.txt,.hwpx" multiple></div></div>
+    <label class="dropzone" id="reference-dropzone" for="reference-file"><strong>참고자료를 여기에 끌어다 놓으세요</strong><small>선택한 자료 유형으로 여러 개를 한 번에 추가합니다</small></label>
+    <div class="two-col"><div class="field"><label for="reference-name">붙여넣을 자료명</label><input id="reference-name" value="${escapeHtml(coaching.referenceNameDraft || '')}" placeholder="예: 2026년 배분사업 공고문"></div><div class="field"><label>&nbsp;</label><button class="button secondary" id="add-reference-text">붙여넣은 참고자료 추가</button></div></div>
+    <div class="field"><label for="reference-text">참고자료 내용 붙여넣기</label><textarea id="reference-text" style="min-height:90px" placeholder="공고문·요강·평가기준 원문을 붙여넣으세요.">${escapeHtml(coaching.referenceDraft || '')}</textarea></div>
+    ${references.length ? `<div class="requirement-list">${references.map((item, index) => {
+      const assessment = review.assessments[index] || {};
+      return `<article class="requirement"><div><span class="${usageTag[assessment.usage] || 'tag'}">${escapeHtml(assessment.usage || '판별 중')}</span><div><strong>${escapeHtml(item.fileName)}</strong><small>${escapeHtml(item.referenceType)} · ${item.text.length.toLocaleString()}자${assessment.years?.length ? ` · 자료 연도 ${assessment.years.join('·')}` : ''}</small></div></div>
+      <p class="muted">${escapeHtml((assessment.reasons || []).join(' '))}</p>
+      <div class="actions" style="margin:0;gap:8px"><select data-reference-type="${escapeHtml(item.id)}" aria-label="${escapeHtml(item.fileName)} 자료 유형">${REFERENCE_TYPES.map(type => `<option value="${escapeHtml(type)}" ${item.referenceType === type ? 'selected' : ''}>${escapeHtml(type)}</option>`).join('')}</select><button class="button secondary" data-remove-reference="${escapeHtml(item.id)}">삭제</button></div></article>`;
+    }).join('')}</div>
+    ${referenceWarningView(review)}` : '<p class="muted">추가한 참고자료가 없습니다. 계획서만으로도 검증할 수 있습니다.</p>'}</div>`;
+}
+
+function referenceWarningView(review) {
+  const notices = referenceNotices(review, coachingContext());
+  if (!notices.length) return `<p class="muted">공식 근거로 사용 가능한 자료 ${review.officialCount}건입니다.</p>`;
+  return `<div class="alert warning"><strong>참고자료 판정 · 공식 근거 ${review.officialCount}건 / 확인 필요 ${review.cautionCount}건</strong>${notices.map(notice => `<p>${escapeHtml(notice)}</p>`).join('')}</div>`;
 }
 
 function coachingResultView(result) {
@@ -567,6 +602,7 @@ function coachingResultView(result) {
   const submission = coachingSubmissionDecision(result, workItems);
   return `<div class="card"><div class="card-title"><div><h3>검증·코칭 결과 · ${escapeHtml(result.overallStatus)}</h3><span>합격확률을 추정하지 않으며, 수정안은 자동 적용되지 않습니다.</span></div><div><span class="tag">${result.basis === 'official-evaluation' ? '공식 평가표 우선' : '공통 검증 기준'}</span><button class="button secondary" id="print-coaching-report">코칭 보고서 PDF 인쇄·저장</button></div></div><p>${escapeHtml(result.summary)}</p>
     ${submissionCheckView(result, submission)}
+    ${(state.coaching.references || []).length ? `<details open><summary>이번 검증에 사용한 참고자료 판정 ${state.coaching.references.length}건</summary>${referenceWarningView(assessReferences(state.coaching.references, coachingContext()))}<div class="cap-grid">${assessReferences(state.coaching.references, coachingContext()).assessments.map(item => `<div><span>${escapeHtml(item.referenceType)}</span><strong>${escapeHtml(item.fileName)}</strong><small>${escapeHtml(item.usage)}</small></div>`).join('')}</div></details>` : ''}
     ${result.evaluationMatrix?.length ? `<details open><summary>평가기준 대응표</summary><div class="requirement-list">${result.evaluationMatrix.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(item.status)}</span><div><strong>${escapeHtml(item.criterion)}${item.officialPoints ? ` · ${escapeHtml(item.officialPoints)}` : ''}</strong><small>${escapeHtml(item.requirement)}</small></div></div><p><b>계획서 대응 위치</b> ${escapeHtml(item.proposalLocations.join(' · ') || '연결 위치 없음')}</p>${coachingEvidenceView(item.evidenceRefs)}</article>`).join('')}</div></details>` : ''}
     ${comparison.previousVersion ? `<details open><summary>v${comparison.previousVersion} 대비 재검증 결과</summary><div class="summary-grid"><div><span>해결된 문제</span><strong>${comparison.resolvedIssues.length}건</strong><small>${escapeHtml(comparison.resolvedIssues.join(' · ') || '없음')}</small></div><div><span>남은 문제</span><strong>${comparison.remainingIssues.length}건</strong><small>${escapeHtml(comparison.remainingIssues.join(' · ') || '없음')}</small></div><div><span>새로 생긴 문제</span><strong>${comparison.newIssues.length}건</strong><small>${escapeHtml(comparison.newIssues.join(' · ') || '없음')}</small></div><div><span>실제 개선 항목</span><strong>${comparison.improvedAreas.length}건</strong><small>${escapeHtml(comparison.improvedAreas.join(' · ') || '없음')}</small></div></div></details>` : ''}
     <h3>개선 작업판</h3><div class="actions"><span>수정이 필요한 문제를 골라 「계획서 쓰기」로 보냅니다. 검증코치는 계획서를 직접 다시 쓰지 않습니다.</span><span><button class="button secondary" id="select-all-issues">전체 선택</button><button class="button primary" id="send-issues-to-writer" ${state.sections.length ? '' : 'disabled'}>계획서 쓰기에서 수정</button></span></div>${state.sections.length ? '' : `<div class="actions"><span class="muted">작성 중인 계획서 본문이 없습니다. 업로드한 외부 계획서를 원본 그대로 두고 수정 가능한 작업본으로 전환하면 같은 왕복 흐름을 사용할 수 있습니다.</span><button class="button primary" id="adopt-external-proposal" ${state.coaching.text.trim().length >= 30 ? '' : 'disabled'}>외부 계획서를 작업본으로 전환</button></div>`}<div class="requirement-list">${issues.length ? issues.map(item => { const originalIndex = result.issues.indexOf(item); const work = workItems[originalIndex] || { status: '미수정' }; return `<article class="requirement"><div><span class="tag mandatory">${escapeHtml(item.priority)}</span><div><strong><label><input type="checkbox" data-coaching-select="${originalIndex}" ${(state.coachingSelection || []).includes(originalIndex) ? 'checked' : ''}> ${escapeHtml(item.location)}</label></strong><small>${escapeHtml(item.category)}</small></div><select data-coaching-status="${originalIndex}" aria-label="${escapeHtml(item.location)} 상태"><option ${work.status === '미수정' ? 'selected' : ''}>미수정</option><option ${work.status === '수정중' ? 'selected' : ''}>수정중</option><option ${work.status === '해결' ? 'selected' : ''}>해결</option><option ${work.status === '확인필요' ? 'selected' : ''}>확인필요</option></select></div><p><b>위험 이유</b> ${escapeHtml(item.reason)}</p><p><b>개선 방향</b> ${escapeHtml(item.direction)}</p>${coachingEvidenceView(item.evidenceRefs)}<details><summary>기존 수정 예시${item.requiresConfirmation ? ' · 확인 필요' : ''}</summary><blockquote>${escapeHtml(item.example)}</blockquote></details><div class="actions"><span>상태: ${escapeHtml(work.status)}</span><button class="button secondary" data-coaching-revise="${originalIndex}">이 문제만 AI 수정안 만들기</button></div>${work.revision ? `<div class="two-col"><details open><summary>원문</summary><blockquote>${escapeHtml(work.revision.originalExcerpt)}</blockquote></details><details open><summary>AI 수정안${work.revision.requiresConfirmation ? ' · 확인 필요' : ''}</summary><blockquote>${escapeHtml(work.revision.revisedText)}</blockquote><small>${escapeHtml(work.revision.explanation)}</small></details></div><div class="actions"><span>자동 적용되지 않습니다.</span>${work.applied ? `<button class="button secondary" data-coaching-undo="${originalIndex}">적용 되돌리기</button>` : `<button class="button primary" data-coaching-apply="${originalIndex}">수정안 적용</button>`}</div>` : ''}</article>`; }).join('') : '<p class="muted">현재 기준에서 발견된 주요 문제가 없습니다.</p>'}</div></div>`;
@@ -597,6 +633,21 @@ function submissionCheckView(result, decision) {
 
 function makeCoachingWorkItems(result) {
   return (result.issues || []).map((issue, index) => ({ id: `issue-${index + 1}`, status: issue.requiresConfirmation ? '확인필요' : '미수정', revision: null, applied: false }));
+}
+
+// 드래그앤드롭도 클릭 업로드와 같은 처리 함수를 호출한다.
+function bindDropzone(selector, onFiles) {
+  const zone = document.querySelector(selector);
+  if (!zone) return;
+  const stop = event => { event.preventDefault(); event.stopPropagation(); };
+  zone.addEventListener('dragover', event => { stop(event); zone.classList.add('dragover'); });
+  zone.addEventListener('dragleave', event => { stop(event); zone.classList.remove('dragover'); });
+  zone.addEventListener('drop', event => {
+    stop(event);
+    zone.classList.remove('dragover');
+    const files = [...(event.dataTransfer?.files || [])];
+    if (files.length) onFiles(files);
+  });
 }
 
 function startBusyElapsedTimer() {
@@ -719,7 +770,16 @@ function bind() {
   document.querySelector('#coaching-text')?.addEventListener('input', event => { state.coaching.text = event.target.value; saveState(); });
   document.querySelector('#coaching-criteria')?.addEventListener('input', event => { state.coaching.criteriaText = event.target.value; saveState(); });
   document.querySelector('#coaching-official-evaluation')?.addEventListener('change', event => { state.coaching.officialEvaluationProvided = event.target.checked; saveState(); });
-  document.querySelector('#coaching-file')?.addEventListener('change', loadCoachingFile);
+  document.querySelector('#coaching-file')?.addEventListener('change', event => loadCoachingProposalFile(event.target.files?.[0]));
+  bindDropzone('#coaching-dropzone', files => loadCoachingProposalFile(files[0]));
+  bindDropzone('#reference-dropzone', files => addCoachingReferenceFiles(files));
+  document.querySelector('#reference-file')?.addEventListener('change', event => addCoachingReferenceFiles([...(event.target.files || [])]));
+  document.querySelector('#reference-type')?.addEventListener('change', event => { state.coaching.referenceType = event.target.value; saveState(); });
+  document.querySelector('#reference-name')?.addEventListener('input', event => { state.coaching.referenceNameDraft = event.target.value; saveState(); });
+  document.querySelector('#reference-text')?.addEventListener('input', event => { state.coaching.referenceDraft = event.target.value; saveState(); });
+  document.querySelector('#add-reference-text')?.addEventListener('click', addCoachingReferenceText);
+  document.querySelectorAll('[data-reference-type]').forEach(el => el.onchange = () => updateReferenceType(el.dataset.referenceType, el.value));
+  document.querySelectorAll('[data-remove-reference]').forEach(el => el.onclick = () => removeCoachingReference(el.dataset.removeReference));
   document.querySelector('#coach-current-proposal')?.addEventListener('click', coachCurrentProposal);
   document.querySelector('#coach-list-archive')?.addEventListener('click', loadCoachingArchive);
   document.querySelectorAll('[data-coach-archive]').forEach(el => el.onclick = () => loadArchivedProposalForCoaching(el.dataset.coachArchive));
@@ -936,15 +996,50 @@ async function loadApplicantsFromArchive() {
   } catch (error) { setState({ busy: '', error: error.message }); }
 }
 
-async function loadCoachingFile(event) {
-  const file = event.target.files?.[0];
+// 클릭 선택과 드래그앤드롭이 같은 처리 경로를 쓴다.
+async function loadCoachingProposalFile(file) {
   if (!file) return;
-  setState({ busy: '검증할 계획서 파일을 읽는 중...', error: '', notice: '' });
+  setAiBusy('검증할 계획서 파일을 읽는 중', { error: '', notice: '' });
   try {
     const parsed = await extractFile(file);
     state.coaching = { ...state.coaching, title: state.coaching.title || parsed.name.replace(/\.[^.]+$/, ''), text: parsed.text, result: null };
-    setState({ busy: '', coaching: state.coaching, notice: `${parsed.type} 계획서를 불러왔습니다.` });
+    setState({ busy: '', coaching: state.coaching, notice: `${parsed.type} 계획서를 불러왔습니다${elapsedLabel()}.` });
   } catch (error) { setState({ busy: '', error: error.message }); }
+}
+
+// 참고자료는 계획서 본문에 합치지 않고 자료별로 따로 보관한다.
+async function addCoachingReferenceFiles(files) {
+  const list = [...(files || [])];
+  if (!list.length) return;
+  setAiBusy(`참고자료 ${list.length}건을 읽는 중`, { error: '', notice: '' });
+  const added = [];
+  const failed = [];
+  for (const file of list) {
+    try {
+      const parsed = await extractFile(file);
+      added.push(makeReference({ id: `reference-${Date.now().toString(36)}-${added.length}`, fileName: parsed.name, referenceType: state.coaching.referenceType, text: parsed.text }));
+    } catch (error) { failed.push(error.message); }
+  }
+  state.coaching = { ...state.coaching, references: [...(state.coaching.references || []), ...added].slice(0, 20) };
+  setState({ busy: '', coaching: state.coaching, notice: added.length ? `참고자료 ${added.length}건을 추가했습니다${elapsedLabel()}. 자료 판정 결과를 확인하세요.` : '', error: failed.join(' / ') });
+}
+
+function addCoachingReferenceText() {
+  const text = String(state.coaching.referenceDraft || '').trim();
+  if (text.length < 30) return setState({ error: '참고자료 내용을 30자 이상 붙여넣어 주세요.' });
+  const reference = makeReference({ id: `reference-${Date.now().toString(36)}`, fileName: state.coaching.referenceNameDraft || '붙여넣은 참고자료', referenceType: state.coaching.referenceType, text });
+  state.coaching = { ...state.coaching, references: [...(state.coaching.references || []), reference].slice(0, 20), referenceDraft: '', referenceNameDraft: '' };
+  setState({ coaching: state.coaching, notice: `${reference.fileName}을 참고자료로 추가했습니다.`, error: '' });
+}
+
+function updateReferenceType(id, referenceType) {
+  state.coaching = { ...state.coaching, references: (state.coaching.references || []).map(item => (item.id === id ? makeReference({ ...item, referenceType }) : item)) };
+  setState({ coaching: state.coaching, notice: '참고자료 유형을 변경했습니다. 판정을 다시 확인하세요.', error: '' });
+}
+
+function removeCoachingReference(id) {
+  state.coaching = { ...state.coaching, references: (state.coaching.references || []).filter(item => item.id !== id) };
+  setState({ coaching: state.coaching, notice: '참고자료를 삭제했습니다.', error: '' });
 }
 
 function coachCurrentProposal() {
@@ -996,7 +1091,8 @@ async function runProposalCoaching() {
 }
 
 function coachingPayload() {
-  return { title: state.coaching.title, proposalText: state.coaching.text, criteriaText: state.coaching.criteriaText, officialEvaluationProvided: state.coaching.officialEvaluationProvided, previousVersion: state.coaching.version || 0, previousResult: state.coaching.result };
+  // 계획서(평가 대상)와 참고자료(판단 근거)를 분리해 전달하고, 자료별 사용 가능 여부를 함께 보낸다.
+  return { title: state.coaching.title, proposalText: state.coaching.text, criteriaText: state.coaching.criteriaText, officialEvaluationProvided: state.coaching.officialEvaluationProvided, previousVersion: state.coaching.version || 0, previousResult: state.coaching.result, ...referencePayload(state.coaching.references || [], coachingContext()) };
 }
 
 function coachingRequest(body) {
