@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hasExplicitCriticalEvidence, normalizeUnsupportedCriticalIssues, validateCoachingResultDetailed } from '../functions/api/proposal-coaching.js';
+import { compactEvidence, hasExplicitCriticalEvidence, normalizeUnsupportedCriticalIssues, validateCoachingResultDetailed } from '../functions/api/proposal-coaching.js';
 
 // 실제 OpenAI 호출 없이 고정 결과 fixture만 사용한다.
 const PROPOSAL_TEXT = `사업명: QA 청소년 학습회복 프로젝트
@@ -84,4 +84,22 @@ test('정규화는 등급 불일치만 고치고 schema 오류·근거 위조는
   missingChecks.finalChecks = missingChecks.finalChecks.slice(0, 3);
   normalizeUnsupportedCriticalIssues(missingChecks);
   assert.equal(validateCoachingResultDetailed(missingChecks, false, 0, PAYLOAD).stage, 'schema-validation');
+});
+
+test('PDF 추출로 공백이 깨진 원문도 근거 대조를 통과하고 위조는 계속 막는다', () => {
+  // 실제 배분신청서 PDF에서 나온 형태: "기 관 명   수완아동센터"
+  const payload = { proposalText: '1) 기 관 명   수완아동센터  사업 기간   2026   년 9   월   1 일 (총 4   개월)', criteriaText: '' };
+  const evidenceRefs = [{ sourceName: '계획서 원문', pageOrSection: '1쪽', proposalLocation: '기관명', excerpt: '기관명 수완아동센터', verified: true }];
+  const result = {
+    basis: 'common-criteria', overallStatus: '확인 필요', summary: 'QA', checkedAreas: ['자격'], evaluationMatrix: [], issues: [],
+    finalChecks: ['자격', '필수 신청항목', '사업기간', '대상·인원', '회기', '예산 합계·예산규정', '성과목표·지표', '기관·협력 역할', '공식 평가항목 누락']
+      .map(area => ({ area, status: '충족', note: 'QA', evidenceRefs })),
+    comparison: { previousVersion: 0, resolvedIssues: [], remainingIssues: [], newIssues: [], improvedAreas: [] }
+  };
+  assert.equal(compactEvidence('기 관 명   수완아동센터'), '기관명수완아동센터');
+  assert.equal(validateCoachingResultDetailed(result, false, 0, payload).error, '');
+
+  const forged = structuredClone(result);
+  forged.finalChecks[0].evidenceRefs = [{ ...evidenceRefs[0], excerpt: '존재하지 않는 규정 99조에 따라 신청 불가' }];
+  assert.equal(validateCoachingResultDetailed(forged, false, 0, payload).stage, 'evidence-validation');
 });

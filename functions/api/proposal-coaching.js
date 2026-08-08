@@ -242,6 +242,9 @@ export function validateCoachingResult(result, officialEvaluationProvided = fals
 
 const CRITICAL_RISK_TYPES = ['submission', 'eligibility', 'required-item', 'budget-rule', 'core-conflict'];
 
+// 근거 대조용 정규화. 공백·제어문자만 지우므로 없는 문장은 여전히 매칭되지 않는다.
+export function compactEvidence(value) { return [...String(value ?? '')].filter(char => char.charCodeAt(0) > 32 && char !== String.fromCharCode(8203) && char !== String.fromCharCode(65279)).join(''); }
+
 // 입력 근거에서 실제 누락·위반·상충이 확인되는 중대 문제인지 판단한다. 과잉진단 방지 기준을 그대로 사용한다.
 export function hasExplicitCriticalEvidence(issue) {
   const excerpts = (issue?.evidenceRefs || []).filter(ref => ref?.verified && ref.excerpt).map(ref => ref.excerpt);
@@ -286,10 +289,12 @@ export function validateCoachingResultDetailed(result, officialEvaluationProvide
   // 참고자료 본문도 근거 확인 대상에 포함한다. 계획서와 섞지 않고 원문만 이어 붙여 대조한다.
   const referenceText = (Array.isArray(payload.references) ? payload.references : []).map(item => String(item?.text || '')).join('\n');
   const sourceText = `${payload.proposalText || ''}\n${payload.criteriaText || ''}\n${referenceText}`;
+  // PDF·HWPX 추출본은 "기 관 명"처럼 공백이 깨져 들어온다. 공백·제어문자만 지우고 대조해 정상 근거가 위조로 판정되지 않게 한다.
+  const compactSource = compactEvidence(sourceText);
   for (const judgement of allJudgements) {
     if (!Array.isArray(judgement.evidenceRefs)) return invalid('schema-validation', '근거 추적 정보가 누락되었습니다.');
     const verified = judgement.evidenceRefs.filter(ref => ref?.verified);
-    if (verified.some(ref => !ref.excerpt || !sourceText.includes(ref.excerpt))) return invalid('evidence-validation', '입력 원문에서 확인되지 않는 근거가 포함되었습니다.');
+    if (verified.some(ref => !ref.excerpt || !compactSource.includes(compactEvidence(ref.excerpt)))) return invalid('evidence-validation', '입력 원문에서 확인되지 않는 근거가 포함되었습니다.');
     if (!verified.length && ((judgement.status && !['확인필요'].includes(judgement.status)) || (judgement.priority && !judgement.requiresConfirmation))) return invalid('evidence-validation', '근거를 찾지 못한 판단은 확인 필요로 표시해야 합니다.');
   }
   // 요청 경로에서는 normalizeUnsupportedCriticalIssues가 먼저 등급을 맞추므로, 여기서는 최종 안전장치로만 남긴다.
