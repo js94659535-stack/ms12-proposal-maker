@@ -21,7 +21,7 @@ const initial = {
   step: 0, activeTool: 'workflow', project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
   coaching: { title: '', text: '', validatedText: '', criteriaText: '', officialEvaluationProvided: false, sourceProposalId: '', sourceNoticeKey: '', seriesId: '', currentArchiveId: '', result: null, workItems: [], pendingJob: null, version: 0 },
   applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null,
-  revisionPlan: null, proposalVersions: [], coachingSelection: [],
+  revisionPlan: null, proposalVersions: [], coachingSelection: [], applicantSkipped: false,
   analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
@@ -114,11 +114,13 @@ function setAiBusy(message, patch = {}) {
   busyStartedAt = Date.now();
   setState({ ...patch, busy: message });
 }
+// 진행 중 표시를 끝낼 때 최종 경과시간을 완료·실패 메시지에 함께 남긴다.
+function elapsedLabel() { return busyStartedAt ? ` · ${Math.max(0, Math.round((Date.now() - busyStartedAt) / 1000))}초` : ''; }
 function typeName() { return TYPES.find(([id]) => id === state.project.type)?.[1] || '사업'; }
 function isStepComplete(index) {
   if (index === 0) return Boolean(state.noticeResults.length || state.sourceText.trim().length >= 30 || state.manualSources.some(item => item.extractionStatus === 'success'));
   if (index === 1) return Boolean(state.noticePreview || state.selectedNotice || (state.sourceText.trim().length >= 30 && !state.noticeResults.length));
-  if (index === 2) return Boolean(selectedApplicant());
+  if (index === 2) return Boolean(selectedApplicant() || state.applicantSkipped);
   if (index === 3) return Boolean(state.selectedNotice || (state.sourceText.trim().length >= 30 && !state.noticeResults.length));
   if (index === 4) return state.sections.length === 10;
   if (index === 5) return Boolean(state.sections.length === 10 && state.reviewResult);
@@ -167,7 +169,7 @@ function noticeListView() {
 
 function noticeImportView() {
   return `<div class="page-heading"><div><h2>공고와 신청 자료를 가져오세요</h2><p>기관 공고를 조회하거나 공식 공고문·신청서를 직접 추가할 수 있습니다.</p></div><span class="privacy">🔒 파일은 분석 요청 시에만 전송됩니다</span></div>
-    <div class="card"><div class="card-title"><div><h3>기관 공고 가져오기</h3><span>사랑의열매 중앙회 · 광주지회</span></div><button class="button primary" id="fetch-notices">공고 가져오기</button></div><p class="muted">${state.noticeResults.length ? `진행 중 공고 ${state.noticeResults.length}건을 가져왔습니다.` : '버튼을 누를 때만 공식 공모사업을 조회합니다.'}</p>${state.noticeResults.length ? '<div class="actions"><span></span><button class="button primary" data-step="1">가져온 공고 확인 →</button></div>' : ''}</div>
+    <div class="card"><div class="card-title"><div><h3>기관 공고 가져오기</h3><span>사랑의열매 중앙회 · 광주지회</span></div><button class="button primary" id="fetch-notices">공고 가져오기</button></div><p class="muted">${state.noticeResults.length ? `진행 중 공고 ${state.noticeResults.length}건을 가져왔습니다.` : '버튼을 누를 때만 공식 공모사업을 조회합니다.'}<br><b>지금 가져온 목록은 이 화면에서만 쓰는 임시 목록</b>이며 새로고침하면 사라집니다. 과거에 가져온 공고는 아래 <b>「자료보관함」</b>에서 검색해 다시 열 수 있습니다.</p>${state.noticeResults.length ? '<div class="actions"><span></span><button class="button primary" data-step="1">가져온 공고 확인 →</button></div>' : ''}</div>
     <div class="source-grid"><div class="card"><div class="card-title"><h3>공고문·신청서 업로드</h3><span>PDF · DOCX · TXT</span></div><label class="dropzone" for="source-files"><strong>파일을 선택하거나 여기에 놓으세요</strong><small>스캔 PDF는 OCR이 필요할 수 있습니다.</small><input id="source-files" type="file" accept=".pdf,.docx,.txt" multiple></label><div class="file-list">${state.files.length ? state.files.map((f, i) => `<div class="file-item"><span class="file-badge">${escapeHtml(f.type)}</span><div><strong>${escapeHtml(f.name)}</strong><small>${Number(f.characters || 0).toLocaleString()}자</small></div><button data-remove-file="${i}" aria-label="파일 제거">×</button></div>`).join('') : '<p class="empty-inline">업로드한 파일이 없습니다.</p>'}</div></div>
     <div class="card"><div class="card-title"><h3>공고문 직접 붙여넣기</h3><span id="char-count">${state.sourceText.length.toLocaleString()}자</span></div><textarea id="source-text" class="source-text" placeholder="기관 공고문 또는 신청서 원문을 붙여넣으세요.">${escapeHtml(state.sourceText)}</textarea></div></div>
     ${manualSourcesView()}
@@ -178,11 +180,11 @@ function noticeImportView() {
 
 function archiveView() {
   const filters = state.archiveFilters || initial.archiveFilters;
-  return `<details class="card org-details" open><summary>자료보관함</summary><p class="muted">수집한 공고와 단계별 계획서를 D1에 계속 보관합니다.</p>
+  return `<details class="card org-details" open><summary>자료보관함 · 과거에 가져온 공고 다시 찾기</summary><p class="muted">한 번 가져온 공고는 D1 자료보관함에 계속 남습니다. 마감이 지난 과거 공고도 여기에서 검색해 다시 열 수 있습니다. 위쪽 임시 목록과 달리 새로고침해도 사라지지 않습니다.</p>
     <div class="two-col"><div class="field"><label for="archive-institution">기관</label><input id="archive-institution" value="${escapeHtml(filters.institution)}" placeholder="예: 광주지회"></div><div class="field"><label for="archive-keyword">핵심어</label><input id="archive-keyword" value="${escapeHtml(filters.keyword)}" placeholder="예: 아동·청소년"></div></div>
     <div class="two-col"><div class="field"><label for="archive-from">마감일 시작</label><input id="archive-from" type="date" value="${escapeHtml(filters.from)}"></div><div class="field"><label for="archive-to">마감일 종료</label><input id="archive-to" type="date" value="${escapeHtml(filters.to)}"></div></div>
     <div class="actions"><span>검색은 저장 자료만 조회하며, 맞춤 찾기는 사용자가 눌렀을 때만 공식 공고를 갱신합니다.</span><div><button class="button secondary" id="search-archive">보관함 검색</button><button class="button primary" id="find-matching-notices">맞춤 공고 찾기</button><button class="button secondary" id="list-archived-proposals">계획서 보관함</button></div></div>
-    ${state.archiveNotices.length ? `<div class="requirement-list">${state.archiveNotices.map((item, index) => `<article class="requirement"><div><span class="tag">${escapeHtml(item.sourceLabel)}</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.applicationPeriod || item.deadline || '기간 정보 없음')} · ${item.linkedProposalCount ? `연결 계획서 ${item.linkedProposalCount}건` : '연결 계획서 없음'}</small></div></div><p class="muted notice-card-preview">${escapeHtml(String(item.summary || '상세 공고문 확인 필요').slice(0, 300))}</p><div class="actions"><span></span><div><button class="button secondary" data-view-archived-notice="${index}">공고 상세</button>${item.linkedProposalId ? `<button class="button secondary" data-open-archived-proposal="${escapeHtml(item.linkedProposalId)}">작성 계획서 열기</button>` : ''}<button class="button primary" data-use-archived-notice="${index}">공고 확인 목록에 열기</button></div></div></article>`).join('')}</div>` : '<p class="muted">검색 전에는 최근 저장 공고를 불러옵니다. 조건 없이 ‘보관함 검색’을 누르면 최근 공고부터 표시됩니다.</p>'}
+    ${state.archiveNotices.length ? `<h4>자료보관함(D1)에 보관된 공고 ${state.archiveNotices.length}건</h4><div class="requirement-list">${state.archiveNotices.map((item, index) => `<article class="requirement"><div><span class="tag">보관함 · ${escapeHtml(item.sourceLabel)}</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.applicationPeriod || item.deadline || '기간 정보 없음')} · ${item.linkedProposalCount ? `연결 계획서 ${item.linkedProposalCount}건` : '연결 계획서 없음'}</small></div></div><p class="muted notice-card-preview">${escapeHtml(String(item.summary || '상세 공고문 확인 필요').slice(0, 300))}</p><div class="actions"><span></span><div><button class="button secondary" data-view-archived-notice="${index}">공고 상세</button>${item.linkedProposalId ? `<button class="button secondary" data-open-archived-proposal="${escapeHtml(item.linkedProposalId)}">작성 계획서 열기</button>` : ''}<button class="button primary" data-use-archived-notice="${index}">공고 확인 목록에 열기</button></div></div></article>`).join('')}</div>` : '<p class="muted">검색 전에는 최근 저장 공고를 불러옵니다. 조건 없이 ‘보관함 검색’을 누르면 최근 공고부터 표시됩니다.</p>'}
     ${state.archiveProposals.length ? `<div class="requirement-list"><h4>저장된 계획서</h4>${state.archiveProposals.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(archiveStageLabel(item.stage))}</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(new Date(item.updatedAt).toLocaleString('ko-KR'))}</small></div></div><button class="button primary" data-open-archived-proposal="${escapeHtml(item.id)}">이어서 수정</button></article>`).join('')}</div>` : ''}
     <details><summary>다른 기기에서 같은 보관함 사용</summary><p class="muted">현재 복구키를 비밀번호 관리도구 등 안전한 장소에 보관하세요. 새 기기에서 같은 키를 입력하면 기존 계획서 보관함에 연결됩니다. 복구키를 잃으면 서버에서도 복원할 수 없습니다.</p><div class="actions"><button class="button secondary" id="copy-archive-key">현재 복구키 복사</button></div><div class="field"><label for="archive-recovery-key">기존 보관함 복구키</label><input id="archive-recovery-key" type="password" autocomplete="off" value="${escapeHtml(state.archiveKeyDraft)}" placeholder="다른 기기에서 보관한 복구키 붙여넣기"><button class="button primary" id="apply-archive-key">이 기기에 기존 보관함 연결</button></div></details></details>`;
 }
@@ -191,7 +193,7 @@ function archiveStageLabel(stage) { if (String(stage).startsWith('revision-v')) 
 
 function noticeConfirmView() {
   return `<div class="page-heading"><div><h2>공고 내용을 확인하세요</h2><p>공식 상세 원문에서 추출한 요약·대상·기간·지원내용을 확인합니다.</p></div></div>
-    <div class="card"><div class="card-title"><div><h3>가져온 공고 ${state.noticeResults.length}건</h3><span>300자 이내 공식 원문 요약</span></div><button class="button secondary" data-step="0">공고 더 가져오기</button></div>${noticeListView()}</div>
+    <div class="card"><div class="card-title"><div><h3>이번에 가져온 공고 ${state.noticeResults.length}건 · 임시 목록</h3><span>300자 이내 공식 원문 요약 · 새로고침하면 사라지며, 보관은 자료보관함(D1)에 별도로 저장됩니다</span></div><button class="button secondary" data-step="0">공고 더 가져오기</button></div>${noticeListView()}</div>
     ${noticeTrashView()}${noticePreviewView()}
     ${!state.noticeResults.length ? '<div class="empty-state"><div>⌕</div><h2>가져온 공고가 없습니다</h2><button class="button primary" data-step="0">공고 가져오기로 이동</button></div>' : ''}`;
 }
@@ -266,11 +268,12 @@ function comparisonRequirements() {
 function applicantSelectView() {
   const applicant = selectedApplicant();
   return `<div class="page-heading"><div><h2>이번 사업의 신청기관을 선택하세요</h2><p>선택한 기관의 ‘확인됨’ 정보만 마스터 설계와 계획서 작성 요청에 전달합니다.</p></div><button class="button secondary" data-open-applicants="1">신청기관 정보 관리</button></div>
+    ${applicant ? '' : `<div class="alert warning"><strong>신청기관 선택은 필수가 아닙니다</strong><p>신청기관을 선택하지 않거나 기관 정보가 부족해도 계획서 작성을 진행할 수 있습니다. 확인되지 않은 기관 사실은 AI가 만들지 않고 계획서에 <b>[확인 필요]</b>로 남습니다.</p><div class="actions" style="margin:0"><span></span><button class="button primary" id="skip-applicant">신청기관 없이 계획서 작성 계속 →</button></div></div>`}
     <div class="card"><div class="card-title"><div><h3>등록된 신청기관 ${state.applicants.length}곳</h3><span>공고 정보와 분리해 보관한 기관 정보입니다.</span></div><button class="button secondary" id="load-applicants">보관함에서 불러오기</button></div>
     ${state.applicants.length ? `<div class="requirement-list">${state.applicants.map(item => {
       const confirmed = item.items.filter(value => value.status === CONFIRMED_STATUS).length;
       return `<article class="requirement"><div><span class="tag ${item.id === state.selectedApplicantId ? '' : 'mandatory'}">${item.id === state.selectedApplicantId ? '선택됨' : '미선택'}</span><div><strong>${escapeHtml(item.name)}</strong><small>확인됨 ${confirmed}건 · 확인 필요·오래된 정보 ${item.items.length - confirmed}건</small></div></div><button class="button ${item.id === state.selectedApplicantId ? 'secondary' : 'primary'}" data-select-applicant="${escapeHtml(item.id)}">${item.id === state.selectedApplicantId ? '다시 불러오기' : '이 기관으로 신청'}</button></article>`;
-    }).join('')}</div>` : '<div class="empty-state"><div>▣</div><h2>등록된 신청기관이 없습니다</h2><p>먼저 신청기관 정보를 등록하세요.</p><button class="button primary" data-open-applicants="1">신청기관 정보 등록</button></div>'}</div>
+    }).join('')}</div>` : '<div class="empty-state"><div>▣</div><h2>등록된 신청기관이 없습니다</h2><p>기관을 등록하면 확인된 기관 정보를 계획서에 사용할 수 있습니다. 등록하지 않아도 작성은 진행됩니다.</p><button class="button primary" data-open-applicants="1">신청기관 정보 등록</button></div>'}</div>
     ${applicant ? applicantLoadedView(applicant) : ''}
     ${applicant ? applicantFitView(applicant) : ''}
     ${applicant ? projectValuesView(applicant) : ''}
@@ -720,6 +723,8 @@ function bindApplicants() {
   document.querySelector('#load-applicants')?.addEventListener('click', loadApplicantsFromArchive);
   document.querySelectorAll('[data-edit-applicant]').forEach(el => el.onclick = () => setState({ activeTool: 'applicants', applicantEditingId: state.applicantEditingId === el.dataset.editApplicant ? '' : el.dataset.editApplicant, notice: '', error: '' }));
   document.querySelectorAll('[data-select-applicant]').forEach(el => el.onclick = () => selectApplicantForProject(el.dataset.selectApplicant));
+  // 신청기관 정보가 없어도 계획서 작성을 막지 않는다.
+  document.querySelector('#skip-applicant')?.addEventListener('click', () => navigateToStep(3, { applicantSkipped: true, notice: '신청기관 없이 진행합니다. 확인되지 않은 기관 사실은 만들지 않고 [확인 필요]로 남깁니다.', error: '' }));
   document.querySelectorAll('[data-delete-applicant]').forEach(el => el.onclick = () => removeApplicant(el.dataset.deleteApplicant));
   document.querySelector('#save-applicant')?.addEventListener('click', () => persistApplicant(state.applicantEditingId, true));
   document.querySelector('#applicant-name')?.addEventListener('input', event => { updateEditingApplicant(applicant => { applicant.name = event.target.value; }); });
@@ -842,7 +847,7 @@ function selectApplicantForProject(id) {
   if (!applicant) return setState({ error: '선택한 신청기관을 찾지 못했습니다.' });
   const confirmed = confirmedItems(applicant).length;
   state.activeTool = 'workflow';
-  navigateToStep(2, { selectedApplicantId: applicant.id, applicantComparison: null, notice: `${applicant.name}의 확인된 정보 ${confirmed}건을 이번 사업에 불러왔습니다.`, error: '' });
+  navigateToStep(2, { selectedApplicantId: applicant.id, applicantComparison: null, applicantSkipped: false, notice: `${applicant.name}의 확인된 정보 ${confirmed}건을 이번 사업에 불러왔습니다.`, error: '' });
 }
 
 function removeApplicant(id) {
@@ -1284,23 +1289,24 @@ function manualSourceRecord(fileName, sourceType, extractedText, extractionStatu
 
 async function loadOfficialNotices() {
   state.project.type = 'chest';
-  setState({ busy: '중앙회와 광주지회 공고를 불러오는 중...', error: '', notice: '' });
+  setAiBusy('공고를 불러오는 중', { error: '', notice: '' });
   try {
     const result = await fetchNoticeList();
     const notices = result.notices || [];
     let archiveMessage = '';
     try { const archived = await syncArchivedNotices(notices); archiveMessage = ` 보관함 신규 ${archived.inserted}건·변경 ${archived.updated}건·동일 ${archived.unchanged}건입니다.`; }
     catch { archiveMessage = ' 공고 목록은 표시하지만 자료보관함 저장에는 실패했습니다.'; }
-    navigateToStep(1, { busy: '', noticeResults: notices, selectedNoticeIndexes: [], pendingNoticeChoice: null, notice: `공고 ${notices.length}건을 불러왔습니다.${archiveMessage}` });
-  } catch (error) { setState({ busy: '', error: error.message }); }
+    const elapsed = elapsedLabel();
+    navigateToStep(1, { busy: '', noticeResults: notices, selectedNoticeIndexes: [], pendingNoticeChoice: null, notice: `공고 ${notices.length}건을 불러왔습니다${elapsed}.${archiveMessage}` });
+  } catch (error) { setState({ busy: '', error: `${error.message}${elapsedLabel()}` }); }
 }
 
 async function searchNoticeArchive() {
-  setState({ busy: '자료보관함을 검색하는 중...', error: '', notice: '' });
+  setAiBusy('자료보관함에서 과거 공고를 검색하는 중', { error: '', notice: '' });
   try {
     const result = await searchArchivedNotices(state.archiveFilters);
-    setState({ busy: '', archiveNotices: result.notices || [], notice: `보관된 공고 ${result.notices?.length || 0}건을 찾았습니다.` });
-  } catch (error) { setState({ busy: '', error: error.message }); }
+    setState({ busy: '', archiveNotices: result.notices || [], notice: `자료보관함(D1)에 보관된 공고 ${result.notices?.length || 0}건을 찾았습니다${elapsedLabel()}.` });
+  } catch (error) { setState({ busy: '', error: `${error.message}${elapsedLabel()}` }); }
 }
 
 async function loadRecentArchive() {
@@ -1333,13 +1339,13 @@ async function applyArchiveRecoveryKey() {
 
 async function findMatchingNotices() {
   state.project.type = 'chest';
-  setState({ busy: '공식 공고를 갱신하고 맞춤 조건을 확인하는 중...', error: '', notice: '' });
+  setAiBusy('공식 공고를 갱신하고 맞춤 조건을 확인하는 중', { error: '', notice: '' });
   try {
     const result = await fetchNoticeList();
     const archived = await syncArchivedNotices(result.notices || []);
     const found = await searchArchivedNotices(state.archiveFilters);
-    setState({ busy: '', archiveNotices: found.notices || [], notice: `맞춤 공고 ${found.notices?.length || 0}건 · 신규 ${archived.inserted}건 · 변경 ${archived.updated}건입니다.` });
-  } catch (error) { setState({ busy: '', error: error.message }); }
+    setState({ busy: '', archiveNotices: found.notices || [], notice: `맞춤 공고 ${found.notices?.length || 0}건 · 신규 ${archived.inserted}건 · 변경 ${archived.updated}건입니다${elapsedLabel()}.` });
+  } catch (error) { setState({ busy: '', error: `${error.message}${elapsedLabel()}` }); }
 }
 
 function useArchivedNotice(index) {
@@ -1347,7 +1353,7 @@ function useArchivedNotice(index) {
   if (!notice) return;
   const existing = state.noticeResults.findIndex(item => archiveNoticeKey(item) === archiveNoticeKey(notice));
   const noticeResults = existing >= 0 ? state.noticeResults : [...state.noticeResults, notice];
-  navigateToStep(1, { noticeResults, notice: '보관된 공고를 공고 확인 목록에 열었습니다.' });
+  navigateToStep(1, { noticeResults, notice: '자료보관함(D1)에 보관된 공고를 이번 작업 임시 목록에 열었습니다. 보관함 원본은 그대로 남습니다.' });
 }
 
 async function viewArchivedNotice(index) {
@@ -1425,7 +1431,7 @@ function deleteNoticeForever(value) {
 async function previewOfficialNotice(value) {
   const selected = state.noticeResults[Number(value)];
   if (!selected) return setState({ error: '확인할 공고를 찾지 못했습니다.' });
-  setState({ busy: '공고 상세 내용을 불러오는 중...', error: '', notice: '' });
+  setAiBusy('공고 상세 내용을 불러오는 중', { error: '', notice: '' });
   try {
     const { notice } = await fetchNoticeDetail(selected);
     void syncArchivedNotices([{ ...selected, ...notice }]).catch(() => {});
@@ -1446,7 +1452,7 @@ function choosePreviewNotice() {
 async function selectOfficialNotice(value) {
   const selected = state.noticeResults[Number(value)];
   if (!selected) return setState({ error: '선택한 공고를 찾지 못했습니다.' });
-  setState({ busy: '선택한 공고 본문을 불러오는 중...', pendingNoticeChoice: null, error: '', notice: '' });
+  setAiBusy('선택한 공고 본문을 불러오는 중', { pendingNoticeChoice: null, error: '', notice: '' });
   try {
     const { notice } = await fetchNoticeDetail(selected);
     void syncArchivedNotices([{ ...selected, ...notice }]).catch(() => {});
@@ -1516,7 +1522,7 @@ function downloadOriginal(blob, name) {
 async function addMissingNotice() {
   const url = state.noticeUrlDraft.trim();
   if (!url) return setState({ error: '공식 상세 URL을 입력해 주세요.' });
-  setState({ busy: '누락 공고를 확인하는 중...', error: '', notice: '' });
+  setAiBusy('누락 공고를 확인하는 중', { error: '', notice: '' });
   try {
     const result = await importNoticeUrl(url, state.noticeResults);
     if (result.duplicate) {
