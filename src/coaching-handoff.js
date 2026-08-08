@@ -33,6 +33,38 @@ export function matchSectionId(sections, location) {
   return partial ? partial.id : '';
 }
 
+// 근거 대조용 정규화. functions/api/proposal-coaching.js의 compactEvidence와 같은 규칙을 사용한다.
+export function compactEvidence(value) {
+  return [...String(value ?? '')].filter(char => char.charCodeAt(0) > 32 && char !== '​' && char !== '﻿').join('');
+}
+
+// 문제를 원문 문단에 연결한다. 자연어 location보다 실제 근거 문장을 먼저 쓴다.
+// ① 근거 문장이 들어 있는 문단 → ② 근거의 proposalLocation → ③ 구조분석이 찾아둔 문단 → ④ location·항목명
+export function matchSectionsForIssue(sections, issue) {
+  const list = Array.isArray(sections) ? sections : [];
+  const compacted = list.map(section => ({ id: section.id, text: compactEvidence(`${section.title}\n${section.content}`) }));
+  const ids = [];
+  const push = id => { if (id && !ids.includes(id)) ids.push(id); };
+  const refs = Array.isArray(issue?.evidenceRefs) ? issue.evidenceRefs : [];
+
+  for (const ref of refs) {
+    const excerpt = compactEvidence(ref?.excerpt);
+    if (excerpt.length < 8) continue;
+    const exact = compacted.filter(section => section.text.includes(excerpt));
+    // 근거 문장이 문단 경계에 걸치면 앞부분만으로 다시 찾는다.
+    const partial = exact.length ? [] : compacted.filter(section => section.text.includes(excerpt.slice(0, 24)));
+    for (const section of [...exact, ...partial]) push(section.id);
+  }
+  if (ids.length) return ids;
+  for (const ref of refs) push(matchSectionId(list, ref?.proposalLocation));
+  if (ids.length) return ids;
+  if (list.some(section => section.id === issue?.sectionId)) push(issue.sectionId);
+  if (ids.length) return ids;
+  push(matchSectionId(list, issue?.location));
+  push(matchSectionId(list, issue?.category));
+  return ids;
+}
+
 // 검증 결과의 내부 판정. 정보가 부족하다는 이유만으로 반려하지 않는다.
 export function coachingVerdict(result, workItems = []) {
   const issues = Array.isArray(result?.issues) ? result.issues : [];
@@ -57,7 +89,8 @@ export function buildCoachingHandoff({ coaching = {}, sections = [], selectedInd
   const lockedValues = extractLockedValues(sections);
   const items = chosen.map((index, order) => {
     const issue = issues[index];
-    const sectionId = matchSectionId(sections, issue.location);
+    const sectionIds = matchSectionsForIssue(sections, issue);
+    const sectionId = sectionIds[0] || '';
     const section = (sections || []).find(value => value.id === sectionId) || null;
     const sectionLocked = section ? extractLockedValues([section]) : [];
     return {
@@ -67,6 +100,8 @@ export function buildCoachingHandoff({ coaching = {}, sections = [], selectedInd
       riskType: text(issue.riskType, 40),
       location: text(issue.location, 200),
       sectionId,
+      // 근거가 여러 문단에 걸치면 관련 문단만 함께 표시한다.
+      sectionIds,
       problem: text(issue.category, 200) || '검증에서 확인된 문제',
       reason: text(issue.reason, 800),
       direction: text(issue.direction, 800),

@@ -1,6 +1,6 @@
 // 업로드한 사업계획서 원문을 항목별로 구조화하고, 심사 관점으로 분석해 수정본 재가공까지 연결한다.
 // 규칙 기반 로컬 처리만 사용하며 외부 API를 호출하지 않는다. 없는 사실은 만들지 않고 「없음」·[확인 필요]로 남긴다.
-import { matchSectionId, proposalTextFromSections, sectionsFromProposalText } from './coaching-handoff.js';
+import { matchSectionsForIssue, proposalTextFromSections, sectionsFromProposalText } from './coaching-handoff.js';
 
 export const PROPOSAL_FIELDS = [
   { key: 'title', title: '사업명', pattern: /사업\s*명|과업\s*명|프로그램\s*명/ },
@@ -251,11 +251,11 @@ export function buildStructuralRevision(sections, findings) {
   const bySection = new Map();
   const unassigned = [];
   for (const item of chosen) {
-    // 구조 분석이 찾아 둔 위치를 먼저 쓰고, 제목이 없는 문서는 유일한 본문에 반영한다.
-    const known = item.sectionId && list.some(section => section.id === item.sectionId) ? item.sectionId : '';
-    const sectionId = known || matchSectionId(list, item.location) || matchSectionId(list, item.category) || (list.length === 1 ? list[0].id : '');
-    if (!sectionId) { unassigned.push(item); continue; }
-    bySection.set(sectionId, [...(bySection.get(sectionId) || []), item]);
+    // 근거 문장이 실제로 들어 있는 문단만 수정 대상으로 삼는다. 근거가 두 곳이면 두 문단 모두 연결한다.
+    const matched = matchSectionsForIssue(list, item);
+    const sectionIds = matched.length ? matched : (list.length === 1 ? [list[0].id] : []);
+    if (!sectionIds.length) { unassigned.push(item); continue; }
+    for (const sectionId of sectionIds) bySection.set(sectionId, [...(bySection.get(sectionId) || []), item]);
   }
   const revised = list.map(section => {
     const items = bySection.get(section.id);
