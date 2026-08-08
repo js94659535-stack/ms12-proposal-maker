@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { checkDraftAgainstBlueprint } from '../src/blueprint-draft-check.js';
+import { UNRESOLVED_MARK, annotateDraftSections, checkDraftAgainstBlueprint, officialRequirementConflicts } from '../src/blueprint-draft-check.js';
 import { buildBlueprint } from '../src/project-blueprint.js';
 import { matchApplicantToNotice } from '../src/fit-matching.js';
 import { analyzeNoticeStructure } from '../src/notice-logic.js';
@@ -66,6 +66,57 @@ test('다른 신청유형 혼입·과거 수치 유입·확인 필요 정보 사
   assert.equal(report.verdict, '설계도 위반 있음');
 });
 
+test('미확정 항목은 원문을 건드리지 않고 [확인 필요]로 표시한다', () => {
+  const blueprint = blueprintOf();
+  const sections = sectionsOf([
+    ['necessity', '사업 필요성', '학대피해아동 가족기능 회복이 필요하다.'],
+    ['purpose', '목적', '가족기능 회복을 목적으로 한다.'],
+    ['goals', '목표', '목표값은 기초선이 없어 확정할 수 없다.'],
+    ['target', '대상', '학대피해아동 15명과 보호자를 대상으로 한다.'],
+    ['programs', '세부 프로그램', '심리정서 회복 프로그램을 12회기 운영한다.'],
+    ['schedule', '추진 일정', '2027년 1월부터 12월까지 운영한다.'],
+    ['roles', '운영 인력·역할', '담당 인력 구성은 확인되지 않았다.'],
+    ['budget', '예산', '총액은 확정하지 못했다.'],
+    ['indicators', '성과지표', '측정도구는 정해지지 않았다.'],
+    ['outcomes', '기대효과', '가족기능 회복을 기대한다.']
+  ]);
+  const before = JSON.stringify(sections);
+  const annotated = annotateDraftSections({ blueprint, sections });
+  // AI 원본은 그대로 두고 사본에만 상태를 붙인다.
+  assert.equal(JSON.stringify(sections), before);
+  assert.ok(annotated.every((section, index) => section.content === sections[index].content));
+  const open = blueprint.items.filter(item => item.status === 'NEEDS_CONFIRMATION' && !['requirementLinks', 'openItems'].includes(item.key));
+  const tracked = new Set(annotated.flatMap(section => section.unresolvedFrom));
+  assert.ok(open.filter(item => ['delivery', 'partners', 'budget', 'outcomeGoals', 'indicators'].includes(item.key)).every(item => tracked.has(item.title)), JSON.stringify([...tracked]));
+  assert.equal(annotated.find(section => section.id === 'budget').displayStatus, UNRESOLVED_MARK);
+  // 확정된 항목에는 [확인 필요]를 붙이지 않는다.
+  assert.notEqual(annotated.find(section => section.id === 'purpose').displayStatus, UNRESOLVED_MARK);
+});
+
+test('공고 기준과 사용자 확정값 충돌을 어느 쪽도 고치지 않고 구조화한다', () => {
+  const notice = analyzeNoticeStructure({
+    title: 'QA 공고',
+    overview: '목표 : 핵심 참여자(아동, 보호자) 70명 이상 진행. 활동 횟수 : 프로그램 참여자 1인당 13회기 이상.'
+  });
+  const values = [
+    { blueprintKey: 'headcount', label: '인원', value: '아동 15명과 보호자 15명' },
+    { blueprintKey: 'sessions', label: '회기', value: '아동 12회기' },
+    { blueprintKey: 'staff', label: '담당 인력', value: '전담 사회복지사 1명' }
+  ];
+  const conflicts = officialRequirementConflicts(notice, values);
+  assert.equal(conflicts.length, 2, JSON.stringify(conflicts.map(item => item.field)));
+  assert.ok(conflicts.every(item => item.type === 'OFFICIAL_REQUIREMENT_CONFLICT'));
+  const headcount = conflicts.find(item => item.field === '인원');
+  assert.match(headcount.officialValue, /70명 이상/);
+  assert.match(headcount.userValue, /15명/);
+  assert.match(headcount.officialEvidence.sentence, /70명 이상/);
+  assert.match(headcount.question, /어느 쪽으로 확정/);
+  // 인력 수는 참여자 기준과 뜻이 달라 충돌로 보지 않는다.
+  assert.ok(!conflicts.some(item => item.field === '담당 인력'));
+  // 기준을 지키면 충돌이 없다.
+  assert.deepEqual(officialRequirementConflicts(notice, [{ blueprintKey: 'headcount', label: '인원', value: '아동 80명' }]), []);
+});
+
 test('설계도를 계획서 작성 요청과 화면에 연결했다', () => {
   const api = fs.readFileSync(new URL('../functions/api/proposal.js', import.meta.url), 'utf8');
   // 작성 우선순위를 프롬프트에 고정한다.
@@ -78,7 +129,15 @@ test('설계도를 계획서 작성 요청과 화면에 연결했다', () => {
   const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   assert.match(app, /projectBlueprint: blueprintHandoff\(\)/);
   assert.match(app, /function draftBlueprintCheckView\(\)/);
-  assert.match(app, /checkDraftAgainstBlueprint\(\{ blueprint, sections: state\.sections, applicant: selectedApplicant\(\) \}\)/);
+  assert.match(app, /checkDraftAgainstBlueprint\(\{ blueprint, sections: state\.sections, applicant: selectedApplicant\(\), conflicts \}\)/);
+  // 화면은 원본을 고치지 않고 표시용 사본에만 [확인 필요]를 붙인다.
+  assert.match(app, /annotateDraftSections\(\{ blueprint, sections: state\.sections \}\)/);
+  assert.match(app, /OFFICIAL_REQUIREMENT_CONFLICT/);
+  assert.match(app, /officialConflicts: currentOfficialConflicts\(\)/);
+  // 공고 충돌이 있으면 서버가 제출 준비 완료로 올리지 않는다.
+  assert.match(api, /const officialConflicts = \(payload\.projectBlueprint\?\.officialConflicts \|\| \[\]\)/);
+  assert.match(api, /const needsReview = warnings\.length > 0 \|\| unresolvedItems\.length > 0 \|\| officialConflicts\.length > 0/);
+  assert.match(api, /submissionReady: false/);
   // 점검은 V1을 수정하지 않는다.
   const checker = fs.readFileSync(new URL('../src/blueprint-draft-check.js', import.meta.url), 'utf8');
   assert.doesNotMatch(checker, /fetch\(|openai/i);

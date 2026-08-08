@@ -38,7 +38,92 @@ function containsNumber(text, number) {
 // 문제 → 대상 → 프로그램 → 성과 연결을 V1 본문에서 다시 확인한다.
 const CHAIN = [['necessity', '사업 필요성'], ['target', '대상'], ['programs', '세부 프로그램'], ['indicators', '성과지표']];
 
-export function checkDraftAgainstBlueprint({ blueprint, sections, applicant } = {}) {
+// 설계도 항목이 V1의 어느 계획서 항목에 해당하는지. 미확정 항목을 그 자리에서 추적하기 위한 대응표다.
+const SECTION_FOR_BLUEPRINT = {
+  summary: 'purpose', problem: 'necessity', target: 'target', purpose: 'purpose', objectives: 'goals',
+  programs: 'programs', programDetails: 'programs', delivery: 'roles', strengths: 'roles', partners: 'roles',
+  budget: 'budget', outcomeGoals: 'goals', indicators: 'indicators'
+};
+export const UNRESOLVED_MARK = '[확인 필요]';
+
+// AI 원본 V1은 바꾸지 않는다. 표시용 사본에만 미확정 표시를 붙인다.
+export function annotateDraftSections({ blueprint, sections } = {}) {
+  const open = (blueprint?.items || []).filter(item => item.status === 'NEEDS_CONFIRMATION' && SECTION_FOR_BLUEPRINT[item.key]);
+  const list = sections || [];
+  return list.map((section, index) => {
+    const key = section.id && SECTION_ORDER.includes(section.id) ? section.id : (list.length === SECTION_ORDER.length ? SECTION_ORDER[index] : section.id);
+    const fromBlueprint = open.filter(item => SECTION_FOR_BLUEPRINT[item.key] === key).map(item => item.title);
+    const markedInText = /\[확인 필요/.test(section.content || section.body || '');
+    const unresolved = Boolean(fromBlueprint.length) || markedInText || section.status === '확인 필요';
+    return {
+      ...section,
+      sectionKey: key,
+      // 본문은 AI 원본 그대로 두고 상태만 덧붙인다.
+      unresolved,
+      unresolvedFrom: fromBlueprint,
+      displayStatus: unresolved ? UNRESOLVED_MARK : (section.status || '확정'),
+      markedInText
+    };
+  });
+}
+
+// 공고의 최소·최대 기준과 사용자가 확정한 이번 사업 값이 어긋나는지 본다. 어느 쪽도 자동으로 고치지 않는다.
+const OFFICIAL_MIN = /(\d[\d,]*)\s*(명|회기|회|시간|개월|개소)\s*(이상)/g;
+const OFFICIAL_MAX = /(\d[\d,]*)\s*(명|회기|회|시간|개월|개소|원)\s*(이내|이하)/g;
+const number = value => Number(String(value).replace(/,/g, ''));
+// 이번 사업 값 중 공고 기준과 같은 뜻으로 비교할 수 있는 단위만 본다.
+const COMPARABLE_UNITS = { headcount: ['명'], sessions: ['회기', '회'], period: ['개월'], budget: ['원'] };
+// 근거 문장은 기준 표현이 보이는 부분을 잘라서 보여준다.
+function evidenceWindow(sentence, phrase) {
+  const index = sentence.indexOf(phrase);
+  if (index < 0) return sentence.slice(0, 220);
+  const start = Math.max(0, index - 60);
+  return `${start ? '…' : ''}${sentence.slice(start, index + phrase.length + 80)}`;
+}
+
+export function officialRequirementConflicts(structure, projectValues = []) {
+  const sentences = (structure?.fields || []).flatMap(field => (field.evidence || []).map(entry => ({ source: entry.source, sentence: String(entry.sentence || '').replace(/\s+/g, ' ') })));
+  const rules = [];
+  for (const entry of sentences) {
+    for (const pattern of [OFFICIAL_MIN, OFFICIAL_MAX]) {
+      pattern.lastIndex = 0;
+      for (const match of entry.sentence.matchAll(pattern)) {
+        rules.push({ amount: number(match[1]), unit: match[2], bound: match[3], phrase: match[0], sentence: entry.sentence, source: entry.source });
+      }
+    }
+  }
+  const conflicts = [];
+  for (const value of projectValues) {
+    if (!value?.value) continue;
+    // 같은 단위라도 뜻이 다른 값(참여자 수 vs 인력 수)은 비교하지 않는다.
+    const allowed = COMPARABLE_UNITS[value.blueprintKey || value.key] || [];
+    if (!allowed.length) continue;
+    for (const match of String(value.value).matchAll(/(\d[\d,]*)\s*(명|회기|회|시간|개월|개소)/g)) {
+      const userAmount = number(match[1]);
+      const unit = match[2];
+      if (!allowed.includes(unit)) continue;
+      for (const rule of rules.filter(item => item.unit === unit)) {
+        const violatesMin = rule.bound === '이상' && userAmount < rule.amount;
+        const violatesMax = (rule.bound === '이내' || rule.bound === '이하') && userAmount > rule.amount;
+        if (!violatesMin && !violatesMax) continue;
+        const key = `${value.label || value.key}|${rule.amount}${unit}${rule.bound}|${userAmount}${unit}`;
+        if (conflicts.some(item => item.key === key)) continue;
+        conflicts.push({
+          key,
+          type: 'OFFICIAL_REQUIREMENT_CONFLICT',
+          field: value.label || value.key,
+          officialValue: `${rule.amount.toLocaleString()}${unit} ${rule.bound}`,
+          userValue: `${match[0]} (${value.value})`,
+          officialEvidence: { source: rule.source, sentence: evidenceWindow(rule.sentence, rule.phrase) },
+          question: `공고는 ${rule.amount.toLocaleString()}${unit} ${rule.bound}을 요구하는데 이번 사업 확정값은 ${match[0]}입니다. 어느 쪽으로 확정하시겠습니까? (공고 기준에 맞춰 ${value.label || value.key}을 조정하거나, 조정이 불가능한 사유를 확인해야 합니다.)`
+        });
+      }
+    }
+  }
+  return conflicts;
+}
+
+export function checkDraftAgainstBlueprint({ blueprint, sections, applicant, structure, projectValues = [], conflicts: givenConflicts } = {}) {
   const checks = [];
   if (!blueprint || !(sections || []).length) return { checks: [check('점검 가능 여부', 'FAIL', '설계도 또는 V1 초안이 없어 점검할 수 없습니다.')], byState: { PASS: 0, 주의: 0, FAIL: 1 }, verdict: '점검 불가' };
   const draft = textOf(sections);
@@ -89,12 +174,18 @@ export function checkDraftAgainstBlueprint({ blueprint, sections, applicant } = 
     ? check('설계안의 사실 둔갑', 'FAIL', `설계안 수치가 V1에서 확정값처럼 쓰였습니다: ${proposedNumbers.map(entry => `${entry.item} ${entry.number}`).join(' · ')}`, proposedNumbers.map(entry => entry.number))
     : check('설계안 처리', 'PASS', '설계안이 확정 수치로 바뀌지 않았습니다.'));
 
-  // 6. 미확정 값은 [확인 필요]
+  // 6. 미확정 값은 [확인 필요] — 본문 표기 또는 구조화 단계의 표시로 추적 가능해야 한다.
   const openItems = (blueprint.items || []).filter(item => item.status === 'NEEDS_CONFIRMATION' && !['requirementLinks', 'openItems'].includes(item.key));
   const marks = (draft.match(/\[확인 필요[^\]]*\]/g) || []).length;
-  checks.push(openItems.length && !marks
-    ? check('미확정 값 표기', 'FAIL', `설계도 미확정 ${openItems.length}건이 있는데 V1에 [확인 필요] 표기가 없습니다.`, openItems.map(item => item.title))
-    : check('미확정 값 표기', 'PASS', `미확정 ${openItems.length}건 · V1의 [확인 필요] 표기 ${marks}곳`));
+  const annotated = annotateDraftSections({ blueprint, sections });
+  const markedSections = annotated.filter(section => section.unresolved);
+  const trackedTitles = new Set(annotated.flatMap(section => section.unresolvedFrom));
+  // 초안에 그 항목 자체가 있는데도 표시되지 않은 경우만 실패로 본다.
+  const presentKeys = new Set(annotated.map(section => section.sectionKey));
+  const untracked = openItems.filter(item => SECTION_FOR_BLUEPRINT[item.key] && presentKeys.has(SECTION_FOR_BLUEPRINT[item.key]) && !trackedTitles.has(item.title));
+  checks.push(openItems.length && untracked.length
+    ? check('미확정 값 표기', 'FAIL', `설계도 미확정 ${untracked.length}건이 V1 어느 항목에도 표시되지 않았습니다.`, untracked.map(item => item.title))
+    : check('미확정 값 표기', 'PASS', `미확정 ${openItems.length}건 · [확인 필요] 표시 항목 ${markedSections.length}개 (본문 표기 ${marks}곳 · 구조화 표시 ${markedSections.length - annotated.filter(section => section.markedInText).length}개)`));
 
   // 7. 과거 사업 수치 유입
   const pastNumbers = [...new Set(split.history.flatMap(item => String(item.value).match(QUANTITY) || []))];
@@ -121,21 +212,29 @@ export function checkDraftAgainstBlueprint({ blueprint, sections, applicant } = 
     : check('논리 연결', 'PASS', links.map(link => `${link.link} 연결됨`).join(' · ')));
 
   // 9. 설계도와 V1의 핵심 수치 충돌
-  const conflicts = [];
+  const valueConflicts = [];
   for (const entry of confirmedValues) {
-    for (const number of String(entry.value).match(QUANTITY) || []) {
-      const unit = number.replace(/[\d,\s]/g, '');
+    for (const value of String(entry.value).match(QUANTITY) || []) {
+      const unit = value.replace(/[\d,\s]/g, '');
       if (!unit) continue;
       const draftNumbers = [...new Set(draft.match(new RegExp(`\\d[\\d,]*\\s*${unit}`, 'g')) || [])];
-      const different = draftNumbers.filter(value => value.replace(/\s/g, '') !== number.replace(/\s/g, ''));
-      if (draftNumbers.length && different.length) conflicts.push(`${entry.title} 확정 ${number} vs V1 ${different.join(' / ')}`);
+      const different = draftNumbers.filter(item => item.replace(/\s/g, '') !== value.replace(/\s/g, ''));
+      if (draftNumbers.length && different.length) valueConflicts.push(`${entry.title} 확정 ${value} vs V1 ${different.join(' / ')}`);
     }
   }
-  checks.push(conflicts.length
-    ? check('설계도 대비 수치 충돌', '주의', conflicts.join(' · '), conflicts)
+  checks.push(valueConflicts.length
+    ? check('설계도 대비 수치 충돌', '주의', valueConflicts.join(' · '), valueConflicts)
     : check('설계도 대비 수치 충돌', 'PASS', '설계도에서 확정한 수치와 다른 값이 V1에 없습니다.'));
 
+  // 10. 공고 공식 기준과 사용자 확정값 충돌 — 어느 쪽도 고치지 않고 별도 상태로만 남긴다.
+  const officialConflicts = givenConflicts || officialRequirementConflicts(structure, projectValues);
+  if (officialConflicts.length) {
+    checks.push(check('공식요건 충돌', '주의', `공고 기준과 이번 사업 확정값이 어긋납니다(OFFICIAL_REQUIREMENT_CONFLICT ${officialConflicts.length}건). 자동으로 고치지 않았습니다.`, officialConflicts.map(item => `${item.field}: 공고 ${item.officialValue} vs 확정 ${item.userValue}`)));
+  } else {
+    checks.push(check('공식요건 충돌', 'PASS', '공고 기준과 이번 사업 확정값이 어긋나지 않습니다.'));
+  }
+
   const byState = Object.fromEntries(DRAFT_CHECK_STATES.map(state => [state, checks.filter(item => item.state === state).length]));
-  const verdict = byState.FAIL ? '설계도 위반 있음' : byState.주의 ? '보완 확인 필요' : '설계도와 일치';
-  return { checks, byState, verdict, logicLinks: links, applicationType: selected };
+  const verdict = byState.FAIL ? '설계도 위반 있음' : (byState.주의 || officialConflicts.length) ? '보완 확인 필요' : '설계도와 일치';
+  return { checks, byState, verdict, logicLinks: links, applicationType: selected, officialConflicts, annotatedSections: annotated };
 }

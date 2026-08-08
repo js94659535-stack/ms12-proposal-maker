@@ -70,7 +70,7 @@ export async function onRequest(context) {
       const qualityError = validateEngineResult(result, body.payload);
       if (qualityError) return json({ error: qualityError }, 502);
       // 모델 자기점검 실패나 [확인 필요]만으로는 초안을 폐기하지 않는다. 상태로 알린다.
-      Object.assign(result, draftReviewState(result));
+      Object.assign(result, draftReviewState(result, body.payload));
     }
     if (body.action === 'master') {
       const masterError = validateMasterResult(result);
@@ -129,6 +129,7 @@ const BLUEPRINT_RULE = `PROJECT_BLUEPRINT는 이번 사업의 확정된 설계 �
 값이 [확인 필요]인 항목은 추측해서 채우지 말고 해당 위치에 [확인 필요]를 그대로 유지한다.
 과거 사업 기록(pastProjectRecords)의 인원·회기·기간·예산을 이번 사업 값으로 옮겨 적지 않는다. 확인되지 않은 기관 정보(needsVerification)를 사실처럼 쓰지 않는다.
 공고에 없는 평가기준·자격요건·성과수치를 만들지 않는다.
+officialConflicts에 공고 기준과 사용자 확정값의 충돌이 있으면 어느 쪽도 임의로 고치거나 한쪽만 채택하지 말고, 두 값을 함께 드러내고 확인이 필요하다는 사실을 남긴다.
 설계도의 문제 → 대상 → 목적 → 프로그램 → 회기·인력 → 예산 → 성과목표 → 성과지표 흐름을 계획서 각 항목에 같은 대상·같은 용어로 일관되게 반영한다.`;
 
 function taskSpecification(action, payload) {
@@ -270,7 +271,7 @@ export function validateEngineResult(result, payload = {}) {
 }
 
 // 초안은 반환하되 사람이 확인해야 하는 부분을 상태로 알린다.
-export function draftReviewState(result) {
+export function draftReviewState(result, payload = {}) {
   const flags = { noticeAlignment: '공고 정합성', singleSubprogramOnly: '단일 세부사업', logicConsistency: '논리 일관성', budgetConsistency: '예산 일관성', measurableOutcomes: '측정 가능한 성과' };
   const warnings = Object.entries(flags)
     .filter(([key]) => result?.qualityCheck?.[key] === false)
@@ -285,15 +286,18 @@ export function draftReviewState(result) {
       marks: (String(value.content || '').match(/\[확인 필요[^\]]*\]/g) || []).length,
       samples: [...new Set(String(value.content || '').match(/[^.\n]{0,40}\[확인 필요[^\]]*\][^.\n]{0,20}/g) || [])].slice(0, 3)
     }));
-  const needsReview = warnings.length > 0 || unresolvedItems.length > 0;
+  // 공고 공식 기준과 사용자 확정값 충돌은 어느 쪽도 고치지 않고 상태로만 전달한다.
+  const officialConflicts = (payload.projectBlueprint?.officialConflicts || []).map(item => ({ type: 'OFFICIAL_REQUIREMENT_CONFLICT', ...item }));
+  const needsReview = warnings.length > 0 || unresolvedItems.length > 0 || officialConflicts.length > 0;
   return {
     draftStatus: needsReview ? 'NEEDS_REVIEW' : 'DRAFT_READY',
+    officialConflicts,
     // 초안 작성 가능 ≠ 제출 가능. 제출 가능 판단은 기존 제출 전 검증이 따로 한다.
     submissionReady: false,
     unresolvedItems,
     warnings,
     note: needsReview
-      ? '초안은 정상 생성되었습니다. [확인 필요] 항목과 경고를 확인한 뒤 제출 단계로 넘어가야 합니다.'
+      ? `초안은 정상 생성되었습니다. [확인 필요] 항목${officialConflicts.length ? '과 공고 기준 충돌' : ''}과 경고를 확인한 뒤 제출 단계로 넘어가야 합니다.`
       : '초안은 정상 생성되었습니다. 제출 가능 여부는 제출 전 검증에서 따로 판단합니다.'
   };
 }
