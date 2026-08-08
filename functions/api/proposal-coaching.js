@@ -26,39 +26,45 @@ export async function onRequest(context) {
 }
 
 async function startCoaching(env, request, payload) {
-  const access = await coachingJobAccess(request);
+  const access = await coachingJobAccess(env, request);
   if (access.response) return access.response;
   const upstream = await requestOpenAI(env, { policy: COACHING_POLICY, input: `<COACHING_INPUT>${JSON.stringify(payload)}</COACHING_INPUT>`, schema: COACHING_SCHEMA, schemaName: 'proposal_validation_coaching', maxOutputTokens: 12_000, reasoningEffort: 'medium', background: true });
   if (!upstream.ok) return diagnosticErrorResponse(upstream, '계획서 검증·코칭 시작');
   const jobId = String(upstream.data?.id || '');
   if (!/^resp_[a-zA-Z0-9_-]+$/.test(jobId)) return failure('application-validation', 'OpenAI background 작업 ID를 받지 못했습니다.', 502, upstream.diagnostic);
-  await rememberCoachingJob(access.archiveKey, jobId, Date.now(), payload);
+  await rememberCoachingJob(env, access.ownerHash, jobId, payload);
   return json({ jobId, status: upstream.data.status || 'queued', failureStage: '', diagnostic: upstream.diagnostic });
 }
 
 async function pollCoaching(env, request, payload) {
   const completedStartedAt = Date.now();
-  const access = await coachingJobAccess(request, payload.jobId);
+  const access = await coachingJobAccess(env, request, payload.jobId);
   if (access.response) return access.response;
   const accessMs = Date.now() - completedStartedAt;
   const upstream = await retrieveOpenAI(env, payload.jobId);
   if (!upstream.ok) return diagnosticErrorResponse(upstream, '계획서 검증·코칭 상태 조회');
   const status = String(upstream.data?.status || '');
   if (!['queued', 'in_progress', 'completed', 'failed', 'cancelled', 'incomplete'].includes(status)) return failure('application-validation', '알 수 없는 background 작업 상태입니다.', 502, upstream.diagnostic);
-  if (['failed', 'cancelled', 'incomplete'].includes(status)) return failure('openai-upstream', `OpenAI background 작업이 ${status} 상태로 종료되었습니다.`, 502, diagnosticFromResponse(env.OPENAI_MODEL, upstream, upstream.data?.error));
+  if (['failed', 'cancelled', 'incomplete'].includes(status)) {
+    await forgetCoachingJob(env, payload.jobId);
+    return failure('openai-upstream', `OpenAI background 작업이 ${status} 상태로 종료되었습니다.`, 502, diagnosticFromResponse(env.OPENAI_MODEL, upstream, upstream.data?.error));
+  }
   if (status === 'completed') {
     const parseStartedAt = Date.now();
     const output = outputText(upstream.data);
     let result;
     try { result = JSON.parse(output); } catch { return failure('parse', '검증·코칭 결과 JSON을 해석하지 못했습니다.', 422, upstream.diagnostic); }
     const parseMs = Date.now() - parseStartedAt;
-    const validationPayload = access.jobPayload || {};
+    // 근거 대조에 쓰는 원문은 저장하지 않고 이번 조회 요청에서 받는다.
+    const validationPayload = { proposalText: payload.proposalText || '', criteriaText: payload.criteriaText || '', references: Array.isArray(payload.references) ? payload.references : [] };
     const validationStartedAt = Date.now();
     normalizeUnsupportedCriticalIssues(result);
-    const validation = validateCoachingResultDetailed(result, validationPayload.officialEvaluationProvided === true, Number(validationPayload.previousVersion || 0), validationPayload);
+    const validation = validateCoachingResultDetailed(result, access.job?.officialEvaluationProvided === true, Number(access.job?.previousVersion || 0), validationPayload);
     const validationMs = Date.now() - validationStartedAt;
     const resultBytes = new TextEncoder().encode(JSON.stringify(result)).byteLength;
     console.info('coaching_completed_processing', { accessMs, upstreamMs: upstream.diagnostic.elapsedMs, parseMs, validationMs, outputBytes: new TextEncoder().encode(output).byteLength, resultBytes, failureStage: validation.stage || '', totalMs: Date.now() - completedStartedAt });
+    // 완료되면 임시 상태를 지운다(검증 실패로 끝나도 같은 작업을 다시 만들지 않는다).
+    await forgetCoachingJob(env, payload.jobId);
     return validation.error ? failure(validation.stage, validation.error, 422, upstream.diagnostic) : json({ jobId: payload.jobId, status, ...result, failureStage: '', diagnostic: upstream.diagnostic });
   }
   return json({ jobId: payload.jobId, status, failureStage: '', diagnostic: upstream.diagnostic });
@@ -141,29 +147,43 @@ async function retrieveOpenAI(env, jobId) {
 
 function outputText(data) { return typeof data?.output_text === 'string' ? data.output_text : (data?.output || []).flatMap(item => item.content || []).filter(item => item.type === 'output_text').map(item => item.text).join(''); }
 
-async function coachingJobAccess(request, jobId = '') {
+// background 작업 상태는 edge 캐시가 아니라 D1에 둔다. 다른 엣지로 요청이 가도 같은 작업을 찾을 수 있다.
+export const COACHING_JOB_TTL_MS = 30 * 60 * 1000;
+
+export async function ownerHashOf(archiveKey) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(archiveKey)));
+  return [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join('');
+}
+
+async function coachingJobAccess(env, request, jobId = '') {
   const archiveKey = request.headers.get('x-archive-key') || '';
   const diagnostic = safeDiagnostic('', 0, '', '', '', 0);
   if (!/^[a-f0-9-]{32,64}$/i.test(archiveKey)) return { response: failure('application-validation', '자료보관함 식별키가 필요한 요청입니다.', 401, diagnostic) };
-  if (!globalThis.caches?.default) return { response: failure('application-validation', 'background 작업 상태 저장소를 사용할 수 없습니다.', 503, diagnostic) };
+  if (!env?.ARCHIVE_DB) return { response: failure('application-validation', 'background 작업 상태 저장소를 사용할 수 없습니다.', 503, diagnostic) };
+  const ownerHash = await ownerHashOf(archiveKey);
   if (jobId) {
     if (!/^resp_[a-zA-Z0-9_-]+$/.test(jobId)) return { response: failure('application-validation', 'background 작업 ID가 올바르지 않습니다.', 400, diagnostic) };
-    const marker = await globalThis.caches.default.match(await coachingJobRequest(archiveKey, jobId));
-    if (!marker) return { response: failure('application-validation', '이 브라우저에서 시작한 background 작업을 찾지 못했습니다.', 404, diagnostic) };
-    let jobPayload;
-    try { jobPayload = (await marker.json()).payload; } catch { return { response: failure('application-validation', 'background 작업 검증 정보를 읽지 못했습니다.', 500, diagnostic) }; }
-    return { archiveKey, jobPayload };
+    let row;
+    try { row = await env.ARCHIVE_DB.prepare('SELECT official_evaluation, previous_version, expires_at FROM coaching_jobs WHERE job_id = ? AND owner_hash = ?').bind(jobId, ownerHash).first(); }
+    catch { return { response: failure('application-validation', 'background 작업 상태를 조회하지 못했습니다.', 503, diagnostic) }; }
+    if (!row || String(row.expires_at) < new Date().toISOString()) return { response: failure('application-validation', '이 브라우저에서 시작한 background 작업을 찾지 못했습니다.', 404, diagnostic) };
+    return { archiveKey, ownerHash, job: { officialEvaluationProvided: Number(row.official_evaluation) === 1, previousVersion: Number(row.previous_version || 0) } };
   }
-  return { archiveKey };
+  return { archiveKey, ownerHash };
 }
 
-async function coachingJobRequest(archiveKey, jobId) {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${archiveKey}:${jobId}`));
-  return new Request(`https://proposal-coaching-job.invalid/${[...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join('')}`);
+// 저장하는 값은 작업 소유권 확인과 결과 검증에 필요한 최소 정보뿐이다. 계획서 원문은 저장하지 않는다.
+async function rememberCoachingJob(env, ownerHash, jobId, payload) {
+  const now = new Date();
+  await env.ARCHIVE_DB.prepare('INSERT INTO coaching_jobs (job_id, owner_hash, official_evaluation, previous_version, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(job_id) DO UPDATE SET owner_hash=excluded.owner_hash, official_evaluation=excluded.official_evaluation, previous_version=excluded.previous_version, expires_at=excluded.expires_at')
+    .bind(jobId, ownerHash, payload?.officialEvaluationProvided === true ? 1 : 0, Number(payload?.previousVersion || 0), now.toISOString(), new Date(now.getTime() + COACHING_JOB_TTL_MS).toISOString()).run();
+  // 만료된 임시 레코드는 함께 정리한다.
+  await env.ARCHIVE_DB.prepare('DELETE FROM coaching_jobs WHERE expires_at < ?').bind(now.toISOString()).run();
 }
 
-async function rememberCoachingJob(archiveKey, jobId, startedAt, payload) {
-  await globalThis.caches.default.put(await coachingJobRequest(archiveKey, jobId), new Response(JSON.stringify({ startedAt, payload }), { headers: { 'Cache-Control': 'max-age=600', 'Content-Type': 'application/json' } }));
+async function forgetCoachingJob(env, jobId) {
+  try { await env.ARCHIVE_DB.prepare('DELETE FROM coaching_jobs WHERE job_id = ?').bind(jobId).run(); }
+  catch { /* 정리 실패가 결과 반환을 막지 않는다. */ }
 }
 
 function diagnosticErrorResponse(upstream, label) {

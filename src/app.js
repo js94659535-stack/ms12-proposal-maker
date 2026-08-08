@@ -1251,7 +1251,8 @@ async function pollProposalCoaching() {
   coachingPollActive = true;
   const jobId = state.coaching.pendingJob.id;
   try {
-    const response = await coachingRequest({ action: 'pollCoaching', jobId });
+    // 근거 대조에 쓰는 원문은 서버에 저장하지 않으므로 조회할 때 함께 보낸다.
+    const response = await coachingRequest({ action: 'pollCoaching', jobId, proposalText: state.coaching.text, criteriaText: state.coaching.criteriaText, references: referencePayload(state.coaching.references || [], coachingContext()).references });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(coachingFailureMessage(result, response.status));
     if (!state.coaching.pendingJob || state.coaching.pendingJob.id !== jobId) return;

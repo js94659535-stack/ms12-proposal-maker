@@ -4,6 +4,35 @@ import fs from 'node:fs';
 import { normalizeUnsupportedCriticalIssues, onRequest, validateCoachingResult, validateCoachingResultDetailed, validateIssueRevision } from '../functions/api/proposal-coaching.js';
 import { COACHING_QA_CASES, COACHING_QA_CRITERIA } from './fixtures/coaching-qa.js';
 
+// background 작업 상태용 D1 mock. coaching_jobs 테이블만 흉내낸다.
+function coachingJobDb() {
+  const rows = new Map();
+  return {
+    rows,
+    prepare(sql) {
+      return {
+        values: [], bind(...values) { this.values = values; return this; },
+        async first() {
+          if (!sql.startsWith('SELECT official_evaluation')) return null;
+          const row = rows.get(this.values[0]);
+          return row && row.owner_hash === this.values[1] ? row : null;
+        },
+        async run() {
+          if (sql.startsWith('INSERT INTO coaching_jobs')) {
+            const [jobId, ownerHash, official, previous, createdAt, expiresAt] = this.values;
+            rows.set(jobId, { job_id: jobId, owner_hash: ownerHash, official_evaluation: official, previous_version: previous, created_at: createdAt, expires_at: expiresAt });
+          } else if (sql.includes('WHERE expires_at <')) {
+            for (const [key, row] of rows) if (String(row.expires_at) < this.values[0]) rows.delete(key);
+          } else if (sql.includes('WHERE job_id = ?')) {
+            rows.delete(this.values[0]);
+          }
+          return { success: true };
+        }
+      };
+    }
+  };
+}
+
 function fixture() {
   const verifiedEvidence = [{ sourceName: '계획서 원문', pageOrSection: '사업 필요성', proposalLocation: '사업 필요성', excerpt: '필요성과 실행계획을 평가', verified: true }];
   const finalChecks = ['자격', '필수 신청항목', '사업기간', '대상·인원', '회기', '예산 합계·예산규정', '성과목표·지표', '기관·협력 역할', '공식 평가항목 누락'].map(area => ({ area, status: '확인필요', note: `${area} 근거 확인 필요`, evidenceRefs: [] }));
@@ -98,8 +127,7 @@ test('전체 코칭은 OpenAI background 생성 한 번과 짧은 polling·완�
   const originalCaches = globalThis.caches;
   let generationCalls = 0;
   let retrievalCalls = 0;
-  const cacheValues = new Map();
-  globalThis.caches = { default: { match: async request => cacheValues.get(request.url), put: async (request, response) => cacheValues.set(request.url, response) } };
+  const jobDb = coachingJobDb();
   globalThis.fetch = async (url, options) => {
     if (options.method === 'POST') { generationCalls += 1; return new Response(JSON.stringify({ id: 'resp_background_test', status: 'queued' }), { status: 200, headers: { 'Content-Type': 'application/json', 'x-request-id': 'req_start' } }); }
     retrievalCalls += 1;
@@ -108,11 +136,11 @@ test('전체 코칭은 OpenAI background 생성 한 번과 짧은 polling·완�
   try {
     const headers = { 'Content-Type': 'application/json', 'X-Archive-Key': '12345678-1234-1234-1234-123456789abc' };
     const payload = { proposalText: '사업 필요성에서 검증할 사업계획서 본문입니다. 대상과 프로그램과 성과를 충분히 기술한 원문입니다.', criteriaText: '공식 평가표는 필요성과 실행계획을 평가합니다.', officialEvaluationProvided: true };
-    const start = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers, body: JSON.stringify({ action: 'startCoaching', ...payload }) }) });
+    const start = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model', ARCHIVE_DB: jobDb }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers, body: JSON.stringify({ action: 'startCoaching', ...payload }) }) });
     assert.equal(start.status, 200);
     assert.equal((await start.json()).jobId, 'resp_background_test');
     const completedStartedAt = performance.now();
-    const poll = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers, body: JSON.stringify({ action: 'pollCoaching', jobId: 'resp_background_test' }) }) });
+    const poll = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model', ARCHIVE_DB: jobDb }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers, body: JSON.stringify({ action: 'pollCoaching', jobId: 'resp_background_test', proposalText: payload.proposalText, criteriaText: payload.criteriaText }) }) });
     const pollResult = await poll.json();
     assert.equal(pollResult.status, 'completed');
     assert.equal(poll.status, 200);
@@ -126,16 +154,15 @@ test('전체 코칭은 OpenAI background 생성 한 번과 짧은 polling·완�
 test('completed 검증 실패는 gateway 502가 아닌 안전한 422 진단으로 반환한다', async () => {
   const originalFetch = globalThis.fetch;
   const originalCaches = globalThis.caches;
-  const cacheValues = new Map();
-  globalThis.caches = { default: { match: async request => cacheValues.get(request.url), put: async (request, response) => cacheValues.set(request.url, response) } };
+  const jobDb = coachingJobDb();
   globalThis.fetch = async (url, options) => options.method === 'POST'
     ? new Response(JSON.stringify({ id: 'resp_invalid_test', status: 'queued' }), { headers: { 'Content-Type': 'application/json' } })
     : new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ basis: 'invalid' }) }), { headers: { 'Content-Type': 'application/json' } });
   try {
     const headers = { 'Content-Type': 'application/json', 'X-Archive-Key': '12345678-1234-1234-1234-123456789abc' };
     const payload = { action: 'startCoaching', proposalText: '검증 실패 상태 코드를 확인하기 위한 충분한 길이의 계획서 원문입니다.', criteriaText: '' };
-    await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers, body: JSON.stringify(payload) }) });
-    const response = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers, body: JSON.stringify({ action: 'pollCoaching', jobId: 'resp_invalid_test' }) }) });
+    await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model', ARCHIVE_DB: jobDb }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers, body: JSON.stringify(payload) }) });
+    const response = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model', ARCHIVE_DB: jobDb }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers, body: JSON.stringify({ action: 'pollCoaching', jobId: 'resp_invalid_test' }) }) });
     const result = await response.json();
     assert.equal(response.status, 422);
     assert.equal(result.failureStage, 'schema-validation');
@@ -143,6 +170,7 @@ test('completed 검증 실패는 gateway 502가 아닌 안전한 422 진단으�
 });
 
 test('문제별 AI 수정은 선택한 원문 구간만 한 번 호출하고 확정 수치를 보존한다', async () => {
+  const jobDb = coachingJobDb();
   const originalFetch = globalThis.fetch;
   const originalCaches = globalThis.caches;
   const proposalText = '사업 필요성\n참여자 20명을 대상으로 10회 프로그램을 운영한다. 공식 근거를 반영한다.';
@@ -152,7 +180,7 @@ test('문제별 AI 수정은 선택한 원문 구간만 한 번 호출하고 확
   globalThis.caches = { default: { match: async request => rateValues.get(request.url), put: async (request, response) => rateValues.set(request.url, response) } };
   globalThis.fetch = async (url, options) => { calls.push(JSON.parse(options.body)); return new Response(JSON.stringify({ output_text: JSON.stringify(revision) }), { headers: { 'Content-Type': 'application/json' } }); };
   try {
-    const response = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Archive-Key': '12345678-1234-1234-1234-123456789abc' }, body: JSON.stringify({ action: 'reviseIssue', proposalText, criteriaText: '공식 평가기준', issue: fixture().issues[0] }) }) });
+    const response = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model', ARCHIVE_DB: jobDb }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Archive-Key': '12345678-1234-1234-1234-123456789abc' }, body: JSON.stringify({ action: 'reviseIssue', proposalText, criteriaText: '공식 평가기준', issue: fixture().issues[0] }) }) });
     assert.equal(response.status, 200);
     assert.equal(calls.length, 1);
     assert.equal(calls[0].max_output_tokens, 2500);
@@ -162,6 +190,7 @@ test('문제별 AI 수정은 선택한 원문 구간만 한 번 호출하고 확
 });
 
 test('문제별 AI 수정은 자료보관함 키와 서버 호출 간격 제한을 적용한다', async () => {
+  const jobDb = coachingJobDb();
   const originalFetch = globalThis.fetch;
   const originalCaches = globalThis.caches;
   const rateValues = new Map();
@@ -170,12 +199,12 @@ test('문제별 AI 수정은 자료보관함 키와 서버 호출 간격 제한�
   globalThis.fetch = async () => { calls += 1; return new Response('{}'); };
   const payload = JSON.stringify({ action: 'reviseIssue', proposalText: '검증할 계획서 원문이 충분히 긴 테스트 문장입니다. 대상과 기간과 실행방법을 함께 확인합니다.', issue: fixture().issues[0] });
   try {
-    const missingKey = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload }) });
+    const missingKey = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model', ARCHIVE_DB: jobDb }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload }) });
     assert.equal(missingKey.status, 401);
     const headers = { 'Content-Type': 'application/json', 'X-Archive-Key': '12345678-1234-1234-1234-123456789abc' };
-    const first = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers, body: payload }) });
+    const first = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model', ARCHIVE_DB: jobDb }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers, body: payload }) });
     assert.equal(first.status, 502);
-    const second = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers, body: payload }) });
+    const second = await onRequest({ env: { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model', ARCHIVE_DB: jobDb }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers, body: payload }) });
     assert.equal(second.status, 429);
     assert.equal(calls, 1);
   } finally { globalThis.fetch = originalFetch; globalThis.caches = originalCaches; }
@@ -252,5 +281,56 @@ test('라이브 프로브는 전용 비밀값 없이는 OpenAI를 호출하지 �
     const response = await onRequest({ env: { OPENAI_API_KEY: 'secret', OPENAI_MODEL: 'gpt-5.6-sol', OPENAI_PROBE_TOKEN: 'server-token' }, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-OpenAI-Probe-Token': 'wrong-token' }, body: JSON.stringify({ action: 'probe' }) }) });
     assert.equal(response.status, 404);
     assert.equal(calls, 0);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('background 작업 상태는 D1에 두고 다른 키 조회를 막으며 완료 후 정리한다', async () => {
+  const originalFetch = globalThis.fetch;
+  const jobDb = coachingJobDb();
+  const env = { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model', ARCHIVE_DB: jobDb };
+  const headers = { 'Content-Type': 'application/json', 'X-Archive-Key': '12345678-1234-1234-1234-123456789abc' };
+  const otherHeaders = { 'Content-Type': 'application/json', 'X-Archive-Key': '87654321-4321-4321-4321-cba987654321' };
+  const proposalText = '사업 필요성에서 필요성과 실행계획을 평가하는 계획서 원문입니다. 대상과 프로그램을 기술했습니다.';
+  const call = (body, useHeaders = headers, useEnv = env) => onRequest({ env: useEnv, request: new Request('https://example.test/api/proposal-coaching', { method: 'POST', headers: useHeaders, body: JSON.stringify(body) }) });
+  globalThis.fetch = async (url, options) => options.method === 'POST'
+    ? new Response(JSON.stringify({ id: 'resp_state_test', status: 'queued' }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    : new Response(JSON.stringify({ id: 'resp_state_test', status: 'in_progress' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  try {
+    // 시작하면 최소 상태만 저장한다. 계획서 원문은 저장하지 않는다.
+    const start = await call({ action: 'startCoaching', proposalText, criteriaText: '', officialEvaluationProvided: false });
+    assert.equal(start.status, 200);
+    assert.equal(jobDb.rows.size, 1);
+    const stored = jobDb.rows.get('resp_state_test');
+    assert.deepEqual(Object.keys(stored).sort(), ['created_at', 'expires_at', 'job_id', 'official_evaluation', 'owner_hash', 'previous_version']);
+    assert.equal(JSON.stringify(stored).includes('계획서 원문'), false);
+    assert.notEqual(stored.owner_hash, '12345678-1234-1234-1234-123456789abc');
+
+    // 같은 키는 여러 번 조회해도 404가 되지 않는다.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const poll = await call({ action: 'pollCoaching', jobId: 'resp_state_test', proposalText });
+      assert.equal(poll.status, 200);
+      assert.equal((await poll.json()).status, 'in_progress');
+    }
+    // 다른 자료보관함 키로는 조회할 수 없다.
+    const foreign = await call({ action: 'pollCoaching', jobId: 'resp_state_test', proposalText }, otherHeaders);
+    assert.equal(foreign.status, 404);
+
+    // 완료되면 임시 상태를 지운다.
+    globalThis.fetch = async (url, options) => options.method === 'POST'
+      ? new Response(JSON.stringify({ id: 'resp_state_test', status: 'queued' }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      : new Response(JSON.stringify({ id: 'resp_state_test', status: 'completed', output_text: JSON.stringify(fixture()) }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    const done = await call({ action: 'pollCoaching', jobId: 'resp_state_test', proposalText, criteriaText: '필요성과 실행계획을 평가' });
+    assert.equal(done.status, 200);
+    assert.equal(jobDb.rows.size, 0);
+    // 정리된 뒤에는 다시 조회되지 않는다.
+    assert.equal((await call({ action: 'pollCoaching', jobId: 'resp_state_test', proposalText })).status, 404);
+
+    // 만료된 레코드는 다음 시작 요청에서 정리된다.
+    jobDb.rows.set('resp_old_job', { job_id: 'resp_old_job', owner_hash: 'x', official_evaluation: 0, previous_version: 0, created_at: '2020-01-01T00:00:00.000Z', expires_at: '2020-01-01T00:30:00.000Z' });
+    await call({ action: 'startCoaching', proposalText, criteriaText: '', officialEvaluationProvided: false });
+    assert.equal(jobDb.rows.has('resp_old_job'), false);
+
+    // 상태 저장소가 없으면 외부 호출 전에 멈춘다.
+    assert.equal((await call({ action: 'startCoaching', proposalText }, headers, { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' })).status, 503);
   } finally { globalThis.fetch = originalFetch; }
 });
