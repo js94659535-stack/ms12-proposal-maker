@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import {
   APPLICANT_AREAS, CONFIRMED_STATUS, addCandidateItems, applicantAreaSummary, buildApplicantOrganization,
   compareNoticeWithApplicant, confirmedItems, findApplicant, migrateCompanyFactsToApplicant, normalizeApplicant,
-  planApplicantQuestions, upsertApplicant
+  planApplicantQuestions, splitApplicantProfile, upsertApplicant
 } from '../src/applicants.js';
 import { deleteApplicant, listApplicants, normalizeApplicantRecord, saveApplicant } from '../functions/api/archive.js';
 import { localAnalyze } from '../src/fallback.js';
@@ -92,7 +92,12 @@ test('확인 필요·오래된 정보는 값 자체가 생성 요청에 전달�
   const payload = JSON.stringify(organization);
   assert.ok(!payload.includes('QA 미확인 자부담 5,000,000원'));
   assert.ok(!payload.includes('QA 오래된 실적 기록'));
-  assert.deepEqual(organization.needsVerification.map(item => item.status).sort(), ['오래된 정보', '확인 필요']);
+  // 현재 프로필과 사업·실적 이력을 나눠 전달한다. 이력의 값은 확인된 것만 담는다.
+  assert.deepEqual(organization.needsVerification.map(item => item.status).sort(), ['확인 필요']);
+  const pastRecords = organization.pastProjectRecords.flatMap(project => project.records);
+  assert.deepEqual(pastRecords.map(record => record.status), ['오래된 정보']);
+  assert.equal(pastRecords[0].content, '');
+  assert.match(organization.rule, /pastProjectRecords는 지난 사업의 기록이므로/);
   assert.ok(organization.needsVerification.every(item => !Object.hasOwn(item, 'content') && !Object.hasOwn(item, 'value')));
   assert.ok(organization.confirmedFacts.every(fact => fact.status === CONFIRMED_STATUS && fact.confirmedByUser === true));
   assert.match(organization.rule, /needsVerification 항목은 값을 전달하지 않았으므로/);
@@ -204,4 +209,35 @@ test('신청기관 정보 흐름은 OpenAI를 호출하지 않고 기존 작성 
   // 마스터 설계 전에 신청기관 확인된 정보로 답할 수 있는 질문을 걸러낸다.
   assert.match(appSource, /state\.missingInformation = applyApplicantAnswers\(/);
   assert.match(appSource, /organization: organizationForGeneration\(\)/);
+});
+
+test('현재 기관 프로필과 사업·실적 이력을 같은 구조 안에서 구분한다', () => {
+  const applicant = normalizeApplicant({
+    id: 'scope-a', name: 'QA 기관',
+    items: [
+      { id: 's-1', area: 'basic', label: '기관명', value: 'QA 기관', status: CONFIRMED_STATUS, source: '법인등기부등본', asOf: '2026' },
+      { id: 's-2', area: 'staff', label: '상근 인력', value: '9명', status: CONFIRMED_STATUS, source: '2026 인사기록', asOf: '2026' },
+      { id: 's-3', area: 'budget', label: '총사업비', value: '16,100,000원', status: '확인 필요', source: 'QA 배분신청서에서 추출', asOf: '2026-09' },
+      { id: 's-4', area: 'programs', label: '운영 회기', value: '20회기', status: '확인 필요', source: 'QA 배분신청서에서 추출', asOf: '2026-09' },
+      { id: 's-5', area: 'performance', label: '2024년 사업실적', value: 'QA 학습지원 사업', status: CONFIRMED_STATUS, source: 'QA 결과보고서', asOf: '2024' }
+    ]
+  });
+  const split = splitApplicantProfile(applicant);
+  assert.deepEqual(split.profile.map(item => item.id).sort(), ['s-1', 's-2']);
+  assert.deepEqual(split.history.map(item => item.id).sort(), ['s-3', 's-4', 's-5']);
+  assert.equal(split.projects.length, 2);
+  assert.deepEqual(split.projects.map(project => project.year), ['2026', '2024']);
+  // 값은 그대로 남고 분류만 붙는다.
+  assert.equal(applicant.items.length, 5);
+  assert.equal(applicant.items.find(item => item.id === 's-3').value, '16,100,000원');
+
+  const organization = buildApplicantOrganization(applicant, []);
+  // 확정 사실은 현재 프로필에서만 나온다.
+  assert.deepEqual(organization.confirmedFacts.map(fact => fact.title).sort(), ['기관명', '상근 인력']);
+  // 지난 사업 실적은 근거로만 제안한다.
+  const records = organization.pastProjectRecords.flatMap(project => project.records);
+  assert.equal(records.length, 3);
+  assert.equal(records.find(record => record.title === '2024년 사업실적').content, 'QA 학습지원 사업');
+  assert.equal(records.find(record => record.title === '총사업비').content, '');
+  assert.match(organization.rule, /이번 사업의 값으로 옮겨 적지 않는다/);
 });

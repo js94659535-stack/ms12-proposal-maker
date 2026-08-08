@@ -9,6 +9,7 @@ import { REFERENCE_TYPES, assessReferences, makeReference, projectContext, refer
 import { analyzeProposalStructure, buildStructuralRevision, reviewProposalStructure } from './proposal-structure.js';
 import { applyRepairPlans, buildRepairPlans, repairPlanSummary } from './repair-plan.js';
 import { EXTERNAL_SOURCE, appendProposalVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, proposalTextFromSections, proposalTextFromSnapshot, revisionInstruction, verifyLockedValues } from './coaching-handoff.js';
+import { splitApplicantProfile } from './applicants.js';
 import { APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
 
 const TYPES = [
@@ -261,6 +262,17 @@ function coachingApplicantView() {
     ${review ? candidateReviewView(review) : ''}` : '<p class="muted">등록된 신청기관이 없습니다. 상단 「신청기관 정보」에서 기관을 먼저 등록하세요.</p>'}</div>`;
 }
 
+// 현재 기관 프로필과 사업·실적 이력을 나눠 본다. 같은 항목 구조만 사용한다.
+function applicantScopeView(applicant) {
+  const split = splitApplicantProfile(applicant);
+  if (!split.profile.length && !split.history.length) return '';
+  const line = item => `<div><span>${escapeHtml(areaTitle(item.area))} · ${escapeHtml(item.status)}</span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(String(item.value).slice(0, 60))} · 기준시점 ${escapeHtml(item.asOf || ASOF_UNKNOWN)}${(item.history || []).length ? ` · 이력 ${item.history.length}건` : ''}</small></div>`;
+  return `<details class="card org-details" open><summary>현재 기관 프로필 ${split.profile.length}건 · 사업·실적 이력 ${split.history.length}건(사업 ${split.projects.length}건)</summary>
+    <p class="muted">현재 프로필의 ‘확인됨’ 정보만 계획서 작성·검증에 사실로 사용합니다. 사업·실적 이력은 수행 실적 근거로만 인용하며, 지난 사업의 인원·회기·기간·예산을 이번 사업 값으로 옮기지 않습니다.</p>
+    <h4>현재 기관 프로필</h4><div class="cap-grid">${split.profile.map(line).join('') || '<div><span>없음</span><strong>등록된 현재 정보 없음</strong><small>기관명·대표자·인력·시설 등을 등록하세요</small></div>'}</div>
+    <h4>사업·실적 이력</h4>${split.projects.length ? split.projects.map(project => `<div><b>${escapeHtml(project.year || '연도 확인 필요')}</b> · 출처 ${escapeHtml(String(project.source).slice(0, 60) || '미기록')}<div class="cap-grid">${project.items.map(line).join('')}</div></div>`).join('') : '<p class="muted">등록된 사업 기록이 없습니다.</p>'}</details>`;
+}
+
 // 어떤 문서에서 어떤 정보가 들어왔는지 확인한다. 기존 source·asOf·history 구조만 사용한다.
 function applicantSourceView(applicant) {
   const groups = itemsBySource(applicant);
@@ -276,6 +288,7 @@ function applicantEditorView(applicant) {
   return `<div class="card" id="applicant-editor" tabindex="-1"><div class="card-title"><div><h3>${escapeHtml(applicant.name)} 정보 편집</h3><span>각 항목은 확인됨 / 확인 필요 / 오래된 정보로 구분합니다.</span></div><button class="button secondary" id="save-applicant">이 기관 정보 저장</button></div>
     <div class="field"><label for="applicant-name">기관명</label><input id="applicant-name" value="${escapeHtml(applicant.name)}"></div>
     <div class="field"><label for="applicant-note">기관 메모</label><input id="applicant-note" value="${escapeHtml(applicant.note)}" placeholder="예: 2026년 기준 정보"></div>
+    ${applicantScopeView(applicant)}
     ${applicantSourceView(applicant)}
     ${APPLICANT_AREAS.map(area => {
       const items = areaItems(applicant, area.key);

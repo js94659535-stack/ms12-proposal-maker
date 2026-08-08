@@ -19,7 +19,7 @@ const AREA_KEYS = APPLICANT_AREAS.map(area => area.key);
 const ELIGIBILITY_PATTERN = /(자격|법인|등록|인가|허가|신청 ?대상|결격|의무|증빙|서류)/;
 const PROJECT_DECISION_PATTERN = /(회기|횟수|일정|기간|예산|사업비|목표|지표|인원|모집|배치|산출|성과)/;
 
-export const ORGANIZATION_RULE = 'confirmedFacts에 있는 신청기관 정보만 확정된 기관 사실로 사용한다. needsVerification 항목은 값을 전달하지 않았으므로 사실처럼 쓰지 말고 필요하면 [확인 필요]로 표시한다. projectSpecificValues.thisProjectValue는 이번 사업에서만 사용하는 설계값이며 신청기관 원본(applicantOriginalValue)을 대체하거나 수정하지 않는다.';
+export const ORGANIZATION_RULE = 'confirmedFacts에 있는 신청기관 정보만 확정된 기관 사실로 사용한다. needsVerification 항목은 값을 전달하지 않았으므로 사실처럼 쓰지 말고 필요하면 [확인 필요]로 표시한다. projectSpecificValues.thisProjectValue는 이번 사업에서만 사용하는 설계값이며 신청기관 원본(applicantOriginalValue)을 대체하거나 수정하지 않는다. pastProjectRecords는 지난 사업의 기록이므로 수행 실적과 역량의 근거로만 인용하고, 그 안의 인원·회기·기간·예산을 이번 사업의 값으로 옮겨 적지 않는다.';
 export const NO_APPLICANT_RULE = '이번 사업의 신청기관이 선택되지 않았다. 기관 인력·실적·자격·예산·시설을 만들지 말고 필요한 위치에 [확인 필요]를 유지한다.';
 
 function text(value, max) { return String(value ?? '').trim().slice(0, max); }
@@ -29,8 +29,30 @@ function uniqueId(prefix) {
 }
 export function areaTitle(key) { return APPLICANT_AREAS.find(area => area.key === key)?.title || key; }
 
+// 같은 항목 구조 안에서 「현재 기관 프로필」과 「사업·실적 이력」의 의미만 구분한다. 새 저장소를 만들지 않는다.
+export const ITEM_SCOPES = ['profile', 'history'];
+const HISTORY_AREAS = ['performance'];
+// 특정 사업에 딸린 수치는 기관의 현재 상태가 아니라 그 사업의 이력이다.
+const PROJECT_VALUE_PATTERN = /(총\s*사업비|사업비|예산\s*규모|지원\s*금액|참여\s*인원|모집\s*인원|대상\s*인원|회기|차시|사업\s*기간|수행\s*기간|투입\s*인력|참여\s*인력|성과\s*지표|성과\s*측정|만족도|출석률)/;
+const PROJECT_SOURCE_PATTERN = /(사업계획서|신청서|배분신청|결과보고서|운영계획서|정산)/;
+
+export function classifyItemScope(item) {
+  if (ITEM_SCOPES.includes(item?.scope)) return item.scope;
+  if (HISTORY_AREAS.includes(item?.area)) return 'history';
+  const label = `${item?.label || ''} ${item?.value || ''}`;
+  if (PROJECT_VALUE_PATTERN.test(label) && PROJECT_SOURCE_PATTERN.test(String(item?.source || ''))) return 'history';
+  return 'profile';
+}
+
+// 이력 항목이 어느 사업의 기록인지. 라벨·근거·기준시점에서만 읽고 새로 만들지 않는다.
+export function projectKeyOf(item) {
+  const year = String(`${item?.asOf || ''} ${item?.label || ''} ${item?.value || ''}`.match(/(19|20)\d{2}/)?.[0] || '');
+  const name = String(item?.value || item?.label || '').replace(/^\d{4}\s*년?\s*/, '').trim().slice(0, 60);
+  return { year, name, key: `${year || '연도 확인 필요'}::${item?.source || ''}` };
+}
+
 export function makeApplicantItem(value = {}) {
-  return {
+  const base = {
     id: text(value.id, 80) || uniqueId('item'),
     area: AREA_KEYS.includes(value.area) ? value.area : 'basic',
     label: text(value.label, 120),
@@ -44,6 +66,28 @@ export function makeApplicantItem(value = {}) {
       source: text(entry?.source, 300), asOf: text(entry?.asOf, 40), recordedAt: text(entry?.recordedAt, 40)
     })),
     updatedAt: text(value.updatedAt, 40) || new Date().toISOString()
+  };
+  // 저장된 기존 항목도 다시 읽을 때 의미가 정해진다. 값은 삭제하지 않는다.
+  return { ...base, scope: classifyItemScope({ ...base, scope: value.scope }) };
+}
+
+// 기관의 현재 상태와 사업별 기록을 나눠서 본다.
+export function splitApplicantProfile(applicant) {
+  const items = (applicant?.items || []).map(item => ({ ...item, scope: classifyItemScope(item) }));
+  const profile = items.filter(item => item.scope === 'profile');
+  const historyItems = items.filter(item => item.scope === 'history');
+  const projects = new Map();
+  for (const item of historyItems) {
+    const key = projectKeyOf(item);
+    const bucket = projects.get(key.key) || { year: key.year, source: item.source, name: key.name, items: [] };
+    bucket.items.push(item);
+    if (!bucket.year && key.year) bucket.year = key.year;
+    projects.set(key.key, bucket);
+  }
+  return {
+    profile,
+    history: historyItems,
+    projects: [...projects.values()].sort((left, right) => String(right.year).localeCompare(String(left.year)))
   };
 }
 
@@ -126,11 +170,20 @@ export function normalizeProjectValues(values, applicant) {
 export function buildApplicantOrganization(applicant, projectValues = []) {
   if (!applicant) return { applicantId: '', organization: '신청기관 미선택', confirmedFacts: [], needsVerification: [], projectSpecificValues: [], rule: NO_APPLICANT_RULE };
   const snapshot = structuredClone(applicant);
+  const split = splitApplicantProfile(snapshot);
+  const isProfile = item => split.profile.some(entry => entry.id === item.id);
   return {
     applicantId: snapshot.id,
     organization: snapshot.name,
-    confirmedFacts: confirmedItems(snapshot).map(item => ({ id: item.id, category: areaTitle(item.area), title: item.label, content: item.value, source: item.source, status: CONFIRMED_STATUS, confirmedByUser: true })),
-    needsVerification: unverifiedItems(snapshot).map(item => ({ id: item.id, category: areaTitle(item.area), title: item.label, status: item.status })),
+    // 확정 사실로 쓸 수 있는 것은 기관의 현재 프로필뿐이다.
+    confirmedFacts: confirmedItems(snapshot).filter(isProfile).map(item => ({ id: item.id, category: areaTitle(item.area), title: item.label, content: item.value, source: item.source, asOf: item.asOf || '', status: CONFIRMED_STATUS, confirmedByUser: true })),
+    needsVerification: unverifiedItems(snapshot).filter(isProfile).map(item => ({ id: item.id, category: areaTitle(item.area), title: item.label, status: item.status })),
+    // 지난 사업 기록은 실적·근거로만 제안하고 이번 사업 값으로 옮기지 않는다.
+    pastProjectRecords: split.projects.map(project => ({
+      year: project.year || '연도 확인 필요',
+      source: project.source,
+      records: project.items.map(item => ({ category: areaTitle(item.area), title: item.label, content: item.status === CONFIRMED_STATUS ? item.value : '', status: item.status, asOf: item.asOf || '' }))
+    })),
     projectSpecificValues: normalizeProjectValues(projectValues, snapshot),
     rule: ORGANIZATION_RULE
   };

@@ -102,6 +102,8 @@ export function normalizeApplicantRecord(value) {
     value: clean(item?.value, 2000),
     status: APPLICANT_STATUSES.includes(item?.status) ? item.status : '확인 필요',
     source: clean(item?.source, 300),
+    // 현재 기관 프로필(profile)과 사업·실적 이력(history) 구분. 같은 항목 구조 안에서만 쓴다.
+    scope: ['profile', 'history'].includes(item?.scope) ? item.scope : '',
     asOf: clean(item?.asOf, 40),
     history: (Array.isArray(item?.history) ? item.history : []).slice(-20).map(entry => ({
       value: clean(entry?.value, 2000), status: APPLICANT_STATUSES.includes(entry?.status) ? entry.status : '확인 필요',
