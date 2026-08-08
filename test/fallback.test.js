@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { localAnalyze, localDraft } from '../src/fallback.js';
-import { draftReviewState, incompleteFailure, normalizeManualSources, onRequest, validateEngineResult, validateMasterResult, validatePartResult } from '../functions/api/proposal.js';
+import { draftReviewState, incompleteFailure, masterReviewState, mixedApplicationType, normalizeManualSources, onRequest, validateEngineResult, validateMasterResult, validatePartResult } from '../functions/api/proposal.js';
 import { buildOfficialSummary, classifyAttachment, handleNoticeRequest, isBusinessNotice, isOpenDeadline, mergeNoticeCandidates, parseProposalList, splitSubprojects } from '../functions/api/notices.js';
 import { buildPrintDocument } from '../src/export.js';
 import { onRequest as handleArchiveRequest, syncNotices } from '../functions/api/archive.js';
@@ -98,6 +98,37 @@ test('마스터 설계는 10개 호환 항목을 중복 없이 포함하고 분�
   assert.match(validatePartResult({ sections: [{ id: 'necessity' }, { id: 'purpose' }], continuityCheck: { ...continuityCheck, numericConsistent: false, issues: ['인원 불일치'] }, continuitySummary }, { sectionKeys: ['necessity', 'purpose'] }), /연속성 검증에 실패/);
   const variablePlan = keys.map((key, index) => ({ id: `g${index}`, title: key, sectionKeys: [key] }));
   assert.equal(validateMasterResult({ ...master, sectionPlan: variablePlan }), '');
+});
+
+test('마스터 단계에서 자기점검 실패는 경고이고 다른 신청유형 설계만 막는다', () => {
+  const keys = ['necessity', 'purpose', 'goals', 'target', 'programs', 'schedule', 'roles', 'budget', 'indicators', 'outcomes'];
+  const masterLogic = { problem: '학대피해아동 가족기능 약화', coreStrategy: '가정방문 사례관리', baselineValues: { 대상: '학대피해아동 15명', 회기: '아동 12회기' }, outputOutcomeMeasurementLinks: [{}], evaluationResponsePlan: [{}], claimEvidencePlan: [{ claim: '대상', evidence: '신청유형 재학대예방형 / 아동보호형 - 요보호아동' }] };
+  const master = {
+    sponsorIntent: { evidence: ['공고 원문에 재학대예방형과 아동보호형이 함께 적혀 있다'] },
+    projectDesign: { projectName: '재학대예방형 가족기능 강화사업', target: '학대피해아동과 보호자' },
+    masterLogic, evidenceMap: [{ id: 'e1' }],
+    qualityCheck: { noticeAlignment: false, singleSubprogramOnly: false, logicConsistency: true, budgetConsistency: true, measurableOutcomes: true },
+    sectionPlan: [{ id: 'a', title: '배경과 목적', sectionKeys: keys.slice(0, 5) }, { id: 'b', title: '수행과 성과', sectionKeys: keys.slice(5) }]
+  };
+  const payload = { projectBlueprint: { applicationType: '재학대예방형', otherApplicationTypes: ['아동보호형'], officialConflicts: [{ field: '인원', officialValue: '70명 이상', userValue: '15명' }] } };
+  // 자기점검 false 2건이 있어도 설계를 폐기하지 않는다. 근거 인용에 다른 유형명이 있는 것도 혼입이 아니다.
+  assert.equal(validateMasterResult(master, payload), '');
+  const state = masterReviewState(master, payload);
+  assert.equal(state.masterStatus, 'NEEDS_REVIEW');
+  assert.equal(state.submissionReady, false);
+  assert.deepEqual(state.warnings.map(item => item.check), ['noticeAlignment', 'singleSubprogramOnly']);
+  assert.equal(state.officialConflicts[0].type, 'OFFICIAL_REQUIREMENT_CONFLICT');
+
+  // 설계값(대상·프로그램·기준값)이 다른 유형으로 채워진 경우만 구조적 실패다.
+  const wrong = { ...master, projectDesign: { projectName: '아동보호형 사업', target: '요보호아동' }, masterLogic: { ...masterLogic, baselineValues: { 대상: '아동보호형 요보호아동 30명' } } };
+  assert.match(validateMasterResult(wrong, payload), /다른 유형/);
+  assert.match(mixedApplicationType(wrong, payload), /아동보호형/);
+  assert.equal(mixedApplicationType(master, payload), '');
+
+  // 경고도 충돌도 없으면 MASTER_READY지만 제출 가능으로 올리지 않는다.
+  const clean = masterReviewState({ ...master, qualityCheck: { noticeAlignment: true, singleSubprogramOnly: true, logicConsistency: true, budgetConsistency: true, measurableOutcomes: true } }, { projectBlueprint: { applicationType: '재학대예방형', otherApplicationTypes: ['아동보호형'] } });
+  assert.equal(clean.masterStatus, 'MASTER_READY');
+  assert.equal(clean.submissionReady, false);
 });
 
 test('마스터 설계는 문제부터 성과측정까지 논리사슬과 평가·근거 계획을 고정한다', () => {

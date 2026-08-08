@@ -76,8 +76,10 @@ export async function onRequest(context) {
       Object.assign(result, draftReviewState(result, body.payload));
     }
     if (body.action === 'master') {
-      const masterError = validateMasterResult(result);
+      const masterError = validateMasterResult(result, body.payload);
       if (masterError) return json({ error: masterError }, 502);
+      // 자기점검 실패나 공고 기준 충돌만으로는 마스터 설계를 폐기하지 않는다. 상태로 알린다.
+      Object.assign(result, masterReviewState(result, body.payload));
     }
     if (body.action === 'draftPart') {
       const partError = validatePartResult(result, body.payload.group);
@@ -235,15 +237,48 @@ const continuitySummary = { type: 'object', additionalProperties: false, propert
 const DRAFT_PART_SCHEMA = { type: 'object', additionalProperties: false, properties: { sections: { type: 'array', minItems: 1, items: section }, continuityCheck, continuitySummary }, required: ['sections', 'continuityCheck', 'continuitySummary'] };
 const REWRITE_SCHEMA = { type: 'object', additionalProperties: false, properties: { section }, required: ['section'] };
 
-export function validateMasterResult(result) {
+export function validateMasterResult(result, payload = {}) {
   const groups = result?.sectionPlan;
   if (!Array.isArray(groups) || groups.length < 2) return '마스터 설계의 신청서 항목 분할은 2개 이상이어야 합니다.';
   const keys = groups.flatMap(group => Array.isArray(group.sectionKeys) ? group.sectionKeys : []);
   if (keys.length !== SECTION_KEYS.length || new Set(keys).size !== SECTION_KEYS.length || SECTION_KEYS.some(key => !keys.includes(key))) return '마스터 설계가 계획서 10개 항목을 빠짐없이 한 번씩 포함하지 않습니다.';
   if (!result.sponsorIntent?.evidence?.length || !result.evidenceMap?.length) return '마스터 설계에 공식 원문 근거가 연결되지 않았습니다.';
   if (!result.masterLogic?.problem || !result.masterLogic?.coreStrategy || !result.masterLogic?.outputOutcomeMeasurementLinks?.length || !result.masterLogic?.evaluationResponsePlan?.length || !result.masterLogic?.claimEvidencePlan?.length) return '마스터 설계의 논리사슬·성과측정·평가기준·근거계획이 완성되지 않았습니다.';
-  if (!result.qualityCheck?.noticeAlignment || !result.qualityCheck?.singleSubprogramOnly || !result.qualityCheck?.logicConsistency) return '마스터 설계가 공고 정합성 검증을 통과하지 못했습니다.';
+  // 모델 자기점검 boolean은 하드 실패가 아니라 경고로 다룬다(masterReviewState).
+  // 선택하지 않은 신청유형이 설계값(대상·프로그램·기준값)에 실제로 섞인 경우만 막는다. 공고 원문 근거에 유형명이 나오는 것은 혼입이 아니다.
+  return mixedApplicationType(result, payload);
+}
+
+// 설계값 부분만 본다. 공고 원문 인용(sponsorIntent.evidence·evidenceMap·claimEvidencePlan)은 제외한다.
+export function mixedApplicationType(result, payload = {}) {
+  const selected = String(payload.projectBlueprint?.applicationType || '').trim();
+  const others = (payload.projectBlueprint?.otherApplicationTypes || []).filter(name => name && name !== selected);
+  if (!selected || selected.startsWith('[') || !others.length) return '';
+  const { claimEvidencePlan, ...logic } = result.masterLogic || {};
+  const designText = JSON.stringify({ projectDesign: result.projectDesign, sectionPlan: result.sectionPlan, masterLogic: logic });
+  const used = others.filter(name => designText.includes(name));
+  if (used.length && !designText.includes(selected)) return `선택한 신청유형(${selected})이 아니라 다른 유형(${used.join(' · ')}) 조건으로 설계되었습니다.`;
   return '';
+}
+
+// 마스터 설계도 초안과 같은 원칙을 따른다. 자기점검 실패·공고 충돌은 경고로 남기고 설계를 폐기하지 않는다.
+export function masterReviewState(result, payload = {}) {
+  const flags = { noticeAlignment: '공고 정합성', singleSubprogramOnly: '단일 세부사업', logicConsistency: '논리 일관성', budgetConsistency: '예산 일관성', measurableOutcomes: '측정 가능한 성과' };
+  const warnings = Object.entries(flags)
+    .filter(([key]) => result?.qualityCheck?.[key] === false)
+    .map(([key, label]) => ({ check: key, label, message: `모델 자기점검에서 ${label} 항목이 통과되지 않았습니다. 마스터 설계는 유지하고 사람이 확인해야 합니다.` }));
+  const officialConflicts = (payload.projectBlueprint?.officialConflicts || []).map(item => ({ type: 'OFFICIAL_REQUIREMENT_CONFLICT', ...item }));
+  const needsReview = warnings.length > 0 || officialConflicts.length > 0;
+  return {
+    masterStatus: needsReview ? 'NEEDS_REVIEW' : 'MASTER_READY',
+    // 마스터 설계 완성은 제출 가능과 다르다. 제출 판단은 제출 전 검증에서 따로 한다.
+    submissionReady: false,
+    warnings,
+    officialConflicts,
+    note: needsReview
+      ? `마스터 설계는 정상 생성되었습니다. 경고${officialConflicts.length ? '와 공고 기준 충돌' : ''}을 확인한 뒤 분할 생성으로 넘어가야 합니다.`
+      : '마스터 설계는 정상 생성되었습니다. 제출 가능 여부는 제출 전 검증에서 따로 판단합니다.'
+  };
 }
 
 export function validatePartResult(result, group) {
