@@ -194,7 +194,7 @@ test('상단 독립 코칭 화면은 외부 파일·붙여넣기·보관함·재
   const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   assert.match(source, /id="open-coaching"/);
   assert.match(source, /계획서 검증·코칭/);
-  assert.match(source, /accept="\.pdf,\.docx,\.txt"/);
+  assert.match(source, /accept="\.pdf,\.docx,\.txt,\.hwpx"/);
   assert.match(source, /id="coaching-text"/);
   assert.match(source, /data-coach-archive/);
   assert.match(source, /수정본 다시 검증/);
