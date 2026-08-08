@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { localAnalyze, localDraft } from '../src/fallback.js';
-import { draftReviewState, normalizeManualSources, onRequest, validateEngineResult, validateMasterResult, validatePartResult } from '../functions/api/proposal.js';
+import { draftReviewState, incompleteFailure, normalizeManualSources, onRequest, validateEngineResult, validateMasterResult, validatePartResult } from '../functions/api/proposal.js';
 import { buildOfficialSummary, classifyAttachment, handleNoticeRequest, isBusinessNotice, isOpenDeadline, mergeNoticeCandidates, parseProposalList, splitSubprojects } from '../functions/api/notices.js';
 import { buildPrintDocument } from '../src/export.js';
 import { onRequest as handleArchiveRequest, syncNotices } from '../functions/api/archive.js';
@@ -66,7 +66,9 @@ test('서버 함수에는 OpenAI 외부 호출이 한 곳뿐이고 재시도 루
   assert.match(source, /new AbortController\(\)/);
   assert.match(source, /timeoutMs:\s*300_000/);
   assert.match(source, /max_output_tokens: LIMITS\.outputTokens\[body\.action\]/);
-  assert.match(source, /master:\s*7_000/);
+  // master 설계는 한 번에 전체 구조를 반환하므로 draft와 같은 출력 상한을 쓴다.
+  assert.match(source, /master:\s*12_000/);
+  assert.match(source, /draftPart:\s*7_000/);
   assert.match(source, /body\.action === 'analyze' \? 'medium' : 'low'/);
 });
 
@@ -542,6 +544,26 @@ test('핵심 사업계획 엔진 결과는 근거·단일 세부사업·질문 �
   const wrongType = { ...result, sections: result.sections.map(section => ({ ...section, content: '아동보호형 요보호아동을 대상으로 하는 설계 내용' })) };
   assert.match(validateEngineResult(wrongType, { projectBlueprint: { applicationType: '재학대예방형', otherApplicationTypes: ['아동보호형'] } }), /다른 유형/);
   assert.equal(validateEngineResult(result, { projectBlueprint: { applicationType: '재학대예방형', otherApplicationTypes: ['아동보호형'] } }), '');
+});
+
+test('응답이 잘린 경우와 형식 오류를 구분한다', () => {
+  // 끝까지 생성되지 않은 응답은 잘림 사유를 그대로 알린다.
+  const truncated = incompleteFailure({ status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' } });
+  assert.equal(truncated.failureStage, 'output-incomplete');
+  assert.equal(truncated.reason, 'max_output_tokens');
+  assert.match(truncated.error, /최대 출력 길이에서 끊겼습니다/);
+  assert.match(truncated.error, /자동 재시도하지 않았습니다/);
+  const filtered = incompleteFailure({ status: 'incomplete', incomplete_details: { reason: 'content_filter' } });
+  assert.equal(filtered.reason, 'content_filter');
+  assert.equal(incompleteFailure({ status: 'incomplete' }).reason, 'unknown');
+  // 정상 완료된 응답은 잘림으로 보지 않는다.
+  assert.equal(incompleteFailure({ status: 'completed' }), null);
+  assert.equal(incompleteFailure({}), null);
+  // 응답 본문·원문을 오류에 담지 않는다.
+  assert.deepEqual(Object.keys(truncated).sort(), ['error', 'failureStage', 'reason']);
+  const source = fs.readFileSync(new URL('../functions/api/proposal.js', import.meta.url), 'utf8');
+  assert.match(source, /const incomplete = incompleteFailure\(raw\);/);
+  assert.match(source, /failureStage: 'output-parse'/);
 });
 
 test('초안 단계에서는 [확인 필요]와 자기점검 실패로 초안을 폐기하지 않는다', () => {

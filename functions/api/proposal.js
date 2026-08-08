@@ -8,7 +8,7 @@ const LIMITS = Object.freeze({
   rewriteInstructionChars: 4_000,
   analysisChars: 300_000,
   timeoutMs: 300_000,
-  outputTokens: Object.freeze({ analyze: 6_000, master: 7_000, draftPart: 7_000, draft: 12_000, rewrite: 4_000 })
+  outputTokens: Object.freeze({ analyze: 6_000, master: 12_000, draftPart: 7_000, draft: 12_000, rewrite: 4_000 })
 });
 
 export async function onRequest(context) {
@@ -61,10 +61,13 @@ export async function onRequest(context) {
       clearTimeout(timeoutId);
     }
     if (!response.ok) return json({ error: normalizeOpenAIError(raw, response.status) }, response.status === 429 ? 429 : 502);
+    // 응답이 끝까지 생성되지 않은 경우와 형식 오류를 구분한다. 자동 재시도는 하지 않는다.
+    const incomplete = incompleteFailure(raw);
+    if (incomplete) return json(incomplete, 502);
     const outputText = extractOutputText(raw);
     if (!outputText) return json({ error: 'AI 응답에서 결과 본문을 찾지 못했습니다.' }, 502);
     let result;
-    try { result = JSON.parse(outputText); } catch { return json({ error: 'AI 응답 형식을 해석하지 못했습니다.' }, 502); }
+    try { result = JSON.parse(outputText); } catch { return json({ error: 'AI 응답 형식을 해석하지 못했습니다.', failureStage: 'output-parse' }, 502); }
     if (body.action === 'analyze') result.analysis.mode = 'ai';
     if (body.action === 'draft' && typeof body.payload.sourceText === 'string') {
       const qualityError = validateEngineResult(result, body.payload);
@@ -268,6 +271,16 @@ export function validateEngineResult(result, payload = {}) {
     if (!draft.includes(selected) && usedOther.length) return `요청한 신청유형(${selected})이 아니라 다른 유형(${usedOther.join(' · ')})으로 작성되었습니다.`;
   }
   return '';
+}
+
+// 응답이 잘렸는지(status: incomplete) 판정한다. 원문이나 응답 전체는 남기지 않고 사유만 반환한다.
+export function incompleteFailure(raw) {
+  if (raw?.status !== 'incomplete') return null;
+  const reason = String(raw?.incomplete_details?.reason || 'unknown').slice(0, 60);
+  const message = reason === 'max_output_tokens'
+    ? 'AI 응답이 최대 출력 길이에서 끊겼습니다. 자동 재시도하지 않았습니다.'
+    : `AI 응답이 완료되지 않았습니다(${reason}). 자동 재시도하지 않았습니다.`;
+  return { error: message, failureStage: 'output-incomplete', reason };
 }
 
 // 호환용 10개 항목 순서. 생성 결과가 id 대신 번호를 쓰더라도 같은 자리를 찾는다.
