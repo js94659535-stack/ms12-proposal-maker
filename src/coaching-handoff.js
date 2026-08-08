@@ -121,7 +121,7 @@ export function verifyLockedValues(beforeText, afterText, lockedValues = null) {
 }
 
 // 계획서 버전을 누적한다. 이전 버전은 지우지 않고 사본으로 보존한다.
-export function appendProposalVersion(versions, { sections, label, source = '계획서 쓰기', verdict = '', savedAt = '' } = {}) {
+export function appendProposalVersion(versions, { sections, label, source = '계획서 쓰기', verdict = '', savedAt = '', originalText = '' } = {}) {
   const list = Array.isArray(versions) ? versions : [];
   const version = list.length + 1;
   return [...list, {
@@ -130,8 +130,60 @@ export function appendProposalVersion(versions, { sections, label, source = '계
     source: text(source, 60),
     verdict: text(verdict, 40),
     savedAt: savedAt || new Date().toISOString(),
+    // 외부에서 가져온 계획서는 원문 그대로도 함께 보존한다.
+    originalText: String(originalText || '').slice(0, 200_000),
     sections: structuredClone(Array.isArray(sections) ? sections : [])
   }];
+}
+
+export const EXTERNAL_SOURCE = '외부 계획서';
+const HEADING_PATTERNS = [
+  /^\s*(?:\d+\s*[.)]|[IVXivx]+\s*\.|제\s*\d+\s*[장절]|[◆■□○●▶▷※#*·]+)\s*\S.*$/,
+  /^\s*(?:【|〔|\[|<)[^\n]{1,50}(?:】|〕|\]|>)\s*$/,
+  /^\s*[가-힣A-Za-z][^\n:：]{0,38}\s*[:：]\s*$/
+];
+
+function isHeadingLine(line) {
+  const value = String(line || '').trim();
+  if (!value || value.length > 60) return false;
+  if (/[.!?]$/.test(value) && !/^\s*\d+\s*[.)]/.test(value)) return false;
+  return HEADING_PATTERNS.some(pattern => pattern.test(value));
+}
+
+// 외부에서 가져온 계획서 원문을 항목 단위 작업본으로 나눈다. 문장을 새로 만들거나 지우지 않는다.
+export function sectionsFromProposalText(value, { idPrefix = 'external' } = {}) {
+  const body = String(value ?? '');
+  const blocks = [];
+  for (const line of body.split(/\r?\n/)) {
+    if (isHeadingLine(line)) { blocks.push({ title: line.trim(), lines: [] }); continue; }
+    if (!blocks.length) blocks.push({ title: '', lines: [] });
+    blocks[blocks.length - 1].lines.push(line);
+  }
+  const used = blocks
+    .map(block => ({ title: block.title, content: block.lines.join('\n').trim() }))
+    .filter(block => block.title || block.content);
+  // 번호 없는 문서 제목 한 줄로 시작하면 그 줄을 항목 제목으로 쓴다.
+  if (used.length > 1 && !used[0].title && used[0].content && !used[0].content.includes('\n') && used[0].content.length <= 60) {
+    used[0] = { title: used[0].content, content: '' };
+  }
+  if (!used.length) return [{ id: `${idPrefix}-1`, title: '외부 계획서 본문', content: body.trim(), status: '검토 필요', citations: [] }];
+  return used.map((block, index) => ({ id: `${idPrefix}-${index + 1}`, title: block.title || `${index + 1}. 외부 계획서 본문`, content: block.content, status: '검토 필요', citations: [] }));
+}
+
+export function proposalTextFromSections(sections) {
+  return (Array.isArray(sections) ? sections : []).map(section => `${section.title}\n${section.content}`.trim()).join('\n\n');
+}
+
+// 업로드한 외부 계획서를 원본 보존 상태로 두고 수정 가능한 작업본만 새로 만든다.
+export function buildExternalWorkingCopy(coaching = {}) {
+  const originalText = String(coaching.text || '');
+  const sections = sectionsFromProposalText(originalText);
+  return {
+    title: text(coaching.title, 200) || '외부 계획서',
+    originalText,
+    sections,
+    versions: appendProposalVersion([], { sections, label: '외부 원본', source: EXTERNAL_SOURCE, originalText })
+  };
 }
 
 export function findProposalVersion(versions, version) {
