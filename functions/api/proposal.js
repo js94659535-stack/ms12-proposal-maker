@@ -104,6 +104,7 @@ function validate(action, payload) {
   if (includesSource && (typeof payload.sourceText !== 'string' || payload.sourceText.trim().length + manualChars < 30)) return '분석할 원문이 너무 짧습니다.';
   if (includesSource && payload.sourceText.length > LIMITS.sourceChars) return `분석 원문은 ${LIMITS.sourceChars.toLocaleString()}자 이하여야 합니다.`;
   if (includesSource && payload.sourceText.length + manualChars > LIMITS.combinedSourceChars) return `전체 생성 자료는 ${LIMITS.combinedSourceChars.toLocaleString()}자 이하여야 합니다.`;
+  if (jsonLength(payload.projectBlueprint) > 40_000) return '사업 설계도 정보가 허용 길이를 초과했습니다.';
   if (jsonLength(payload.organization) > LIMITS.organizationChars) return `기관 정보는 ${LIMITS.organizationChars.toLocaleString()}자 이하여야 합니다.`;
   if (jsonLength(payload.answers) > LIMITS.answersChars) return `사용자 보완 내용은 ${LIMITS.answersChars.toLocaleString()}자 이하여야 합니다.`;
   if (typeof payload.instruction === 'string' && payload.instruction.length > LIMITS.rewriteInstructionChars) return `재작성 요청은 ${LIMITS.rewriteInstructionChars.toLocaleString()}자 이하여야 합니다.`;
@@ -114,6 +115,20 @@ function validate(action, payload) {
   return '';
 }
 
+// 사업 설계도를 작성 기준으로 넘긴다. 설계도 자체는 앱에서 만든 결과이며 여기서 다시 설계하지 않는다.
+function blueprintBlock(payload) {
+  if (!payload.projectBlueprint) return '';
+  return `<PROJECT_BLUEPRINT>${JSON.stringify(payload.projectBlueprint)}</PROJECT_BLUEPRINT>\n<BLUEPRINT_RULE>${BLUEPRINT_RULE}</BLUEPRINT_RULE>\n`;
+}
+const BLUEPRINT_RULE = `PROJECT_BLUEPRINT는 이번 사업의 확정된 설계 기준이다. 작성 우선순위를 다음 순서로 지킨다.
+1) 공고의 공식 요구·선정논리 2) 사용자가 확정한 이번 사업 값(상태 "확정") 3) 신청기관의 확인된 현재 정보 4) 관련성이 확인된 기관 실적 5) 설계도의 "설계안"(proposedOnly) 6) 확인되지 않은 정보는 [확인 필요].
+설계도의 applicationType(신청유형)에 해당하는 대상·사업내용·요건만 사용하고 다른 신청유형의 대상·프로그램·성과를 섞지 않는다.
+상태가 "설계안"인 항목은 확정 사실로 바꾸지 말고 설계 방향으로만 쓰며, 그 안의 인원·회기·예산·성과 수치를 만들어 확정하지 않는다.
+값이 [확인 필요]인 항목은 추측해서 채우지 말고 해당 위치에 [확인 필요]를 그대로 유지한다.
+과거 사업 기록(pastProjectRecords)의 인원·회기·기간·예산을 이번 사업 값으로 옮겨 적지 않는다. 확인되지 않은 기관 정보(needsVerification)를 사실처럼 쓰지 않는다.
+공고에 없는 평가기준·자격요건·성과수치를 만들지 않는다.
+설계도의 문제 → 대상 → 목적 → 프로그램 → 회기·인력 → 예산 → 성과목표 → 성과지표 흐름을 계획서 각 항목에 같은 대상·같은 용어로 일관되게 반영한다.`;
+
 function taskSpecification(action, payload) {
   if (action === 'analyze') return {
     name: 'proposal_source_analysis', schema: ANALYSIS_SCHEMA,
@@ -121,14 +136,14 @@ function taskSpecification(action, payload) {
   };
   if (action === 'master') return {
     name: 'proposal_master_design', schema: MASTER_SCHEMA,
-    prompt: `사업 유형: ${payload.projectType}\n<SELECTED_SUBPROGRAM>${payload.selectedSubprogram || payload.project?.title || ''}</SELECTED_SUBPROGRAM>\n<PROJECT>${JSON.stringify(payload.project)}</PROJECT>\n<CONFIRMED_USER_ANSWERS>${JSON.stringify(payload.userAnswers || {})}</CONFIRMED_USER_ANSWERS>\n<CANDIDATE_ASSETS>${JSON.stringify(payload.organization)}</CANDIDATE_ASSETS>\n<OFFICIAL_NOTICE_TEXT>${payload.sourceText}</OFFICIAL_NOTICE_TEXT>\n<MANUAL_SOURCES>${JSON.stringify(normalizeManualSources(payload.manualSources))}</MANUAL_SOURCES>\n
+    prompt: `사업 유형: ${payload.projectType}\n<SELECTED_SUBPROGRAM>${payload.selectedSubprogram || payload.project?.title || ''}</SELECTED_SUBPROGRAM>\n<PROJECT>${JSON.stringify(payload.project)}</PROJECT>\n<CONFIRMED_USER_ANSWERS>${JSON.stringify(payload.userAnswers || {})}</CONFIRMED_USER_ANSWERS>\n<CANDIDATE_ASSETS>${JSON.stringify(payload.organization)}</CANDIDATE_ASSETS>\n${blueprintBlock(payload)}<OFFICIAL_NOTICE_TEXT>${payload.sourceText}</OFFICIAL_NOTICE_TEXT>\n<MANUAL_SOURCES>${JSON.stringify(normalizeManualSources(payload.manualSources))}</MANUAL_SOURCES>\n
 아직 계획서 본문을 작성하지 말고 모든 후속 분할 생성이 공통으로 따를 마스터 설계만 확정하라. 선택한 세부사업 하나에 대해 공모기관 핵심 의도와 선정 포인트, 해결할 문제와 필요성, 대상과 선정 근거, 핵심 전략과 차별성, 세부 프로그램과 실행방법, 대상 인원·기간·회기·역할·예산의 기준값을 먼저 고정하라. 산출물→성과목표→측정지표를 연결하고 평가기준별 대응계획과 각 주장에 사용할 공식 원문 근거를 명시하라.
 masterLogic은 문제→원인→대상→전략→실행→산출→변화→성과측정이 끊기지 않는 하나의 논리사슬이어야 한다. baselineValues에는 이후 모든 분할이 그대로 재사용할 인원·기간·회기·역할·예산 기준값을 둔다. outputOutcomeMeasurementLinks에는 각 산출물과 성과목표·측정지표·측정시기·담당을 연결한다. evaluationResponsePlan에는 평가기준과 대응전략·반영항목·근거를 연결하고 claimEvidencePlan에는 핵심 주장과 공식 자료 근거·위치를 연결한다. 공식 자료에서 확인할 수 없는 내용은 사실처럼 확정하지 말고 해당 값에 [확인 필요]를 표시하며 missingInformation에도 현재 설계에 필요한 질문으로 최대 5개만 둔다.
 sectionPlan은 실제 공모신청서·사업계획서 서식의 질문과 목차 결합 관계를 우선하여 필요한 수만큼 가변적으로 정한다. 2~5개로 고정하거나 페이지 수·문서 길이로 나누지 않는다. 호환용 10개 sectionKeys(necessity, purpose, goals, target, programs, schedule, roles, budget, indicators, outcomes)를 빠짐없이 정확히 한 번씩 배치하고, 실제 신청서에서 함께 요구하는 항목은 같은 묶음에 둔다. 각 묶음 제목은 공식 신청서의 항목명 또는 그 구조를 명확히 나타내는 한국어로 작성한다.`
   };
   if (action === 'draftPart') return {
     name: 'proposal_draft_part', schema: DRAFT_PART_SCHEMA,
-    prompt: `<MASTER_DESIGN>${JSON.stringify(payload.master)}</MASTER_DESIGN>\n<CURRENT_APPLICATION_GROUP>${JSON.stringify(payload.group)}</CURRENT_APPLICATION_GROUP>\n<CONTINUITY_SUMMARY>${JSON.stringify(payload.continuitySummary || {})}</CONTINUITY_SUMMARY>\n<RELEVANT_PREVIOUS_SECTIONS>${JSON.stringify(payload.relevantSections || [])}</RELEVANT_PREVIOUS_SECTIONS>\n<OFFICIAL_NOTICE_TEXT>${payload.sourceText}</OFFICIAL_NOTICE_TEXT>\n<MANUAL_SOURCES>${JSON.stringify(normalizeManualSources(payload.manualSources))}</MANUAL_SOURCES>\n<CONFIRMED_USER_ANSWERS>${JSON.stringify(payload.userAnswers || {})}</CONFIRMED_USER_ANSWERS>\n<CANDIDATE_ASSETS>${JSON.stringify(payload.organization)}</CANDIDATE_ASSETS>\n
+    prompt: `<MASTER_DESIGN>${JSON.stringify(payload.master)}</MASTER_DESIGN>\n<CURRENT_APPLICATION_GROUP>${JSON.stringify(payload.group)}</CURRENT_APPLICATION_GROUP>\n<CONTINUITY_SUMMARY>${JSON.stringify(payload.continuitySummary || {})}</CONTINUITY_SUMMARY>\n<RELEVANT_PREVIOUS_SECTIONS>${JSON.stringify(payload.relevantSections || [])}</RELEVANT_PREVIOUS_SECTIONS>\n<OFFICIAL_NOTICE_TEXT>${payload.sourceText}</OFFICIAL_NOTICE_TEXT>\n<MANUAL_SOURCES>${JSON.stringify(normalizeManualSources(payload.manualSources))}</MANUAL_SOURCES>\n<CONFIRMED_USER_ANSWERS>${JSON.stringify(payload.userAnswers || {})}</CONFIRMED_USER_ANSWERS>\n<CANDIDATE_ASSETS>${JSON.stringify(payload.organization)}</CANDIDATE_ASSETS>\n${blueprintBlock(payload)}
 MASTER_DESIGN을 변경하거나 다시 설계하지 말고 CURRENT_APPLICATION_GROUP.sectionKeys에 지정된 공식 신청서 질문·목차에 정확히 대응하는 항목만 이어서 작성하라. MASTER_DESIGN의 공모 의도, 문제→원인→대상→전략→실행→산출→변화→성과측정 논리와 대상·인원·기간·회기·역할·예산·성과지표 기준값은 모든 분할의 변경 불가능한 공통 기준이다.
 CONTINUITY_SUMMARY는 앞 분할에서 확정된 핵심 결정·용어·수치·논리의 압축본이며 RELEVANT_PREVIOUS_SECTIONS는 현재 항목 작성에 실제 필요한 이전 내용만 담는다. 두 자료를 기준으로 동일한 계획서를 이어 쓰되, 전달되지 않은 과거 분할 원문을 추측하거나 다시 작성하지 않는다. 사업명·대상 명칭·프로그램명·담당 역할·수치·단위·기간·성과지표 용어를 그대로 유지하고 충돌하는 새 값을 만들지 않는다. 앞 분할에서 이미 충분히 설명한 배경이나 목적을 반복하지 말고 현재 신청 항목에 필요한 연결 문장만 사용한다. 추상적 당위보다 누가·언제·어디서·누구에게·무엇을·몇 회·어떻게 수행하고 어떤 근거와 산출물을 남기는지 구체적으로 작성한다.
 sections의 id는 sectionKeys와 정확히 같아야 하며 그 밖의 섹션은 반환하지 않는다. 제목은 necessity=사업 필요성, purpose=목적, goals=목표, target=대상, programs=세부 프로그램, schedule=추진 일정, roles=운영 인력·역할, budget=예산, indicators=성과지표, outcomes=기대효과를 사용한다. 공식 자료와 사용자 확정 정보에 없는 사실은 만들지 않고 필요한 위치에 [확인 필요]를 유지한다. 검토·심사·수정 의견은 작성하지 않는다.
@@ -136,7 +151,7 @@ sections의 id는 sectionKeys와 정확히 같아야 하며 그 밖의 섹션은
   };
   if (action === 'draft' && typeof payload.sourceText === 'string') return {
     name: 'evidence_based_project_engine', schema: COMPLETE_SCHEMA,
-    prompt: `사업 유형: ${payload.projectType}\n<SELECTED_SUBPROGRAM>${payload.selectedSubprogram || payload.project?.title || ''}</SELECTED_SUBPROGRAM>\n<PROJECT>${JSON.stringify(payload.project)}</PROJECT>\n<CONFIRMED_USER_ANSWERS>${JSON.stringify(payload.userAnswers || {})}</CONFIRMED_USER_ANSWERS>\n<CANDIDATE_ASSETS>${JSON.stringify(payload.organization)}</CANDIDATE_ASSETS>\n<OFFICIAL_NOTICE_TEXT>${payload.sourceText}</OFFICIAL_NOTICE_TEXT>\n<MANUAL_SOURCES>${JSON.stringify(normalizeManualSources(payload.manualSources))}</MANUAL_SOURCES>\n
+    prompt: `사업 유형: ${payload.projectType}\n<SELECTED_SUBPROGRAM>${payload.selectedSubprogram || payload.project?.title || ''}</SELECTED_SUBPROGRAM>\n<PROJECT>${JSON.stringify(payload.project)}</PROJECT>\n<CONFIRMED_USER_ANSWERS>${JSON.stringify(payload.userAnswers || {})}</CONFIRMED_USER_ANSWERS>\n<CANDIDATE_ASSETS>${JSON.stringify(payload.organization)}</CANDIDATE_ASSETS>\n${blueprintBlock(payload)}<OFFICIAL_NOTICE_TEXT>${payload.sourceText}</OFFICIAL_NOTICE_TEXT>\n<MANUAL_SOURCES>${JSON.stringify(normalizeManualSources(payload.manualSources))}</MANUAL_SOURCES>\n
 선택된 세부사업 하나만 근거로 한 번의 응답에서 공모기관 의도, 사업설계, 기존 10개 계획서 섹션을 완성하라. OFFICIAL_NOTICE_TEXT 또는 MANUAL_SOURCES에 다른 세부사업이 보이면 SELECTED_SUBPROGRAM과 직접 관련된 구간만 사용하고 다른 대상·예산·성과는 배제하라.
 문장을 쓰기 전에 내부적으로 핵심문제→기대변화→필수요소→선정논리→사업모델→변화경로→프로그램→일정·역할·예산→성과평가→지속가능성과 위험 순으로 설계하라.
 현장문제→원인→개입전략→프로그램→산출물→참여자 변화→공모기관 성과의 연결이 끊기지 않아야 한다.
