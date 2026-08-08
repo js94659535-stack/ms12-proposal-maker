@@ -30,7 +30,7 @@ const LABELED_RULES = [
 const NARRATIVE_RULES = [
   { area: 'staff', label: '상근 인력', pattern: /(?:상근|전담)\s*(?:직원|인력|종사자|실무자)\s*(\d+\s*명)/ },
   { area: 'staff', label: '보유 자격', pattern: /((?:사회복지사|상담사|청소년지도사|임상심리사|간호사|영양사|평생교육사)[^\n.]{0,12}?\s*\d+\s*명)/ },
-  { area: 'programs', label: '운영 회기', pattern: /(?:프로그램|과정|교육|상담)[^\n.]{0,20}?(?:총\s*)?(\d+\s*(?:회기|회))/ },
+  { area: 'programs', label: '운영 회기', pattern: /(?:프로그램|과정|교육|상담|시행|운영)[^\n.]{0,20}?(?:총\s*)?(\d+\s*(?:회기|회))|총\s*(\d+\s*회기)/ },
   { area: 'facilities', label: '운영 시설', pattern: /((?:상담실|교육실|강의실|치료실|집단상담실|사무실|프로그램실)\s*\d+\s*(?:실|개))/ },
   { area: 'partners', label: '협력기관', pattern: /([가-힣A-Za-z0-9()·\s]{2,30}?)(?:과|와)\s*(?:업무\s*)?(?:협약|MOU)[^\n.]{0,10}?(?:체결|맺)/i },
   { area: 'budget', label: '총사업비', pattern: /(?:총\s*사업비|총사업비)\s*(?:는|은)?\s*([\d,]+\s*(?:원|만원|억원))/ },
@@ -38,6 +38,41 @@ const NARRATIVE_RULES = [
   { area: 'measurement', label: '성과측정 경험', pattern: /((?:사전[·\-\s]?사후\s*(?:검사|평가|조사)|만족도\s*조사|[가-힣A-Za-z]{2,20}\s*척도))/ },
   { area: 'performance', label: '주요 성과', pattern: /(출석률|만족도|재참여율|이수율)\s*(\d+(?:\.\d+)?\s*%)/ }
 ];
+
+// 신청서·표 서식은 "기 관 명   수완아동센터"처럼 콜론 없이 칸으로 나뉜다. 라벨 칸과 다음 칸을 짝지어 읽는다.
+const LABEL_KEY_RULES = [
+  { area: 'basic', label: '기관명', keys: ['기관명', '법인명', '단체명', '시설명', '신청기관명', '신청기관'] },
+  { area: 'basic', label: '대표자', keys: ['대표자', '대표자명', '기관장', '시설장'] },
+  { area: 'basic', label: '설립 시기', keys: ['설립일', '설립일자', '설립연도', '설립년도', '개소일', '설립'] },
+  { area: 'basic', label: '소재지', keys: ['소재지', '주소', '기관주소'] },
+  { area: 'legal', label: '고유번호', keys: ['고유번호', '고유번호사업자등록번호', '사업자등록번호', '법인등록번호'] },
+  { area: 'legal', label: '법인 유형', keys: ['법인유형', '기관유형', '단체유형', '시설유형', '기관구분'] },
+  { area: 'staff', label: '상근 인력', keys: ['상근인력', '상근직원', '전담인력', '종사자수', '직원수', '인력현황'] },
+  { area: 'staff', label: '보유 자격', keys: ['보유자격', '자격증', '자격현황', '보유자격증'] },
+  { area: 'programs', label: '보유 프로그램', keys: ['프로그램명', '보유프로그램', '주요프로그램', '세부사업명'] },
+  { area: 'facilities', label: '운영 시설', keys: ['시설현황', '보유시설', '운영시설', '시설규모'] },
+  { area: 'partners', label: '협력기관', keys: ['협력기관', '협약기관', '컨소시엄', '수행기관'] },
+  { area: 'budget', label: '총사업비', keys: ['총사업비', '총계', '사업비총액'] },
+  { area: 'budget', label: '연간 예산', keys: ['연간예산', '기관예산', '총예산'] },
+  { area: 'budget', label: '자부담', keys: ['자부담', '자기부담', '자부담금'] },
+  { area: 'measurement', label: '성과측정 방식', keys: ['성과측정', '평가방식', '측정도구', '사용척도', '성과지표'] },
+  { area: 'performance', label: '주요 사업실적', keys: ['주요실적', '사업실적', '수행실적', '최근실적'] }
+];
+const LABEL_KEY_MAP = new Map(LABEL_KEY_RULES.flatMap(rule => rule.keys.map(key => [key, rule])));
+const SEGMENT_SPLIT = /\t+| {2,}|(?=•)/;
+
+// 서식의 칸 제목이 값으로 들어오지 않게 거른다.
+const HEADER_VALUE_PATTERN = /^[([]?\s*(?:활동\s*내용|수행\s*방법|산출\s*목표|세부\s*내용|구분|내용|비고|합계|계$|비율|재원|금액|단위|사업자번호|사업자등록번호|고유번호|연번|번호|해당\s*없음|없음)/;
+function labelKey(value) { return String(value ?? '').replace(/[\s()·:：.]/g, ''); }
+function segmentRule(segment) { return LABEL_KEY_MAP.get(labelKey(segment)) || null; }
+function usableValue(segment, rule = null) {
+  const value = String(segment ?? '').trim();
+  if (value.length < 2 || value.length > 200 || !/[가-힣A-Za-z0-9]/.test(value)) return false;
+  if (segmentRule(value) || HEADER_VALUE_PATTERN.test(value)) return false;
+  // 예산·번호 항목은 숫자가 있어야 실제 값으로 본다.
+  if ((rule?.area === 'budget' || rule?.label === '고유번호') && !/\d/.test(value)) return false;
+  return true;
+}
 
 // 개인 신상정보는 기관 정보로 수집하지 않는다.
 const PERSONAL_INFO_PATTERN = /(\d{6}\s*[-–]\s*\d{7})|(01[016-9][-.\s]?\d{3,4}[-.\s]?\d{4})|(\d{2,4}[-.\s]\d{3,4}[-.\s]\d{4})|([\w.+-]+@[\w-]+\.[\w.]+)|(생년월일|주민등록번호|휴대(?:전화|폰)|연락처|이메일|e-?mail)/i;
@@ -89,11 +124,26 @@ export function extractApplicantCandidates(text, { documentName = '', includeNar
     const rule = LABELED_RULES.find(item => item.pattern.test(line));
     if (rule) { add(rule.area, rule.label, clean(line.match(rule.pattern)[1], 500), lineAsOf, line); continue; }
     if (!includeNarrative) continue;
-    for (const narrative of NARRATIVE_RULES) {
-      const match = line.match(narrative.pattern);
-      if (!match) continue;
-      const value = clean(match.slice(1).filter(Boolean).join(' '), 200);
-      add(narrative.area, narrative.label, value, lineAsOf, line);
+    // 표·서식형 문서는 한 줄에 여러 칸이 붙어 오므로 칸 단위로도 확인한다.
+    const segments = line.split(SEGMENT_SPLIT).map(value => value.trim()).filter(Boolean);
+    for (let index = 0; index < segments.length; index += 1) {
+      const segment = segments[index];
+      const segmentAsOf = asOfFrom(segment.match(ANY_DATE_PATTERN)) || lineAsOf;
+      const performanceSegment = segment.match(PERFORMANCE_PATTERN);
+      if (performanceSegment) { add('performance', `${performanceSegment[1]}년 사업실적`, clean(performanceSegment[2], 500), performanceSegment[1], segment); continue; }
+      const labeled = LABELED_RULES.find(item => item.pattern.test(segment));
+      if (labeled) { add(labeled.area, labeled.label, clean(segment.match(labeled.pattern)[1], 500), segmentAsOf, segment); continue; }
+      const keyed = segments.length > 1 ? segmentRule(segment) : null;
+      if (keyed && usableValue(segments[index + 1], keyed)) {
+        add(keyed.area, keyed.label, clean(segments[index + 1], 300), segmentAsOf, `${segment} ${segments[index + 1]}`);
+        index += 1;
+        continue;
+      }
+      for (const narrative of NARRATIVE_RULES) {
+        const match = segment.match(narrative.pattern);
+        if (!match) continue;
+        add(narrative.area, narrative.label, clean(match.slice(1).filter(Boolean).join(' '), 200), segmentAsOf, segment);
+      }
     }
   }
   return { documentName: name, documentAsOf: docAsOf, candidates };
@@ -190,6 +240,15 @@ export function applyUpdateCandidate(applicant, candidate) {
 // 신규·누적·근거 추가처럼 기존 값을 바꾸지 않는 후보만 한 번에 반영한다. 충돌·변경은 개별 확인이 필요하다.
 const SAFE_KINDS = ['신규', '누적 추가', '동일'];
 export function applySafeCandidates(applicant, candidates) {
-  const safe = (Array.isArray(candidates) ? candidates : []).filter(candidate => SAFE_KINDS.includes(candidate.kind) && (candidate.kind !== '동일' || candidate.existingItemId));
-  return { applicant: safe.reduce((current, candidate) => applyUpdateCandidate(current, candidate), normalizeApplicant(applicant)), applied: safe.length };
+  let current = normalizeApplicant(applicant);
+  let applied = 0;
+  for (const candidate of Array.isArray(candidates) ? candidates : []) {
+    if (!SAFE_KINDS.includes(candidate.kind)) continue;
+    // 앞 후보를 반영한 결과를 기준으로 다시 판정한다. 한 문서 안에 같은 항목이 여러 번 나와도 중복으로 쌓지 않는다.
+    const recheck = buildUpdateCandidates(current, { documentName: '', documentAsOf: '', candidates: [{ ...candidate, existingItemId: '', existingValue: '', existingStatus: '', existingAsOf: '' }] }).candidates[0];
+    if (!SAFE_KINDS.includes(recheck.kind) || (recheck.kind === '동일' && !recheck.existingItemId)) continue;
+    current = applyUpdateCandidate(current, recheck);
+    applied += 1;
+  }
+  return { applicant: current, applied };
 }

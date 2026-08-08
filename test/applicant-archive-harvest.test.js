@@ -134,6 +134,36 @@ test('반영 결과는 선택한 기관에만 저장되고 다시 조회해도 �
   assert.equal((await listApplicants(db, 'owner-2')).length, 1);
 });
 
+// PDF·표 서식 신청서는 한 줄에 여러 칸이 이어져 오고 라벨에 공백이 섞인다.
+const FORM_TEXT = '배분신청서 1)  기 관 명   QA 수완아동센터   고유번호 (사업자등록번호)   659-82-00720  사 업 명   QA 문해력 향상 사업\n'
+  + '신청기관 현황 : 일반현황  기 관 명   QA 수완아동센터   대 표 자   QA 대표   시설 현황   상담실 2실\n'
+  + '4. 예산편성  (단위 : 원)  목   세목   세세목   계   산출근거  총 사업비   16,100,000 원   자부담   1,000,000 원\n'
+  + '세부 사업명   활동 내용(수행방법)   산출 목표  * 시행 시기: 2026년 8월 (총 13회기 진행)  성과 측정   사전·사후 검사\n'
+  + '담당자   QA 담당   연락처   062-000-0000   이메일   qa@example.com';
+
+test('표·서식형 신청서에서도 칸 단위로 기관 정보를 읽는다', () => {
+  const result = extractApplicantCandidates(FORM_TEXT, { documentName: 'QA 배분신청서', includeNarrative: true, sourceLabel: '자료보관함 계획서' });
+  const labels = result.candidates.map(item => `${item.label}=${item.value}`);
+  assert.ok(labels.includes('기관명=QA 수완아동센터'), labels.join(' / '));
+  assert.ok(labels.includes('고유번호=659-82-00720'));
+  assert.ok(labels.includes('대표자=QA 대표'));
+  assert.ok(labels.some(label => label.startsWith('총사업비=16,100,000')));
+  assert.ok(labels.some(label => label.startsWith('운영 회기=13회')));
+  assert.ok(labels.some(label => label.startsWith('성과측정')));
+
+  // 서식의 칸 제목과 개인 연락처는 값으로 만들지 않는다.
+  assert.equal(labels.some(label => /활동\s*내용|산출\s*목표|비율|재원/.test(label)), false, labels.join(' / '));
+  const serialized = JSON.stringify(result);
+  assert.equal(serialized.includes('062-000-0000'), false);
+  assert.equal(serialized.includes('qa@example.com'), false);
+
+  // 같은 값이 여러 번 나와도 후보는 한 번만 만든다.
+  assert.equal(labels.filter(label => label === '기관명=QA 수완아동센터').length, 1);
+
+  // 서술형 옵션을 끄면 기존 라벨 규칙만 사용한다.
+  assert.equal(extractApplicantCandidates(FORM_TEXT, { documentName: 'QA 배분신청서' }).candidates.length, 0);
+});
+
 test('신청기관 화면에서 출처·연도·상태를 확인할 수 있다', () => {
   const updated = applySafeCandidates(applicantA(), harvest(applicantA()).candidates).applicant;
   const groups = itemsBySource(updated);
