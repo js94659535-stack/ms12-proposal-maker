@@ -45,15 +45,58 @@ test('선정요건별로 다섯 가지 상태로 분류한다', () => {
   assert.equal(unconfirmed.applicantEvidence[0].value, '');
 });
 
-test('공고 자격과 확인된 기관 사실이 어긋나면 충돌로 표시한다', () => {
+test('공고가 명시적으로 배제할 때만 충돌로 표시한다', () => {
+  const forProfit = [{ id: 'i1', area: 'basic', label: '기관명', value: '(주)QA컴퍼니', status: CONFIRMED_STATUS, source: '법인등기부등본', asOf: '2026' }];
+
+  // 공고가 영리법인을 명시적으로 배제한 경우 → CONFLICT
+  const strict = analyzeNoticeStructure({ title: 'QA 공고', overview: '신청자격 : 비영리법인에 한함. 영리법인은 신청 불가. 사업내용 : 아동 심리정서 회복 프로그램.' });
+  const strictResult = matchApplicantToNotice(strict, applicant(forProfit, '(주)QA컴퍼니'));
+  const strictEligibility = strictResult.matches.find(match => match.key === 'eligibility');
+  assert.equal(strictEligibility.state, 'CONFLICT');
+  assert.match(strictEligibility.reason, /명시적으로 배제/);
+  assert.equal(strictResult.verdict, '신청 적합성 낮음');
+
+  // 능력·역할만 요구하는 문장 → 법인명만으로 충돌 처리하지 않는다.
+  const capacity = analyzeNoticeStructure({ title: 'QA 공고', overview: '신청자격 : 학대피해아동에게 개입이 가능한 기관. 사업내용 : 아동 심리정서 회복 프로그램.' });
+  const capacityResult = matchApplicantToNotice(capacity, applicant(forProfit, '(주)QA컴퍼니'));
+  const capacityEligibility = capacityResult.matches.find(match => match.key === 'eligibility');
+  assert.notEqual(capacityEligibility.state, 'CONFLICT');
+  assert.ok(['MISSING', 'CONFIRMATION_REQUIRED'].includes(capacityEligibility.state));
+  assert.notEqual(capacityResult.verdict, '신청 적합성 낮음');
+});
+
+test('기관 명칭만으로 신청자격을 MATCHED로 만들지 않는다', () => {
+  const notice = analyzeNoticeStructure({ title: 'QA 공고', overview: '신청자격 : 아동보호전문기관에서 사례관리 중인 학대피해아동에게 개입이 가능한 기관.' });
+  // 이름만 지역아동센터일 뿐 자격 문장과 겹치는 근거가 없다.
+  const nameOnly = matchApplicantToNotice(notice, applicant([
+    { id: 'i1', area: 'basic', label: '기관명', value: 'QA 지역아동센터', status: CONFIRMED_STATUS, source: '등기부', asOf: '2026' }
+  ], 'QA 지역아동센터'));
+  assert.notEqual(nameOnly.matches.find(match => match.key === 'eligibility').state, 'MATCHED');
+
+  // 자격 문장과 실제로 겹치는 근거가 있으면 MATCHED가 된다.
+  const withEvidence = matchApplicantToNotice(notice, applicant([
+    { id: 'i1', area: 'legal', label: '기관 유형', value: '아동보호전문기관 사례관리 연계 지정시설', status: CONFIRMED_STATUS, source: '지정서', asOf: '2026' }
+  ]));
+  assert.equal(withEvidence.matches.find(match => match.key === 'eligibility').state, 'MATCHED');
+});
+
+test('과거 실적을 DIRECT / RELATED / GENERAL로 나누고 일반 실적은 대상 근거로 쓰지 않는다', () => {
   const result = matchApplicantToNotice(NOTICE, applicant([
-    { id: 'i1', area: 'basic', label: '기관명', value: '(주)QA컴퍼니', status: CONFIRMED_STATUS, source: '법인등기부등본', asOf: '2026' }
-  ], '(주)QA컴퍼니'));
-  const eligibility = result.matches.find(match => match.key === 'eligibility');
-  assert.equal(eligibility.state, 'CONFLICT');
-  assert.match(eligibility.reason, /비영리/);
-  assert.equal(result.verdict, '신청 적합성 낮음');
-  assert.ok(result.verdictReasons.some(reason => /충돌/.test(reason)));
+    { id: 'i1', area: 'performance', label: '2024년 사업실적', value: '청년 일경험 인턴 지원사업 운영', status: CONFIRMED_STATUS, source: '2024 결과보고서', asOf: '2024' },
+    { id: 'i2', area: 'performance', label: '2023년 사업실적', value: '아동 심리정서 회복 프로그램과 보호자 상담 운영', status: CONFIRMED_STATUS, source: '2023 결과보고서', asOf: '2023' }
+  ]));
+  const levels = Object.fromEntries(result.recordRelevance.map(item => [item.label, item.level]));
+  assert.equal(levels['2023년 사업실적'], 'DIRECT');
+  assert.ok(['GENERAL', 'RELATED'].includes(levels['2024년 사업실적']));
+
+  const target = result.matches.find(match => match.key === 'target');
+  assert.ok(target.applicantEvidence.every(item => item.relevance !== 'GENERAL'), '일반 실적이 대상 근거로 쓰였습니다');
+
+  // 일반 실적만 있는 기관은 대상 적합성이 MATCHED가 되지 않는다.
+  const generalOnly = matchApplicantToNotice(NOTICE, applicant([
+    { id: 'g1', area: 'performance', label: '2024년 사업실적', value: '청년 일경험 인턴 지원사업 운영', status: CONFIRMED_STATUS, source: '결과보고서', asOf: '2024' }
+  ]));
+  assert.notEqual(generalOnly.matches.find(match => match.key === 'requiredContent').state, 'MATCHED');
 });
 
 test('점수를 만들지 않고 네 단계 결론만 낸다', () => {
