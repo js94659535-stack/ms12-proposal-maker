@@ -155,3 +155,18 @@ test('최종 제출본 출력 버튼과 보관 스냅샷 연결이 끊기지 않
   // 자료보관함에서 다시 열 때 공고 선정논리와 초안 상태가 함께 복원된다.
   assert.match(app, /'revisionPlan', 'noticeLogic', 'draftReview'\]/);
 });
+
+test('첫 화면과 상단 표시가 서비스용 한국어로 정리되어 있다', () => {
+  const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  const css = fs.readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+  // 개발용 표현 제거
+  assert.doesNotMatch(app, /Proposal Workbench|마인드스토리 내부용/);
+  assert.match(app, /사업계획서 작성 도우미/);
+  // 첫 화면 진입 경로 4가지
+  assert.match(app, /id="start-panel"/);
+  for (const label of ['새 사업계획서 시작', '계속하기', '계획서 검증·코칭', '최근 작업 보기']) assert.ok(app.includes(label), label);
+  assert.match(app, /querySelector\('#open-coaching-home'\)\?\.addEventListener/);
+  // 단계 메뉴 가로 스크롤 제거와 현재 단계 강조
+  assert.match(css, /\.workflow-steps\{overflow-x:visible;flex-wrap:wrap/);
+  assert.match(css, /\.workflow-step\.active\{background:var\(--blue-soft\)/);
+});

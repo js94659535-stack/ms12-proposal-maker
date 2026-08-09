@@ -147,7 +147,7 @@ function shell(content) {
     <div class="layout">
       <main class="main">
         <header class="workflow-header">
-          <div class="workflow-brand"><div class="brand"><span class="brand-mark">M</span><div><strong>Proposal Workbench</strong><small>마인드스토리 내부용</small></div></div><span class="save-state">● 브라우저 자동 저장</span></div>
+          <div class="workflow-brand"><div class="brand"><span class="brand-mark">계</span><div><strong>사업계획서 작성 도우미</strong><small>공고 분석부터 제출본까지</small></div></div><span class="save-state">● 자동 저장 중</span></div>
           <div class="workflow-row"><label class="type-select-label" for="business-type">사업 유형<select id="business-type">${TYPES.map(([id, name]) => `<option value="${id}" ${state.project.type === id ? 'selected' : ''}>${name}</option>`).join('')}</select></label><nav class="workflow-steps" aria-label="작성 단계">${STEPS.map((name, i) => { const complete = isStepComplete(i); return `<button data-step="${i}" class="workflow-step ${state.activeTool === 'workflow' && state.step === i ? 'active' : ''} ${complete ? 'done' : ''}" ${state.activeTool === 'workflow' && state.step === i ? 'aria-current="step"' : ''}><span>${complete ? '✓' : i + 1}</span>${name}</button>`; }).join('')}</nav><button class="history-button" id="open-applicants" aria-pressed="${state.activeTool === 'applicants'}">신청기관 정보</button><button class="history-button" id="open-coaching" aria-pressed="${state.activeTool === 'coaching'}">계획서 검증·코칭</button><nav class="workflow-history" aria-label="앱 작업 화면 이동"><button class="history-button" id="workflow-back" aria-label="직전 작업 화면으로 뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="history-button" id="workflow-home" aria-label="사업 설정 홈으로 가기" ${state.activeTool === 'workflow' && state.step === 0 ? 'disabled' : ''}>⌂ 홈</button><button class="history-button" id="workflow-forward" aria-label="다음 작업 화면으로 앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button></nav></div>
         </header>
         ${state.notice ? `<div class="alert success">${escapeHtml(state.notice)}</div>` : ''}
@@ -163,7 +163,19 @@ function footer({ next = true, back = true, nextLabel = '다음 단계', nextId 
 }
 
 function setupView() {
-  return `<div class="intro compact-intro"><span class="pill">새 제안 프로젝트</span><h2>기관 요구를 먼저 읽고, 근거 있는 계획서를 만듭니다.</h2><p>공고문·신청 양식을 분석하고 확인된 역량과 비교합니다.</p></div>
+  const writing = state.sections.length > 0;
+  const versions = (state.proposalVersions || []).length;
+  const recent = (state.archiveProposals || []).slice(0, 3);
+  return `<div class="intro compact-intro"><span class="pill">사업계획서 작성 도우미</span><h2>공고를 읽고, 확인된 사실로만 계획서를 만듭니다.</h2><p>공고 분석 → 신청기관 확인 → 사업 설계 → 계획서 작성 → 검증·수정까지 한 흐름으로 진행합니다. 확인되지 않은 값은 만들지 않고 [확인 필요]로 남깁니다.</p></div>
+    <div class="card" id="start-panel"><div class="card-title"><div><h3>어디서 시작할까요?</h3><span>진행 중인 작업은 자동 저장되어 있습니다.</span></div></div>
+      <div class="summary-grid">
+        <div><span>새로 시작</span><strong>새 사업계획서</strong><small>공고를 가져와 처음부터 진행합니다.</small><button class="button primary" data-step="0" style="margin-top:10px;width:100%">새 사업계획서 시작</button></div>
+        <div><span>이어서 작성</span><strong>${writing ? `작성 중 (${state.sections.length}개 항목${versions ? ` · V${versions}` : ''})` : '작성 중인 계획서 없음'}</strong><small>${writing ? escapeHtml(String(state.project.title || '제목 미정').slice(0, 30)) : '먼저 새 계획서를 시작하세요.'}</small><button class="button ${writing ? 'primary' : 'secondary'}" data-step="4" ${writing ? '' : 'disabled'} style="margin-top:10px;width:100%">계속하기</button></div>
+        <div><span>검증만 하기</span><strong>이미 쓴 계획서 검증</strong><small>완성된 계획서를 올려 문제와 수정 방향을 확인합니다.</small><button class="button secondary" id="open-coaching-home" style="margin-top:10px;width:100%">계획서 검증·코칭</button></div>
+        <div><span>최근 작업</span><strong>${recent.length ? `보관된 계획서 ${recent.length}건` : '자료보관함'}</strong><small>${recent.length ? escapeHtml(recent.map(item => String(item.title).slice(0, 14)).join(' · ')) : '저장한 계획서를 다시 열 수 있습니다.'}</small><button class="button secondary" data-step="1" style="margin-top:10px;width:100%">최근 작업 보기</button></div>
+      </div>
+      ${recent.length ? `<div class="requirement-list">${recent.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(archiveStageLabel(item.stage))}</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(String(item.updatedAt || item.createdAt || '').slice(0, 16).replace('T', ' '))}</small></div></div><button class="button secondary" data-open-archived-proposal="${escapeHtml(item.id)}">이어서 작업</button></article>`).join('')}</div>` : ''}
+    </div>
     <div class="card form-card">
     <div class="two-col"><div class="field"><label for="project-title">공고명 또는 사업명</label><input id="project-title" value="${escapeHtml(state.project.title)}" placeholder="예: 2026년 학생 마음건강 프로그램 위탁 운영"></div><div class="field"><label for="issuer">발주·지원 기관</label><input id="issuer" value="${escapeHtml(state.project.issuer)}" placeholder="원문 분석 후 자동 보완 가능"></div></div>
     <div class="field narrow"><label for="deadline">제출 마감일</label><input id="deadline" type="date" value="${escapeHtml(state.project.deadline)}"></div>${footer()}</div>`;
@@ -1047,6 +1059,7 @@ function bind() {
   document.querySelectorAll('[data-type]').forEach(el => el.onclick = () => { state.project.type = el.dataset.type; saveState(); render(); });
   document.querySelector('#business-type')?.addEventListener('change', event => { state.project.type = event.target.value; saveState(); render(); });
   document.querySelectorAll('[data-step]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(Number(el.dataset.step), { notice: '', error: '' }); });
+  document.querySelector('#open-coaching-home')?.addEventListener('click', () => setState({ activeTool: 'coaching', notice: '', error: '' }));
   document.querySelector('#open-coaching')?.addEventListener('click', () => setState({ activeTool: 'coaching', notice: '', error: '' }));
   document.querySelector('#close-coaching')?.addEventListener('click', () => setState({ activeTool: 'workflow', notice: '', error: '' }));
   document.querySelector('#open-applicants')?.addEventListener('click', () => setState({ activeTool: 'applicants', notice: '', error: '' }));
