@@ -1,4 +1,4 @@
-import { analyzeWithAI, draftPartWithAI, draftWithAI, masterWithAI, rewriteWithAI } from './api.js';
+import { analyzeWithAI, draftPartWithAI, draftWithAI, finalizeWithAI, masterWithAI, rewriteWithAI } from './api.js';
 import { extractFile, extractFiles } from './files.js';
 import { localAnalyze } from './fallback.js';
 import { exportDocx, exportPdf, printDocument } from './export.js';
@@ -196,6 +196,7 @@ const AI_TASKS = {
   coachingFile: { busy: '계획서 파일 읽는 중', done: '계획서 파일 읽기 완료', tool: 'coaching', anchor: '#result-coaching' },
   applicantScan: { busy: '기관 정보 찾는 중', done: '기관 정보 확인 완료', step: null, anchor: '#result-analysis' },
   revisionRequest: { busy: '요청한 범위 다시 쓰는 중', done: '수정 요청 반영 완료', step: 4, anchor: '#result-completion' },
+  finalize: { busy: '확정값 반영 중', done: '확정값 반영 최종본 완료', step: 4, anchor: '#result-completion', retry: 'build-final-version' },
   repairV2: { busy: '수정본 생성 중', done: '수정본 생성 완료', step: 4, anchor: '#result-pipeline' },
   assemble: { busy: '계획서 결합 중', done: '계획서 초안 작성 완료', step: 4, anchor: '#result-pipeline', retry: 'assemble-proposal' }
 };
@@ -1110,26 +1111,74 @@ function decisionCenterView() {
     ${plans.length ? `<details><summary>검증에서 확인을 요청한 수정 ${plans.length}건</summary><p class="muted">아래 수정계획 카드에서 값을 입력하면 해당 문단만 수정합니다. 입력 전에는 수정하지 않습니다.</p></details>` : ''}</div>`;
 }
 
-// 사용자가 확정한 값만 반영한 최종본을 새 버전으로 만든다. 이전 버전은 그대로 남는다.
-function buildFinalVersion() {
-  const confirmed = (state.projectValues || []).filter(item => item.blueprintKey && DECISION_FIELDS.some(field => field.key === item.blueprintKey));
-  const answers = Object.fromEntries(Object.entries(state.coaching.repairAnswers || {}).filter(([, value]) => String(value).trim()));
-  if (!confirmed.length && !Object.keys(answers).length) return setState({ error: '확정된 값이 없습니다. 남은 결정 항목에 값을 입력한 뒤 다시 시도해 주세요.' });
-  const plans = currentRepairPlans();
-  const run = applyRepairPlans(state.sections, plans, { confirmations: answers });
-  const confirmedBlock = confirmed.map(item => `${item.label}: ${item.value}`).join('\n');
-  const sections = run.sections.map(section => section.id === 'goals' && confirmedBlock
-    ? { ...section, content: `${section.content}\n\n[확정 사항]\n${confirmedBlock}` }
-    : section);
-  state.sections = sections;
-  state.proposalVersions = appendProposalVersion(state.proposalVersions || [], { sections, label: '사용자 확정 반영 최종본', source: '사용자 확정' });
-  const version = state.proposalVersions[state.proposalVersions.length - 1].version;
-  setState({
-    sections, proposalVersions: state.proposalVersions,
-    notice: `확정값 ${confirmed.length}건${run.applied.length ? ` · 수정계획 ${run.applied.length}건` : ''}을 반영해 V${version}을 만들었습니다. 확인 필요 ${run.questions.length}건은 그대로 두었습니다. 이전 버전은 보존됩니다.`,
-    error: ''
-  });
-  void archiveCurrentProposal(`final-v${version}`).catch(() => {});
+// 화면의 확정값 입력칸을 모두 모은다. 「이 값으로 확정」을 따로 누르지 않아도 된다.
+function collectDecisionValues() {
+  const typed = [...document.querySelectorAll('[data-decision-input]')]
+    .map(el => ({ key: el.dataset.decisionInput, value: String(el.value || '').trim() }))
+    .filter(entry => entry.value);
+  const saved = (state.projectValues || [])
+    .filter(item => item.blueprintKey && DECISION_FIELDS.some(field => field.key === item.blueprintKey))
+    .map(item => ({ key: item.blueprintKey, value: String(item.value || '').trim() }))
+    .filter(entry => entry.value);
+  const merged = new Map(saved.map(entry => [entry.key, entry.value]));
+  // 화면에 적은 값이 저장된 값보다 우선한다(사용자가 마지막에 적은 값).
+  for (const entry of typed) merged.set(entry.key, entry.value);
+  return [...merged.entries()].map(([key, value]) => ({
+    key, value,
+    label: DECISION_FIELDS.find(field => field.key === key)?.label || key,
+    target: DECISION_TARGETS[key] || ''
+  }));
+}
+// 확정값이 들어갈 자리(공식 목차 기준)를 함께 알려 준다. 값은 여기서 바꾸지 않는다.
+const DECISION_TARGETS = {
+  headcount: 'target, goals', sessions: 'programs, schedule', staff: 'roles', partners: 'roles, programs',
+  regionalNeed: 'necessity', outcomeGoals: 'goals, outcomes', indicators: 'indicators', budget: 'budget',
+  submissionDocs: '제출 확인(계획서 본문 아님)'
+};
+// 확정값을 현재 계획서의 해당 문단에만 반영한다. AI 호출은 1회이고 실패하면 기존 계획서를 그대로 둔다.
+async function buildFinalVersion() {
+  if (!state.sections.length) return setState({ error: '확정값을 반영할 계획서 본문이 없습니다.' });
+  const confirmed = collectDecisionValues();
+  const answers = Object.entries(state.coaching.repairAnswers || {})
+    .filter(([, value]) => String(value).trim())
+    .map(([id, value]) => ({ id, answer: String(value).trim() }));
+  if (!confirmed.length && !answers.length) return setState({ error: '확정된 값이 없습니다. 남은 결정 항목에 값을 입력한 뒤 다시 시도해 주세요.' });
+  // 입력칸에 적은 값은 이번 사업 확정값으로도 저장한다(개별 「이 값으로 확정」을 누르지 않아도 된다).
+  for (const item of confirmed) setBlueprintValue(item.key, item.label, item.value, { silent: true });
+  const before = structuredClone(state.sections);
+  setAiBusy('확정값 반영 중', { error: '', notice: '', projectValues: state.projectValues }, 'finalize');
+  try {
+    const result = await finalizeWithAI({
+      sections: state.sections.map(section => ({ id: section.id, title: section.title, content: section.content })),
+      confirmedValues: confirmed,
+      answers,
+      officialBasis: { requirements: (state.noticeLogic?.requirements || []).slice(0, 12), conflicts: currentOfficialConflicts() },
+      organization: organizationForGeneration(),
+      analysis: state.analysis || { mode: 'ai' }
+    });
+    const revised = new Map((result.sections || []).map(section => [section.id, section]));
+    if (!revised.size) {
+      state.sections = before;
+      return setState({ busy: '', sections: before, error: '확정값을 반영할 문단을 찾지 못했습니다. 기존 계획서는 그대로 두었습니다.' });
+    }
+    const sections = state.sections.map(section => (revised.has(section.id)
+      ? { ...section, content: String(revised.get(section.id).content || section.content), status: '검토 필요' }
+      : section));
+    state.sections = sections;
+    state.proposalVersions = appendProposalVersion(state.proposalVersions || [], { sections, label: '사용자 확정 반영 최종본', source: '사용자 확정', reason: confirmed.map(item => item.label).join(' · ').slice(0, 120) });
+    const version = state.proposalVersions[state.proposalVersions.length - 1].version;
+    const notApplied = (result.notApplied || []).map(item => `${item.label}: ${item.reason}`);
+    setState({
+      busy: '', sections, proposalVersions: state.proposalVersions, projectValues: state.projectValues,
+      notice: `확정값 ${confirmed.length}건을 ${revised.size}개 문단에 반영해 V${version}을 만들었습니다.${notApplied.length ? ` 본문에 넣지 않은 항목 ${notApplied.length}건: ${notApplied.join(' / ').slice(0, 160)}` : ''} 이전 버전은 보존됩니다.`,
+      error: ''
+    });
+    void archiveCurrentProposal(`final-v${version}`).catch(() => {});
+  } catch (error) {
+    // 실패하면 계획서를 바꾸지 않는다.
+    state.sections = before;
+    setState({ busy: '', sections: before, error: `확정값 반영에 실패했습니다. 기존 계획서는 그대로입니다. ${error.message}` });
+  }
 }
 
 // 최종 제출본 보기. 제출 가능 여부는 남은 확인 항목으로만 판단하고 임의로 올리지 않는다.
@@ -2249,10 +2298,12 @@ function removeApplicant(id) {
 }
 
 // 설계도에서 받은 값은 이번 사업 값으로만 저장한다. 신청기관 원본 항목은 건드리지 않는다.
-function setBlueprintValue(key, label, value) {
+function setBlueprintValue(key, label, value, { silent = false } = {}) {
   const text = String(value || '').trim();
   const rest = (state.projectValues || []).filter(item => item.blueprintKey !== key);
   const next = text ? [...rest, { id: `blueprint-${key}`, blueprintKey: key, label, value: text, applicantItemId: '' }] : rest;
+  // 최종본 생성처럼 여러 값을 한 번에 모을 때는 화면을 다시 그리지 않는다.
+  if (silent) { state.projectValues = next; saveState(); return; }
   setState({ projectValues: next, notice: text ? `${label}을(를) 이번 사업 값으로 저장했습니다. 설계도를 다시 계산했습니다.` : `${label} 값을 지웠습니다.`, error: '' });
 }
 function saveBlueprintInputs(sectionKey) {

@@ -8,7 +8,7 @@ const LIMITS = Object.freeze({
   rewriteInstructionChars: 4_000,
   analysisChars: 300_000,
   timeoutMs: 300_000,
-  outputTokens: Object.freeze({ analyze: 6_000, master: 12_000, draftPart: 7_000, draft: 12_000, rewrite: 4_000 })
+  outputTokens: Object.freeze({ analyze: 6_000, master: 12_000, draftPart: 7_000, draft: 12_000, rewrite: 4_000, finalize: 9_000 })
 });
 
 export async function onRequest(context) {
@@ -24,7 +24,7 @@ export async function onRequest(context) {
     if (new TextEncoder().encode(rawBody).byteLength > LIMITS.requestBytes) return limitError('요청 본문');
     let body;
     try { body = JSON.parse(rawBody); } catch { return json({ error: '요청 JSON 형식이 올바르지 않습니다.' }, 400); }
-    if (!['analyze', 'master', 'draftPart', 'draft', 'rewrite'].includes(body.action)) return json({ error: '지원하지 않는 작업입니다.' }, 400);
+    if (!['analyze', 'master', 'draftPart', 'draft', 'rewrite', 'finalize'].includes(body.action)) return json({ error: '지원하지 않는 작업입니다.' }, 400);
     const validation = validate(body.action, body.payload);
     if (validation) return json({ error: validation }, 400);
 
@@ -123,6 +123,12 @@ function validate(action, payload) {
   if (jsonLength(payload.analysis) > LIMITS.analysisChars) return `분석 결과는 ${LIMITS.analysisChars.toLocaleString()}자 이하여야 합니다.`;
   if (action === 'draftPart' && jsonLength(payload.continuitySummary) > 20_000) return '분할 연속성 요약이 허용 길이를 초과했습니다.';
   if (action === 'draftPart' && jsonLength(payload.relevantSections) > 40_000) return '현재 항목에 필요한 이전 내용이 허용 길이를 초과했습니다.';
+  if (action === 'finalize') {
+    if (!Array.isArray(payload.sections) || !payload.sections.length) return '확정값을 반영할 계획서 본문이 없습니다.';
+    if (!Array.isArray(payload.confirmedValues) || !payload.confirmedValues.length) return '반영할 확정값이 없습니다.';
+    if (jsonLength(payload.sections) > 300_000) return '계획서 본문이 허용 길이를 초과했습니다.';
+    return '';
+  }
   if (action !== 'analyze' && !payload.analysis && !includesSource) return '확정된 분석 결과가 없습니다.';
   return '';
 }
@@ -246,6 +252,15 @@ CANDIDATE_ASSETS의 사용자 확정 프로그램과 강점은 후보로 사용�
 자료 간 지원한도·사업기간·대상 등 핵심 조건이 충돌하면 임의로 확정하지 말고 각 출처를 evidenceMap에 모두 기록하고 missingInformation 질문에 포함하라. 핵심 자료가 없어 근거 기반 설계가 불가능하면 missingInformation에 “사업계획서 작성에 필요한 핵심 자료가 부족합니다.”를 포함하고 사실을 만들지 마라.
 sections는 현재 앱 호환을 위해 정확히 10개 배열로 반환하며 순서는 사업 필요성, 목적, 목표, 대상, 세부 프로그램, 추진 일정, 운영 인력·역할, 예산, 성과지표, 기대효과다.`
   };
+  if (action === 'finalize') return {
+    name: 'proposal_finalize', schema: FINALIZE_SCHEMA,
+    prompt: `<CURRENT_SECTIONS>${JSON.stringify(payload.sections)}</CURRENT_SECTIONS>
+<CONFIRMED_VALUES>${JSON.stringify(payload.confirmedValues)}</CONFIRMED_VALUES>
+<REVIEW_ANSWERS>${JSON.stringify(payload.answers || [])}</REVIEW_ANSWERS>
+<OFFICIAL_BASIS>${JSON.stringify(payload.officialBasis || {})}</OFFICIAL_BASIS>
+<ORGANIZATION>${JSON.stringify(payload.organization || {})}</ORGANIZATION>
+${FINALIZE_RULE}`
+  };
   if (action === 'draft') return {
     name: 'proposal_draft', schema: DRAFT_SCHEMA,
     prompt: `<PROJECT>${JSON.stringify(payload.project)}</PROJECT>\n<CONFIRMED_ANALYSIS>${JSON.stringify(payload.analysis)}</CONFIRMED_ANALYSIS>\n<FIT_COMPARISON>${JSON.stringify(payload.matches)}</FIT_COMPARISON>\n<USER_ANSWERS>${JSON.stringify(payload.answers)}</USER_ANSWERS>\n<ORGANIZATION_PROFILE>${JSON.stringify(payload.organization)}</ORGANIZATION_PROFILE>\n기관 제출용 완성형 사업계획서 초안을 작성하라. 반드시 사업 필요성, 목적, 목표, 대상, 세부 프로그램, 추진 일정, 운영 인력, 예산, 성과지표, 기대효과를 각각 독립 섹션으로 포함하라. 분석 요구사항의 id를 citations에 연결하라. 확인되지 않은 인력·실적·자격·예산·수치는 만들지 말고 문장 안에 자연스럽게 [확인 필요]로 표시하라. 사용자 확인 정보(confirmedFacts와 userConfirmedNotes)는 사실로 재사용하되 AI가 추론한 정보는 회사 사실로 승격하지 마라. 정확히 10개 섹션으로 작성하라.`
@@ -256,6 +271,43 @@ sections는 현재 앱 호환을 위해 정확히 10개 배열로 반환하며 �
   };
 }
 
+// 사용자가 확정한 값을 현재 계획서의 해당 문단에만 반영한다. 계획서를 처음부터 다시 쓰지 않는다.
+const FINALIZE_SCHEMA = {
+  type: 'object', additionalProperties: false,
+  properties: {
+    sections: {
+      type: 'array', minItems: 0, maxItems: 12,
+      items: {
+        type: 'object', additionalProperties: false,
+        properties: { id: { type: 'string' }, content: { type: 'string' }, changeReason: { type: 'string' } },
+        required: ['id', 'content', 'changeReason']
+      }
+    },
+    appliedValues: {
+      type: 'array', minItems: 0, maxItems: 20,
+      items: {
+        type: 'object', additionalProperties: false,
+        properties: { label: { type: 'string' }, value: { type: 'string' }, sectionIds: { type: 'array', items: { type: 'string' } }, note: { type: 'string' } },
+        required: ['label', 'value', 'sectionIds', 'note']
+      }
+    },
+    notApplied: {
+      type: 'array', minItems: 0, maxItems: 20,
+      items: {
+        type: 'object', additionalProperties: false,
+        properties: { label: { type: 'string' }, reason: { type: 'string' } },
+        required: ['label', 'reason']
+      }
+    }
+  },
+  required: ['sections', 'appliedValues', 'notApplied']
+};
+const FINALIZE_RULE = `CONFIRMED_VALUES는 사용자가 이번 사업 값으로 확정한 내용이다. 각 값을 성격에 맞는 문단에만 반영한다.
+참여인원은 대상·목표, 회기는 세부 프로그램·추진 일정, 수행인력과 협력체계는 운영 인력·역할, 지역 필요성은 사업 필요성, 성과목표는 목표·기대효과, 지표·측정도구는 성과지표, 예산은 예산 문단에 반영한다.
+제출서류 준비 상태는 계획서 본문에 넣지 말고 notApplied에 제출 확인 항목으로 남긴다.
+근거 우선순위는 1) 공식 공고·요강·평가기준 2) 사용자 확정값 3) 신청기관 확인정보 4) 현재 계획서 문장 5) 제안 순이다. 확정값과 다른 수치가 본문에 있으면 확정값으로 맞추고, 공식 공고 기준과 확정값이 충돌하면 임의로 고르지 말고 문장에 두 값을 함께 남기고 notApplied에 충돌로 기록한다.
+계획서를 새로 쓰지 마라. 값이 필요한 문단만 sections에 담아 반환하고, 바꾸지 않은 문단은 반환하지 않는다. 반환하는 content는 그 문단의 전체 본문이며 기존 문장·구조·용어를 유지한 채 확정값만 자연스럽게 반영한다.
+확정값에 없는 사실·수치·기관 실적을 새로 만들지 마라. 근거가 없으면 [확인 필요] 표기를 유지한다.`;
 const requirement = {
   type: 'object', additionalProperties: false,
   properties: { id: { type: 'string' }, category: { type: 'string' }, requirement: { type: 'string' }, mandatory: { type: 'boolean' }, evidence: { type: 'string' }, location: { type: 'string' }, confidence: { type: 'string', enum: ['높음', '중간', '낮음'] } },

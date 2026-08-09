@@ -30,7 +30,7 @@ test('사업 설계도를 사업 선택 화면에 연결하고 엔진을 그대�
 
 test('설계도 입력은 이번 사업 값으로만 저장한다', () => {
   // 기관 원본(applicants/items)을 건드리지 않고 projectValues에만 쓴다.
-  assert.match(source, /function setBlueprintValue\(key, label, value\)[\s\S]{0,700}setState\(\{ projectValues: next/);
+  assert.match(source, /function setBlueprintValue\(key, label, value, \{ silent = false \} = \{\}\)[\s\S]{0,900}setState\(\{ projectValues: next/);
   assert.match(source, /function saveBlueprintInputs\(sectionKey\)[\s\S]{0,900}setState\(\{ projectValues: \[\.\.\.rest, \.\.\.added\]/);
   assert.doesNotMatch(source, /function saveBlueprintInputs[\s\S]{0,900}applicant\.items =/);
   // 초안으로 넘기는 데이터: 미확정은 [확인 필요], 설계안은 설계안 표시 유지
