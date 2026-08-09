@@ -61,7 +61,7 @@ const initial = {
   step: 0, activeTool: 'home', homeSeen: false, project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
   coaching: { title: '', text: '', validatedText: '', criteriaText: '', officialEvaluationProvided: false, sourceProposalId: '', sourceNoticeKey: '', seriesId: '', currentArchiveId: '', result: null, workItems: [], pendingJob: null, version: 0, references: [], referenceType: REFERENCE_TYPES[0], referenceDraft: '', referenceNameDraft: '' },
   applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
-  revisionPlan: null, draftReview: null, proposalVersions: [], proposalFlow: { status: '', baselineVersion: 0, reviewTarget: null, rounds: [], requests: [], requestOpen: false, requestText: '', requestScope: [], openVersion: 0, compareVersion: 0, approvedVersion: 0, approvedAt: '' }, coachingSelection: [], applicantSkipped: false, noticeLogic: null,
+  revisionPlan: null, draftReview: null, projectNarrative: '', proposalVersions: [], proposalFlow: { status: '', baselineVersion: 0, reviewTarget: null, rounds: [], requests: [], requestOpen: false, requestText: '', requestScope: [], openVersion: 0, compareVersion: 0, approvedVersion: 0, approvedAt: '' }, coachingSelection: [], applicantSkipped: false, noticeLogic: null,
   analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveTable: { query: '', sortKey: 'collectedAt', sortDir: 'desc', page: 1, pageSize: 20, selected: [], expandedKey: '', applicantPickerKey: '', filters: { collected: '', institution: '', field: '', status: '', applicant: '', deadline: '' } }, archiveNoticeLinks: {}, archiveHiddenNotices: [], archiveOpenProposal: '', sampleStage: '', sampleReturn: '', aiResult: null, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
@@ -186,7 +186,7 @@ const AI_TASKS = {
   archiveProposals: { busy: '저장한 계획서 불러오는 중', done: '저장한 계획서 불러오기 완료', step: null, anchor: '#archive-box', retry: 'list-archived-proposals' },
   analyze: { busy: '공고 구조 분석 중', done: '공고 분석 완료', step: 3, anchor: '#result-analysis', retry: 'analyze' },
   master: { busy: 'Master 생성 중', done: 'Master 생성 완료', step: 4, anchor: '#result-master', retry: 'generate-master' },
-  parts: { busy: '계획서 분할 작성 중', done: '계획서 항목 작성 완료', step: 4, anchor: '#result-master', retry: 'generate-parts' },
+  parts: { busy: '전체 계획서 작성 중', done: '전체 계획서 초안 완료', step: 4, anchor: '#result-completion', retry: 'generate-parts' },
   rewrite: { busy: '선택 항목 재작성 중', done: '선택 항목 재작성 완료', step: null, anchor: '#result-pipeline' },
   review: { busy: '심사 관점 검토 중', done: '심사 검토 완료', step: 5, anchor: '#result-draft-check', retry: 'proposal-review' },
   coaching: { busy: '검증·코칭 중', done: '검증 완료', tool: 'coaching', anchor: '#result-coaching', retry: 'start-coaching' },
@@ -1376,18 +1376,23 @@ function assemblyCheckView() {
 function stagedGenerationView() {
   const staged = state.stagedGeneration || initial.stagedGeneration;
   const master = staged.master;
-  if (!master) return state.designUnavailable ? '' : '<div class="empty-state"><div>▤</div><h2>마스터 설계가 없습니다</h2><p>사업을 선택하면 전체 구조를 먼저 설계합니다.</p><button class="button primary" data-step="3">사업 선택으로 이동</button></div>';
+  if (!master) return '';
   const groups = master.sectionPlan || [];
   const logic = master.masterLogic || {};
   const completed = new Set(staged.completedGroupIds || []);
   const progress = groups.length ? Math.round((completed.size / groups.length) * 100) : 0;
-  const waitingForAnswers = pendingRequiredAnswers().length > 0;
-  return `<div class="card" id="result-master" tabindex="-1"><div class="card-title"><div><h3>계획서 생성 3단계</h3><span>마스터 설계 → 분할 생성 → 완성</span></div><span class="tag ${staged.phase === 'parts-ready' ? 'mandatory' : ''}">${staged.phase === 'master-ready' ? '마스터 설계 완료' : staged.phase === 'parts-ready' ? '분할 생성 완료' : '분할 생성 중'}</span></div>
-    <div class="summary-grid"><div><span>사업명</span><strong>${escapeHtml(master.projectDesign?.projectName || state.project.title)}</strong></div><div><span>대상·인원</span><strong>${escapeHtml([master.projectDesign?.target, master.projectDesign?.participantCount].filter(Boolean).join(' · '))}</strong></div><div><span>사업기간</span><strong>${escapeHtml(master.projectDesign?.projectPeriod || '')}</strong></div><div><span>분할 기준</span><strong>신청서 항목·목차 ${groups.length}개 묶음</strong></div></div>
+  const resumed = completed.size > 0 && completed.size < groups.length;
+  const done = groups.length > 0 && completed.size === groups.length;
+  return `<div class="card" id="result-master" tabindex="-1"><div class="card-title"><div><h3>계획서 생성 3단계</h3><span>마스터 설계 → 전체 작성 → 완성</span></div><span class="tag ${staged.phase === 'parts-ready' ? 'mandatory' : ''}">${escapeHtml(staged.phase === 'parts-ready' ? '작성 완료' : staged.phase === 'parts-generating' ? '작성 중' : '마스터 확정')}</span></div>
+    <div class="summary-grid"><div><span>사업명</span><strong>${escapeHtml(master.projectDesign?.projectName || state.project.title)}</strong></div><div><span>대상·인원</span><strong>${escapeHtml([master.projectDesign?.target, master.projectDesign?.participantCount].filter(Boolean).join(' · '))}</strong></div><div><span>사업기간</span><strong>${escapeHtml(master.projectDesign?.projectPeriod || '')}</strong></div><div><span>작성 단위</span><strong>신청서 항목 ${groups.length}개</strong></div></div>
+    ${logic.coreStrategy ? `<p class="muted">${escapeHtml(logic.coreStrategy)}</p>` : ''}
+    <div class="field"><label for="proposal-freeform">계획서에 반영할 내용 <span class="tag">선택</span></label>
+      <textarea id="proposal-freeform" class="source-text" style="height:150px" placeholder="사업 아이디어, 꼭 넣고 싶은 내용, 운영방법, 대상, 예산, 프로그램 등을 자유롭게 적어 주세요.">${escapeHtml(state.projectNarrative || '')}</textarea>
+      <small class="muted">사업 아이디어, 꼭 넣고 싶은 내용, 운영방법, 대상, 예산, 프로그램 등을 자유롭게 적어 주세요. 작성하지 않아도 공고와 신청기관 자료를 바탕으로 AI가 작성할 수 있습니다. 적은 내용은 이번 사업에만 저장되고 신청기관 정보에는 자동으로 들어가지 않습니다.</small></div>
     <details open><summary>마스터 논리사슬과 선정 대응</summary><div class="summary-grid"><div><span>문제와 필요성</span><strong>${escapeHtml(logic.problem || '')}</strong></div><div><span>대상 선정 근거</span><strong>${escapeHtml(logic.targetRationale || '')}</strong></div><div><span>핵심 전략</span><strong>${escapeHtml(logic.coreStrategy || '')}</strong></div><div><span>차별성</span><strong>${escapeHtml(logic.differentiation || '')}</strong></div></div><p class="muted">문제 → ${(logic.causes || []).map(escapeHtml).join(' · ')} → 대상 → 전략 → ${(logic.executionMethods || []).map(escapeHtml).join(' · ')} → 산출 → 변화 → 성과측정</p><div class="three-col"><div><h4>기준값</h4>${listOrEmpty((logic.baselineValues || []).map(item => `${item.item}: ${item.value}`))}</div><div><h4>산출·성과·측정 연결</h4>${listOrEmpty((logic.outputOutcomeMeasurementLinks || []).map(item => `${item.output} → ${item.outcomeGoal} → ${item.indicator}`))}</div><div><h4>평가기준 대응</h4>${listOrEmpty((logic.evaluationResponsePlan || []).map(item => `${item.criterion}: ${item.response}`))}</div></div><details><summary>주장별 공식 자료 근거</summary>${(logic.claimEvidencePlan || []).map(item => `<blockquote><strong>${escapeHtml(item.claim)}</strong><br>${escapeHtml(item.evidence)} <small>${escapeHtml(item.location)}</small></blockquote>`).join('')}</details></details>
-    <details open><summary>확정된 마스터 구조 보기</summary><div class="requirement-list">${groups.map((group, index) => `<article class="requirement"><div><span class="tag">${index + 1}</span><div><strong>${escapeHtml(group.title)}</strong><small>${escapeHtml((group.sectionKeys || []).map(sectionTitle).join(' · '))}</small></div></div><span class="status ${completed.has(group.id) ? '충족' : '확인-필요'}">${completed.has(group.id) ? '완료' : '대기'}</span><button class="button ${completed.has(group.id) ? 'secondary' : 'primary'}" data-generate-part="${escapeHtml(group.id)}" ${state.busy || waitingForAnswers ? 'disabled' : ''}>${completed.has(group.id) ? '이 항목만 다시 생성' : '이 항목만 AI 생성'}</button></article>`).join('')}</div></details>
-    <div class="field"><label>분할 생성 진행률 ${completed.size} / ${groups.length}</label><progress value="${completed.size}" max="${Math.max(groups.length, 1)}" style="width:100%">${progress}%</progress></div>
-    <div class="actions"><span>${waitingForAnswers ? '필수 확인 질문에 답한 뒤 마스터 설계를 다시 확정하세요.' : staged.phase === 'parts-ready' ? '모든 항목이 동일한 마스터 설계를 기준으로 작성되었습니다.' : '사용자가 시작해야 분할 생성을 실행합니다.'}</span>${staged.phase === 'master-ready' || staged.phase === 'parts-generating' ? `<button class="button primary" id="generate-parts" ${waitingForAnswers ? 'disabled' : ''}>분할 생성</button>` : ''}${staged.phase === 'parts-ready' ? '<button class="button primary" id="assemble-proposal">계획서 완성하기</button>' : ''}</div></div>`;
+    <details open><summary>작성 구조 ${groups.length}개 항목</summary><div class="requirement-list">${groups.map((group, index) => `<article class="requirement"><div><span class="tag">${index + 1}</span><div><strong>${escapeHtml(group.title)}</strong><small>${escapeHtml((group.sectionKeys || []).map(sectionTitle).join(' · '))}</small></div></div><span class="status ${completed.has(group.id) ? '충족' : '확인-필요'}">${completed.has(group.id) ? '작성됨' : '대기'}</span></article>`).join('')}</div></details>
+    <div class="field"><label>작성 진행 ${completed.size} / ${groups.length}</label><progress value="${completed.size}" max="${Math.max(groups.length, 1)}" style="width:100%">${progress}%</progress></div>
+    <div class="actions"><span>확인되지 않은 값은 만들지 않고 [확인 필요]로 남깁니다. 제출 가능 여부는 마지막 검토 단계에서 판단합니다.</span>${done ? '<button class="button primary" id="assemble-proposal">계획서 완성하기</button>' : `<button class="button primary" id="generate-parts">${resumed ? '남은 내용 이어서 작성' : 'AI와 함께 전체 계획서 작성'}</button>`}</div></div>`;
 }
 
 const SECTION_TITLES = { necessity: '사업 필요성', purpose: '목적', goals: '목표', target: '대상', programs: '세부 프로그램', schedule: '추진 일정', roles: '운영 인력·역할', budget: '예산', indicators: '성과지표', outcomes: '기대효과' };
@@ -1424,17 +1429,6 @@ function currentDesignQuestions() {
     structure, fitResult, blueprint: currentBlueprint(), applicant,
     projectValues: state.projectValues, aiQuestions: state.missingInformation || [], answers: state.designAnswers || {}
   });
-}
-// 화면에 실제로 보여 준 필수 확인 질문 중 아직 답이 없는 것만 생성 잠금 조건으로 본다.
-// 표시되지 않은 질문 때문에 생성이 잠기면 사용자가 풀 방법이 없다.
-function pendingRequiredAnswers() {
-  // 사업설계 AI가 「반드시 확인」으로 남긴 질문만 생성을 막는다.
-  // 설계도에서 나온 확인 항목은 [확인 필요]로 본문에 남길 수 있으므로 초안 작성을 막지 않는다.
-  const required = new Set(state.missingInformation || []);
-  return currentDesignQuestions().questions
-    .filter(item => required.has(item.question))
-    .filter(item => !String(state.designAnswers[item.question] || '').trim())
-    .map(item => item.question);
 }
 function designQuestionsView() {
   const plan = currentDesignQuestions();
@@ -1937,9 +1931,9 @@ function bind() {
   document.querySelectorAll('[data-design-answer]').forEach(el => el.oninput = () => { const question = el.dataset.designQuestion; if (question) { state.designAnswers[question] = el.value; saveState(); } });
   document.querySelectorAll('[data-reuse-answer]').forEach(el => el.onclick = () => reuseAnswerToApplicant(el.dataset.reuseAnswer));
   document.querySelector('#regenerate-design')?.addEventListener('click', generateCompleteProposal);
-  // 일괄 생성은 남은 항목 전체, 개별 생성은 해당 항목만 AI로 만든다.
+  // 사용자는 한 번만 누른다. 남은 항목이 있으면 그 항목부터 이어서 작성한다.
   document.querySelector('#generate-parts')?.addEventListener('click', () => generateProposalParts());
-  document.querySelectorAll('[data-generate-part]').forEach(el => el.onclick = () => generateProposalParts(el.dataset.generatePart));
+  document.querySelector('#proposal-freeform')?.addEventListener('input', event => { state.projectNarrative = event.target.value; saveState(); });
   document.querySelector('#assemble-proposal')?.addEventListener('click', assembleProposal);
   document.querySelectorAll('[data-section-title]').forEach(el => el.oninput = () => { state.sections[Number(el.dataset.sectionTitle)].title = el.value; saveState(); });
   document.querySelectorAll('[data-section-content]').forEach(el => el.oninput = () => { state.sections[Number(el.dataset.sectionContent)].content = el.value; saveState(); });
@@ -3258,7 +3252,7 @@ function generationPayload() {
 // 분할 생성은 master가 확정한 기준만 다시 쓴다. 공고 원문·직접자료를 매 분할마다 다시 보내지 않는다.
 function partPayload() {
   const { sourceText, manualSources, ...rest } = generationPayload();
-  return rest;
+  return { ...rest, narrative: String(state.projectNarrative || '').slice(0, 4000) };
 }
 
 // 설계도를 초안 작성으로 넘긴다. 확정값은 그대로, 설계안은 설계안으로, 미확정은 [확인 필요]로만 넘긴다.
@@ -3295,18 +3289,15 @@ function applyApplicantAnswers(questions) {
   return plan.ask;
 }
 
-async function generateProposalParts(onlyGroupId = '') {
-  // 화면 disabled에만 기대지 않고 실행 직전에 한 번 더 확인한다.
-  const pendingAnswers = pendingRequiredAnswers();
-  if (pendingAnswers.length) return setState({ error: `필수 확인 질문 ${pendingAnswers.length}건에 답한 뒤 생성할 수 있습니다. 먼저 확인할 질문: ${pendingAnswers[0]}` });
+// 확인되지 않은 값이 있어도 초안 작성은 막지 않는다. 부족한 값은 [확인 필요]로 남기고 제출 단계에서 확인한다.
+async function generateProposalParts() {
   const staged = state.stagedGeneration;
   const all = staged?.master?.sectionPlan || [];
-  // 개별 생성이면 해당 항목만, 일괄이면 남은 항목 전체를 만든다.
-  const groups = onlyGroupId ? all.filter(group => group.id === onlyGroupId) : all;
-  if (!groups.length) return setState({ error: '분할 생성할 신청서 항목 구조가 없습니다.' });
-  const completed = new Set((staged.completedGroupIds || []).filter(id => id !== onlyGroupId));
+  const groups = all;
+  if (!groups.length) return setState({ error: '작성할 신청서 항목 구조가 없습니다.' });
+  const completed = new Set(staged.completedGroupIds || []);
   state.stagedGeneration.phase = 'parts-generating';
-  setAiBusy('신청서 항목별 계획서를 분할 생성하는 중...', { stagedGeneration: state.stagedGeneration, error: '', notice: '' }, 'parts');
+  setAiBusy('전체 계획서 작성 중', { stagedGeneration: state.stagedGeneration, error: '', notice: '' }, 'parts');
   try {
     for (const group of groups) {
       if (completed.has(group.id)) continue;
@@ -3317,13 +3308,15 @@ async function generateProposalParts(onlyGroupId = '') {
       completed.add(group.id);
       state.stagedGeneration.completedGroupIds = [...completed];
       state.stagedGeneration.phase = completed.size === all.length ? 'parts-ready' : 'parts-generating';
-      setState({ stagedGeneration: state.stagedGeneration, busy: completed.size === all.length ? '' : `신청서 항목별 계획서를 분할 생성하는 중... (${completed.size}/${groups.length})` });
+      setState({ stagedGeneration: state.stagedGeneration, busy: completed.size === all.length ? '' : `전체 계획서 작성 중 · ${completed.size} / ${all.length}` });
     }
-    setState({ busy: '', stagedGeneration: state.stagedGeneration, notice: onlyGroupId ? `이 항목을 생성했습니다. 남은 항목 ${all.length - completed.size}개는 개별 또는 일괄로 생성할 수 있습니다.` : '분할 생성이 완료되었습니다. 내용을 하나의 계획서로 완성해 주세요.' });
+    setState({ busy: '', stagedGeneration: state.stagedGeneration, notice: '전체 계획서 초안을 작성했습니다. 확인되지 않은 값은 [확인 필요]로 남겼습니다.' });
+    // 항목이 모두 끝나면 사용자가 다시 누르지 않아도 하나의 계획서로 합친다.
+    if (completed.size === all.length) assembleProposal();
     void archiveCurrentProposal('parts').catch(() => {});
   } catch (error) {
     state.stagedGeneration.phase = 'parts-generating';
-    setState({ busy: '', stagedGeneration: state.stagedGeneration, error: `분할 생성이 중단되었습니다. 완료된 항목은 보존됩니다. ${error.message}` });
+    setState({ busy: '', stagedGeneration: state.stagedGeneration, error: `작성이 중단되었습니다. 완료된 항목은 보존되며 「남은 내용 이어서 작성」으로 이어서 진행할 수 있습니다. ${error.message}` });
   }
 }
 
@@ -3390,7 +3383,7 @@ async function archiveCurrentProposal(forcedStage, announce = false) {
   state.archiveProposalId = id;
   saveState();
   const stage = forcedStage || (state.reviewResult ? 'review' : state.sections.length ? 'complete' : state.stagedGeneration?.phase === 'parts-ready' ? 'parts' : 'master');
-  const fields = ['project', 'sourceText', 'analysis', 'sponsorIntent', 'projectDesign', 'missingInformation', 'evidenceMap', 'qualityCheck', 'designAnswers', 'designUnavailable', 'stagedGeneration', 'assemblyCheck', 'manualSources', 'matches', 'answers', 'sections', 'reviewResult', 'reviewOriginalDraft', 'reviewFingerprint', 'companyFacts', 'selectedNotice', 'aiMode', 'selectedApplicantId', 'projectValues', 'applicantResolvedQuestions', 'proposalVersions', 'revisionPlan', 'noticeLogic', 'draftReview'];
+  const fields = ['project', 'sourceText', 'analysis', 'sponsorIntent', 'projectDesign', 'missingInformation', 'evidenceMap', 'qualityCheck', 'designAnswers', 'designUnavailable', 'stagedGeneration', 'assemblyCheck', 'manualSources', 'matches', 'answers', 'sections', 'reviewResult', 'reviewOriginalDraft', 'reviewFingerprint', 'companyFacts', 'selectedNotice', 'aiMode', 'selectedApplicantId', 'projectValues', 'applicantResolvedQuestions', 'proposalVersions', 'revisionPlan', 'noticeLogic', 'draftReview', 'projectNarrative'];
   // 계획서에는 사용 시점의 신청기관 사본만 남기고, 신청기관 원본은 별도 보관 항목으로만 수정한다.
   const snapshot = { ...Object.fromEntries(fields.map(key => [key, structuredClone(state[key])])), applicantSnapshot: selectedApplicant() ? structuredClone(selectedApplicant()) : null };
   const result = await saveArchivedProposal({ id, noticeKey: archiveNoticeKey(state.selectedNotice), title: state.project.title || state.selectedNotice?.title, stage, snapshot });

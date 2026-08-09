@@ -79,23 +79,31 @@ test('모든 계획서는 마스터 설계와 신청서 항목별 분할 생성�
   assert.match(appSource, /id="generate-parts"/);
   assert.match(appSource, /draftPartWithAI/);
   assert.match(appSource, /id="assemble-proposal"/);
-  assert.match(appSource, /마스터 설계 → 분할 생성 → 완성/);
+  assert.match(appSource, /마스터 설계 → 전체 작성 → 완성/);
   assert.match(apiSource, /페이지 수·문서 길이로 나누지 않는다/);
   assert.match(apiSource, /sectionPlan: \{ type: 'array', minItems: 2, items:/);
   assert.doesNotMatch(apiSource, /sectionPlan: \{ type: 'array', minItems: 2, maxItems:/);
 });
 
-test('분할 생성은 항목별 AI 생성과 남은 항목 일괄 생성을 모두 제공한다', () => {
+test('계획서는 자유입력과 「전체 작성」 버튼 하나로 만든다', () => {
   const appSource = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
-  // 일괄 버튼은 그대로 두고 항목마다 개별 생성 버튼을 붙인다.
-  assert.match(appSource, /async function generateProposalParts\(onlyGroupId = ''\)/);
-  assert.match(appSource, /const groups = onlyGroupId \? all\.filter\(group => group\.id === onlyGroupId\) : all;/);
-  assert.match(appSource, /data-generate-part="\$\{escapeHtml\(group\.id\)\}"/);
-  assert.match(appSource, /이 항목만 AI 생성/);
-  assert.match(appSource, /이 항목만 다시 생성/);
-  // 개별 생성이 전체 완료 판정을 앞당기지 않게 한다.
-  assert.match(appSource, /completed\.size === all\.length \? 'parts-ready' : 'parts-generating'/);
-  assert.match(appSource, /generateProposalParts\(el\.dataset\.generatePart\)/);
+  // 항목별 생성 버튼은 없앤다.
+  assert.doesNotMatch(appSource, /data-generate-part|이 항목만 AI 생성|이 항목만 다시 생성/);
+  assert.match(appSource, /async function generateProposalParts\(\) \{/);
+  // 사용자는 한 번만 누르고, 남은 항목이 있으면 이어서 작성한다.
+  assert.ok(appSource.includes(`id="generate-parts">\${resumed ? '남은 내용 이어서 작성' : 'AI와 함께 전체 계획서 작성'}`));
+  assert.ok(appSource.includes('const completed = new Set(staged.completedGroupIds || []);'));
+  // 자유입력은 선택이며 이번 사업에만 저장한다.
+  assert.match(appSource, /id="proposal-freeform"/);
+  assert.match(appSource, /state\.projectNarrative = event\.target\.value/);
+  assert.ok(appSource.includes("narrative: String(state.projectNarrative || '').slice(0, 4000)"));
+  // 질문 미답변으로 생성을 막지 않는다.
+  assert.doesNotMatch(appSource, /waitingForAnswers/);
+  assert.doesNotMatch(appSource, /pendingRequiredAnswers/);
+  // 모두 끝나면 사용자가 다시 누르지 않아도 하나로 합친다.
+  assert.ok(appSource.includes('if (completed.size === all.length) assembleProposal();'));
+  // 실패 시에는 완료분을 보존하고 자동 재시도하지 않는다.
+  assert.match(appSource, /작성이 중단되었습니다. 완료된 항목은 보존되며/);
 });
 
 test('마스터 설계는 10개 호환 항목을 중복 없이 포함하고 분할 결과는 요청 항목과 일치한다', () => {
@@ -408,7 +416,7 @@ test('공고 가져오기가 성공하면 공고 확인 단계로 자동 이동�
 
 test('모든 AI 작업은 단일 타이머로 경과시간을 표시하고 background 시작시간을 복구한다', () => {
   const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
-  for (const message of ['계획서 전체 검증 작업을 시작하는 중', '선택한 문제의 수정안만 작성하는 중', '사업계획서를 심사자 관점에서 검토하는 중', '기관 요구사항과 평가 기준을 분석하는 중', '선택한 항목을 근거 범위 안에서 재작성하는 중', '공고문을 분석하고 마스터 설계를 작성하는 중', '신청서 항목별 계획서를 분할 생성하는 중']) assert.match(source, new RegExp(`setAiBusy\\('${message}`));
+  for (const message of ['계획서 전체 검증 작업을 시작하는 중', '선택한 문제의 수정안만 작성하는 중', '사업계획서를 심사자 관점에서 검토하는 중', '기관 요구사항과 평가 기준을 분석하는 중', '선택한 항목을 근거 범위 안에서 재작성하는 중', '공고문을 분석하고 마스터 설계를 작성하는 중', '전체 계획서 작성 중']) assert.match(source, new RegExp(`setAiBusy\\('${message}`));
   assert.match(source, /data-ai-elapsed data-started-at/);
   assert.match(source, /data-ai-elapsed[^>]+style="display:block">경과시간 00:00/);
   assert.match(source, /경과시간 00:00/);
@@ -860,4 +868,21 @@ test('완료 체크는 방문 순서가 아니라 단계별 필수 데이터로 
   assert.doesNotMatch(source, /<div class="type-grid">\$\{TYPES\.map/);
   assert.match(source, /class="history-button"/);
   assert.match(source, /const STEPS = \['공고 준비', '공고 분석', '신청기관 준비', '사업 설계', '계획서 작성', '검토·제출'\]/);
+});
+
+test('사용자 자유입력은 경량 문맥에 실리되 근거 순위 아래에 둔다', () => {
+  const apiSource = fs.readFileSync(new URL('../functions/api/proposal.js', import.meta.url), 'utf8');
+  const context = partContext({
+    group: { id: 'g1', title: '사업 필요성', sectionKeys: ['necessity'] },
+    master: { masterLogic: {}, sponsorIntent: {} },
+    organization: {},
+    narrative: '토요일 오전에 운영하고 보호자 상담을 함께 넣어 주세요.',
+    answers: [{ question: '운영 요일은?', answer: '토요일 오전' }]
+  });
+  assert.match(context.userNarrative, /토요일 오전/);
+  assert.equal(context.userAnswers.length, 1);
+  // 길이는 제한하고, 우선순위 규칙을 프롬프트에 명시한다.
+  assert.ok(partContext({ narrative: 'x'.repeat(9000) }).userNarrative.length <= 4000);
+  assert.match(apiSource, /근거 순위는 공식자료 → 이번 사업 확정값 → 기관 확인정보 → 사용자 입력 → 제안 순이며/);
+  assert.match(apiSource, /사용자 입력만으로 사실·수치를 확정하지 않는다/);
 });
