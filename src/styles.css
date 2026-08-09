@@ -32,3 +32,37 @@
   .actions{flex-wrap:wrap;gap:10px}
   .requirement details,.requirement .two-col{margin-left:0!important}
 }
+/* 랜딩 · 상용 화면 디자인: 네이비·오프화이트 중심, 테두리와 그림자 최소화 */
+.landing{max-width:1180px;margin:0 auto;padding:8px 0 40px;color:var(--ink)}
+.landing-hero{padding:44px 0 40px;border-bottom:1px solid var(--line)}
+.landing-eyebrow{color:var(--blue);font-size:13px;font-weight:800;letter-spacing:.02em;margin:0 0 12px}
+.landing-hero h1{font-size:40px;line-height:1.25;letter-spacing:-.03em;margin:0 0 16px;color:var(--navy)}
+.landing-lead{max-width:760px;color:#4a5568;line-height:1.75;font-size:15px;margin:0}
+.landing-cta{display:flex;gap:10px;flex-wrap:wrap;margin:26px 0 14px}
+.landing-cta .button{padding:13px 22px}
+.landing-note{color:var(--muted);font-size:13px;margin:0}
+.landing-section{padding:36px 0;border-bottom:1px solid var(--line)}
+.landing-head{margin-bottom:20px}
+.landing-head h2{font-size:22px;letter-spacing:-.02em;margin:0 0 6px;color:var(--navy)}
+.landing-head p{color:var(--muted);font-size:14px;margin:0}
+.landing-grid{display:grid;gap:14px;grid-template-columns:repeat(2,minmax(0,1fr))}
+.landing-grid.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+.landing-grid.four{grid-template-columns:repeat(4,minmax(0,1fr))}
+.landing-card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:10px;box-shadow:none}
+.landing-card.current{border-color:var(--blue);background:var(--blue-soft)}
+.landing-card header{display:flex;align-items:center;gap:9px}
+.landing-card h3{margin:0;font-size:16px;color:var(--navy)}
+.landing-card p{margin:0;color:#4a5568;font-size:13.5px;line-height:1.7}
+.landing-card ul{margin:0;padding-left:16px;color:var(--muted);font-size:13px;line-height:1.9}
+.landing-card .button{margin-top:auto;align-self:flex-start}
+.landing-card.plain{background:#fbfcfd}
+.landing-step{display:grid;place-items:center;width:26px;height:26px;border-radius:8px;background:var(--navy);color:#fff;font-size:13px;font-weight:800}
+.landing-card.current .landing-step{background:var(--blue)}
+.landing-footer{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:26px 0 0;color:var(--muted);font-size:13px;flex-wrap:wrap}
+.landing-footer div{display:flex;gap:8px;flex-wrap:wrap}
+@media(max-width:900px){
+  .landing-hero{padding:28px 0 26px}
+  .landing-hero h1{font-size:28px}
+  .landing-grid,.landing-grid.three,.landing-grid.four{grid-template-columns:1fr}
+  .landing-cta .button{width:100%}
+}

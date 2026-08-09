@@ -112,7 +112,7 @@ test('작성 화면에서 V1 → 검증 → 수정계획 → V2 → 남은 확�
   // 남은 항목이 있으면 제출 준비 완료로 올리지 않는다는 문구를 유지한다.
   assert.match(app, /확인 전에는 제출 준비 완료로 올리지 않습니다/);
   // 새 상위 메뉴를 만들지 않는다(기존 워크플로 단계만 사용).
-  assert.match(app, /const STEPS = \['공고 가져오기', '공고 확인', '신청기관 선택', '사업 선택', '계획서 작성', '검토·완성'\]/);
+  assert.match(app, /const STEPS = \['공고 준비', '공고 분석', '신청기관 준비', '사업 설계', '계획서 작성', '검토·제출'\]/);
 });
 
 test('수정 상태를 다섯 가지로 구분해 보여준다', () => {
@@ -163,11 +163,13 @@ test('첫 화면과 상단 표시가 서비스용 한국어로 정리되어 있�
   assert.doesNotMatch(app, /Proposal Workbench|마인드스토리 내부용/);
   assert.match(app, /사업계획서 작성 도우미/);
   // 첫 화면 진입 경로 4가지
-  assert.match(app, /id="start-panel"/);
+  assert.match(app, /class="landing"/);
   // 첫 화면(공고 가져오기)에서 실제로 렌더링된다.
   assert.ok(app.includes('function noticeImportView() {\n  return `${startPanelView()}'), '시작 패널이 첫 화면에 연결되지 않았습니다');
   assert.ok(app.includes('function startPanelView()'), 'startPanelView 없음');
-  for (const label of ['새 사업계획서 시작', '계속하기', '계획서 검증·코칭', '최근 작업 보기']) assert.ok(app.includes(label), label);
+  for (const label of ['새 계획서 시작', '계속하기', '자료보관함', '업무 흐름 6단계', '주요 기능', '이 도구가 지키는 것']) assert.ok(app.includes(label), label);
+  // 6개 대분류가 랜딩과 상단 내비게이션에서 같은 이름을 쓴다.
+  for (const label of ['공고 준비', '공고 분석', '신청기관 준비', '사업 설계', '계획서 작성', '검토·제출']) assert.ok(app.includes(label), label);
   assert.match(app, /querySelector\('#open-coaching-home'\)\?\.addEventListener/);
   // 단계 메뉴 가로 스크롤 제거와 현재 단계 강조
   assert.match(css, /\.workflow-steps\{overflow-x:visible;flex-wrap:wrap/);

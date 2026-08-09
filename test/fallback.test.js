@@ -845,5 +845,5 @@ test('완료 체크는 방문 순서가 아니라 단계별 필수 데이터로 
   assert.doesNotMatch(source, /i < state\.step \? '✓'/);
   assert.doesNotMatch(source, /<div class="type-grid">\$\{TYPES\.map/);
   assert.match(source, /class="history-button"/);
-  assert.match(source, /const STEPS = \['공고 가져오기', '공고 확인', '신청기관 선택', '사업 선택', '계획서 작성', '검토·완성'\]/);
+  assert.match(source, /const STEPS = \['공고 준비', '공고 분석', '신청기관 준비', '사업 설계', '계획서 작성', '검토·제출'\]/);
 });

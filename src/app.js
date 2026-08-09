@@ -22,7 +22,16 @@ const TYPES = [
   ['edu', '학교·교육청', '교육기관'], ['g2b', '나라장터·학교장터', '공공조달'],
   ['general', '일반 창업·아이디어', '일반 사업']
 ];
-const STEPS = ['공고 가져오기', '공고 확인', '신청기관 선택', '사업 선택', '계획서 작성', '검토·완성'];
+// 업무 흐름 6단계. 라벨만 정리하고 단계 번호·연결 로직은 그대로 둔다.
+const STEPS = ['공고 준비', '공고 분석', '신청기관 준비', '사업 설계', '계획서 작성', '검토·제출'];
+const STEP_GUIDE = [
+  { title: '공고 준비', icon: '①', desc: '공고를 가져오거나 공고문·양식을 올립니다.', items: ['기관 공고 조회', '공고문·신청서 업로드', '자료보관함 불러오기'] },
+  { title: '공고 분석', icon: '②', desc: '선정 논리와 필수 요건을 원문 근거로 구조화합니다.', items: ['선정 논리 11항목', '첨부 자료묶음 분석', '평가·배점 확인'] },
+  { title: '신청기관 준비', icon: '③', desc: '확인된 기관 정보만 이번 사업에 사용합니다.', items: ['기관 프로필 관리', '과거 실적 정리', '적합성 매칭'] },
+  { title: '사업 설계', icon: '④', desc: '신청유형을 고르고 한 장의 설계도를 확정합니다.', items: ['신청유형 선택', '설계도 15항목', '확인 필요 입력'] },
+  { title: '계획서 작성', icon: '⑤', desc: '설계도를 기준으로 초안을 만들고 근거를 연결합니다.', items: ['마스터 설계', '항목별 분할 생성', '근거·인용 유지'] },
+  { title: '검토·제출', icon: '⑥', desc: '검증·수정 후 제출본을 만들고 보관합니다.', items: ['검증·코칭', '수정계획·버전 관리', 'DOCX·PDF 출력', '자료보관함 저장'] }
+];
 const SOURCE_TYPES = ['공고 공문', '세부 공고문', '공모신청서', '사업계획서 서식', '예산 편성 기준', '심사·평가기준', '기타 안내자료'];
 const NAVIGATION_KEY = 'ms12_workflow_navigation_v1';
 const NAVIGATION_LIMIT = 10;
@@ -162,21 +171,63 @@ function footer({ next = true, back = true, nextLabel = '다음 단계', nextId 
   return `<div class="actions">${back && state.step > 0 ? '<button class="button secondary" id="back">이전</button>' : '<span></span>'}${next ? `<button class="button primary" id="${nextId}">${nextLabel} →</button>` : ''}</div>`;
 }
 
-// 첫 화면 시작 안내. 새로 시작 / 이어서 작성 / 검증 / 최근 작업 진입점을 한곳에 둔다.
+// 랜딩 화면. 기존 상태·단계 이동만 재사용하고 새 기능은 만들지 않는다.
 function startPanelView() {
   const writing = state.sections.length > 0;
   const versions = (state.proposalVersions || []).length;
   const recent = (state.archiveProposals || []).slice(0, 3);
-  return `<div class="intro compact-intro"><span class="pill">사업계획서 작성 도우미</span><h2>공고를 읽고, 확인된 사실로만 계획서를 만듭니다.</h2><p>공고 분석 → 신청기관 확인 → 사업 설계 → 계획서 작성 → 검증·수정까지 한 흐름으로 진행합니다. 확인되지 않은 값은 만들지 않고 [확인 필요]로 남깁니다.</p></div>
-    <div class="card" id="start-panel"><div class="card-title"><div><h3>어디서 시작할까요?</h3><span>진행 중인 작업은 자동 저장되어 있습니다.</span></div></div>
-      <div class="summary-grid">
-        <div><span>새로 시작</span><strong>새 사업계획서</strong><small>공고를 가져와 처음부터 진행합니다.</small><button class="button primary" data-step="0" style="margin-top:10px;width:100%">새 사업계획서 시작</button></div>
-        <div><span>이어서 작성</span><strong>${writing ? `작성 중 (${state.sections.length}개 항목${versions ? ` · V${versions}` : ''})` : '작성 중인 계획서 없음'}</strong><small>${writing ? escapeHtml(String(state.project.title || '제목 미정').slice(0, 30)) : '먼저 새 계획서를 시작하세요.'}</small><button class="button ${writing ? 'primary' : 'secondary'}" data-step="4" ${writing ? '' : 'disabled'} style="margin-top:10px;width:100%">계속하기</button></div>
-        <div><span>검증만 하기</span><strong>이미 쓴 계획서 검증</strong><small>완성된 계획서를 올려 문제와 수정 방향을 확인합니다.</small><button class="button secondary" id="open-coaching-home" style="margin-top:10px;width:100%">계획서 검증·코칭</button></div>
-        <div><span>최근 작업</span><strong>${recent.length ? `보관된 계획서 ${recent.length}건` : '자료보관함'}</strong><small>${recent.length ? escapeHtml(recent.map(item => String(item.title).slice(0, 14)).join(' · ')) : '저장한 계획서를 다시 열 수 있습니다.'}</small><button class="button secondary" data-step="1" style="margin-top:10px;width:100%">최근 작업 보기</button></div>
+  const currentStep = STEPS[state.step] || STEPS[0];
+  const stepCards = STEP_GUIDE.map((step, index) => `<article class="landing-card ${state.step === index ? 'current' : ''}"><header><span class="landing-step">${step.icon}</span><h3>${escapeHtml(step.title)}</h3></header><p>${escapeHtml(step.desc)}</p><ul>${step.items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul><button class="button secondary" data-step="${index}">${state.step === index ? '진행 중인 단계 열기' : '이 단계로 이동'}</button></article>`).join('');
+  const recentList = recent.map(item => `<li>${escapeHtml(String(item.title).slice(0, 26))} · ${escapeHtml(archiveStageLabel(item.stage))}</li>`).join('');
+  const recentButtons = recent.map(item => `<button class="button secondary" data-open-archived-proposal="${escapeHtml(item.id)}">${escapeHtml(String(item.title).slice(0, 18))} 이어서 작업</button>`).join('');
+  return `
+    <section class="landing">
+      <div class="landing-hero">
+        <p class="landing-eyebrow">사업계획서 작성 도우미</p>
+        <h1>공고 분석부터 제출본까지, 하나의 흐름으로</h1>
+        <p class="landing-lead">공고의 선정 논리를 읽고, 확인된 기관 정보와 이번 사업의 확정값만으로 계획서를 만듭니다. 확인되지 않은 값은 만들어 채우지 않고 [확인 필요]로 남겨 제출 전에 정리합니다.</p>
+        <div class="landing-cta"><button class="button primary" data-step="0">새 계획서 시작</button>${writing ? '<button class="button secondary" data-step="4">작성 중인 계획서 계속하기</button>' : '<button class="button secondary" id="open-coaching-home">이미 쓴 계획서 검증하기</button>'}</div>
+        <p class="landing-note">브라우저에 자동 저장되며, 자료보관함에 저장한 계획서는 언제든 다시 열 수 있습니다.</p>
       </div>
-      ${recent.length ? `<div class="requirement-list">${recent.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(archiveStageLabel(item.stage))}</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(String(item.updatedAt || item.createdAt || '').slice(0, 16).replace('T', ' '))}</small></div></div><button class="button secondary" data-open-archived-proposal="${escapeHtml(item.id)}">이어서 작업</button></article>`).join('')}</div>` : ''}
-    </div>
+      <div class="landing-section">
+        <div class="landing-head"><h2>업무 흐름 6단계</h2><p>각 단계의 세부 기능은 해당 단계 화면에서만 보여 줍니다.</p></div>
+        <div class="landing-grid three">${stepCards}</div>
+      </div>
+      <div class="landing-section">
+        <div class="landing-head"><h2>최근 작업</h2><p>진행 중인 계획서와 보관된 계획서를 이어서 작업합니다.</p></div>
+        <div class="landing-grid two">
+          <article class="landing-card"><header><h3>진행 중인 계획서</h3></header>
+            <p>${writing ? escapeHtml(String(state.project.title || '제목 미정').slice(0, 40)) : '아직 작성 중인 계획서가 없습니다.'}</p>
+            <ul><li>현재 단계: ${escapeHtml(currentStep)}</li><li>항목 ${state.sections.length}개${versions ? ` · 버전 V${versions}` : ''}</li><li>${writing ? '자동 저장됨' : '새 계획서를 시작해 주세요'}</li></ul>
+            <button class="button ${writing ? 'primary' : 'secondary'}" data-step="${writing ? 4 : 0}">${writing ? '계속하기' : '새 계획서 시작'}</button></article>
+          <article class="landing-card"><header><h3>자료보관함</h3></header>
+            <p>${recent.length ? `보관된 계획서 ${recent.length}건을 다시 열 수 있습니다.` : '저장한 계획서와 공고가 여기에 쌓입니다.'}</p>
+            <ul>${recent.length ? recentList : '<li>계획서 저장</li><li>공고 보관</li><li>버전 이력</li>'}</ul>
+            ${recent.length ? recentButtons : '<button class="button secondary" data-step="1">자료보관함 열기</button>'}</article>
+        </div>
+      </div>
+      <div class="landing-section">
+        <div class="landing-head"><h2>주요 기능</h2></div>
+        <div class="landing-grid three">
+          <article class="landing-card plain"><h3>공고 분석</h3><p>공고문·첨부 자료묶음에서 목적·자격·필수내용·평가·성과 요구를 원문 근거와 함께 정리합니다.</p></article>
+          <article class="landing-card plain"><h3>기관 정보</h3><p>기관별로 확인된 정보와 과거 실적을 나눠 보관하고 이번 사업 값과 섞이지 않게 관리합니다.</p></article>
+          <article class="landing-card plain"><h3>AI 작성</h3><p>설계도를 기준으로 마스터 설계와 신청서 항목별 초안을 만들고 근거를 연결합니다.</p></article>
+          <article class="landing-card plain"><h3>검증·코칭</h3><p>공식 평가기준으로 문제를 찾아 위치·근거·수정 방향을 함께 제시합니다.</p></article>
+          <article class="landing-card plain"><h3>버전 관리</h3><p>V1·V2·V3를 덮어쓰지 않고 각각 보존하며 무엇이 왜 바뀌었는지 남깁니다.</p></article>
+          <article class="landing-card plain"><h3>제출본 출력</h3><p>검토본을 DOCX·PDF로 출력하고 자료보관함에 보관합니다.</p></article>
+        </div>
+      </div>
+      <div class="landing-section">
+        <div class="landing-head"><h2>이 도구가 지키는 것</h2></div>
+        <div class="landing-grid four">
+          <article class="landing-card plain"><h3>근거 추적</h3><p>모든 판단에 공고 원문 문장과 출처를 연결합니다.</p></article>
+          <article class="landing-card plain"><h3>버전 보존</h3><p>수정본을 만들어도 이전 버전은 그대로 남습니다.</p></article>
+          <article class="landing-card plain"><h3>확인 필요 관리</h3><p>모르는 값은 만들지 않고 [확인 필요]로 추적합니다.</p></article>
+          <article class="landing-card plain"><h3>제출 준비 상태</h3><p>남은 확인 항목이 있으면 제출 가능으로 올리지 않습니다.</p></article>
+        </div>
+      </div>
+      <footer class="landing-footer"><span>사업계획서 작성 도우미 · 근거 있는 계획서</span><div><button class="button secondary" data-step="1">자료보관함</button><button class="button secondary" data-step="0">새 계획서</button><button class="button secondary" data-open-applicants="1">신청기관 정보</button></div></footer>
+    </section>
 `;
 }
 
