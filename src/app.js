@@ -26,12 +26,12 @@ const TYPES = [
 const STEPS = ['공고 준비', '공고 분석', '신청기관 준비', '사업 설계', '계획서 작성', '검토·제출'];
 // 홈 화면에 보여 주는 업무 흐름 6단계 요약(단계 번호는 작업 화면과 같다).
 const HOME_FLOW = [
-  { no: '01', title: '공고 준비', desc: '공고 업로드 · 요구사항 확인', step: 0, covers: [0, 1] },
-  { no: '02', title: '신청기관 준비', desc: '기관정보 · 실적 · 적합성', step: 2, covers: [2] },
-  { no: '03', title: '사업 설계', desc: '대상 · 프로그램 · 예산 · 성과', step: 3, covers: [3] },
-  { no: '04', title: '계획서 작성', desc: '근거 기반 V1 작성', step: 4, covers: [4] },
-  { no: '05', title: '검토·수정', desc: 'AI 코칭 · V2 · 사용자 결정', step: 5, covers: [5] },
-  { no: '06', title: '제출·보관', desc: '최종본 · DOCX/PDF · 자료보관', step: 5, covers: [] }
+  { no: '01', title: '공고 준비', desc: '공고 업로드 · 요구사항 확인', step: 0, covers: [0, 1], items: ['공고 조회·업로드', '선정 논리 구조화', '첨부 자료묶음 분석'] },
+  { no: '02', title: '신청기관 준비', desc: '기관정보 · 실적 · 적합성', step: 2, covers: [2], items: ['확인된 기관정보 관리', '과거 실적 정리', '공고 적합성 매칭'] },
+  { no: '03', title: '사업 설계', desc: '대상 · 프로그램 · 예산 · 성과', step: 3, covers: [3], items: ['신청유형 선택', '설계도 한 장 확정', '확인 필요 항목 입력'] },
+  { no: '04', title: '계획서 작성', desc: '근거 기반 V1 작성', step: 4, covers: [4], items: ['마스터 설계', '항목별 초안 생성', '근거·인용 연결'] },
+  { no: '05', title: '검토·수정', desc: 'AI 코칭 · V2 · 사용자 결정', step: 5, covers: [5], items: ['평가기준 검증', '수정계획 분류', '사용자 확정 반영'] },
+  { no: '06', title: '제출·보관', desc: '최종본 · DOCX/PDF · 자료보관', step: 5, covers: [], items: ['제출 전 확인 목록', 'DOCX·PDF 출력', '자료보관함 저장'] }
 ];
 const STEP_GUIDE = [
   { title: '공고 준비', icon: '①', desc: '공고를 가져오거나 공고문·양식을 올립니다.', items: ['기관 공고 조회', '공고문·신청서 업로드', '자료보관함 불러오기'] },
@@ -224,7 +224,7 @@ function homeView() {
 
       <section class="home-section" id="home-flow">
         <div class="home-head"><h2>업무 흐름</h2><p>여섯 단계로 나눠 진행하고, 각 단계의 세부 기능은 해당 화면에서만 다룹니다.</p></div>
-        <div class="home-flow">${HOME_FLOW.map(step => { const active = writing && step.covers.includes(state.step); return `<article class="home-step ${active ? 'current' : ''}"><span class="home-step-no">${step.no}</span><h3>${escapeHtml(step.title)}</h3><p>${escapeHtml(step.desc)}</p>${active ? '<span class="home-step-state">진행 중</span>' : ''}<button class="button ghost" data-home-step="${step.step}">열기</button></article>`; }).join('')}</div>
+        <div class="home-flow">${HOME_FLOW.map(step => { const active = writing && step.covers.includes(state.step); return `<article class="home-step ${active ? 'current' : ''}"><span class="home-step-no">${step.no}</span><h3>${escapeHtml(step.title)}</h3><p>${escapeHtml(step.desc)}</p><ul>${step.items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>${active ? '<span class="home-step-state">진행 중</span>' : ''}<button class="button ghost" data-home-step="${step.step}">열기</button></article>`; }).join('')}</div>
       </section>
 
       <section class="home-section" id="home-features">
@@ -260,11 +260,6 @@ function homeView() {
         </div>
       </section>
 
-      <section class="home-section" id="home-recent">
-        <div class="home-head"><h2>최근 작업</h2><p>저장된 실제 작업만 표시합니다.</p></div>
-        ${recentCards ? `<div class="home-grid">${recentCards}</div>` : `<div class="home-empty"><p>아직 작성 중인 계획서가 없습니다.</p><button class="button primary" data-home-start="1">새 사업계획서 시작</button></div>`}
-      </section>
-
       <section class="home-section">
         <div class="home-head"><h2>작성 원칙</h2></div>
         <div class="home-trust">
@@ -274,6 +269,10 @@ function homeView() {
           <span><b>버전 보존</b>이전 버전 유지</span>
           <span><b>제출본 출력</b>DOCX·PDF 검토본</span>
         </div>
+      </section>
+      <section class="home-section" id="home-recent">
+        <div class="home-head"><h2>최근 작업</h2><p>저장된 실제 작업만 표시합니다.</p></div>
+        ${recentCards ? `<div class="home-grid">${recentCards}</div>` : `<div class="home-empty"><p>아직 작성 중인 계획서가 없습니다.</p><button class="button primary" data-home-start="1">새 사업계획서 시작</button></div>`}
       </section>
 
       <section class="home-final">
