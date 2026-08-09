@@ -114,3 +114,10 @@ test('작성 화면에서 V1 → 검증 → 수정계획 → V2 → 남은 확�
   // 새 상위 메뉴를 만들지 않는다(기존 워크플로 단계만 사용).
   assert.match(app, /const STEPS = \['공고 가져오기', '공고 확인', '신청기관 선택', '사업 선택', '계획서 작성', '검토·완성'\]/);
 });
+
+test('수정 상태를 다섯 가지로 구분해 보여준다', () => {
+  const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  for (const label of ['수정됨', '근거로 보강됨', '사용자 확인 필요', '아직 자료 부족', '공식요건 충돌']) assert.ok(app.includes(label), label);
+  // 공식요건 충돌은 수정 상태와 분리해 표시한다.
+  assert.match(app, /const conflict = plan\.conflictingValues\?\.length >= 2/);
+});

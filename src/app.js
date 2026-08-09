@@ -664,6 +664,12 @@ function proposalPipelineView() {
     ${step('수정계획', plans.length > 0, summary ? `자동 ${summary.byLevel.AUTO || 0} · 근거확인 ${summary.byLevel.EVIDENCE_BASED || 0} · 사용자확인 ${summary.byLevel.USER_CONFIRMATION || 0}` : '검증 후 생성')}
     ${step('V2 수정본', versions.some(item => item.version > 1), latest && latest.version > 1 ? `최신 V${latest.version} · ${escapeHtml(latest.label)}` : '아직 없음')}
     </div>
+    ${plans.length ? `<details open><summary>수정 상태 ${plans.length}건 — 수정됨 / 근거로 보강됨 / 사용자 확인 필요 / 자료 부족 / 공식요건 충돌</summary><div class="requirement-list">${plans.map(plan => {
+      const conflict = plan.conflictingValues?.length >= 2;
+      const label = conflict ? '공식요건 충돌' : plan.repairLevel === 'AUTO' ? '수정됨' : plan.repairLevel === 'EVIDENCE_BASED' ? (plan.proposedRevision ? '근거로 보강됨' : '아직 자료 부족') : '사용자 확인 필요';
+      const tone = label === '수정됨' ? '충족' : label === '근거로 보강됨' ? '부분-충족' : label === '공식요건 충돌' ? '부족' : '확인-필요';
+      return `<article class="requirement"><div><span class="status ${tone}">${label}</span><div><strong>${escapeHtml(plan.issueTypeLabel)} · ${escapeHtml((plan.targetSection || []).map(item => item.title || item.id).join(', ') || '위치 확인 필요')}</strong><small>${escapeHtml(String(plan.problem).slice(0, 160))}</small>${plan.confirmationQuestion ? `<small class="muted">확인 질문: ${escapeHtml(plan.confirmationQuestion)}</small>` : ''}</div></div></article>`;
+    }).join('')}</div></details>` : ''}
     <div class="alert ${pending.length || conflicts.length || unresolved ? 'warning' : 'success'}"><strong>남은 확인 필요</strong>
       <p>사용자 확인 필요 수정 ${pending.length}건 · 공고 기준 충돌 ${conflicts.length}건 · [확인 필요] 항목 ${unresolved}개 — 확인 전에는 제출 준비 완료로 올리지 않습니다.</p>
       ${conflicts.map(item => `<p>· ${escapeHtml(item.field)}: 공고 ${escapeHtml(item.officialValue)} vs 확정 ${escapeHtml(item.userValue)}</p>`).join('')}
