@@ -91,12 +91,26 @@ export function splitApplicantProfile(applicant) {
   };
 }
 
+export const SOURCE_KINDS = ['홈페이지', '블로그', '기관소개서·브로슈어', '과거 사업계획서', '결과보고서', '기타 기관자료'];
+// 기관자료 목록. 자료 자체를 확정 정보로 쓰지 않고 어디서 온 정보인지 남기기 위한 기록이다.
+export function makeApplicantSource(value = {}) {
+  return {
+    id: text(value.id, 80) || uniqueId('source'),
+    kind: SOURCE_KINDS.includes(value.kind) ? value.kind : SOURCE_KINDS[5],
+    name: text(value.name, 200),
+    url: /^https?:\/\//i.test(String(value.url || '')) ? text(value.url, 500) : '',
+    asOf: text(value.asOf, 40),
+    note: text(value.note, 300),
+    addedAt: text(value.addedAt, 40) || new Date().toISOString()
+  };
+}
 export function normalizeApplicant(value = {}) {
   const now = new Date().toISOString();
   return {
     id: text(value.id, 80) || uniqueId('applicant'),
     name: text(value.name, 120) || '이름 없는 신청기관',
     note: text(value.note, 500),
+    sources: (Array.isArray(value.sources) ? value.sources : []).slice(0, 40).map(makeApplicantSource),
     items: (Array.isArray(value.items) ? value.items : []).slice(0, 300).map(makeApplicantItem),
     createdAt: text(value.createdAt, 40) || now,
     updatedAt: text(value.updatedAt, 40) || now

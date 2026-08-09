@@ -11,6 +11,7 @@ import { applyRepairPlans, buildRepairPlans, repairPlanSummary } from './repair-
 import { analyzeNoticeStructure, buildSelectionLogic, noticeLogicSummary, selectionRequirements } from './notice-logic.js';
 import { bundleSummary, expandBundle, mergeBundleStructures } from './notice-bundle.js';
 import { matchApplicantToNotice } from './fit-matching.js';
+import { buildDesignQuestions, reusableAnswerCandidates } from './design-questions.js';
 import { buildBlueprint } from './project-blueprint.js';
 import { BLUEPRINT_SECTION_MAP, UNRESOLVED_MARK, annotateDraftSections, checkDraftAgainstBlueprint, officialRequirementConflicts } from './blueprint-draft-check.js';
 import { EXTERNAL_SOURCE, appendProposalVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, proposalTextFromSections, proposalTextFromSnapshot, revisionInstruction, verifyLockedValues } from './coaching-handoff.js';
@@ -18,7 +19,7 @@ import { splitApplicantProfile } from './applicants.js';
 import { ARCHIVE_PAGE_SIZES, ARCHIVE_STATUSES, archiveTableRows, shortDate } from './archive-table.js';
 import { SAMPLE_MARK, SAMPLE_NOTE, SAMPLE_NOTICE, SAMPLE_NOTICE_KEY, SAMPLE_STAGES, SAMPLE_STAGE_BY_STEP, buildSampleProject } from './sample-project.js';
 import { SAMPLE_REAL_COACHING } from './sample-coaching-run.js';
-import { APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
+import { SOURCE_KINDS, makeApplicantSource, APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
 
 const TYPES = [
   ['chest', '사랑의열매', '복지·지원사업'], ['family', '가족센터', '가족지원사업'],
@@ -59,7 +60,7 @@ const NAVIGATION_LIMIT = 10;
 const initial = {
   step: 0, activeTool: 'home', homeSeen: false, project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
   coaching: { title: '', text: '', validatedText: '', criteriaText: '', officialEvaluationProvided: false, sourceProposalId: '', sourceNoticeKey: '', seriesId: '', currentArchiveId: '', result: null, workItems: [], pendingJob: null, version: 0, references: [], referenceType: REFERENCE_TYPES[0], referenceDraft: '', referenceNameDraft: '' },
-  applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, coachingApplicantId: '',
+  applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
   revisionPlan: null, draftReview: null, proposalVersions: [], proposalFlow: { status: '', baselineVersion: 0, reviewTarget: null, rounds: [], requests: [], requestOpen: false, requestText: '', requestScope: [], openVersion: 0, compareVersion: 0, approvedVersion: 0, approvedAt: '' }, coachingSelection: [], applicantSkipped: false, noticeLogic: null,
   analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveTable: { query: '', sortKey: 'collectedAt', sortDir: 'desc', page: 1, pageSize: 20, selected: [], expandedKey: '', applicantPickerKey: '', filters: { collected: '', institution: '', field: '', status: '', applicant: '', deadline: '' } }, archiveNoticeLinks: {}, archiveHiddenNotices: [], archiveOpenProposal: '', sampleStage: '', sampleReturn: '', aiResult: null, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
@@ -764,10 +765,42 @@ function applicantsToolView() {
       const confirmed = applicant.items.filter(item => item.status === CONFIRMED_STATUS).length;
       return `<article class="requirement"><div><span class="tag">${applicant.id === state.selectedApplicantId ? '이번 사업 신청기관' : '등록기관'}</span><div><strong>${escapeHtml(applicant.name)}</strong><small>확인됨 ${confirmed}건 · 확인 필요·오래된 정보 ${applicant.items.length - confirmed}건 · 최근 수정 ${escapeHtml(String(applicant.updatedAt).slice(0, 10))}</small></div></div><div class="actions" style="margin:0;gap:8px"><button class="button secondary" data-edit-applicant="${escapeHtml(applicant.id)}">${state.applicantEditingId === applicant.id ? '수정 닫기' : '정보 수정'}</button><button class="button secondary" data-select-applicant="${escapeHtml(applicant.id)}">이번 사업 신청기관으로 선택</button><button class="button secondary" data-delete-applicant="${escapeHtml(applicant.id)}">삭제</button></div></article>`;
     }).join('')}</div>` : '<p class="muted">등록된 신청기관이 없습니다. 기관명을 입력하고 추가하세요.</p>'}</div>
+    ${editing ? applicantSourcesView(editing) : ''}
     ${editing ? applicantDocumentView(editing) : ''}
     ${editing ? applicantEditorView(editing) : ''}`;
 }
 
+// 1) 기관자료 목록. 자료의 종류·이름·주소·기준일만 기록하고, 내용은 기존 추출 경로로 넣는다.
+function applicantSourcesView(applicant) {
+  const draft = state.applicantSourceDraft || initial.applicantSourceDraft;
+  const sources = applicant.sources || [];
+  return `<div class="card"><div class="card-title"><div><h3>기관자료 ${sources.length}건</h3><span>홈페이지·소개서·과거 계획서 등 어디서 온 정보인지 남깁니다. 자료를 등록해도 기관 정보가 바로 바뀌지는 않습니다.</span></div></div>
+    <div class="two-col"><div class="field"><label for="source-kind">자료 종류</label><select id="source-kind">${SOURCE_KINDS.map(kind => `<option ${draft.kind === kind ? 'selected' : ''}>${escapeHtml(kind)}</option>`).join('')}</select></div>
+      <div class="field"><label for="source-name">자료명</label><input id="source-name" value="${escapeHtml(draft.name)}" placeholder="예: 2025 기관소개서"></div></div>
+    <div class="two-col"><div class="field"><label for="source-url">주소(URL, 선택)</label><input id="source-url" type="url" value="${escapeHtml(draft.url)}" placeholder="https://"></div>
+      <div class="field"><label for="source-asof">자료 기준일</label><input id="source-asof" value="${escapeHtml(draft.asOf)}" placeholder="예: 2026-03 또는 2025년 사업"></div></div>
+    <div class="actions" style="margin:0"><span class="muted">URL은 기록만 합니다. 페이지 내용은 아래 「기관 문서에서 정보 추출」에 붙여넣으면 이 자료를 출처로 저장합니다.</span><button class="button secondary" id="add-applicant-source">기관자료 등록</button></div>
+    ${sources.length ? `<div class="requirement-list">${sources.map(source => `<article class="requirement"><div><span class="tag">${escapeHtml(source.kind)}</span><div><strong>${escapeHtml(source.name || source.url || '이름 없는 자료')}</strong><small class="muted">${source.url ? `<a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(source.url.slice(0, 60))}</a> · ` : ''}기준일 ${escapeHtml(source.asOf || ASOF_UNKNOWN)}</small></div></div><button class="button secondary" data-remove-source="${escapeHtml(source.id)}">삭제</button></article>`).join('')}</div>` : '<p class="muted">등록한 기관자료가 없습니다.</p>'}</div>`;
+}
+function addApplicantSource() {
+  const applicant = findApplicant(state.applicants, state.applicantEditingId);
+  if (!applicant) return setState({ error: '기관자료를 등록할 신청기관을 먼저 선택해 주세요.' });
+  const draft = state.applicantSourceDraft || initial.applicantSourceDraft;
+  if (!String(draft.name).trim() && !String(draft.url).trim()) return setState({ error: '자료명이나 주소 중 하나는 입력해 주세요.' });
+  if (String(draft.url).trim() && !/^https?:\/\//i.test(draft.url.trim())) return setState({ error: '주소는 http 또는 https로 시작해야 합니다.' });
+  const next = { ...applicant, sources: [...(applicant.sources || []), makeApplicantSource(draft)] };
+  state.applicants = upsertApplicant(state.applicants, next);
+  setState({ applicants: state.applicants, applicantSourceDraft: structuredClone(initial.applicantSourceDraft), notice: '기관자료를 등록했습니다. 내용은 아래에서 추출해 확인 후 반영하세요.', error: '' });
+  void persistApplicant(next.id, false);
+}
+function removeApplicantSource(id) {
+  const applicant = findApplicant(state.applicants, state.applicantEditingId);
+  if (!applicant) return;
+  const next = { ...applicant, sources: (applicant.sources || []).filter(item => item.id !== id) };
+  state.applicants = upsertApplicant(state.applicants, next);
+  setState({ applicants: state.applicants, notice: '기관자료를 삭제했습니다. 이미 확인한 기관 정보는 그대로 남습니다.' });
+  void persistApplicant(next.id, false);
+}
 // 기존 기관 문서에서 정보를 뽑아 ‘업데이트 후보’로만 만든다. 사용자가 반영을 눌러야 기관 정보가 바뀐다.
 function applicantDocumentView(applicant) {
   const review = state.applicantExtraction?.applicantId === applicant.id ? state.applicantExtraction : null;
@@ -1380,9 +1413,41 @@ function strategyView() {
   return `<div class="card"><div class="card-title"><div><h3>공모기관 의도와 선정전략</h3><span>공식 원문 근거 기반</span></div></div><div class="summary-grid"><div><span>해결하려는 핵심 문제</span><strong>${escapeHtml(intent?.coreProblem || '공식 원문에서 직접 확인되지 않음')}</strong></div><div><span>기대하는 변화</span><strong>${escapeHtml(intent?.expectedChange || '공식 원문에서 직접 확인되지 않음')}</strong></div><div><span>평가자가 중요하게 볼 요소</span><strong>${escapeHtml((intent?.selectionLogic || []).join(' · ') || '공식 원문에서 직접 확인되지 않음')}</strong></div><div><span>제안 사업 핵심전략</span><strong>${escapeHtml(design?.oneSentenceStrategy || 'AI 정밀 설계 미실행')}</strong></div></div>${intent?.evidence?.length ? `<details><summary>공식 원문 근거 ${intent.evidence.length}건</summary>${intent.evidence.map(value => `<blockquote>${escapeHtml(value)}</blockquote>`).join('')}</details>` : ''}</div>`;
 }
 
+// 5~8) 공고 × 기관 확인정보 × 이번 사업 확정값을 대조해, 아직 모르는 것만 최대 5개 묻는다.
+// 질문을 만들기 위해 AI를 다시 부르지 않는다(이미 만들어 둔 공고 분석·설계도 결과만 사용).
+function currentDesignQuestions() {
+  const logic = state.noticeLogic;
+  const applicant = selectedApplicant();
+  const structure = logic?.structure || null;
+  const fitResult = structure && applicant ? matchApplicantToNotice(structure, applicant) : null;
+  return buildDesignQuestions({
+    structure, fitResult, blueprint: currentBlueprint(), applicant,
+    projectValues: state.projectValues, aiQuestions: state.missingInformation || [], answers: state.designAnswers || {}
+  });
+}
 function designQuestionsView() {
-  if (!state.missingInformation.length) return '';
-  return `<div class="card"><div class="card-title"><div><h3>사업설계에 필요한 추가 답변</h3><span>최대 5개 · 답변 후 다시 생성</span></div></div>${state.missingInformation.slice(0, 5).map((question, index) => `<div class="field"><label>${escapeHtml(question)}</label><textarea data-design-answer="${index}">${escapeHtml(state.designAnswers[question] || '')}</textarea></div>`).join('')}<div class="actions"><span>공식 자료에 없는 핵심 정보만 질문합니다.</span><button class="button primary" id="regenerate-design">답변 반영해 다시 생성</button></div></div>`;
+  const plan = currentDesignQuestions();
+  if (!plan.questions.length && !plan.resolved.length) return '';
+  const answered = plan.questions.filter(item => String(state.designAnswers[item.question] || '').trim()).length;
+  const reuse = reusableAnswerCandidates(plan.questions, state.designAnswers, selectedApplicant());
+  return `<div class="card" id="result-questions" tabindex="-1"><div class="card-title"><div><h3>선정 가능성을 높이기 위한 핵심 질문</h3><span>공고와 신청기관 정보에서 확인되지 않은 내용 중 사업 설계와 평가에 중요한 내용만 질문합니다.</span></div><span class="status ${plan.questions.length ? '확인-필요' : '충족'}">${plan.questions.length ? `${answered}/${plan.questions.length} 답변` : '추가 질문 없음'}</span></div>
+    ${plan.resolved.length ? `<p class="muted">이미 확인된 내용 ${plan.resolved.length}건은 다시 묻지 않습니다.</p>` : ''}
+    ${plan.questions.map((item, index) => `<div class="field"><label>${escapeHtml(item.question)} <span class="tag">${escapeHtml(item.kind)}</span> <span class="tag">${escapeHtml(item.reason)}</span></label><textarea data-design-answer="${index}" data-design-question="${escapeHtml(item.question)}" placeholder="확인된 사실만 적어 주세요. 모르면 비워 두면 [확인 필요]로 남습니다.">${escapeHtml(state.designAnswers[item.question] || '')}</textarea></div>`).join('')}
+    ${reuse.length ? `<div class="alert warning"><strong>신청기관 정보에 추가할까요?</strong><p>아래 답변은 기관 자체 정보로 다시 쓸 수 있습니다. 누르면 「확인 필요」 상태로만 추가되고 자동으로 확정되지 않습니다.</p>
+      ${reuse.map(item => `<div class="actions" style="margin:6px 0"><span>${escapeHtml(item.label)}: ${escapeHtml(item.value.slice(0, 60))}…</span><button class="button secondary" data-reuse-answer="${escapeHtml(item.questionId)}">신청기관 정보에 추가</button></div>`).join('')}</div>` : ''}
+    ${plan.questions.length ? `<div class="actions"><span>답변은 이번 사업 정보로만 저장하고 기관 정보와 자동으로 섞지 않습니다.</span><button class="button primary" id="regenerate-design">답변 반영해 다시 생성</button></div>` : '<p class="muted">공고 요구와 확인된 기관 정보로 설계에 필요한 값이 모두 확인되었습니다.</p>'}</div>`;
+}
+// 9) 재사용할 만한 답변만 「확인 필요」 항목으로 추가한다. 확정은 사용자가 따로 한다.
+function reuseAnswerToApplicant(questionId) {
+  const applicant = selectedApplicant();
+  if (!applicant) return setState({ error: '먼저 이번 사업의 신청기관을 선택해 주세요.' });
+  const plan = currentDesignQuestions();
+  const candidate = reusableAnswerCandidates(plan.questions, state.designAnswers, applicant).find(item => item.questionId === questionId);
+  if (!candidate) return;
+  const next = { ...applicant, items: [...applicant.items, makeApplicantItem({ area: 'programs', label: candidate.label, value: candidate.value, status: '확인 필요', source: candidate.source, asOf: '' })] };
+  state.applicants = upsertApplicant(state.applicants, next);
+  setState({ applicants: state.applicants, notice: '신청기관 정보에 「확인 필요」 상태로 추가했습니다. 확인해야 계획서의 확정 사실로 쓰입니다.', error: '' });
+  void persistApplicant(next.id, false);
 }
 
 function directFactsView() {
@@ -1858,7 +1923,8 @@ function bind() {
   if (analyzeButton) { analyzeButton.textContent = '사업계획서 작성 →'; analyzeButton.addEventListener('click', generateCompleteProposal); }
   document.querySelectorAll('[data-answer]').forEach(el => el.oninput = () => { const questions = state.answers.length ? state.answers : structuredClone(state.analysis.questions || []); questions[Number(el.dataset.answer)].answer = el.value; state.answers = questions; saveState(); });
   document.querySelector('#draft')?.addEventListener('click', createDraft);
-  document.querySelectorAll('[data-design-answer]').forEach(el => el.oninput = () => { const question = state.missingInformation[Number(el.dataset.designAnswer)]; if (question) { state.designAnswers[question] = el.value; saveState(); } });
+  document.querySelectorAll('[data-design-answer]').forEach(el => el.oninput = () => { const question = el.dataset.designQuestion; if (question) { state.designAnswers[question] = el.value; saveState(); } });
+  document.querySelectorAll('[data-reuse-answer]').forEach(el => el.onclick = () => reuseAnswerToApplicant(el.dataset.reuseAnswer));
   document.querySelector('#regenerate-design')?.addEventListener('click', generateCompleteProposal);
   // 일괄 생성은 남은 항목 전체, 개별 생성은 해당 항목만 AI로 만든다.
   document.querySelector('#generate-parts')?.addEventListener('click', () => generateProposalParts());
@@ -2019,6 +2085,11 @@ function bindApplicants() {
   document.querySelectorAll('[data-add-applicant-item]').forEach(el => el.onclick = () => addApplicantItem(el.dataset.addApplicantItem));
   document.querySelector('#load-applicant-archive')?.addEventListener('click', loadApplicantArchiveProposals);
   document.querySelectorAll('[data-applicant-archive]').forEach(el => el.onclick = () => harvestApplicantFromArchive(el.dataset.applicantArchive));
+  // 기관자료 등록·삭제. 자료 등록만으로 기관 정보가 바뀌지 않는다.
+  for (const [id, key] of [['source-kind', 'kind'], ['source-name', 'name'], ['source-url', 'url'], ['source-asof', 'asOf']]) document.querySelector('#' + id)?.addEventListener('input', event => { state.applicantSourceDraft = { ...(state.applicantSourceDraft || initial.applicantSourceDraft), [key]: event.target.value }; saveState(); });
+  document.querySelector('#source-kind')?.addEventListener('change', event => { state.applicantSourceDraft = { ...(state.applicantSourceDraft || initial.applicantSourceDraft), kind: event.target.value }; saveState(); });
+  document.querySelector('#add-applicant-source')?.addEventListener('click', addApplicantSource);
+  document.querySelectorAll('[data-remove-source]').forEach(el => el.onclick = () => removeApplicantSource(el.dataset.removeSource));
   document.querySelector('#applicant-doc-text')?.addEventListener('input', event => { state.applicantDocDraft = event.target.value; });
   document.querySelector('#applicant-doc-file')?.addEventListener('change', loadApplicantDocument);
   document.querySelector('#extract-applicant-doc')?.addEventListener('click', () => buildApplicantCandidates(state.applicantDocDraft, '붙여넣은 기관 문서'));
