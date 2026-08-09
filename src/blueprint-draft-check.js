@@ -198,8 +198,17 @@ export function checkDraftAgainstBlueprint({ blueprint, sections, applicant, str
     : check('미확정 값 표기', 'PASS', `미확정 ${openItems.length}건 · [확인 필요] 표시 항목 ${markedSections.length}개 (본문 표기 ${marks}곳 · 구조화 표시 ${markedSections.length - annotated.filter(section => section.markedInText).length}개)`));
 
   // 7. 과거 사업 수치 유입
+  // 실적을 근거로 인용한 문장(그 실적의 이름이 같은 문장에 있는 경우)과 사용자가 이번 사업 값으로
+  // 확정한 수치는 유입으로 보지 않는다. 인용은 공고가 요구하는 실적 제시이고, 확정값은 사용자의 결정이다.
   const pastNumbers = [...new Set(split.history.flatMap(item => String(item.value).match(QUANTITY) || []))];
-  const leaked = pastNumbers.filter(number => containsNumber(draft, number));
+  const confirmedNumbers = new Set(confirmedValues.flatMap(entry => String(entry.value).match(QUANTITY) || []).map(number => String(number).replace(/\s+/g, '')));
+  const recordLabels = split.history.map(item => String(item.label).trim()).filter(label => label.length >= 4);
+  const draftSentences = draft.split(/(?<=[.!?。])\s+|\n+/).map(sentence => sentence.trim()).filter(Boolean);
+  const leaked = pastNumbers.filter(number => {
+    if (confirmedNumbers.has(String(number).replace(/\s+/g, ''))) return false;
+    const carrying = draftSentences.filter(sentence => containsNumber(sentence, number));
+    return carrying.length > 0 && carrying.some(sentence => !recordLabels.some(label => sentence.includes(label)));
+  });
   checks.push(leaked.length
     ? check('과거 사업 수치 유입', 'FAIL', `과거 사업의 수치가 V1에 그대로 들어왔습니다: ${leaked.join(' · ')}`, leaked)
     : check('과거 사업 수치 유입', 'PASS', `과거 수치 ${pastNumbers.length}건이 이번 사업 값으로 옮겨지지 않았습니다.`));

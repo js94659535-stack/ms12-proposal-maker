@@ -67,6 +67,8 @@ export function stageStatus(stage) {
 export function noticeStatus(notice, link = {}, today = '') {
   const saved = String(link.status || '').trim();
   if (ARCHIVE_STATUSES.includes(saved)) return saved;
+  // [샘플] 프로젝트는 미리 끝까지 진행해 둔 예시이므로 그 상태를 그대로 보여 준다.
+  if (ARCHIVE_STATUSES.includes(String(notice?.sampleStatus || ''))) return notice.sampleStatus;
   const derived = stageStatus(notice?.linkedProposalStage);
   if (derived) return derived;
   if (deadlineInfo(notice, today).closed) return '마감';
@@ -101,6 +103,7 @@ export function archiveRow(notice, options = {}) {
   return {
     key,
     notice,
+    isSample: Boolean(notice?.isSample),
     collectedAt: archiveCollectedAt(notice),
     institution: archiveInstitution(notice),
     field: archiveField(notice),
@@ -108,7 +111,7 @@ export function archiveRow(notice, options = {}) {
     deadline,
     status: noticeStatus(notice, link, today),
     applicantIds: Array.isArray(link.applicantIds) ? link.applicantIds : [],
-    applicantText: applicantLabel(Array.isArray(link.applicantIds) ? link.applicantIds : [], applicants),
+    applicantText: notice?.sampleApplicantText || applicantLabel(Array.isArray(link.applicantIds) ? link.applicantIds : [], applicants),
     sourceUrl: noticeSourceUrl(notice),
     summary: archiveNoticeSummary(notice)
   };

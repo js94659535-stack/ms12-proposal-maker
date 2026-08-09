@@ -201,6 +201,7 @@ export function applyRepairPlans(sections, plans, { confirmations = {} } = {}) {
     if (plan.repairLevel === 'EVIDENCE_BASED' && !answer && plan.sourceOfTruth.level === SOURCE_OF_TRUTH[4]) { blocked.push({ plan, reason: '공식 공고·확인된 기관정보 등 근거가 없어 수정하지 않았습니다.' }); continue; }
 
     const revision = answer ? `${plan.proposedRevision.replace(/\[확인 필요[^\]]*\]/g, String(answer))}` : plan.proposedRevision;
+    let changed = false;
     for (const target of targets) {
       const before = target.content;
       const after = `${before}\n\n[수정 · ${plan.issueTypeLabel}] ${revision}`.trim();
@@ -211,8 +212,10 @@ export function applyRepairPlans(sections, plans, { confirmations = {} } = {}) {
       if (unexpected.length) { blocked.push({ plan, reason: `확정 수치가 바뀔 수 있어 수정하지 않았습니다: ${unexpected.join(' · ')}` }); continue; }
       target.content = after;
       target.status = plan.repairLevel === 'AUTO' ? '검토 필요' : '확인 필요';
+      changed = true;
     }
-    applied.push({ id: plan.id, issueType: plan.issueType, level: plan.repairLevel, sections: plan.targetSection.map(target => target.title), usedAnswer: Boolean(answer) });
+    // 모든 대상 문단이 보류되면 수정한 것이 없다. 반영 건수로 세면 같은 내용의 새 버전이 만들어진다.
+    if (changed) applied.push({ id: plan.id, issueType: plan.issueType, level: plan.repairLevel, sections: plan.targetSection.map(target => target.title), usedAnswer: Boolean(answer) });
   }
 
   return { sections: current, applied, questions, blocked };
