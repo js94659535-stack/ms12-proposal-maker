@@ -43,7 +43,7 @@ const HOME_FLOW = [
   { no: '03', title: '사업 설계', desc: '대상 · 프로그램 · 예산 · 성과', step: 3, covers: [3], items: ['신청유형 선택', '설계도 한 장 확정', '확인 필요 항목 입력'] },
   { no: '04', title: '계획서 작성', desc: '근거 기반 V1 작성', step: 4, covers: [4], items: ['마스터 설계', '항목별 초안 생성', '근거·인용 연결'] },
   { no: '05', title: '검토·수정', desc: 'AI 코칭 · V2 · 사용자 결정', step: 5, covers: [5], items: ['평가기준 검증', '수정계획 분류', '사용자 확정 반영'] },
-  { no: '06', title: '제출·보관', desc: '최종본 · DOCX/PDF · 자료보관', step: 5, covers: [], items: ['제출 전 확인 목록', 'DOCX·PDF 출력', '계획서보관함 저장'] }
+  { no: '06', title: '제출·보관', desc: '최종본 · DOCX/PDF · 계획서보관함', step: 5, covers: [], items: ['제출 전 확인 목록', 'DOCX·PDF 출력', '계획서보관함 저장'] }
 ];
 const STEP_GUIDE = [
   { title: '공고 준비', icon: '①', desc: '공고를 가져오거나 공고문·양식을 올립니다.', items: ['기관 공고 조회', '공고문·신청서 업로드', '공고보관함 불러오기'] },
