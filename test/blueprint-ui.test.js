@@ -164,6 +164,9 @@ test('첫 화면과 상단 표시가 서비스용 한국어로 정리되어 있�
   assert.match(app, /사업계획서 작성 도우미/);
   // 첫 화면 진입 경로 4가지
   assert.match(app, /id="start-panel"/);
+  // 첫 화면(공고 가져오기)에서 실제로 렌더링된다.
+  assert.ok(app.includes('function noticeImportView() {\n  return `${startPanelView()}'), '시작 패널이 첫 화면에 연결되지 않았습니다');
+  assert.ok(app.includes('function startPanelView()'), 'startPanelView 없음');
   for (const label of ['새 사업계획서 시작', '계속하기', '계획서 검증·코칭', '최근 작업 보기']) assert.ok(app.includes(label), label);
   assert.match(app, /querySelector\('#open-coaching-home'\)\?\.addEventListener/);
   // 단계 메뉴 가로 스크롤 제거와 현재 단계 강조

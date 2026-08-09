@@ -162,7 +162,8 @@ function footer({ next = true, back = true, nextLabel = '다음 단계', nextId 
   return `<div class="actions">${back && state.step > 0 ? '<button class="button secondary" id="back">이전</button>' : '<span></span>'}${next ? `<button class="button primary" id="${nextId}">${nextLabel} →</button>` : ''}</div>`;
 }
 
-function setupView() {
+// 첫 화면 시작 안내. 새로 시작 / 이어서 작성 / 검증 / 최근 작업 진입점을 한곳에 둔다.
+function startPanelView() {
   const writing = state.sections.length > 0;
   const versions = (state.proposalVersions || []).length;
   const recent = (state.archiveProposals || []).slice(0, 3);
@@ -176,9 +177,7 @@ function setupView() {
       </div>
       ${recent.length ? `<div class="requirement-list">${recent.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(archiveStageLabel(item.stage))}</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(String(item.updatedAt || item.createdAt || '').slice(0, 16).replace('T', ' '))}</small></div></div><button class="button secondary" data-open-archived-proposal="${escapeHtml(item.id)}">이어서 작업</button></article>`).join('')}</div>` : ''}
     </div>
-    <div class="card form-card">
-    <div class="two-col"><div class="field"><label for="project-title">공고명 또는 사업명</label><input id="project-title" value="${escapeHtml(state.project.title)}" placeholder="예: 2026년 학생 마음건강 프로그램 위탁 운영"></div><div class="field"><label for="issuer">발주·지원 기관</label><input id="issuer" value="${escapeHtml(state.project.issuer)}" placeholder="원문 분석 후 자동 보완 가능"></div></div>
-    <div class="field narrow"><label for="deadline">제출 마감일</label><input id="deadline" type="date" value="${escapeHtml(state.project.deadline)}"></div>${footer()}</div>`;
+`;
 }
 
 function noticeListView() {
@@ -191,7 +190,7 @@ function noticeListView() {
 }
 
 function noticeImportView() {
-  return `<div class="page-heading"><div><h2>공고와 신청 자료를 가져오세요</h2><p>기관 공고를 조회하거나 공식 공고문·신청서를 직접 추가할 수 있습니다.</p></div><span class="privacy">🔒 파일은 분석 요청 시에만 전송됩니다</span></div>
+  return `${startPanelView()}<div class="page-heading"><div><h2>공고와 신청 자료를 가져오세요</h2><p>기관 공고를 조회하거나 공식 공고문·신청서를 직접 추가할 수 있습니다.</p></div><span class="privacy">🔒 파일은 분석 요청 시에만 전송됩니다</span></div>
     <div class="card"><div class="card-title"><div><h3>기관 공고 가져오기</h3><span>사랑의열매 중앙회 · 광주지회</span></div><button class="button primary" id="fetch-notices">공고 가져오기</button></div><p class="muted">${state.noticeResults.length ? `진행 중 공고 ${state.noticeResults.length}건을 가져왔습니다.` : '버튼을 누를 때만 공식 공모사업을 조회합니다.'}<br><b>지금 가져온 목록은 이 화면에서만 쓰는 임시 목록</b>이며 새로고침하면 사라집니다. 과거에 가져온 공고는 아래 <b>「자료보관함」</b>에서 검색해 다시 열 수 있습니다.</p>${state.noticeResults.length ? '<div class="actions"><span></span><button class="button primary" data-step="1">가져온 공고 확인 →</button></div>' : ''}</div>
     <div class="source-grid"><div class="card"><div class="card-title"><h3>공고문·신청서 업로드</h3><span>PDF · DOCX · TXT · HWPX</span></div><label class="dropzone" for="source-files"><strong>파일을 선택하거나 여기에 놓으세요</strong><small>스캔 PDF는 OCR이 필요할 수 있습니다.</small><input id="source-files" type="file" accept=".pdf,.docx,.txt,.hwpx" multiple></label><div class="file-list">${state.files.length ? state.files.map((f, i) => `<div class="file-item"><span class="file-badge">${escapeHtml(f.type)}</span><div><strong>${escapeHtml(f.name)}</strong><small>${Number(f.characters || 0).toLocaleString()}자</small></div><button data-remove-file="${i}" aria-label="파일 제거">×</button></div>`).join('') : '<p class="empty-inline">업로드한 파일이 없습니다.</p>'}</div></div>
     <div class="card"><div class="card-title"><h3>공고문 직접 붙여넣기</h3><span id="char-count">${state.sourceText.length.toLocaleString()}자</span></div><textarea id="source-text" class="source-text" placeholder="기관 공고문 또는 신청서 원문을 붙여넣으세요.">${escapeHtml(state.sourceText)}</textarea></div></div>
