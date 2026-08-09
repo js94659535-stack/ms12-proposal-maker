@@ -184,9 +184,13 @@ test('첫 화면과 상단 표시가 서비스용 한국어로 정리되어 있�
 
 test('홈 랜딩은 상단 메뉴·대화형 시작창·마지막 CTA를 갖춘다', () => {
   const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
-  for (const label of ['제품소개', '이용방법', '주요기능', '무료로 시작하기', '공고문을 업로드하거나 사업 내용을 입력해 주세요', '공고문 업로드', '직접 입력', '서비스 화면']) {
+  for (const label of ['제품소개', '이용방법', '주요기능', '새 사업계획서 시작', '공고문을 올리거나 사업 내용을 입력하면 첫 단계부터 안내합니다', '공고문 업로드', '직접 입력', '서비스 화면']) {
     assert.ok(app.includes(label), label);
   }
+  // 6단계는 좌우로 넘겨 보고, 세로 스크롤 흐름은 그대로 유지한다.
+  assert.match(app, /class="home-deck-track" data-deck-track/);
+  assert.match(app, /data-deck-prev|data-deck-next/);
+  assert.match(app, /querySelectorAll\('\[data-deck\]'\)/);
   // 상단 메뉴는 랜딩 섹션으로 이동하고, 시작창은 기존 공고 준비 흐름으로 연결한다.
   assert.match(app, /data-home-scroll="home-product"/);
   assert.match(app, /querySelectorAll\('\[data-home-scroll\]'\)/);

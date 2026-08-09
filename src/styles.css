@@ -75,9 +75,63 @@
 .home-header nav{display:flex;gap:8px;flex-wrap:wrap}
 .button.ghost{background:transparent;color:#dbe4ef;border:1px solid #33465f;border-radius:9px;padding:10px 14px;font-weight:700}
 .home-header .button.primary{background:#1f8f63}
-.home-hero{padding:56px 0 44px;border-bottom:1px solid #eceae6}
-.home-hero h1{font-size:42px;line-height:1.3;letter-spacing:-.03em;margin:0 0 18px;color:var(--navy)}
-.home-hero p{max-width:720px;color:#55606f;font-size:16px;line-height:1.8;margin:0}
+/* 히어로: 화면 폭을 꽉 쓰는 딥네이비 밴드 + 큰 타이포 */
+.home-hero{position:relative;isolation:isolate;margin:0 -28px;padding:76px 28px 56px;background:linear-gradient(160deg,#0f1d31 0%,#16294a 55%,#122741 100%);color:#eaf0f8;border-bottom:0;overflow:hidden}
+.home-hero-bg{position:absolute;inset:0;z-index:-1;pointer-events:none}
+.home-hero-bg span{position:absolute;border-radius:50%;filter:blur(70px);opacity:.5}
+.home-hero-bg span:first-child{width:420px;height:420px;top:-150px;right:-90px;background:#1f8f63}
+.home-hero-bg span:last-child{width:360px;height:360px;bottom:-180px;left:-60px;background:#3157d5;opacity:.35}
+.home-hero-inner{max-width:920px}
+.home-eyebrow{display:inline-block;padding:5px 12px;border:1px solid rgba(255,255,255,.22);border-radius:999px;font-size:12px;letter-spacing:.04em;color:#a8d8c2;margin-bottom:20px}
+.home-hero h1{font-size:clamp(34px,6vw,64px);line-height:1.12;letter-spacing:-.04em;margin:0 0 20px;color:#fff;font-weight:800}
+.home-hero h1 em{font-style:normal;color:#5ad39b}
+.home-hero p.home-lead{max-width:640px;color:#b8c6d8;font-size:clamp(15px,1.6vw,18px);line-height:1.75;margin:0}
+.home-hero .home-actions .button.secondary,.home-hero .home-actions .button.ghost{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.24);color:#eaf0f8}
+.home-hero .home-actions .button.ghost:hover,.home-hero .home-actions .button.secondary:hover{background:rgba(255,255,255,.16)}
+.home-hero-stats{display:flex;gap:34px;flex-wrap:wrap;margin-top:38px;padding-top:24px;border-top:1px solid rgba(255,255,255,.14)}
+.home-hero-stats b{display:block;font-size:20px;color:#fff;letter-spacing:-.02em}
+.home-hero-stats span{display:block;font-size:12.5px;color:#93a4bb;margin-top:4px}
+.home-scroll-cue{margin-top:34px;background:none;border:0;color:#8fa3bd;font-size:13px;padding:0}
+.home-scroll-cue:hover{color:#fff}
+/* 덱: 가로로 넘겨 보는 카드 열 */
+.home-deck{position:relative;margin-top:6px}
+.home-deck-track{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(280px,32%);gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scroll-padding-left:2px;padding:2px 2px 14px;scrollbar-width:thin}
+.home-deck-track>*{scroll-snap-align:start}
+.home-deck-nav{display:flex;align-items:center;gap:12px;justify-content:flex-end}
+.home-deck-arrow{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:#fff;color:var(--navy);font-size:14px;line-height:1}
+.home-deck-arrow:hover{border-color:var(--blue);color:var(--blue)}
+.home-deck-dots{display:flex;gap:6px;margin-right:auto}
+.home-deck-dot{width:7px;height:7px;padding:0;border:0;border-radius:50%;background:#d6dbe3}
+.home-deck-dot.active{background:var(--navy);width:20px;border-radius:999px}
+/* 단계 화면 머리말 */
+.stage-hero{margin:0 -28px 22px;padding:34px 28px 26px;background:linear-gradient(150deg,#0f1d31,#1a3155);color:#eaf0f8;border-radius:0 0 22px 22px}
+.stage-hero h1{font-size:clamp(24px,3.4vw,36px);line-height:1.2;letter-spacing:-.03em;margin:0 0 10px;color:#fff}
+.stage-hero p{margin:0;max-width:680px;color:#b8c6d8;font-size:14.5px;line-height:1.75}
+.stage-hero .home-actions{margin-top:18px}
+.stage-hero .home-actions .button{padding:10px 18px;background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.24);color:#eaf0f8}
+.stage-hero .home-actions .button:hover{background:rgba(255,255,255,.18)}
+.stage-routes{margin-top:24px}
+.stage-routes .home-deck-track{grid-auto-columns:minmax(230px,1fr);padding-bottom:10px}
+.stage-route{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16);border-radius:14px;padding:16px 18px;display:flex;flex-direction:column;gap:7px}
+.stage-route-no{font-size:11px;letter-spacing:.1em;color:#7f95b3}
+.stage-route h3{margin:0;font-size:15px;color:#fff}
+.stage-route p{font-size:12.5px;color:#a9bad0;line-height:1.65;flex:1}
+.stage-route .button{align-self:flex-start;padding:8px 14px;font-size:13px}
+.stage-route .button.primary{background:#1f8f63;border-color:#1f8f63}
+.stage-route .button.secondary{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.2);color:#fff}
+.stage-hero .home-deck-arrow{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.22);color:#fff}
+.stage-hero .home-deck-dot{background:rgba(255,255,255,.3)}
+.stage-hero .home-deck-dot.active{background:#5ad39b}
+@media(max-width:980px){
+  .home-hero,.stage-hero{margin-left:-22px;margin-right:-22px;padding-left:22px;padding-right:22px}
+  .home-deck-track{grid-auto-columns:minmax(250px,80%)}
+}
+@media(max-width:600px){
+  .home-hero{padding-top:52px;margin-left:-16px;margin-right:-16px;padding-left:16px;padding-right:16px}
+  .stage-hero{margin-left:-16px;margin-right:-16px;padding-left:16px;padding-right:16px}
+  .home-hero-stats{gap:20px}
+  .home-deck-track{grid-auto-columns:minmax(220px,88%)}
+}
 .home-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:28px}
 .home-actions .button{padding:14px 24px}
 .home-actions .button.primary{background:#1f8f63}
@@ -135,8 +189,11 @@
 .home-hero h1{font-size:46px;line-height:1.24;letter-spacing:-.035em;color:#10233c;margin:0 0 18px}
 .home-hero p{font-size:17px;color:#4d5a6b;max-width:720px}
 .home-actions .button.primary{background:#0f9d76}
-.home-startbox{margin-top:36px;background:#fff;border:1px solid #e6e2da;border-radius:14px;padding:26px;max-width:760px}
-.home-startbox-title{margin:0 0 16px;font-size:16px;font-weight:800;color:#10233c}
+/* 대화형 시작창: 히어로 위에 떠 있는 카드 */
+.home-startbox{margin-top:40px;background:rgba(255,255,255,.97);border:1px solid rgba(255,255,255,.4);border-radius:18px;padding:24px 26px;max-width:760px;box-shadow:0 22px 48px rgba(6,16,32,.28)}
+.home-startbox-head{display:flex;align-items:flex-start;gap:10px;margin-bottom:16px}
+.home-dot{flex:none;width:9px;height:9px;margin-top:6px;border-radius:50%;background:#1f8f63;box-shadow:0 0 0 4px rgba(31,143,99,.18)}
+.home-startbox-title{margin:0;font-size:15.5px;font-weight:700;color:#10233c;line-height:1.6}
 .home-startbox-actions{display:flex;gap:10px;flex-wrap:wrap}
 .home-startbox-actions .button{padding:12px 20px}
 .home-startbox-note{margin:14px 0 0;color:var(--muted);font-size:13px}
@@ -179,26 +236,42 @@
 .archive-filter{display:flex;flex-direction:column;gap:4px;font-size:12px;color:#5c6673;font-weight:700}
 .archive-filter select{padding:7px 8px;border:1px solid var(--line);border-radius:7px;font-size:12.5px;background:#fff;min-width:110px}
 .archive-bulk{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:10px 0;font-size:12.5px;color:#5c6673}
-/* 표는 평평하게 둔다. 테두리 박스·음영 없이 가로선으로만 행을 나눈다. */
+/* 표는 평평하게 둔다. 박스·음영 없이 행 divider와 여백으로만 구분한다. */
 .archive-table-wrap{overflow-x:auto;background:#fff}
-.archive-table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:880px;background:#fff}
+.archive-table{width:100%;border-collapse:collapse;font-size:13px;min-width:860px;background:#fff}
 .archive-table tbody tr{cursor:context-menu}
-.archive-table tbody tr:hover td{background:#fbfcfe}
-.archive-table th,.archive-table td{padding:10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle;white-space:nowrap;background:none}
-.archive-table thead th{background:#fff;color:#5c6673;font-weight:700;font-size:11.5px;letter-spacing:.02em;border-bottom:1px solid var(--line);position:sticky;top:0}
-.archive-table th.archive-check,.archive-table td:first-child{width:34px;text-align:center}
-.archive-table tr.selected td{background:#f5f9ff}
-.archive-table td.archive-num{font-variant-numeric:tabular-nums;color:#5c6673}
-.archive-table td.archive-num.closed{color:#b23b3b;font-weight:700}
-.archive-table td.archive-title{white-space:normal;max-width:360px}
-.archive-sort{background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer;font-weight:700}
-.archive-sort.active{color:var(--navy);font-weight:800}
+.archive-table tbody tr:hover td{background:#fafbfd}
+.archive-table th,.archive-table td{padding:7px 12px;border:0;border-bottom:1px solid #eef0f4;text-align:left;vertical-align:middle;white-space:nowrap;background:none;line-height:1.5}
+.archive-table thead th{background:#fcfcfd;color:#8a929c;font-weight:600;font-size:11px;letter-spacing:.04em;padding:8px 12px;border-bottom:1px solid #e6e9ee;position:sticky;top:0}
+.archive-table th.archive-check,.archive-table td.archive-check{width:32px;padding-left:14px;padding-right:0;text-align:left}
+.archive-table td.archive-check input{accent-color:var(--blue);width:14px;height:14px;cursor:pointer}
+.archive-table tr.selected td{background:#f6f9ff}
+.archive-table td.archive-num{font-variant-numeric:tabular-nums;color:#8a929c;font-size:12.5px;width:1%}
+.archive-table td.archive-num.closed{color:#b06a6a}
+.archive-table td.archive-quiet,.archive-quiet{color:#6b7481}
+.archive-table td.archive-tight{width:1%}
+.archive-table td.archive-title{white-space:normal;width:38%;min-width:260px;padding-right:24px}
+/* 사업명: 테두리 없는 굵은 텍스트 링크 */
+.archive-name{background:none;border:0;padding:0;font:inherit;font-weight:600;color:var(--navy);text-align:left;cursor:pointer;line-height:1.5}
+.archive-name:hover{color:var(--blue);text-decoration:underline;text-underline-offset:2px}
+.archive-tag{margin-left:6px;font-size:11px;color:#a2a9b3;font-weight:400}
+/* 정렬 헤더: 라벨과 작은 화살표만 */
+.archive-sort{display:inline-flex;align-items:center;gap:3px;background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer;letter-spacing:inherit}
+.archive-sort i{font-style:normal;font-size:8px;color:#c9ced6;line-height:1}
+.archive-sort:hover{color:#5c6673}
+.archive-sort.active{color:var(--navy)}
+.archive-sort.active i{color:var(--blue)}
+/* 상태: 기본 select 모양을 없애고 옅은 pill 로만 보이게 한다 */
+.archive-status-wrap{position:relative;display:inline-flex;align-items:center}
+.archive-status-wrap::after{content:'▾';position:absolute;right:7px;font-size:9px;color:#b4bac3;pointer-events:none}
+.archive-status{appearance:none;-webkit-appearance:none;padding:2px 20px 2px 8px;border:1px solid #eceef2;border-radius:999px;font:inherit;font-size:12px;color:#5c6673;background:transparent;cursor:pointer;line-height:1.6}
+.archive-status:hover{border-color:#dfe3e9;background:#fafbfd}
+/* 텍스트형 액션: 신청기관 매칭·삭제 */
+.archive-action{background:none;border:0;padding:2px 6px;margin-left:-6px;border-radius:6px;font:inherit;font-size:12.5px;color:#6b7481;text-align:left;cursor:pointer}
+.archive-action:hover{background:#f2f5fa;color:var(--blue)}
+.archive-action.danger{color:#b4bac3;font-size:12px}
+.archive-action.danger:hover{background:#fdf3f3;color:#b23b3b}
 .archive-link{background:none;border:0;padding:0;font:inherit;color:var(--blue);cursor:pointer;text-align:left;text-decoration:none}
-/* 사업명은 박스 없는 강조 텍스트, 신청기관은 평평한 보조 텍스트로 둔다. */
-.archive-table td.archive-title .archive-link{color:var(--navy);font-weight:700;line-height:1.55}
-.archive-table td.archive-title .archive-link:hover{text-decoration:underline}
-.archive-table td:nth-child(8) .archive-link{color:#5c6673;font-weight:500}
-.archive-table td:nth-child(8) .archive-link:hover{color:var(--blue)}
 .archive-link.danger{color:#b23b3b}
 .archive-status{padding:5px 6px;border:1px solid var(--line);border-radius:6px;font-size:12px;background:#fff}
 /* [샘플] 예시 프로젝트 목차 */

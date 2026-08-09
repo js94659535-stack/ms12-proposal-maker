@@ -235,19 +235,32 @@ function homeView() {
       </header>
 
       <section class="home-hero" id="home-product">
-        <h1>공고 분석부터 제출본까지,<br>하나의 흐름으로</h1>
-        <p>공고문을 분석하고 기관정보와 연결해 사업설계·작성·검증·제출까지 지원합니다.</p>
-        <div class="home-actions"><button class="button primary" data-home-start="1">무료로 시작하기</button><button class="button secondary" data-open-sample="notice">[샘플] 예시로 먼저 보기</button><button class="button secondary" data-home-continue="1" ${writing ? '' : 'disabled'}>작성 중인 계획서 계속하기</button></div>
-        <div class="home-startbox">
-          <p class="home-startbox-title">공고문을 업로드하거나 사업 내용을 입력해 주세요</p>
-          <div class="home-startbox-actions"><button class="button primary" data-home-upload="1">공고문 업로드</button><button class="button secondary" data-home-manual="1">직접 입력</button></div>
-          <p class="home-startbox-note">PDF · DOCX · TXT · HWPX 파일을 읽고, 공고문이 없으면 사업 내용을 직접 입력해 시작할 수 있습니다.</p>
+        <div class="home-hero-bg" aria-hidden="true"><span></span><span></span></div>
+        <div class="home-hero-inner">
+          <span class="home-eyebrow">공모사업 계획서 작성·검증 플랫폼</span>
+          <h1>공고 한 건에서<br><em>제출본</em>까지</h1>
+          <p class="home-lead">공고를 분석해 선정 논리를 세우고, 기관 정보와 연결해 설계·작성·검증·제출까지 한 흐름으로 진행합니다.</p>
+          <div class="home-actions"><button class="button primary" data-home-start="1">새 사업계획서 시작</button><button class="button secondary" data-home-continue="1" ${writing ? '' : 'disabled'}>작성 중인 계획서 계속하기</button><button class="button ghost" data-open-sample="notice">[샘플] 예시 먼저 보기</button></div>
+          <div class="home-hero-stats">
+            <div><b>6단계</b><span>공고 준비 → 제출·보관</span></div>
+            <div><b>11항목</b><span>공고 선정 논리 구조화</span></div>
+            <div><b>V1·V2·V3</b><span>버전을 덮어쓰지 않고 보존</span></div>
+          </div>
         </div>
+        <div class="home-startbox">
+          <div class="home-startbox-head"><span class="home-dot"></span><p class="home-startbox-title">공고문을 올리거나 사업 내용을 입력하면 첫 단계부터 안내합니다</p></div>
+          <div class="home-startbox-actions"><button class="button primary" data-home-upload="1">공고문 업로드</button><button class="button secondary" data-home-manual="1">직접 입력</button><button class="button ghost" data-home-archive="1">보관함에서 열기</button></div>
+          <p class="home-startbox-note">PDF · DOCX · TXT · HWPX를 읽습니다. 파일은 분석을 요청할 때만 전송되고 화면 상태는 이 브라우저에 저장됩니다.</p>
+        </div>
+        <button class="home-scroll-cue" data-home-scroll="home-flow" aria-label="아래로 이동">여섯 단계 살펴보기 ↓</button>
       </section>
 
-      <section class="home-section" id="home-flow">
-        <div class="home-head"><h2>업무 흐름</h2><p>여섯 단계로 나눠 진행하고, 각 단계의 세부 기능은 해당 화면에서만 다룹니다.</p></div>
-        <div class="home-flow">${HOME_FLOW.map(step => { const active = writing && step.covers.includes(state.step); return `<article class="home-step ${active ? 'current' : ''}"><span class="home-step-no">${step.no}</span><h3>${escapeHtml(step.title)}</h3><p>${escapeHtml(step.desc)}</p><ul>${step.items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>${active ? '<span class="home-step-state">진행 중</span>' : ''}<button class="button ghost" data-home-step="${step.step}">열기</button></article>`; }).join('')}</div>
+      <section class="home-section home-deck-section" id="home-flow">
+        <div class="home-head"><h2>업무 흐름 6단계</h2><p>좌우로 넘겨 단계별로 무엇을 만드는지 확인하고, 바로 그 화면으로 들어갈 수 있습니다.</p></div>
+        <div class="home-deck" data-deck>
+          <div class="home-deck-track" data-deck-track>${HOME_FLOW.map(step => { const active = writing && step.covers.includes(state.step); return `<article class="home-step ${active ? 'current' : ''}"><span class="home-step-no">${step.no}</span><h3>${escapeHtml(step.title)}</h3><p>${escapeHtml(step.desc)}</p><ul>${step.items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>${active ? '<span class="home-step-state">진행 중</span>' : ''}<button class="button ghost" data-home-step="${step.step}">이 단계 열기</button></article>`; }).join('')}</div>
+          <div class="home-deck-nav"><button class="home-deck-arrow" data-deck-prev aria-label="이전 단계">←</button><div class="home-deck-dots">${HOME_FLOW.map((step, index) => `<button class="home-deck-dot ${index === 0 ? 'active' : ''}" data-deck-go="${index}" aria-label="${escapeHtml(step.title)}"></button>`).join('')}</div><button class="home-deck-arrow" data-deck-next aria-label="다음 단계">→</button></div>
+        </div>
       </section>
 
       <section class="home-section" id="home-features">
@@ -318,13 +331,21 @@ function noticeListView() {
   return `<div class="actions"><button class="button secondary" id="remove-selected-notices" ${state.selectedNoticeIndexes.length ? '' : 'disabled'}>선택 항목을 쓰레기통으로 (${state.selectedNoticeIndexes.length})</button></div><div class="requirement-list">${cards}</div>`;
 }
 
+// 두 번째 화면(공고 준비)의 머리말. 홈에서 넘어온 흐름을 그대로 잇고 진입 경로 세 가지를 먼저 보여 준다.
+function stageHero({ eyebrow, title, lead, actions = '', routes = [] }) {
+  return `<section class="stage-hero">
+    <div class="stage-hero-text"><span class="home-eyebrow">${escapeHtml(eyebrow)}</span><h1>${escapeHtml(title)}</h1><p>${escapeHtml(lead)}</p>${actions ? `<div class="home-actions">${actions}</div>` : ''}</div>
+    ${routes.length ? `<div class="home-deck stage-routes" data-deck><div class="home-deck-track" data-deck-track>${routes.map((route, index) => `<article class="stage-route"><span class="stage-route-no">${String(index + 1).padStart(2, '0')}</span><h3>${escapeHtml(route.title)}</h3><p>${escapeHtml(route.desc)}</p><button class="button ${index === 0 ? 'primary' : 'secondary'}" data-route="${escapeHtml(route.action)}">${escapeHtml(route.label)}</button></article>`).join('')}</div>
+      <div class="home-deck-nav"><button class="home-deck-arrow" data-deck-prev aria-label="이전">←</button><div class="home-deck-dots">${routes.map((route, index) => `<button class="home-deck-dot ${index === 0 ? 'active' : ''}" data-deck-go="${index}" aria-label="${escapeHtml(route.title)}"></button>`).join('')}</div><button class="home-deck-arrow" data-deck-next aria-label="다음">→</button></div></div>` : ''}
+  </section>`;
+}
 function noticeImportView() {
-  return `<div class="page-heading"><div><h2>공고와 신청 자료를 가져오세요</h2><p>기관 공고를 조회하거나 공식 공고문·신청서를 직접 추가할 수 있습니다.</p></div><div class="actions">${sampleButton('notice', '[샘플] 공고 보기')}</div><span class="privacy">🔒 파일은 분석 요청 시에만 전송됩니다</span></div>
+  return `${stageHero({ eyebrow: '1단계 · 공고 준비', title: '어떤 공고로 시작할까요?', lead: '공식 공고를 가져오거나 가지고 있는 공고문을 올리면 다음 단계부터 자동으로 이어집니다. 파일은 분석을 요청할 때만 전송됩니다.', actions: sampleButton('notice', '[샘플] 공고 먼저 보기'), routes: [{ title: '공식 공고 가져오기', desc: '사랑의열매 중앙회·광주지회 진행 중 공고를 조회해 목록으로 가져옵니다.', label: '공고 조회', action: 'fetch' }, { title: '공고문·신청서 업로드', desc: 'PDF·DOCX·TXT·HWPX 파일을 읽어 분석 자료로 씁니다.', label: '파일 선택', action: 'upload' }, { title: '보관함에서 다시 열기', desc: '전에 가져온 공고와 저장한 계획서를 검색해 이어서 작업합니다.', label: '자료보관함 열기', action: 'archive' }] })}
     <div class="card"><div class="card-title"><div><h3>기관 공고 가져오기</h3><span>사랑의열매 중앙회 · 광주지회</span></div><button class="button primary" id="fetch-notices">공고 가져오기</button></div><p class="muted">${state.noticeResults.length ? `진행 중 공고 ${state.noticeResults.length}건을 가져왔습니다.` : '버튼을 누를 때만 공식 공모사업을 조회합니다.'}<br><b>지금 가져온 목록은 이 화면에서만 쓰는 임시 목록</b>이며 새로고침하면 사라집니다. 과거에 가져온 공고는 아래 <b>「자료보관함」</b>에서 검색해 다시 열 수 있습니다.</p>${state.noticeResults.length ? '<div class="actions"><span></span><button class="button primary" data-step="1">가져온 공고 확인 →</button></div>' : ''}</div>
     <div class="source-grid"><div class="card"><div class="card-title"><h3>공고문·신청서 업로드</h3><span>PDF · DOCX · TXT · HWPX</span></div><label class="dropzone" for="source-files"><strong>파일을 선택하거나 여기에 놓으세요</strong><small>스캔 PDF는 OCR이 필요할 수 있습니다.</small><input id="source-files" type="file" accept=".pdf,.docx,.txt,.hwpx" multiple></label><div class="file-list">${state.files.length ? state.files.map((f, i) => `<div class="file-item"><span class="file-badge">${escapeHtml(f.type)}</span><div><strong>${escapeHtml(f.name)}</strong><small>${Number(f.characters || 0).toLocaleString()}자</small></div><button data-remove-file="${i}" aria-label="파일 제거">×</button></div>`).join('') : '<p class="empty-inline">업로드한 파일이 없습니다.</p>'}</div></div>
     <div class="card"><div class="card-title"><h3>공고문 직접 붙여넣기</h3><span id="char-count">${state.sourceText.length.toLocaleString()}자</span></div><textarea id="source-text" class="source-text" placeholder="기관 공고문 또는 신청서 원문을 붙여넣으세요.">${escapeHtml(state.sourceText)}</textarea></div></div>
     ${manualSourcesView()}
-    <details class="card org-details"><summary>누락 공고 URL과 공식 사이트</summary><div class="actions"><a class="button secondary" href="https://chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">중앙회 공식 사이트</a><a class="button secondary" href="https://gwangju.chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">광주지회 공식 사이트</a></div><div class="field"><label for="missing-notice-url">누락 공고 상세 URL</label><input id="missing-notice-url" type="url" value="${escapeHtml(state.noticeUrlDraft)}"><button class="button secondary" id="import-notice-url">목록에 추가</button></div></details>
+    <details class="card org-details"><summary>누락 공고 URL과 공식 사이트</summary><div class="actions"><a class="button secondary" href="https://chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">중앙회 공식 사이트</a><a class="button secondary" href="https://gwangju.chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">광주지회 공식 사이트</a></div><div class="field"><label for="missing-notice-url">누락 공고 가져오기</label><input id="missing-notice-url" type="url" value="${escapeHtml(state.noticeUrlDraft)}"><button class="button secondary" id="import-notice-url">목록에 추가</button></div></details>
     ${archiveView()}
     ${footer({ back: false, nextLabel: state.noticeResults.length ? '공고 확인' : '직접 자료로 계획서 작성', nextId: state.noticeResults.length ? 'next' : 'analyze' })}`;
 }
@@ -362,7 +383,7 @@ function archiveTableData() {
 function todayIso() { return new Date().toISOString().slice(0, 10); }
 function archiveSortButton(key, label, table) {
   const active = table.sortKey === key;
-  return `<button class="archive-sort ${active ? 'active' : ''}" data-archive-sort="${key}">${escapeHtml(label)}${active ? (table.sortDir === 'asc' ? ' ▲' : ' ▼') : ''}</button>`;
+  return `<button class="archive-sort ${active ? 'active' : ''}" data-archive-sort="${key}">${escapeHtml(label)}<i>${active ? (table.sortDir === 'asc' ? '▲' : '▼') : '▼'}</i></button>`;
 }
 function archiveSelectField(label, name, value, options, labelOf = option => option) {
   return `<label class="archive-filter"><span>${escapeHtml(label)}</span><select data-archive-filter="${name}"><option value="">전체</option>${options.map(option => `<option value="${escapeHtml(option)}" ${value === option ? 'selected' : ''}>${escapeHtml(labelOf(option))}</option>`).join('')}</select></label>`;
@@ -390,15 +411,15 @@ function archiveApplicantRow(row) {
 function archiveTableRow(row, table) {
   const selected = (table.selected || []).includes(row.key);
   return `<tr class="${selected ? 'selected' : ''}" data-archive-row="${escapeHtml(row.key)}">
-    <td><input type="checkbox" data-archive-select="${escapeHtml(row.key)}" ${selected ? 'checked' : ''} aria-label="행 선택"></td>
+    <td class="archive-check"><input type="checkbox" data-archive-select="${escapeHtml(row.key)}" ${selected ? 'checked' : ''} aria-label="행 선택"></td>
     <td class="archive-num">${escapeHtml(shortDate(row.collectedAt) || '-')}</td>
-    <td>${escapeHtml(row.institution)}</td>
-    <td>${escapeHtml(row.field)}</td>
-    <td class="archive-title"><button class="archive-link" data-archive-detail="${escapeHtml(row.key)}" title="${escapeHtml(row.summary)}">${escapeHtml(row.title.slice(0, 80))}</button>${row.isSample ? ' <small class="muted">보기 전용 예시</small>' : ''}</td>
+    <td class="archive-quiet">${escapeHtml(row.institution)}</td>
+    <td class="archive-quiet">${escapeHtml(row.field)}</td>
+    <td class="archive-title"><button class="archive-name" data-archive-detail="${escapeHtml(row.key)}" title="${escapeHtml(row.summary)}">${escapeHtml(row.title.slice(0, 80))}</button>${row.isSample ? '<small class="archive-tag">보기 전용 예시</small>' : ''}</td>
     <td class="archive-num ${row.deadline.closed ? 'closed' : ''}">${escapeHtml(row.deadline.text)}</td>
-    <td><select class="archive-status" data-archive-status="${escapeHtml(row.key)}">${ARCHIVE_STATUSES.map(status => `<option value="${escapeHtml(status)}" ${row.status === status ? 'selected' : ''}>${escapeHtml(status)}</option>`).join('')}</select></td>
-    <td>${row.isSample ? escapeHtml(row.applicantText) : `<button class="archive-link" data-archive-applicant-open="${escapeHtml(row.key)}">${escapeHtml(row.applicantText || '기관 매칭 +')}</button>`}</td>
-    <td><button class="archive-link danger" data-archive-remove="${escapeHtml(row.key)}" title="목록에서 삭제">삭제</button></td>
+    <td class="archive-tight"><span class="archive-status-wrap"><select class="archive-status" data-archive-status="${escapeHtml(row.key)}">${ARCHIVE_STATUSES.map(status => `<option value="${escapeHtml(status)}" ${row.status === status ? 'selected' : ''}>${escapeHtml(status)}</option>`).join('')}</select></span></td>
+    <td>${row.isSample ? `<span class="archive-quiet">${escapeHtml(row.applicantText)}</span>` : `<button class="archive-action" data-archive-applicant-open="${escapeHtml(row.key)}">${row.applicantText ? escapeHtml(row.applicantText) : '+ 기관 매칭'}</button>`}</td>
+    <td class="archive-tight"><button class="archive-action danger" data-archive-remove="${escapeHtml(row.key)}" title="목록에서 삭제" aria-label="목록에서 삭제">삭제</button></td>
   </tr>${table.expandedKey === row.key ? archiveDetailRow(row) : ''}${table.applicantPickerKey === row.key ? archiveApplicantRow(row) : ''}`;
 }
 function archiveView() {
@@ -761,21 +782,6 @@ function applicantQuestionsView(applicant) {
     ${plan.ask.length ? plan.ask.slice(0, 5).map((question, index) => `<div class="field"><label>${escapeHtml(question)}</label><textarea data-applicant-answer="${index}" data-question="${escapeHtml(question)}">${escapeHtml(state.designAnswers[question] || '')}</textarea></div>`).join('') : '<p class="muted">신청기관 정보만으로 현재 확인이 필요한 질문이 없습니다.</p>'}</div>`;
 }
 
-function sourceView() {
-  return `<div class="page-heading"><div><h2>기관 원문을 제공해 주세요</h2><p>공고문, 과업지시서, 제안요청서, 평가표와 신청 양식을 함께 넣을 수 있습니다.</p></div><span class="privacy">🔒 파일은 분석을 요청할 때만 서버로 전송됩니다</span></div>
-    <div class="card"><div class="card-title"><div><h3>사랑의열매 공모사업 안내</h3><span>중앙회 · 광주지회</span></div><button class="button secondary" id="fetch-notices">공고 가져오기</button></div>${noticeListView()}</div>
-    ${noticeTrashView()}
-    ${noticePreviewView()}
-    ${state.pendingNoticeChoice ? `<div class="card"><div class="card-title"><div><h3>작성할 세부사업을 선택하세요</h3><span>선택한 사업 내용만 계획서에 반영됩니다.</span></div></div><div class="requirement-list">${state.pendingNoticeChoice.subprojects.map((item, index) => `<article class="requirement"><div><span class="tag">${escapeHtml(item.id)}</span><strong>${escapeHtml(item.title)}</strong></div><button class="button primary" data-select-subproject="${index}">이 사업 선택</button></article>`).join('')}</div></div>` : ''}
-    ${selectedNoticeDetailView()}
-    ${attachmentView()}
-    ${manualSourcesView()}
-    <details class="card org-details"><summary>추가 공고 확인</summary><div class="actions"><a class="button secondary" href="https://chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">중앙회 공식 사이트</a><a class="button secondary" href="https://gwangju.chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">광주지회 공식 사이트</a></div><div class="field"><label for="missing-notice-url">누락 공고 가져오기</label><input id="missing-notice-url" type="url" value="${escapeHtml(state.noticeUrlDraft)}" placeholder="공식 상세 URL을 붙여넣으세요"><button class="button secondary" id="import-notice-url">목록에 추가</button></div></details>
-    <div class="source-grid"><div class="card"><div class="card-title"><h3>파일 업로드</h3><span>PDF · DOCX · TXT / 파일당 20MB</span></div><label class="dropzone" for="source-files"><strong>파일을 선택하거나 여기에 놓으세요</strong><small>스캔 PDF는 OCR이 필요할 수 있습니다.</small><input id="source-files" type="file" accept=".pdf,.docx,.txt,.hwpx" multiple></label><div class="file-list">${state.files.length ? state.files.map((f, i) => `<div class="file-item"><span class="file-badge">${escapeHtml(f.type)}</span><div><strong>${escapeHtml(f.name)}</strong><small>${f.pages ? `${f.pages}쪽 · ` : ''}${Number(f.characters || 0).toLocaleString()}자</small></div><button data-remove-file="${i}" aria-label="파일 제거">×</button></div>`).join('') : '<p class="empty-inline">업로드한 파일이 없습니다.</p>'}</div></div>
-    <div class="card"><div class="card-title"><h3>원문 붙여넣기</h3><span id="char-count">${state.sourceText.length.toLocaleString()}자</span></div><textarea id="source-text" class="source-text" placeholder="기관 공고문 또는 과업지시서 원문을 붙여넣으세요.">${escapeHtml(state.sourceText)}</textarea></div></div>
-    <details class="card org-details"><summary>다음 제안서에도 재사용할 확정 회사 정보</summary><p class="muted">담당자가 사실로 확인한 내용만 입력한 뒤 확정 저장하세요. 입력만 한 내용은 누적되지 않습니다.</p><textarea id="company-fact-draft" class="source-text" placeholder="예: 광주·전남 지역 운영 가능 (담당자 확인 완료)">${escapeHtml(state.companyFactDraft)}</textarea><div class="actions"><span>${state.companyFacts.length ? `확정 저장된 정보 ${state.companyFacts.length}건` : '확정 저장된 정보 없음'}</span><button class="button secondary" id="confirm-company-fact">확정 정보로 저장</button></div></details>
-    <div class="tip"><strong>정확도 높이는 방법</strong><span>평가표와 제출 양식까지 함께 제공하면 필수 조건·배점·목차 누락을 줄일 수 있습니다.</span></div>${footer({ next: !state.pendingNoticeChoice, nextLabel: '원문 분석 시작', nextId: 'analyze' })}`;
-}
 
 function noticeTrashView() {
   if (!state.noticeTrash.length) return '';
@@ -1627,6 +1633,29 @@ function bind() {
     setTimeout(() => document.querySelector('#archive-box')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
   });
   document.querySelectorAll('[data-home-recent]').forEach(el => el.onclick = () => document.querySelector('#home-recent')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  // 진입 경로 카드는 기존 동작을 그대로 부른다. 새 흐름을 만들지 않는다.
+  document.querySelectorAll('[data-route]').forEach(el => el.onclick = () => {
+    if (el.dataset.route === 'fetch') return loadOfficialNotices();
+    if (el.dataset.route === 'upload') return document.querySelector('#source-files')?.click();
+    if (el.dataset.route === 'archive') return document.querySelector('#archive-box')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  // 홈 6단계 덱: 좌우로 넘겨 보되 세로 스크롤은 그대로 둔다. 화면 상태는 바꾸지 않는다.
+  document.querySelectorAll('[data-deck]').forEach(deck => {
+    const track = deck.querySelector('[data-deck-track]');
+    const dots = [...deck.querySelectorAll('[data-deck-dot], .home-deck-dot')];
+    if (!track) return;
+    const cards = [...track.children];
+    const step = () => (cards[1] ? cards[1].offsetLeft - cards[0].offsetLeft : track.clientWidth);
+    const current = () => Math.round(track.scrollLeft / Math.max(1, step()));
+    const goTo = index => track.scrollTo({ left: Math.max(0, Math.min(cards.length - 1, index)) * step(), behavior: 'smooth' });
+    deck.querySelector('[data-deck-prev]')?.addEventListener('click', () => goTo(current() - 1));
+    deck.querySelector('[data-deck-next]')?.addEventListener('click', () => goTo(current() + 1));
+    dots.forEach(dot => dot.addEventListener('click', () => goTo(Number(dot.dataset.deckGo || 0))));
+    track.addEventListener('scroll', () => {
+      const index = current();
+      dots.forEach((dot, position) => dot.classList.toggle('active', position === index));
+    }, { passive: true });
+  });
   document.querySelectorAll('[data-home-scroll]').forEach(el => el.onclick = () => document.querySelector(`#${el.dataset.homeScroll}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   // 대화형 시작: 공고문 업로드와 직접 입력 모두 기존 공고 준비 단계로 연결한다.
   document.querySelectorAll('[data-home-upload]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(0, { notice: '공고문·신청서 파일을 업로드해 주세요. 아래 업로드 영역에 파일을 끌어다 놓아도 됩니다.', error: '' }); });

@@ -92,7 +92,7 @@ test('업로드 화면과 안내 문구에 HWPX가 연결된다', () => {
   assert.doesNotMatch(filesSource, /jszip|pako|fflate/i);
 
   const appSource = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
-  assert.equal((appSource.match(/accept="\.pdf,\.docx,\.txt,\.hwpx"/g) || []).length, 5);
+  assert.equal((appSource.match(/accept="\.pdf,\.docx,\.txt,\.hwpx"/g) || []).length, 4);
   assert.match(appSource, /PDF·DOCX·TXT·HWPX 불러오기/);
   assert.doesNotMatch(appSource, /accept="\.pdf,\.docx,\.txt"/);
 });

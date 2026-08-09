@@ -53,7 +53,7 @@ test('과거 공고는 자료보관함에서 찾고 임시 목록과 구분해 �
 test('자료보관함 표는 복수 기관 매칭·작업 단계 이동·목록 삭제를 지원한다', () => {
   // 한 공고에 여러 신청기관을 연결하되 기관별 계획서 작업은 따로 유지한다.
   assert.match(appSource, /data-archive-applicant="\$\{escapeHtml\(row\.key\)\}"/);
-  assert.match(appSource, /기관 매칭 \+/);
+  assert.match(appSource, /'\+ 기관 매칭'/);
   assert.match(appSource, /기관별 계획서 작업은 각각 따로 유지됩니다/);
   // 작업 이동은 행 우클릭(모바일은 길게 누르기) 메뉴에서만 하고 기존 단계 이동 함수를 그대로 쓴다.
   assert.match(appSource, /function startArchiveWork\(key, step, applicantId = ''\)/);
