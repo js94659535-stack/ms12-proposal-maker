@@ -115,7 +115,8 @@ async function runProbe(env) {
 async function requestOpenAI(env, { policy, input, schema, schemaName, maxOutputTokens, reasoningEffort, background = false }) {
   const startedAt = Date.now();
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 300_000);
+  // background 시작 요청만 조금 더 길게 둔다. 호출 측 대기 한도(420초)보다 반드시 짧아야 서버가 통제된 오류를 돌려준다.
+  const timeout = setTimeout(() => controller.abort(), background ? 360_000 : 300_000);
   try {
     // background=true requires OpenAI to retain response data temporarily for polling (about 10 minutes), even with store=false.
     const response = await fetch('https://api.openai.com/v1/responses', { method: 'POST', signal: controller.signal, headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: env.OPENAI_MODEL, store: false, ...(background ? { background: true } : {}), reasoning: { effort: reasoningEffort }, max_output_tokens: maxOutputTokens, input: [{ role: 'developer', content: [{ type: 'input_text', text: policy }] }, { role: 'user', content: [{ type: 'input_text', text: input }] }], text: { verbosity: 'medium', format: { type: 'json_schema', name: schemaName, strict: true, schema } } }) });

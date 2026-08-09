@@ -334,3 +334,13 @@ test('background 작업 상태는 D1에 두고 다른 키 조회를 막으며 �
     assert.equal((await call({ action: 'startCoaching', proposalText }, headers, { OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'mock-model' })).status, 503);
   } finally { globalThis.fetch = originalFetch; }
 });
+
+test('background 시작 요청 제한은 호출 측 대기 한도보다 짧게 둔다', () => {
+  const source = fs.readFileSync(new URL('../functions/api/proposal-coaching.js', import.meta.url), 'utf8');
+  // background 시작만 360초, 나머지 요청은 기존 300초 유지
+  assert.match(source, /background \? 360_000 : 300_000/);
+  // 조회(retrieve)와 background 구조는 그대로 둔다.
+  assert.match(source, /setTimeout\(\(\) => controller\.abort\(\), 25_000\)/);
+  assert.match(source, /background: true/);
+  assert.match(source, /rememberCoachingJob\(env, access\.ownerHash, jobId, payload\)/);
+});
