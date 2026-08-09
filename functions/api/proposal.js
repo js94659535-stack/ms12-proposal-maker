@@ -82,8 +82,10 @@ export async function onRequest(context) {
       Object.assign(result, masterReviewState(result, body.payload));
     }
     if (body.action === 'draftPart') {
-      const partError = validatePartResult(result, body.payload.group);
+      const partError = validatePartResult(result, body.payload.group, body.payload);
       if (partError) return json({ error: partError }, 502);
+      // 자기점검 실패·공고 충돌만으로는 분할 결과를 폐기하지 않는다. 상태로 알린다.
+      Object.assign(result, partReviewState(result, body.payload));
     }
     return json(result);
   } catch (error) {
@@ -351,14 +353,61 @@ export function masterReviewState(result, payload = {}) {
   };
 }
 
-export function validatePartResult(result, group) {
+// 분할 결과로 쓸 수 없는 구조적 실패만 막는다. 모델 자기점검·품질 판단은 partReviewState의 경고로 내린다.
+export function validatePartResult(result, group, payload = {}) {
   const expected = Array.isArray(group?.sectionKeys) ? group.sectionKeys : [];
   const actual = Array.isArray(result?.sections) ? result.sections.map(value => value.id) : [];
   if (!expected.length || actual.length !== expected.length || new Set(actual).size !== actual.length || expected.some(key => !actual.includes(key))) return '분할 생성 결과가 요청한 신청서 항목과 일치하지 않습니다.';
-  const continuity = result?.continuityCheck;
-  if (!continuity?.masterAligned || !continuity?.applicationStructureAligned || !continuity?.terminologyConsistent || !continuity?.numericConsistent || !continuity?.noUnnecessaryRepetition || continuity?.issues?.length) return `분할 생성 결과의 마스터 정합성 또는 연속성 검증에 실패했습니다.${continuity?.issues?.length ? ` ${continuity.issues.join(' · ')}` : ''}`;
+  if (result.sections.some(value => String(value.content || '').trim().length < 30)) return '분할 생성 결과에 본문이 비어 있는 항목이 있습니다.';
   if (!result?.continuitySummary || jsonLength(result.continuitySummary) > 20_000) return '분할 생성 결과의 압축 연속성 요약이 없거나 너무 깁니다.';
-  return '';
+  return mixedTypeInSections(result.sections, payload);
+}
+
+// 선택하지 않은 신청유형이 설계 문장으로 섞였는지만 결정적으로 본다.
+// 공식 근거 인용·충돌 설명·유형 구분을 위한 언급은 혼입으로 보지 않는다.
+const EXPLANATORY = /충돌|근거|공고|제외|해당하지|아니라|구분|비교|참고/;
+export function mixedTypeInSections(sections, payload = {}) {
+  const selected = String(payload.projectBlueprint?.applicationType || '').trim();
+  const others = (payload.projectBlueprint?.otherApplicationTypes || []).filter(name => name && name !== selected);
+  if (!selected || selected.startsWith('[') || !others.length) return '';
+  const markers = [...others, ...(others.includes('아동보호형') ? ['요보호아동'] : [])];
+  const design = (sections || [])
+    .flatMap(section => String(section.content || '').split(/(?<=[.!?])\s+|\n+/))
+    .filter(sentence => markers.some(marker => sentence.includes(marker)))
+    .filter(sentence => !sentence.includes(selected) && !EXPLANATORY.test(sentence));
+  if (!design.length) return '';
+  return `선택하지 않은 신청유형(${[...new Set(markers.filter(marker => design.some(sentence => sentence.includes(marker))))].join(' · ')}) 조건이 설계 내용으로 섞였습니다.`;
+}
+
+// 분할 결과는 유지하고 사람이 확인해야 하는 부분만 상태로 알린다.
+export function partReviewState(result, payload = {}) {
+  const flags = { masterAligned: '마스터 정합성', applicationStructureAligned: '신청서 구조 대응', terminologyConsistent: '용어 일관성', numericConsistent: '수치 일관성', noUnnecessaryRepetition: '불필요한 반복 없음' };
+  const continuity = result?.continuityCheck || {};
+  const warnings = Object.entries(flags)
+    .filter(([key]) => continuity[key] === false)
+    .map(([key, label]) => ({ check: key, label, message: `모델 자기점검에서 ${label} 항목이 통과되지 않았습니다. 분할 결과는 유지하고 사람이 확인해야 합니다.` }));
+  const issues = Array.isArray(continuity.issues) ? continuity.issues : [];
+  const officialConflicts = (payload.projectBlueprint?.officialConflicts || []).map(item => ({ type: 'OFFICIAL_REQUIREMENT_CONFLICT', ...item }));
+  const text = (result?.sections || []).map(section => String(section.content || '')).join('\n');
+  // 확정값과 다른 수치가 같은 단위로 쓰였는지 본문 기준으로 확인한다(경고).
+  const confirmedValues = (payload.projectBlueprint?.items || []).filter(item => item.status === '확정');
+  const valueWarnings = [];
+  for (const item of confirmedValues) {
+    for (const number of String(item.value).match(/\d[\d,]*\s*(?:명|회기|회|원)/g) || []) {
+      const unit = number.replace(/[\d,\s]/g, '');
+      const others = [...new Set(text.match(new RegExp(`\\d[\\d,]*\\s*${unit}`, 'g')) || [])].filter(found => found.replace(/\s/g, '') !== number.replace(/\s/g, ''));
+      if (others.length) valueWarnings.push({ check: 'confirmedValue', label: '확정값과 다른 수치', message: `${item.section} 확정값 ${number}와 다른 값(${others.join(' / ')})이 본문에 있습니다. 공고 기준 병기인지 확인이 필요합니다.` });
+    }
+  }
+  const all = [...warnings, ...valueWarnings];
+  const needsReview = all.length > 0 || issues.length > 0 || officialConflicts.length > 0;
+  return {
+    partStatus: needsReview ? 'NEEDS_REVIEW' : 'PART_READY',
+    warnings: all,
+    issues,
+    officialConflicts,
+    note: needsReview ? '분할 결과는 정상 생성되었습니다. 경고와 공고 기준 충돌을 확인한 뒤 다음 분할로 넘어가야 합니다.' : '분할 결과는 정상 생성되었습니다.'
+  };
 }
 
 // 초안으로 쓸 수 없는 구조적 실패만 실패로 본다. 초안 품질 경고와 초안 생성 실패를 분리한다.

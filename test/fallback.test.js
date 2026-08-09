@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { localAnalyze, localDraft } from '../src/fallback.js';
-import { draftReviewState, incompleteFailure, masterReviewState, mixedApplicationType, normalizeManualSources, onRequest, partContext, validateEngineResult, validateMasterResult, validatePartResult } from '../functions/api/proposal.js';
+import { draftReviewState, incompleteFailure, masterReviewState, mixedApplicationType, normalizeManualSources, onRequest, partContext, partReviewState, validateEngineResult, validateMasterResult, validatePartResult } from '../functions/api/proposal.js';
 import { buildOfficialSummary, classifyAttachment, handleNoticeRequest, isBusinessNotice, isOpenDeadline, mergeNoticeCandidates, parseProposalList, splitSubprojects } from '../functions/api/notices.js';
 import { buildPrintDocument } from '../src/export.js';
 import { onRequest as handleArchiveRequest, syncNotices } from '../functions/api/archive.js';
@@ -93,11 +93,64 @@ test('마스터 설계는 10개 호환 항목을 중복 없이 포함하고 분�
   assert.match(validateMasterResult({ ...master, sectionPlan: [{ id: 'a', title: '중복', sectionKeys: [...keys.slice(0, 9), 'necessity'] }, { id: 'b', title: '누락', sectionKeys: ['outcomes'] }] }), /한 번씩/);
   const continuityCheck = { masterAligned: true, applicationStructureAligned: true, terminologyConsistent: true, numericConsistent: true, noUnnecessaryRepetition: true, issues: [] };
   const continuitySummary = { fixedTerms: [], fixedValues: [], establishedDecisions: [], nextHandoff: [] };
-  assert.equal(validatePartResult({ sections: [{ id: 'necessity' }, { id: 'purpose' }], continuityCheck, continuitySummary }, { sectionKeys: ['necessity', 'purpose'] }), '');
-  assert.match(validatePartResult({ sections: [{ id: 'necessity' }], continuityCheck, continuitySummary }, { sectionKeys: ['necessity', 'purpose'] }), /일치하지 않습니다/);
-  assert.match(validatePartResult({ sections: [{ id: 'necessity' }, { id: 'purpose' }], continuityCheck: { ...continuityCheck, numericConsistent: false, issues: ['인원 불일치'] }, continuitySummary }, { sectionKeys: ['necessity', 'purpose'] }), /연속성 검증에 실패/);
+  const partSections = ['necessity', 'purpose'].map(id => ({ id, title: id, content: `${id} 항목의 본문으로 충분한 길이의 내용을 담고 있다.`, citations: [], status: '검토 필요' }));
+  assert.equal(validatePartResult({ sections: partSections, continuityCheck, continuitySummary }, { sectionKeys: ['necessity', 'purpose'] }), '');
+  assert.match(validatePartResult({ sections: partSections.slice(0, 1), continuityCheck, continuitySummary }, { sectionKeys: ['necessity', 'purpose'] }), /일치하지 않습니다/);
+  // 자기점검 실패는 더 이상 분할 결과를 폐기하지 않는다(경고로 분리).
+  assert.equal(validatePartResult({ sections: partSections, continuityCheck: { ...continuityCheck, numericConsistent: false, issues: ['인원 불일치'] }, continuitySummary }, { sectionKeys: ['necessity', 'purpose'] }), '');
   const variablePlan = keys.map((key, index) => ({ id: `g${index}`, title: key, sectionKeys: [key] }));
   assert.equal(validateMasterResult({ ...master, sectionPlan: variablePlan }), '');
+});
+
+test('분할 생성은 구조적 실패만 막고 자기점검·충돌은 경고로 남긴다', () => {
+  const group = { id: 'g1', title: '문제 의식과 목적', sectionKeys: ['necessity', 'purpose'] };
+  const payload = {
+    group,
+    projectBlueprint: {
+      applicationType: '재학대예방형', otherApplicationTypes: ['아동보호형'],
+      officialConflicts: [{ field: '인원', officialValue: '70명 이상', userValue: '15명' }],
+      items: [{ section: '핵심 대상', status: '확정', value: '학대피해아동 15명' }]
+    }
+  };
+  const body = value => `${value} 이 항목은 공고 근거와 확정값을 그대로 유지하며 충분한 길이의 본문을 담고 있다.`;
+  const continuitySummary = { fixedTerms: [], fixedValues: [], establishedDecisions: [], nextHandoff: [] };
+  const ok = {
+    sections: [
+      { id: 'necessity', title: '사업 필요성', content: body('학대피해아동 가정의 재학대 위험을 낮춘다.'), citations: ['e1'], status: '검토 필요' },
+      { id: 'purpose', title: '목적', content: body('가족기능 회복과 재학대 예방을 목적으로 한다.'), citations: ['e1'], status: '검토 필요' }
+    ],
+    continuityCheck: { masterAligned: true, applicationStructureAligned: true, terminologyConsistent: true, numericConsistent: false, noUnnecessaryRepetition: true, issues: ['공고 70명 이상과 설계 15명이 충돌한다'] },
+    continuitySummary
+  };
+
+  // A. 항목은 정확한데 자기점검 하나가 false → 결과 유지 + NEEDS_REVIEW
+  assert.equal(validatePartResult(ok, group, payload), '');
+  const stateA = partReviewState(ok, payload);
+  assert.equal(stateA.partStatus, 'NEEDS_REVIEW');
+  assert.deepEqual(stateA.warnings.filter(item => item.check === 'numericConsistent').map(item => item.label), ['수치 일관성']);
+  assert.deepEqual(stateA.issues, ['공고 70명 이상과 설계 15명이 충돌한다']);
+
+  // B. 요청 항목 누락 → 구조적 실패
+  assert.match(validatePartResult({ ...ok, sections: [ok.sections[0]] }, group, payload), /요청한 신청서 항목과 일치하지 않습니다/);
+  // C. 요청하지 않은 항목 추가 → 구조적 실패
+  assert.match(validatePartResult({ ...ok, sections: [...ok.sections, { id: 'budget', title: '예산', content: body('예산'), citations: [], status: '확인 필요' }] }, group, payload), /요청한 신청서 항목과 일치하지 않습니다/);
+  // 본문이 비어 있으면 구조적 실패
+  assert.match(validatePartResult({ ...ok, sections: [{ ...ok.sections[0], content: '짧음' }, ok.sections[1]] }, group, payload), /본문이 비어 있는/);
+
+  // D. 공식 충돌이 있어도 결과를 폐기하지 않는다.
+  assert.equal(validatePartResult(ok, group, payload), '');
+  assert.equal(partReviewState(ok, payload).officialConflicts[0].type, 'OFFICIAL_REQUIREMENT_CONFLICT');
+
+  // E. 다른 신청유형이 설계 문장으로 섞이면 결정적 실패. 근거·충돌 설명은 혼입이 아니다.
+  const mixed = { ...ok, sections: [{ ...ok.sections[0], content: body('요보호아동을 발굴해 지역사회 보호를 제공한다.') }, ok.sections[1]] };
+  assert.match(validatePartResult(mixed, group, payload), /섞였습니다/);
+  const explained = { ...ok, sections: [{ ...ok.sections[0], content: body('공고에는 아동보호형도 있으나 본 사업은 해당하지 않는다.') }, ok.sections[1]] };
+  assert.equal(validatePartResult(explained, group, payload), '');
+
+  // 경고도 충돌도 없으면 PART_READY
+  const clean = partReviewState({ ...ok, continuityCheck: { masterAligned: true, applicationStructureAligned: true, terminologyConsistent: true, numericConsistent: true, noUnnecessaryRepetition: true, issues: [] } }, { group, projectBlueprint: { applicationType: '재학대예방형', otherApplicationTypes: ['아동보호형'], items: [] } });
+  assert.equal(clean.partStatus, 'PART_READY');
+  assert.equal(clean.warnings.length, 0);
 });
 
 test('분할 생성은 공고 원문 전체 대신 master가 확정한 경량 문맥만 다시 쓴다', () => {
