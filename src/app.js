@@ -32,7 +32,8 @@ const ARCHIVE_WORK_STEPS = [
   { step: 2, label: '신청기관 연결' },
   { step: 3, label: '사업 설계' },
   { step: 4, label: '계획서 작성' },
-  { step: 5, label: '검증·제출본' }
+  { step: 5, label: '검증·코칭' },
+  { step: 5, label: '제출본 확인' }
 ];
 const HOME_FLOW = [
   { no: '01', title: '공고 준비', desc: '공고 업로드 · 요구사항 확인', step: 0, covers: [0, 1], items: ['공고 조회·업로드', '선정 논리 구조화', '첨부 자료묶음 분석'] },
@@ -68,6 +69,8 @@ let busyTimer = null;
 let archiveLoaded = false;
 let homeArchiveLoaded = false;
 let coachingPollActive = false;
+// 길게 누르기로 연 메뉴가 같은 동작의 click 때문에 바로 닫히지 않게 한다.
+let archiveMenuOpenedAt = 0;
 
 function loadState() {
   try {
@@ -358,26 +361,29 @@ function archiveSortButton(key, label, table) {
 function archiveSelectField(label, name, value, options, labelOf = option => option) {
   return `<label class="archive-filter"><span>${escapeHtml(label)}</span><select data-archive-filter="${name}"><option value="">전체</option>${options.map(option => `<option value="${escapeHtml(option)}" ${value === option ? 'selected' : ''}>${escapeHtml(labelOf(option))}</option>`).join('')}</select></label>`;
 }
-function archiveWorkMenu(row) {
-  const applicants = (state.applicants || []).filter(item => row.applicantIds.includes(item.id));
-  const targets = applicants.length ? applicants : [{ id: '', name: '기관 미지정' }];
-  return `<details class="archive-work"><summary>작업하기 ▼</summary><div class="archive-work-menu">${targets.map(target => `<div class="archive-work-group"><b>${escapeHtml(target.name)}</b>${ARCHIVE_WORK_STEPS.map(step => `<button data-archive-work="${escapeHtml(row.key)}" data-archive-work-step="${step.step}" data-archive-work-applicant="${escapeHtml(target.id)}">${escapeHtml(step.label)}</button>`).join('')}</div>`).join('')}</div></details>`;
+// 행 우클릭(모바일은 길게 누르기) 메뉴. 현재 진행 중인 공고면 단계 진행 표시를 붙인다.
+function archiveProgressStep(row) {
+  if (state.selectedNotice && archiveNoticeKey(state.selectedNotice) === row.key) return state.step;
+  const stage = String(row.notice?.linkedProposalStage || '');
+  if (!stage) return -1;
+  if (stage.startsWith('coaching-') || stage.startsWith('revision-') || stage === 'review' || stage === 'complete') return 5;
+  return 4;
 }
 function archiveDetailRow(row) {
   const notice = row.notice || {};
   const cells = [['사업개요', notice.summary], ['지원대상', notice.eligibility], ['지원규모', notice.supportLimit || notice.supportDetails], ['주요조건', notice.applicationPeriod]];
-  return `<tr class="archive-detail"><td colspan="11"><div class="archive-detail-grid">${cells.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><p>${escapeHtml(String(value || '공고 원문에서 확인이 필요합니다.').slice(0, 600))}</p></div>`).join('')}</div>
+  return `<tr class="archive-detail"><td colspan="9"><div class="archive-detail-grid">${cells.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><p>${escapeHtml(String(value || '공고 원문에서 확인이 필요합니다.').slice(0, 600))}</p></div>`).join('')}</div>
     <div class="actions"><span>보관 원본은 그대로 두고 이번 작업 목록에만 엽니다.</span><div><button class="button secondary" data-archive-view="${escapeHtml(row.key)}">공고 상세 불러오기</button><button class="button primary" data-archive-use="${escapeHtml(row.key)}">공고 확인 목록에 열기</button></div></div></td></tr>`;
 }
 function archiveApplicantRow(row) {
   const applicants = state.applicants || [];
-  return `<tr class="archive-detail"><td colspan="11"><div class="archive-picker"><b>신청기관 매칭</b><span class="muted">한 공고에 여러 기관을 연결할 수 있고, 기관별 계획서 작업은 각각 별도로 유지됩니다.</span>
+  return `<tr class="archive-detail"><td colspan="9"><div class="archive-picker"><b>신청기관 매칭</b><span class="muted">한 공고에 여러 기관을 연결할 수 있고, 기관별 계획서 작업은 각각 별도로 유지됩니다.</span>
     ${applicants.length ? applicants.map(item => `<label><input type="checkbox" data-archive-applicant="${escapeHtml(row.key)}" value="${escapeHtml(item.id)}" ${row.applicantIds.includes(item.id) ? 'checked' : ''}> ${escapeHtml(item.name)}</label>`).join('') : '<span class="muted">등록된 신청기관이 없습니다. 「신청기관 정보」에서 먼저 등록하세요.</span>'}
     <button class="button secondary" data-archive-applicant-close="${escapeHtml(row.key)}">닫기</button></div></td></tr>`;
 }
 function archiveTableRow(row, table) {
   const selected = (table.selected || []).includes(row.key);
-  return `<tr class="${selected ? 'selected' : ''}">
+  return `<tr class="${selected ? 'selected' : ''}" data-archive-row="${escapeHtml(row.key)}">
     <td><input type="checkbox" data-archive-select="${escapeHtml(row.key)}" ${selected ? 'checked' : ''} aria-label="행 선택"></td>
     <td class="archive-num">${escapeHtml(shortDate(row.collectedAt) || '-')}</td>
     <td>${escapeHtml(row.institution)}</td>
@@ -386,8 +392,6 @@ function archiveTableRow(row, table) {
     <td class="archive-num ${row.deadline.closed ? 'closed' : ''}">${escapeHtml(row.deadline.text)}</td>
     <td><select class="archive-status" data-archive-status="${escapeHtml(row.key)}">${ARCHIVE_STATUSES.map(status => `<option value="${escapeHtml(status)}" ${row.status === status ? 'selected' : ''}>${escapeHtml(status)}</option>`).join('')}</select></td>
     <td><button class="archive-link" data-archive-applicant-open="${escapeHtml(row.key)}">${escapeHtml(row.applicantText || '기관 매칭 +')}</button></td>
-    <td>${archiveWorkMenu(row)}</td>
-    <td><a class="archive-link" href="${escapeHtml(row.sourceUrl)}" target="_blank" rel="noopener noreferrer" title="공모기관 원문 열기">↗</a></td>
     <td><button class="archive-link danger" data-archive-remove="${escapeHtml(row.key)}" title="목록에서 삭제">삭제</button></td>
   </tr>${table.expandedKey === row.key ? archiveDetailRow(row) : ''}${table.applicantPickerKey === row.key ? archiveApplicantRow(row) : ''}`;
 }
@@ -427,8 +431,8 @@ function archiveView() {
       <th>${archiveSortButton('field', '분야', table)}</th>
       <th>${archiveSortButton('title', '사업명', table)}</th>
       <th>${archiveSortButton('deadline', '마감일', table)}</th>
-      <th>상태</th><th>신청기관</th><th>작업하기</th><th>원문</th><th>삭제</th>
-    </tr></thead><tbody>${data.rows.map(row => archiveTableRow(row, { ...table, selected })).join('') || '<tr><td colspan="11" class="muted">조건에 맞는 공고가 없습니다. 필터를 초기화해 보세요.</td></tr>'}</tbody></table></div>
+      <th>상태</th><th>신청기관</th><th>삭제</th>
+    </tr></thead><tbody>${data.rows.map(row => archiveTableRow(row, { ...table, selected })).join('') || '<tr><td colspan="9" class="muted">조건에 맞는 공고가 없습니다. 필터를 초기화해 보세요.</td></tr>'}</tbody></table></div>
     <div class="archive-pager"><span>총 ${data.matched}건 중 ${data.from}–${data.to} · ${data.page}/${data.pageCount}쪽</span>
       <label>페이지당 <select id="archive-page-size">${ARCHIVE_PAGE_SIZES.map(size => `<option value="${size}" ${data.pageSize === size ? 'selected' : ''}>${size}개</option>`).join('')}</select></label>
       <button class="button secondary" data-archive-page="${data.page - 1}" ${data.page <= 1 ? 'disabled' : ''}>이전</button>
@@ -1370,7 +1374,20 @@ function bind() {
   });
   document.querySelectorAll('[data-archive-use]').forEach(el => el.onclick = () => useArchivedNotice(archiveIndexOfKey(el.dataset.archiveUse)));
   document.querySelectorAll('[data-archive-view]').forEach(el => el.onclick = () => viewArchivedNotice(archiveIndexOfKey(el.dataset.archiveView)));
-  document.querySelectorAll('[data-archive-work]').forEach(el => el.onclick = () => startArchiveWork(el.dataset.archiveWork, Number(el.dataset.archiveWorkStep), el.dataset.archiveWorkApplicant || ''));
+  // 행 우클릭은 브라우저 기본 메뉴 대신 전용 메뉴를 띄운다. 모바일은 길게 누르기로 같은 메뉴를 연다.
+  closeArchiveMenu();
+  document.querySelectorAll('[data-archive-row]').forEach(row => {
+    let pressTimer = null;
+    const cancel = () => { clearTimeout(pressTimer); pressTimer = null; };
+    row.oncontextmenu = event => { event.preventDefault(); openArchiveMenu(row.dataset.archiveRow, event.clientX, event.clientY); };
+    row.ontouchstart = event => {
+      const touch = event.touches[0];
+      pressTimer = setTimeout(() => { pressTimer = null; openArchiveMenu(row.dataset.archiveRow, touch.clientX, touch.clientY); }, 500);
+    };
+    row.ontouchmove = cancel;
+    row.ontouchend = cancel;
+    row.ontouchcancel = cancel;
+  });
   document.querySelectorAll('[data-archive-remove]').forEach(el => el.onclick = () => hideArchivedNotices([el.dataset.archiveRemove]));
   document.querySelector('#archive-delete-selected')?.addEventListener('click', () => hideArchivedNotices(archiveTableState().selected || []));
   document.querySelector('#archive-restore-hidden')?.addEventListener('click', () => setState({ archiveHiddenNotices: [], notice: '숨긴 공고를 다시 목록에 표시했습니다.' }));
@@ -2344,6 +2361,39 @@ async function loadRecentArchive() {
 function archiveIndexOfKey(key) {
   return (state.archiveNotices || []).findIndex(item => item.archiveNoticeKey === key);
 }
+// 보관 목록 행 우클릭 메뉴. 화면 상태를 다시 그리지 않고 메뉴 요소만 띄웠다 지운다.
+function closeArchiveMenu() {
+  document.querySelector('#archive-context-menu')?.remove();
+}
+function openArchiveMenu(key, x, y) {
+  closeArchiveMenu();
+  const row = archiveTableData().rows.find(item => item.key === key);
+  if (!row) return;
+  const progress = archiveProgressStep(row);
+  const menu = document.createElement('div');
+  menu.id = 'archive-context-menu';
+  menu.className = 'archive-menu';
+  menu.innerHTML = `<p class="archive-menu-title">${escapeHtml(row.title.slice(0, 40))}</p>
+    <a class="archive-menu-item" href="${escapeHtml(row.sourceUrl)}" target="_blank" rel="noopener noreferrer">원문 바로가기 ↗</a>
+    <hr>
+    ${ARCHIVE_WORK_STEPS.map((item, index) => {
+      const done = progress >= 0 && item.step < progress;
+      const current = progress >= 0 && item.step === progress;
+      return `<button class="archive-menu-item ${current ? 'current' : ''}" data-archive-step="${index}">${escapeHtml(item.label)}<span>${current ? '현재 단계' : done ? '✓' : ''}</span></button>`;
+    }).join('')}`;
+  document.body.append(menu);
+  archiveMenuOpenedAt = Date.now();
+  const box = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - box.width - 8))}px`;
+  menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - box.height - 8))}px`;
+  menu.querySelectorAll('[data-archive-step]').forEach(el => el.onclick = () => {
+    const target = ARCHIVE_WORK_STEPS[Number(el.dataset.archiveStep)];
+    closeArchiveMenu();
+    // 연결된 신청기관이 한 곳이면 그 기관을 선택한 채로 이동하고, 여러 곳이면 현재 선택을 그대로 둔다.
+    startArchiveWork(key, target.step, row.applicantIds.length === 1 ? row.applicantIds[0] : '');
+  });
+  menu.querySelector('a')?.addEventListener('click', closeArchiveMenu);
+}
 // 「작업하기」는 기존 단계 이동을 그대로 쓴다. 기관을 지정하면 그 기관을 선택한 상태로 이동한다.
 function startArchiveWork(key, step, applicantId = '') {
   const index = archiveIndexOfKey(key);
@@ -2845,4 +2895,9 @@ function applicantAreaForTitle(title) {
   if (/협력|협약/.test(title)) return 'partners';
   return 'basic';
 }
+// 보관 목록 우클릭 메뉴는 다른 곳을 누르거나 화면이 움직이면 닫는다.
+document.addEventListener('click', event => { if (Date.now() - archiveMenuOpenedAt < 400) return; if (!(event.target instanceof Element) || !event.target.closest('#archive-context-menu')) closeArchiveMenu(); });
+document.addEventListener('keydown', event => { if (event.key === 'Escape') closeArchiveMenu(); });
+window.addEventListener('scroll', closeArchiveMenu, true);
+window.addEventListener('resize', closeArchiveMenu);
 render();

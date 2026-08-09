@@ -55,10 +55,18 @@ test('자료보관함 표는 복수 기관 매칭·작업 단계 이동·목록 
   assert.match(appSource, /data-archive-applicant="\$\{escapeHtml\(row\.key\)\}"/);
   assert.match(appSource, /기관 매칭 \+/);
   assert.match(appSource, /기관별 계획서 작업은 각각 따로 유지됩니다/);
-  // 작업하기는 기존 단계 이동 함수를 그대로 사용한다.
+  // 작업 이동은 행 우클릭(모바일은 길게 누르기) 메뉴에서만 하고 기존 단계 이동 함수를 그대로 쓴다.
   assert.match(appSource, /function startArchiveWork\(key, step, applicantId = ''\)/);
   assert.match(appSource, /navigateToStep\(step, patch\)/);
   assert.match(appSource, /const ARCHIVE_WORK_STEPS = \[/);
+  assert.match(appSource, /row\.oncontextmenu = event => \{ event\.preventDefault\(\); openArchiveMenu\(/);
+  assert.match(appSource, /row\.ontouchstart = event =>/);
+  assert.match(appSource, /openArchiveMenu\(row\.dataset\.archiveRow, touch\.clientX, touch\.clientY\)/);
+  assert.match(appSource, /원문 바로가기 ↗/);
+  assert.match(appSource, /current \? '현재 단계' : done \? '✓' : ''/);
+  // 표에서 작업하기·원문 열은 만들지 않는다.
+  assert.match(appSource, /<th>상태<\/th><th>신청기관<\/th><th>삭제<\/th>/);
+  assert.doesNotMatch(appSource, /archiveWorkMenu|작업하기 ▼/);
   // 삭제는 보관 원본과 계획서를 지우지 않고 이 기기 목록에서만 숨긴다.
   assert.match(appSource, /function hideArchivedNotices\(keys\)/);
   assert.match(appSource, /보관 원본과 연결된 계획서는 지워지지 않습니다/);
