@@ -61,7 +61,7 @@ const initial = {
   coaching: { title: '', text: '', validatedText: '', criteriaText: '', officialEvaluationProvided: false, sourceProposalId: '', sourceNoticeKey: '', seriesId: '', currentArchiveId: '', result: null, workItems: [], pendingJob: null, version: 0, references: [], referenceType: REFERENCE_TYPES[0], referenceDraft: '', referenceNameDraft: '' },
   applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, coachingApplicantId: '',
   revisionPlan: null, draftReview: null, proposalVersions: [], coachingSelection: [], applicantSkipped: false, noticeLogic: null,
-  analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveTable: { query: '', sortKey: 'collectedAt', sortDir: 'desc', page: 1, pageSize: 20, selected: [], expandedKey: '', applicantPickerKey: '', filters: { collected: '', institution: '', field: '', status: '', applicant: '', deadline: '' } }, archiveNoticeLinks: {}, archiveHiddenNotices: [], sampleStage: '', sampleReturn: '', archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
+  analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveTable: { query: '', sortKey: 'collectedAt', sortDir: 'desc', page: 1, pageSize: 20, selected: [], expandedKey: '', applicantPickerKey: '', filters: { collected: '', institution: '', field: '', status: '', applicant: '', deadline: '' } }, archiveNoticeLinks: {}, archiveHiddenNotices: [], sampleStage: '', sampleReturn: '', aiResult: null, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
 let navigationHistory = loadNavigationHistory();
@@ -90,6 +90,7 @@ function loadState() {
     // [샘플] 보기는 임시 화면이므로 다시 열 때 내 작업 화면으로 돌아온다.
     if (restored.activeTool === 'sample') restored.activeTool = restored.sampleReturn || 'workflow';
     if (restored.activeTool !== 'sample') { restored.sampleStage = ''; restored.sampleReturn = ''; }
+    restored.aiResult = null;
     // 이전 버전에서 저장된 화면 상태 때문에 새 홈이 가려지지 않게 한 번은 홈을 먼저 보여 준다. 작업 데이터는 그대로 둔다.
     if (!saved.homeSeen) { restored.activeTool = 'home'; restored.homeSeen = true; }
     return withMigratedApplicants(restored);
@@ -159,14 +160,102 @@ function escapeHtml(value = '') { return String(value).replace(/[&<>'"]/g, c => 
 function nl(value = '') { return escapeHtml(value).replace(/\n/g, '<br>'); }
 function setState(patch) {
   if (Object.hasOwn(patch, 'busy')) {
-    if (!patch.busy) busyStartedAt = 0;
+    if (!patch.busy) {
+      const result = closeAiTask(patch);
+      if (result) patch = { ...patch, aiResult: result };
+      busyStartedAt = 0;
+    }
   }
   state = { ...state, ...patch }; saveState(); render();
 }
-function setAiBusy(message, patch = {}) {
+function setAiBusy(message, patch = {}, taskId = '') {
   busyStartedAt = Date.now();
-  setState({ ...patch, busy: message });
+  aiTask = taskId && AI_TASKS[taskId] ? { id: taskId, startedAt: busyStartedAt, location: aiTaskLocation() } : null;
+  setState({ ...patch, busy: message, aiResult: null });
 }
+// AI·API 작업의 진행시간과 완료 후 결과 위치. 작업 로직은 그대로 두고 표시와 이동만 담당한다.
+// step이 null이면 현재 화면 안에서 결과 영역으로만 이동한다. tool은 별도 화면(검증·코칭 등)을 뜻한다.
+const AI_TASKS = {
+  noticeList: { busy: '공고 목록 불러오는 중', done: '공고 목록 불러오기 완료', step: 1, anchor: '#result-logic', retry: 'fetch-notices' },
+  noticeDetail: { busy: '공고 상세 불러오는 중', done: '공고 상세 불러오기 완료', step: 1, anchor: '#notice-preview' },
+  noticeSelect: { busy: '공고 본문 분석 중', done: '공고 본문 분석 완료', step: 1, anchor: '#result-logic' },
+  noticeImport: { busy: '누락 공고 확인 중', done: '누락 공고 확인 완료', step: 1, anchor: '#result-logic' },
+  archiveSearch: { busy: '자료보관함 검색 중', done: '자료보관함 검색 완료', step: null, anchor: '#archive-box', retry: 'search-archive' },
+  archiveMatch: { busy: '맞춤 공고 확인 중', done: '맞춤 공고 확인 완료', step: null, anchor: '#archive-box', retry: 'find-matching-notices' },
+  archiveProposals: { busy: '저장한 계획서 불러오는 중', done: '저장한 계획서 불러오기 완료', step: null, anchor: '#archive-box', retry: 'list-archived-proposals' },
+  analyze: { busy: '공고 구조 분석 중', done: '공고 분석 완료', step: 3, anchor: '#result-analysis', retry: 'analyze' },
+  master: { busy: 'Master 생성 중', done: 'Master 생성 완료', step: 4, anchor: '#result-master', retry: 'generate-master' },
+  parts: { busy: '계획서 분할 작성 중', done: '계획서 항목 작성 완료', step: 4, anchor: '#result-master', retry: 'generate-parts' },
+  rewrite: { busy: '선택 항목 재작성 중', done: '선택 항목 재작성 완료', step: null, anchor: '#result-pipeline' },
+  review: { busy: '심사 관점 검토 중', done: '심사 검토 완료', step: 5, anchor: '#result-draft-check', retry: 'proposal-review' },
+  coaching: { busy: '검증·코칭 중', done: '검증 완료', tool: 'coaching', anchor: '#result-coaching', retry: 'start-coaching' },
+  coachingRevision: { busy: '수정안 생성 중', done: '수정안 생성 완료', tool: 'coaching', anchor: '#result-repair' },
+  coachingApply: { busy: '수정 반영 중', done: '수정본 생성 완료', tool: 'coaching', anchor: '#result-repair' },
+  coachingLoad: { busy: '보관 계획서 불러오는 중', done: '보관 계획서 불러오기 완료', tool: 'coaching', anchor: '#result-coaching' },
+  coachingFile: { busy: '계획서 파일 읽는 중', done: '계획서 파일 읽기 완료', tool: 'coaching', anchor: '#result-coaching' },
+  applicantScan: { busy: '기관 정보 찾는 중', done: '기관 정보 확인 완료', step: null, anchor: '#result-analysis' },
+  repairV2: { busy: '수정본 생성 중', done: '수정본 생성 완료', step: 4, anchor: '#result-pipeline' },
+  assemble: { busy: '계획서 결합 중', done: '계획서 초안 작성 완료', step: 4, anchor: '#result-pipeline', retry: 'assemble-proposal' }
+};
+let aiTask = null;
+let pendingAiMove = null;
+function aiTaskLabel(seconds) {
+  const value = Math.max(0, Math.round(seconds));
+  return `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`;
+}
+function markAiDone(taskId, patch = {}) {
+  aiTask = AI_TASKS[taskId] ? { id: taskId, startedAt: Date.now(), location: aiTaskLocation() } : null;
+  setState({ ...patch, busy: '' });
+}
+function aiTaskLocation() {
+  return `${state.activeTool}:${state.step}`;
+}
+// busy가 끝나는 순간을 한 곳에서 잡아 완료·실패를 만든다. 개별 작업 코드는 고치지 않는다.
+function closeAiTask(patch) {
+  const task = aiTask;
+  aiTask = null;
+  if (!task) return null;
+  const config = AI_TASKS[task.id];
+  if (!config) return null;
+  const seconds = (Date.now() - task.startedAt) / 1000;
+  const failed = Boolean(patch.error);
+  const result = { id: task.id, kind: failed ? 'fail' : 'done', label: failed ? `${config.busy.replace(/ 중$/, '')} 실패` : config.done, time: aiTaskLabel(seconds), anchor: config.anchor, step: Number.isInteger(config.step) ? config.step : null, tool: config.tool || '', retry: config.retry || '', sameView: task.location === aiTaskLocation() };
+  if (!failed) pendingAiMove = result;
+  return result;
+}
+// 완료 직후 결과 위치로 옮긴다. 사용자가 다른 화면으로 옮겨 갔으면 옮기지 않고 알림만 남긴다.
+function runPendingAiMove() {
+  const move = pendingAiMove;
+  if (!move) return;
+  pendingAiMove = null;
+  if (!move.sameView) return;
+  const focus = () => {
+    const target = document.querySelector(move.anchor);
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    target.classList.add('result-flash');
+    setTimeout(() => target.classList.remove('result-flash'), 1800);
+  };
+  const needsStep = Number.isInteger(move.step) && (state.step !== move.step || state.activeTool !== 'workflow');
+  const needsTool = move.tool && state.activeTool !== move.tool;
+  if (needsStep) { navigateToStep(move.step, { activeTool: 'workflow' }); setTimeout(focus, 60); return; }
+  if (needsTool) { setState({ activeTool: move.tool }); setTimeout(focus, 60); return; }
+  setTimeout(focus, 30);
+}
+function showAiResultLocation() {
+  const result = state.aiResult;
+  if (!result) return;
+  pendingAiMove = { ...result, sameView: true };
+  setState({ aiResult: { ...result, seen: true } });
+}
+function aiResultBanner() {
+  const result = state.aiResult;
+  if (!result) return '';
+  const failed = result.kind === 'fail';
+  return `<div class="ai-result ${failed ? 'fail' : 'done'}"><span>${failed ? '!' : '✓'}</span><strong>${escapeHtml(result.label)}</strong><em>${escapeHtml(result.time)}</em>
+    <div>${failed ? (result.retry ? `<button class="button secondary" data-ai-retry="${escapeHtml(result.retry)}">다시 시도</button>` : '') : '<button class="button secondary" id="ai-result-go">결과 보기</button>'}<button class="ai-result-close" id="ai-result-close" aria-label="알림 닫기">×</button></div></div>`;
+}
+
 // 진행 중 표시를 끝낼 때 최종 경과시간을 완료·실패 메시지에 함께 남긴다.
 function elapsedLabel() { return busyStartedAt ? ` · ${Math.max(0, Math.round((Date.now() - busyStartedAt) / 1000))}초` : ''; }
 function typeName() { return TYPES.find(([id]) => id === state.project.type)?.[1] || '사업'; }
@@ -186,7 +275,7 @@ function organizationForGeneration() {
 
 function shell(content) {
   // 홈은 작업용 단계 내비게이션 없이 자체 화면으로만 보여 준다.
-  if (state.activeTool === 'home') return `<div class="layout home-layout"><main class="main">${state.notice ? `<div class="alert success">${escapeHtml(state.notice)}</div>` : ''}${state.error ? `<div class="alert danger">${escapeHtml(state.error)}</div>` : ''}${content}${state.busy ? `<div class="busy"><div class="loader"></div><strong>${escapeHtml(state.busy)}</strong></div>` : ''}</main></div>`;
+  if (state.activeTool === 'home') return `<div class="layout home-layout"><main class="main">${aiResultBanner()}${state.notice ? `<div class="alert success">${escapeHtml(state.notice)}</div>` : ''}${state.error ? `<div class="alert danger">${escapeHtml(state.error)}</div>` : ''}${content}${state.busy ? `<div class="busy"><div class="loader"></div><strong>${escapeHtml(state.busy)}</strong></div>` : ''}</main></div>`;
   return `
     <div class="layout">
       <main class="main">
@@ -194,10 +283,11 @@ function shell(content) {
           <div class="workflow-brand"><div class="brand"><span class="brand-mark">계</span><div><strong>사업계획서 작성 도우미</strong><small>공고 분석부터 제출본까지</small></div></div><span class="save-state">● 자동 저장 중</span></div>
           <div class="workflow-row"><label class="type-select-label" for="business-type">사업 유형<select id="business-type">${TYPES.map(([id, name]) => `<option value="${id}" ${state.project.type === id ? 'selected' : ''}>${name}</option>`).join('')}</select></label><nav class="workflow-steps" aria-label="작성 단계">${STEPS.map((name, i) => { const complete = isStepComplete(i); return `<button data-step="${i}" class="workflow-step ${state.activeTool === 'workflow' && state.step === i ? 'active' : ''} ${complete ? 'done' : ''}" ${state.activeTool === 'workflow' && state.step === i ? 'aria-current="step"' : ''}><span>${complete ? '✓' : i + 1}</span>${name}</button>`; }).join('')}</nav><button class="history-button" id="open-archive-box">자료보관함</button><button class="history-button" id="open-applicants" aria-pressed="${state.activeTool === 'applicants'}">신청기관 정보</button><button class="history-button" id="open-coaching" aria-pressed="${state.activeTool === 'coaching'}">계획서 검증·코칭</button><nav class="workflow-history" aria-label="앱 작업 화면 이동"><button class="history-button" id="workflow-back" aria-label="직전 작업 화면으로 뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="history-button" id="workflow-home" aria-label="홈 화면으로 가기">⌂ 홈 화면</button><button class="history-button" id="workflow-forward" aria-label="다음 작업 화면으로 앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button></nav></div>
         </header>
+        ${aiResultBanner()}
         ${state.notice ? `<div class="alert success">${escapeHtml(state.notice)}</div>` : ''}
         ${state.error ? `<div class="alert danger">${escapeHtml(state.error)}</div>` : ''}
         <section class="workspace">${content}</section>
-        ${state.busy ? `<div class="busy"><div class="loader"></div><strong>${escapeHtml(state.busy)}</strong><small>창을 닫지 마세요.${busyStartedAt ? `<span data-ai-elapsed data-started-at="${busyStartedAt}" style="display:block">경과시간 00초</span>` : ''}</small></div>` : ''}
+        ${state.busy ? `<div class="busy"><div class="loader"></div><strong>${escapeHtml(state.busy)}</strong><small>창을 닫지 마세요.${busyStartedAt ? `<span data-ai-elapsed data-started-at="${busyStartedAt}" style="display:block">경과시간 00:00</span>` : ''}</small></div>` : ''}
       </main>
     </div>`;
 }
@@ -489,7 +579,7 @@ function selectionLogicView() {
   const notice = noticeLogicSource();
   if (!notice) return '';
   const analysis = state.noticeLogic;
-  const header = `<div class="card"><div class="card-title"><div><h3>선정 논리 구조화</h3><span>공고·요강·평가기준에서 확인되는 내용만 정리합니다. 없는 기준은 만들지 않습니다.</span></div><button class="button secondary" id="analyze-notice-logic">공고 본문만 분석</button><button class="button primary" id="analyze-notice-bundle">첨부까지 완전 분석</button></div>`;
+  const header = `<div class="card" id="result-logic" tabindex="-1"><div class="card-title"><div><h3>선정 논리 구조화</h3><span>공고·요강·평가기준에서 확인되는 내용만 정리합니다. 없는 기준은 만들지 않습니다.</span></div><button class="button secondary" id="analyze-notice-logic">공고 본문만 분석</button><button class="button primary" id="analyze-notice-bundle">첨부까지 완전 분석</button></div>`;
   if (!analysis) return `${header}<p class="muted">AI 호출 없이 공고 원문에서 목적·자격·필수내용·평가배점·성과 요구를 구조화합니다.</p></div>`;
   const { structure, logic, requirements, summary } = analysis;
   return `${header}
@@ -834,7 +924,7 @@ function analysisView() {
   return `<div class="page-heading"><div><h2>요구사항 분석 결과</h2><p>AI 분석은 보조 도구입니다. 원문 근거를 열어보고 확정하세요.</p></div><span class="mode ${a.mode === 'ai' ? 'ai' : ''}">${a.mode === 'ai' ? 'AI 구조 분석' : '로컬 규칙 분석'}</span></div>
     <div class="summary-grid"><div><span>발주기관</span><strong>${escapeHtml(a.project.issuer)}</strong></div><div><span>제출 마감</span><strong>${escapeHtml(a.project.deadline)}</strong></div><div><span>예산</span><strong>${escapeHtml(a.project.budget)}</strong></div><div><span>요구사항</span><strong>${a.requirements.length}개</strong></div></div>
     ${a.warnings?.length ? `<div class="alert warning"><strong>검토 경고</strong>${a.warnings.map(v => `<p>${escapeHtml(v)}</p>`).join('')}</div>` : ''}
-    <div class="card table-card"><div class="card-title"><h3>필수 조건과 요구사항</h3><span>근거 추적 포함</span></div><div class="requirement-list">${a.requirements.map(r => `<article class="requirement"><div><span class="tag ${r.mandatory ? 'mandatory' : ''}">${r.mandatory ? '필수' : r.category}</span><strong>${escapeHtml(r.requirement)}</strong></div><details><summary>원문 근거 보기 · ${escapeHtml(r.location || '위치 확인 필요')}</summary><blockquote>${escapeHtml(r.evidence || '근거 문장 확인 필요')}</blockquote></details></article>`).join('')}</div></div>
+    <div class="card table-card" id="result-analysis" tabindex="-1"><div class="card-title"><h3>필수 조건과 요구사항</h3><span>근거 추적 포함</span></div><div class="requirement-list">${a.requirements.map(r => `<article class="requirement"><div><span class="tag ${r.mandatory ? 'mandatory' : ''}">${r.mandatory ? '필수' : r.category}</span><strong>${escapeHtml(r.requirement)}</strong></div><details><summary>원문 근거 보기 · ${escapeHtml(r.location || '위치 확인 필요')}</summary><blockquote>${escapeHtml(r.evidence || '근거 문장 확인 필요')}</blockquote></details></article>`).join('')}</div></div>
     <div class="three-col"><div class="card mini"><h3>평가 기준</h3>${listOrEmpty(a.evaluationCriteria)}</div><div class="card mini"><h3>제출 항목</h3>${listOrEmpty(a.submissionItems)}</div><div class="card mini"><h3>확인 질문</h3><p class="metric">${a.questions?.length || 0}<small>건</small></p></div></div>${footer()}`;
 }
 
@@ -992,7 +1082,7 @@ function proposalPipelineView() {
   const unresolved = state.draftReview?.unresolvedItems?.length || 0;
   const conflicts = currentOfficialConflicts();
   const step = (name, done, detail) => `<div><span>${escapeHtml(name)}</span><strong>${done ? '완료' : '대기'}</strong><small>${escapeHtml(detail)}</small></div>`;
-  return `<div class="card"><div class="card-title"><div><h3>계획서 진행 상태</h3><span>V1 원문은 보존하고 수정본은 새 버전으로만 쌓습니다.</span></div><strong>${escapeHtml(state.coaching.result ? coachingVerdict(state.coaching.result).verdict : '검증 전')}</strong></div>
+  return `<div class="card" id="result-pipeline" tabindex="-1"><div class="card-title"><div><h3>계획서 진행 상태</h3><span>V1 원문은 보존하고 수정본은 새 버전으로만 쌓습니다.</span></div><strong>${escapeHtml(state.coaching.result ? coachingVerdict(state.coaching.result).verdict : '검증 전')}</strong></div>
     <div class="summary-grid">
     ${step('V1 초안', state.sections.length === 10, baseline ? `${baseline.label} · ${String(baseline.savedAt).slice(0, 10)}` : '현재 작성본')}
     ${step('검증 결과', Boolean(state.coaching.result), state.coaching.result ? `문제 ${(state.coaching.result.issues || []).length}건 · v${state.coaching.version}` : '검증·코칭 미실행')}
@@ -1023,7 +1113,7 @@ function draftBlueprintCheckView() {
   const draftState = state.draftReview || null;
   const annotated = annotateDraftSections({ blueprint, sections: state.sections });
   const unresolvedSections = annotated.filter(section => section.unresolved);
-  return `<div class="card"><div class="card-title"><div><h3>설계도 대비 V1 자동 점검</h3><span>V1 원문은 그대로 두고 설계도와 비교만 합니다. 점수를 만들지 않습니다.</span></div><strong>${escapeHtml(report.verdict)}</strong></div>
+  return `<div class="card" id="result-draft-check" tabindex="-1"><div class="card-title"><div><h3>설계도 대비 V1 자동 점검</h3><span>V1 원문은 그대로 두고 설계도와 비교만 합니다. 점수를 만들지 않습니다.</span></div><strong>${escapeHtml(report.verdict)}</strong></div>
     <div class="summary-grid"><div><span>신청유형</span><strong>${escapeHtml(report.applicationType || '구분 없음')}</strong><small>선택한 유형만 사용</small></div>
     <div><span>통과</span><strong>${report.byState.PASS}</strong><small>설계도와 일치</small></div>
     <div><span>보완 확인</span><strong>${report.byState['주의']}</strong><small>사람이 확인 필요</small></div>
@@ -1054,7 +1144,7 @@ function stagedGenerationView() {
   const completed = new Set(staged.completedGroupIds || []);
   const progress = groups.length ? Math.round((completed.size / groups.length) * 100) : 0;
   const waitingForAnswers = (state.missingInformation || []).some(question => !String(state.designAnswers[question] || '').trim());
-  return `<div class="card"><div class="card-title"><div><h3>계획서 생성 3단계</h3><span>마스터 설계 → 분할 생성 → 완성</span></div><span class="tag ${staged.phase === 'parts-ready' ? 'mandatory' : ''}">${staged.phase === 'master-ready' ? '마스터 설계 완료' : staged.phase === 'parts-ready' ? '분할 생성 완료' : '분할 생성 중'}</span></div>
+  return `<div class="card" id="result-master" tabindex="-1"><div class="card-title"><div><h3>계획서 생성 3단계</h3><span>마스터 설계 → 분할 생성 → 완성</span></div><span class="tag ${staged.phase === 'parts-ready' ? 'mandatory' : ''}">${staged.phase === 'master-ready' ? '마스터 설계 완료' : staged.phase === 'parts-ready' ? '분할 생성 완료' : '분할 생성 중'}</span></div>
     <div class="summary-grid"><div><span>사업명</span><strong>${escapeHtml(master.projectDesign?.projectName || state.project.title)}</strong></div><div><span>대상·인원</span><strong>${escapeHtml([master.projectDesign?.target, master.projectDesign?.participantCount].filter(Boolean).join(' · '))}</strong></div><div><span>사업기간</span><strong>${escapeHtml(master.projectDesign?.projectPeriod || '')}</strong></div><div><span>분할 기준</span><strong>신청서 항목·목차 ${groups.length}개 묶음</strong></div></div>
     <details open><summary>마스터 논리사슬과 선정 대응</summary><div class="summary-grid"><div><span>문제와 필요성</span><strong>${escapeHtml(logic.problem || '')}</strong></div><div><span>대상 선정 근거</span><strong>${escapeHtml(logic.targetRationale || '')}</strong></div><div><span>핵심 전략</span><strong>${escapeHtml(logic.coreStrategy || '')}</strong></div><div><span>차별성</span><strong>${escapeHtml(logic.differentiation || '')}</strong></div></div><p class="muted">문제 → ${(logic.causes || []).map(escapeHtml).join(' · ')} → 대상 → 전략 → ${(logic.executionMethods || []).map(escapeHtml).join(' · ')} → 산출 → 변화 → 성과측정</p><div class="three-col"><div><h4>기준값</h4>${listOrEmpty((logic.baselineValues || []).map(item => `${item.item}: ${item.value}`))}</div><div><h4>산출·성과·측정 연결</h4>${listOrEmpty((logic.outputOutcomeMeasurementLinks || []).map(item => `${item.output} → ${item.outcomeGoal} → ${item.indicator}`))}</div><div><h4>평가기준 대응</h4>${listOrEmpty((logic.evaluationResponsePlan || []).map(item => `${item.criterion}: ${item.response}`))}</div></div><details><summary>주장별 공식 자료 근거</summary>${(logic.claimEvidencePlan || []).map(item => `<blockquote><strong>${escapeHtml(item.claim)}</strong><br>${escapeHtml(item.evidence)} <small>${escapeHtml(item.location)}</small></blockquote>`).join('')}</details></details>
     <details open><summary>확정된 마스터 구조 보기</summary><div class="requirement-list">${groups.map((group, index) => `<article class="requirement"><div><span class="tag">${index + 1}</span><div><strong>${escapeHtml(group.title)}</strong><small>${escapeHtml((group.sectionKeys || []).map(sectionTitle).join(' · '))}</small></div></div><span class="status ${completed.has(group.id) ? '충족' : '확인-필요'}">${completed.has(group.id) ? '완료' : '대기'}</span><button class="button ${completed.has(group.id) ? 'secondary' : 'primary'}" data-generate-part="${escapeHtml(group.id)}" ${state.busy || waitingForAnswers ? 'disabled' : ''}>${completed.has(group.id) ? '이 항목만 다시 생성' : '이 항목만 AI 생성'}</button></article>`).join('')}</div></details>
@@ -1098,7 +1188,7 @@ function directFactsView() {
 function render() {
   const views = [noticeImportView, noticeConfirmView, applicantSelectView, businessSelectView, documentView, documentView];
   const tools = { home: homeView, coaching: coachingView, applicants: applicantsToolView, sample: sampleView };
-  app.innerHTML = shell((tools[state.activeTool] || views[state.step] || views[0])()); bind(); startBusyElapsedTimer();
+  app.innerHTML = shell((tools[state.activeTool] || views[state.step] || views[0])()); bind(); startBusyElapsedTimer(); runPendingAiMove();
 }
 
 // [샘플] 프로젝트 보기. 별도 화면에서만 열리며 사용자의 실제 작업 상태는 읽지도 바꾸지도 않는다.
@@ -1272,7 +1362,7 @@ function repairPlanView() {
   if (!plans.length) return '';
   const summary = repairPlanSummary(plans);
   const levelTag = { AUTO: 'status 충족', EVIDENCE_BASED: 'status 부분-충족', USER_CONFIRMATION: 'status 확인-필요' };
-  return `<div class="card"><div class="card-title"><div><h3>수정계획 ${plans.length}건</h3><span>문제를 수정 유형과 수정 가능성으로 나눕니다. AI가 확정값을 임의로 고르지 않습니다.</span></div><button class="button primary" id="apply-repair-plans">수정계획으로 수정본(V2) 만들기</button></div>
+  return `<div class="card" id="result-repair" tabindex="-1"><div class="card-title"><div><h3>수정계획 ${plans.length}건</h3><span>문제를 수정 유형과 수정 가능성으로 나눕니다. AI가 확정값을 임의로 고르지 않습니다.</span></div><button class="button primary" id="apply-repair-plans">수정계획으로 수정본(V2) 만들기</button></div>
     <div class="summary-grid"><div><span>바로 수정(AUTO)</span><strong>${summary.byLevel.AUTO || 0}건</strong><small>사실을 바꾸지 않는 표현·구조</small></div>
     <div><span>근거 확인 후(EVIDENCE_BASED)</span><strong>${summary.byLevel.EVIDENCE_BASED || 0}건</strong><small>공고·기관정보·원문 근거 필요</small></div>
     <div><span>사용자 확인 필요</span><strong>${summary.byLevel.USER_CONFIRMATION || 0}건</strong><small>어느 값이 맞는지 판단 불가</small></div>
@@ -1330,7 +1420,7 @@ function coachingResultView(result) {
   if (state.coaching.workItems?.length !== result.issues.length) state.coaching.workItems = makeCoachingWorkItems(result);
   const workItems = state.coaching.workItems;
   const submission = coachingSubmissionDecision(result, workItems);
-  return `<div class="card"><div class="card-title"><div><h3>검증·코칭 결과 · ${escapeHtml(result.overallStatus)}</h3><span>합격확률을 추정하지 않으며, 수정안은 자동 적용되지 않습니다.</span></div><div><span class="tag">${result.basis === 'official-evaluation' ? '공식 평가표 우선' : '공통 검증 기준'}</span><button class="button secondary" id="print-coaching-report">코칭 보고서 PDF 인쇄·저장</button></div></div><p>${escapeHtml(result.summary)}</p>
+  return `<div class="card" id="result-coaching" tabindex="-1"><div class="card-title"><div><h3>검증·코칭 결과 · ${escapeHtml(result.overallStatus)}</h3><span>합격확률을 추정하지 않으며, 수정안은 자동 적용되지 않습니다.</span></div><div><span class="tag">${result.basis === 'official-evaluation' ? '공식 평가표 우선' : '공통 검증 기준'}</span><button class="button secondary" id="print-coaching-report">코칭 보고서 PDF 인쇄·저장</button></div></div><p>${escapeHtml(result.summary)}</p>
     ${submissionCheckView(result, submission)}
     ${(state.coaching.references || []).length ? `<details open><summary>이번 검증에 사용한 참고자료 판정 ${state.coaching.references.length}건</summary>${referenceWarningView(assessReferences(state.coaching.references, coachingContext()))}<div class="cap-grid">${assessReferences(state.coaching.references, coachingContext()).assessments.map(item => `<div><span>${escapeHtml(item.referenceType)}</span><strong>${escapeHtml(item.fileName)}</strong><small>${escapeHtml(item.usage)}</small></div>`).join('')}</div></details>` : ''}
     ${result.evaluationMatrix?.length ? `<details open><summary>평가기준 대응표</summary><div class="requirement-list">${result.evaluationMatrix.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(item.status)}</span><div><strong>${escapeHtml(item.criterion)}${item.officialPoints ? ` · ${escapeHtml(item.officialPoints)}` : ''}</strong><small>${escapeHtml(item.requirement)}</small></div></div><p><b>계획서 대응 위치</b> ${escapeHtml(item.proposalLocations.join(' · ') || '연결 위치 없음')}</p>${coachingEvidenceView(item.evidenceRefs)}</article>`).join('')}</div></details>` : ''}
@@ -1386,7 +1476,7 @@ function startBusyElapsedTimer() {
   if (!outputs.length) return;
   const update = () => outputs.forEach(output => {
     const startedAt = Number(output.dataset.startedAt || 0);
-    output.textContent = `경과시간 ${String(Math.max(0, Math.floor((Date.now() - startedAt) / 1000))).padStart(2, '0')}초`;
+    output.textContent = `경과시간 ${aiTaskLabel((Date.now() - startedAt) / 1000)}`;
   });
   update(); busyTimer = setInterval(update, 1000);
 }
@@ -1507,6 +1597,10 @@ function bind() {
   document.querySelectorAll('[data-archive-remove]').forEach(el => el.onclick = () => hideArchivedNotices([el.dataset.archiveRemove]));
   document.querySelector('#archive-delete-selected')?.addEventListener('click', () => hideArchivedNotices(archiveTableState().selected || []));
   document.querySelector('#archive-restore-hidden')?.addEventListener('click', () => setState({ archiveHiddenNotices: [], notice: '숨긴 공고를 다시 목록에 표시했습니다.' }));
+  // 완료 알림: 결과 보기·다시 시도·닫기. 실패는 자동으로 옮기지 않는다.
+  document.querySelector('#ai-result-go')?.addEventListener('click', showAiResultLocation);
+  document.querySelector('#ai-result-close')?.addEventListener('click', () => setState({ aiResult: null }));
+  document.querySelectorAll('[data-ai-retry]').forEach(el => el.onclick = () => { const target = document.querySelector('#' + el.dataset.aiRetry); setState({ aiResult: null }); setTimeout(() => target?.click(), 40); });
   // [샘플] 예시 열기·닫기. 현재 작업 상태는 바꾸지 않는다.
   document.querySelectorAll('[data-open-sample]').forEach(el => el.onclick = () => openSample(el.dataset.openSample));
   document.querySelector('#close-sample')?.addEventListener('click', closeSample);
@@ -1783,7 +1877,7 @@ function harvestApplicantFromCoaching() {
 
 // 자료보관함에 저장된 과거 계획서를 다시 업로드하지 않고 기관 정보 보강에 사용한다.
 async function loadApplicantArchiveProposals() {
-  setAiBusy('자료보관함 계획서를 불러오는 중', { error: '', notice: '' });
+  setAiBusy('자료보관함 계획서를 불러오는 중', { error: '', notice: '' }, 'coachingLoad');
   try {
     const result = await listArchivedProposals();
     setState({ busy: '', archiveProposals: result.proposals || [], notice: `보관된 계획서 ${result.proposals?.length || 0}건입니다${elapsedLabel()}. 정보를 가져올 계획서를 고르세요.` });
@@ -1793,7 +1887,7 @@ async function loadApplicantArchiveProposals() {
 async function harvestApplicantFromArchive(id) {
   const applicant = findApplicant(state.applicants, state.applicantEditingId);
   if (!applicant) return setState({ error: '정보를 보강할 신청기관을 먼저 선택해 주세요.' });
-  setAiBusy('보관된 계획서에서 기관 정보를 찾는 중', { error: '', notice: '' });
+  setAiBusy('보관된 계획서에서 기관 정보를 찾는 중', { error: '', notice: '' }, 'applicantScan');
   try {
     const result = await getArchivedProposal(id);
     const proposal = result.proposal;
@@ -1911,7 +2005,7 @@ async function loadApplicantsFromArchive() {
 // 클릭 선택과 드래그앤드롭이 같은 처리 경로를 쓴다.
 async function loadCoachingProposalFile(file) {
   if (!file) return;
-  setAiBusy('검증할 계획서 파일을 읽는 중', { error: '', notice: '' });
+  setAiBusy('검증할 계획서 파일을 읽는 중', { error: '', notice: '' }, 'coachingFile');
   try {
     const parsed = await extractFile(file);
     state.coaching = { ...state.coaching, title: state.coaching.title || parsed.name.replace(/\.[^.]+$/, ''), text: parsed.text, result: null };
@@ -1991,7 +2085,7 @@ async function loadArchivedProposalForCoaching(id) {
 async function runProposalCoaching() {
   if (state.coaching.text.trim().length < 30) return setState({ error: '검증할 계획서 내용을 30자 이상 입력해 주세요.' });
   if (state.coaching.pendingJob) return;
-  setAiBusy('계획서 전체 검증 작업을 시작하는 중...', { error: '', notice: '' });
+  setAiBusy('계획서 전체 검증 작업을 시작하는 중...', { error: '', notice: '' }, 'coaching');
   try {
     const response = await coachingRequest({ action: 'startCoaching', ...coachingPayload() });
     const result = await response.json().catch(() => ({}));
@@ -2063,7 +2157,7 @@ function updateCoachingStatus(index, status) {
 async function requestCoachingRevision(index) {
   const issue = state.coaching.result?.issues?.[index];
   if (!issue || !state.coaching.text.trim()) return;
-  setAiBusy('선택한 문제의 수정안만 작성하는 중...', { error: '', notice: '' });
+  setAiBusy('선택한 문제의 수정안만 작성하는 중...', { error: '', notice: '' }, 'coachingRevision');
   try {
     const response = await fetch('/api/proposal-coaching', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Archive-Key': getArchiveRecoveryKey() }, body: JSON.stringify({ action: 'reviseIssue', title: state.coaching.title, proposalText: state.coaching.text, criteriaText: state.coaching.criteriaText, issue }) });
     const result = await response.json().catch(() => ({}));
@@ -2195,6 +2289,7 @@ function applyStructureRevision() {
     notice: `문제 ${findings.length}건을 반영해 수정본 V${version}을 만들었습니다. 수정한 항목 ${revision.changedSectionIds.length}개 외에는 원문 그대로입니다.${revision.unassigned.length ? ` 위치를 찾지 못한 ${revision.unassigned.length}건은 수정 요청 목록에서 직접 지정하세요.` : ''}`,
     error: ''
   });
+  markAiDone('repairV2');
   void archiveCurrentProposal(`revision-v${version}`).catch(() => {});
 }
 
@@ -2290,7 +2385,7 @@ async function rewriteFromCoaching(itemId) {
   const index = state.sections.findIndex(section => section.id === item?.sectionId);
   if (!item || index < 0) return setState({ error: '수정할 계획서 항목을 먼저 지정해 주세요.' });
   const before = state.sections[index].content;
-  setAiBusy('전달받은 코칭 내용으로 해당 항목만 수정하는 중...', { error: '', notice: '' });
+  setAiBusy('전달받은 코칭 내용으로 해당 항목만 수정하는 중...', { error: '', notice: '' }, 'coachingApply');
   try {
     const result = await rewriteWithAI({ section: state.sections[index], instruction: revisionInstruction([item]), analysis: analysisForRewrite(item), organization: organizationForGeneration() });
     const after = result.section?.content || '';
@@ -2369,7 +2464,7 @@ async function runProposalReview(force = false) {
   if (!force && state.reviewResult && state.reviewFingerprint === fingerprint) return setState({ notice: '같은 초안의 기존 심사 결과를 표시합니다.' });
   state.reviewOriginalDraft = structuredClone(state.sections);
   state.reviewBusy = true;
-  setAiBusy('사업계획서를 심사자 관점에서 검토하는 중...', { error: '', notice: '' });
+  setAiBusy('사업계획서를 심사자 관점에서 검토하는 중...', { error: '', notice: '' }, 'review');
   try {
     const response = await fetch('/api/proposal-review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const result = await response.json().catch(() => ({}));
@@ -2464,7 +2559,7 @@ function manualSourceRecord(fileName, sourceType, extractedText, extractionStatu
 
 async function loadOfficialNotices() {
   state.project.type = 'chest';
-  setAiBusy('공고를 불러오는 중', { error: '', notice: '' });
+  setAiBusy('공고를 불러오는 중', { error: '', notice: '' }, 'noticeList');
   try {
     const result = await fetchNoticeList();
     const notices = result.notices || [];
@@ -2477,7 +2572,7 @@ async function loadOfficialNotices() {
 }
 
 async function searchNoticeArchive() {
-  setAiBusy('자료보관함에서 과거 공고를 검색하는 중', { error: '', notice: '' });
+  setAiBusy('자료보관함에서 과거 공고를 검색하는 중', { error: '', notice: '' }, 'archiveSearch');
   try {
     const result = await searchArchivedNotices(state.archiveFilters);
     setState({ busy: '', archiveNotices: result.notices || [], notice: `자료보관함(D1)에 보관된 공고 ${result.notices?.length || 0}건을 찾았습니다${elapsedLabel()}.` });
@@ -2583,7 +2678,7 @@ async function applyArchiveRecoveryKey() {
 
 async function findMatchingNotices() {
   state.project.type = 'chest';
-  setAiBusy('공식 공고를 갱신하고 맞춤 조건을 확인하는 중', { error: '', notice: '' });
+  setAiBusy('공식 공고를 갱신하고 맞춤 조건을 확인하는 중', { error: '', notice: '' }, 'archiveMatch');
   try {
     const result = await fetchNoticeList();
     const archived = await syncArchivedNotices(result.notices || []);
@@ -2610,7 +2705,7 @@ async function viewArchivedNotice(index) {
 }
 
 async function loadProposalArchive() {
-  setState({ busy: '저장된 계획서를 불러오는 중...', error: '', notice: '' });
+  setAiBusy('저장된 계획서를 불러오는 중', { error: '', notice: '' }, 'archiveProposals');
   try { const result = await listArchivedProposals(); setState({ busy: '', archiveProposals: result.proposals || [], notice: `저장된 계획서 ${result.proposals?.length || 0}건을 불러왔습니다.` }); }
   catch (error) { setState({ busy: '', error: error.message }); }
 }
@@ -2675,7 +2770,7 @@ function deleteNoticeForever(value) {
 async function previewOfficialNotice(value) {
   const selected = state.noticeResults[Number(value)];
   if (!selected) return setState({ error: '확인할 공고를 찾지 못했습니다.' });
-  setAiBusy('공고 상세 내용을 불러오는 중', { error: '', notice: '' });
+  setAiBusy('공고 상세 내용을 불러오는 중', { error: '', notice: '' }, 'noticeDetail');
   try {
     const { notice } = await fetchNoticeDetail(selected);
     void syncArchivedNotices([{ ...selected, ...notice }]).catch(() => {});
@@ -2696,7 +2791,7 @@ function choosePreviewNotice() {
 async function selectOfficialNotice(value) {
   const selected = state.noticeResults[Number(value)];
   if (!selected) return setState({ error: '선택한 공고를 찾지 못했습니다.' });
-  setAiBusy('선택한 공고 본문을 불러오는 중', { pendingNoticeChoice: null, error: '', notice: '' });
+  setAiBusy('선택한 공고 본문을 불러오는 중', { pendingNoticeChoice: null, error: '', notice: '' }, 'noticeSelect');
   try {
     const { notice } = await fetchNoticeDetail(selected);
     void syncArchivedNotices([{ ...selected, ...notice }]).catch(() => {});
@@ -2766,7 +2861,7 @@ function downloadOriginal(blob, name) {
 async function addMissingNotice() {
   const url = state.noticeUrlDraft.trim();
   if (!url) return setState({ error: '공식 상세 URL을 입력해 주세요.' });
-  setAiBusy('누락 공고를 확인하는 중', { error: '', notice: '' });
+  setAiBusy('누락 공고를 확인하는 중', { error: '', notice: '' }, 'noticeImport');
   try {
     const result = await importNoticeUrl(url, state.noticeResults);
     if (result.duplicate) {
@@ -2787,7 +2882,7 @@ async function addMissingNotice() {
 
 async function analyze() {
   if (state.sourceText.trim().length < 30) return setState({ error: '분석할 원문을 30자 이상 입력해 주세요.' });
-  setAiBusy('기관 요구사항과 평가 기준을 분석하는 중...', { error: '', notice: '' });
+  setAiBusy('기관 요구사항과 평가 기준을 분석하는 중...', { error: '', notice: '' }, 'analyze');
   if (state.sourceText.length > 180000) return setState({ error: 'AI 분석 원문은 180,000자 이하여야 합니다. 파일을 나누거나 불필요한 내용을 줄여 주세요.' });
   const payload = { sourceText: state.sourceText, projectType: typeName(), project: state.project, organization: organizationForGeneration() };
   try { const result = await analyzeWithAI(payload); state.analysis = result.analysis; state.aiMode = 'ai'; }
@@ -2802,7 +2897,7 @@ async function createDraft() {
 async function rewriteSection(index) {
   const instruction = window.prompt('어떻게 수정할까요? 사실이나 수치를 새로 만들도록 요청할 수 없습니다.', '더 명확하고 간결하게 작성');
   if (!instruction) return;
-  setAiBusy('선택한 항목을 근거 범위 안에서 재작성하는 중...', { error: '' });
+  setAiBusy('선택한 항목을 근거 범위 안에서 재작성하는 중...', { error: '' }, 'rewrite');
   try { const result = await rewriteWithAI({ section: state.sections[index], instruction, analysis: analysisForRewrite(), organization: organizationForGeneration() }); state.sections[index] = result.section; setState({ busy: '', notice: '항목을 재작성했습니다.' }); }
   catch (error) { setState({ busy: '', error: error.message }); }
 }
@@ -2812,7 +2907,7 @@ async function generateCompleteProposal() {
   const manualLength = state.manualSources.filter(value => value.extractionStatus === 'success').reduce((sum, value) => sum + value.extractedText.length, 0);
   if (state.sourceText.trim().length + manualLength < 30) return setState({ error: '사업계획서를 작성할 공식 또는 직접 자료를 30자 이상 입력해 주세요.' });
   if (state.sourceText.length > 180000 || state.sourceText.length + manualLength > 220000) return setState({ error: '생성 입력 자료가 허용 길이를 초과했습니다. 자료를 나누거나 불필요한 내용을 줄여 주세요.' });
-  setAiBusy('공고문을 분석하고 마스터 설계를 작성하는 중...', { error: '', notice: '', sections: [], assemblyCheck: null, stagedGeneration: structuredClone(initial.stagedGeneration) });
+  setAiBusy('공고문을 분석하고 마스터 설계를 작성하는 중...', { error: '', notice: '', sections: [], assemblyCheck: null, stagedGeneration: structuredClone(initial.stagedGeneration) }, 'master');
   const completePayload = generationPayload();
   try {
     const result = await masterWithAI(completePayload);
@@ -2899,7 +2994,7 @@ async function generateProposalParts(onlyGroupId = '') {
   if (!groups.length) return setState({ error: '분할 생성할 신청서 항목 구조가 없습니다.' });
   const completed = new Set((staged.completedGroupIds || []).filter(id => id !== onlyGroupId));
   state.stagedGeneration.phase = 'parts-generating';
-  setAiBusy('신청서 항목별 계획서를 분할 생성하는 중...', { stagedGeneration: state.stagedGeneration, error: '', notice: '' });
+  setAiBusy('신청서 항목별 계획서를 분할 생성하는 중...', { stagedGeneration: state.stagedGeneration, error: '', notice: '' }, 'parts');
   try {
     for (const group of groups) {
       if (completed.has(group.id)) continue;
@@ -2946,7 +3041,7 @@ function assembleProposal() {
   state.reviewResult = null;
   state.reviewOriginalDraft = null;
   state.reviewFingerprint = '';
-  setState({ stagedGeneration: state.stagedGeneration, sections: state.sections, assemblyCheck, notice: assemblyCheck.valid ? '분할 항목을 공식 신청서 순서의 하나의 사업계획서로 완성했습니다.' : '계획서를 조립했지만 확인할 불일치가 있습니다. 사실을 자동 보정하지 않았습니다.', error: '' });
+  markAiDone('assemble', { stagedGeneration: state.stagedGeneration, sections: state.sections, assemblyCheck, notice: assemblyCheck.valid ? '분할 항목을 공식 신청서 순서의 하나의 사업계획서로 완성했습니다.' : '계획서를 조립했지만 확인할 불일치가 있습니다. 사실을 자동 보정하지 않았습니다.', error: '' });
   void archiveCurrentProposal('complete').catch(() => {});
 }
 
