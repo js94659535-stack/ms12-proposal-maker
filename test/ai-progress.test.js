@@ -65,5 +65,18 @@ test('기존 AI 호출 흐름은 그대로 두고 작업 id만 덧붙인다', ()
   assert.ok(tagged.length >= 17, `작업 id가 붙은 호출 ${tagged.length}건`);
   for (const id of tagged) assert.ok(taskBlock.includes(`  ${id}: {`), `${id} 정의 없음`);
   // 완료 처리는 busy가 끝나는 한 곳에서만 한다.
-  assert.equal((app.match(/const result = closeAiTask\(patch\);/g) || []).length, 1);
+  // 완료 처리는 상태 갱신과 단계 이동 두 경로에서 같은 함수를 쓴다.
+  assert.equal((app.match(/const result = closeAiTask\(patch\);/g) || []).length, 2);
+});
+
+test('단계 이동으로 끝나는 작업도 완료 표시를 남기고 검증은 끝날 때까지 시간을 보여 준다', () => {
+  // 마스터 설계처럼 navigateToStep으로 끝나는 작업도 ✓ 표시와 결과 이동을 받는다.
+  assert.match(app, /function applyWorkflowLocation\(location, patch = \{\}\) \{[\s\S]{0,320}closeAiTask\(patch\)/);
+  // background 검증은 시작이 아니라 완료 시점에 끝난다.
+  assert.match(app, /setState\(\{ busy: '계획서 검증 중', coaching: state\.coaching/);
+  assert.match(app, /if \(\['queued', 'in_progress'\]\.includes\(result\.status\)\) state\.busy = '계획서 검증 중';/);
+  assert.match(app, /saveState\(\); render\(\); startBusyElapsedTimer\(\);/);
+  // 전체 작성 후 자동 결합은 작성 시작 시각을 이어 쓴다.
+  assert.match(app, /function markAiDoneAt\(taskId, startedAt, patch = \{\}\)/);
+  assert.match(app, /assembleProposal\(startedAt\)/);
 });

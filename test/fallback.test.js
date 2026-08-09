@@ -101,7 +101,7 @@ test('계획서는 자유입력과 「전체 작성」 버튼 하나로 만든�
   assert.doesNotMatch(appSource, /waitingForAnswers/);
   assert.doesNotMatch(appSource, /pendingRequiredAnswers/);
   // 모두 끝나면 사용자가 다시 누르지 않아도 하나로 합친다.
-  assert.ok(appSource.includes('if (completed.size === all.length) assembleProposal();'));
+  assert.ok(appSource.includes('if (completed.size === all.length) assembleProposal(startedAt);'));
   // 실패 시에는 완료분을 보존하고 자동 재시도하지 않는다.
   assert.match(appSource, /작성이 중단되었습니다. 완료된 항목은 보존되며/);
 });
@@ -307,7 +307,7 @@ test('장문 분할 생성은 전체 이전 원문 대신 압축 요약과 의�
 
 test('완성 단계는 공식 목차 순서로 조립하고 누락·중복·마스터 기준값을 검증한다', () => {
   const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
-  const start = source.indexOf('function assembleProposal()');
+  const start = source.indexOf('function assembleProposal(startedAt = Date.now())');
   const end = source.indexOf('async function archiveCurrentProposal', start);
   const assemblySource = source.slice(start, end);
   assert.match(assemblySource, /groups\.flatMap/);
@@ -895,7 +895,10 @@ test('확정값 반영은 한 번의 finalize 호출로 관련 문단만 고친�
   assert.match(apiSource, /rewrite: 4_000, finalize: 9_000/);
   assert.match(apiSource, /name: 'proposal_finalize', schema: FINALIZE_SCHEMA/);
   // 계획서를 새로 쓰지 않고 값이 필요한 문단만 돌려준다.
-  assert.match(apiSource, /계획서를 새로 쓰지 마라\. 값이 필요한 문단만 sections에 담아 반환하고/);
+  assert.match(apiSource, /계획서를 새로 쓰지 마라\. 값이 필요한 문단만 sections에 담아 최대 8개까지 반환하고/);
+  // 큰 요청은 엣지에서 끊긴다. 확정값이 들어갈 문단만 보낸다.
+  assert.match(appSource, /const candidates = state\.sections\.filter\(section => targetIds\.has\(section\.id\)\);/);
+  assert.match(appSource, /function revisionScopeText\(issue\)/);
   assert.match(apiSource, /제출서류 준비 상태는 계획서 본문에 넣지 말고 notApplied에/);
   assert.match(apiSource, /근거 우선순위는 1\) 공식 공고·요강·평가기준 2\) 사용자 확정값 3\) 신청기관 확인정보 4\) 현재 계획서 문장 5\) 제안 순이다/);
   // 화면 입력칸을 자동으로 모으고, 개별 확정 버튼을 필수로 요구하지 않는다.

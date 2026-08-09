@@ -276,7 +276,7 @@ const FINALIZE_SCHEMA = {
   type: 'object', additionalProperties: false,
   properties: {
     sections: {
-      type: 'array', minItems: 0, maxItems: 12,
+      type: 'array', minItems: 0, maxItems: 8,
       items: {
         type: 'object', additionalProperties: false,
         properties: { id: { type: 'string' }, content: { type: 'string' }, changeReason: { type: 'string' } },
@@ -306,7 +306,7 @@ const FINALIZE_RULE = `CONFIRMED_VALUES는 사용자가 이번 사업 값으로 
 참여인원은 대상·목표, 회기는 세부 프로그램·추진 일정, 수행인력과 협력체계는 운영 인력·역할, 지역 필요성은 사업 필요성, 성과목표는 목표·기대효과, 지표·측정도구는 성과지표, 예산은 예산 문단에 반영한다.
 제출서류 준비 상태는 계획서 본문에 넣지 말고 notApplied에 제출 확인 항목으로 남긴다.
 근거 우선순위는 1) 공식 공고·요강·평가기준 2) 사용자 확정값 3) 신청기관 확인정보 4) 현재 계획서 문장 5) 제안 순이다. 확정값과 다른 수치가 본문에 있으면 확정값으로 맞추고, 공식 공고 기준과 확정값이 충돌하면 임의로 고르지 말고 문장에 두 값을 함께 남기고 notApplied에 충돌로 기록한다.
-계획서를 새로 쓰지 마라. 값이 필요한 문단만 sections에 담아 반환하고, 바꾸지 않은 문단은 반환하지 않는다. 반환하는 content는 그 문단의 전체 본문이며 기존 문장·구조·용어를 유지한 채 확정값만 자연스럽게 반영한다.
+계획서를 새로 쓰지 마라. 값이 필요한 문단만 sections에 담아 최대 8개까지 반환하고, 바꾸지 않은 문단은 반환하지 않는다. 반환하는 content는 그 문단의 전체 본문이며 기존 문장·구조·용어를 유지한 채 확정값만 자연스럽게 반영한다.
 확정값에 없는 사실·수치·기관 실적을 새로 만들지 마라. 근거가 없으면 [확인 필요] 표기를 유지한다.`;
 const requirement = {
   type: 'object', additionalProperties: false,

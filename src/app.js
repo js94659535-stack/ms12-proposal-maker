@@ -14,7 +14,7 @@ import { matchApplicantToNotice } from './fit-matching.js';
 import { buildDesignQuestions, reusableAnswerCandidates } from './design-questions.js';
 import { buildBlueprint } from './project-blueprint.js';
 import { BLUEPRINT_SECTION_MAP, UNRESOLVED_MARK, annotateDraftSections, checkDraftAgainstBlueprint, officialRequirementConflicts } from './blueprint-draft-check.js';
-import { EXTERNAL_SOURCE, appendProposalVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, proposalTextFromSections, proposalTextFromSnapshot, revisionInstruction, verifyLockedValues } from './coaching-handoff.js';
+import { EXTERNAL_SOURCE, appendProposalVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, matchSectionsForIssue, proposalTextFromSections, proposalTextFromSnapshot, revisionInstruction, sectionsFromProposalText, verifyLockedValues } from './coaching-handoff.js';
 import { splitApplicantProfile } from './applicants.js';
 import { ARCHIVE_PAGE_SIZES, ARCHIVE_STATUSES, archiveTableRows, shortDate } from './archive-table.js';
 import { SAMPLE_MARK, SAMPLE_NOTE, SAMPLE_NOTICE, SAMPLE_NOTICE_KEY, SAMPLE_STAGES, SAMPLE_STAGE_BY_STEP, buildSampleProject } from './sample-project.js';
@@ -134,7 +134,14 @@ function saveNavigationHistory() {
   try { sessionStorage.setItem(NAVIGATION_KEY, JSON.stringify(navigationHistory)); } catch { /* 현재 탭에서 저장할 수 없으면 메모리 기록만 유지한다. */ }
 }
 function applyWorkflowLocation(location, patch = {}) {
-  state = { ...state, ...patch, step: location.step };
+  // 단계 이동으로 끝나는 AI 작업도 완료 표시와 결과 이동을 똑같이 받는다.
+  let next = patch;
+  if (Object.hasOwn(patch, 'busy') && !patch.busy) {
+    const result = closeAiTask(patch);
+    if (result) next = { ...patch, aiResult: result };
+    busyStartedAt = 0;
+  }
+  state = { ...state, ...next, step: location.step };
   saveState(); render();
 }
 function navigateToStep(step, patch = {}) {
@@ -206,8 +213,9 @@ function aiTaskLabel(seconds) {
   const value = Math.max(0, Math.round(seconds));
   return `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`;
 }
-function markAiDone(taskId, patch = {}) {
-  aiTask = AI_TASKS[taskId] ? { id: taskId, startedAt: Date.now(), location: aiTaskLocation() } : null;
+function markAiDoneAt(taskId, startedAt, patch = {}) { return markAiDone(taskId, patch, startedAt); }
+function markAiDone(taskId, patch = {}, startedAt = Date.now()) {
+  aiTask = AI_TASKS[taskId] ? { id: taskId, startedAt, location: aiTaskLocation() } : null;
   setState({ ...patch, busy: '' });
 }
 function aiTaskLocation() {
@@ -1148,8 +1156,11 @@ async function buildFinalVersion() {
   const before = structuredClone(state.sections);
   setAiBusy('확정값 반영 중', { error: '', notice: '', projectValues: state.projectValues }, 'finalize');
   try {
+    const targetIds = new Set(confirmed.flatMap(item => String(item.target || '').split(',').map(part => part.trim()).filter(part => /^[a-z]+$/.test(part))));
+    const candidates = state.sections.filter(section => targetIds.has(section.id));
+    const sent = candidates.length ? candidates : state.sections;
     const result = await finalizeWithAI({
-      sections: state.sections.map(section => ({ id: section.id, title: section.title, content: section.content })),
+      sections: sent.map(section => ({ id: section.id, title: section.title, content: section.content })),
       confirmedValues: confirmed,
       answers,
       officialBasis: { requirements: (state.noticeLogic?.requirements || []).slice(0, 12), conflicts: currentOfficialConflicts() },
@@ -1333,7 +1344,8 @@ function sendVersionToReview() {
   const target = { version, round, sentAt: new Date().toISOString(), sections: structuredClone(state.sections) };
   setProposalFlow({ status: round > 1 ? '재검토' : '검토중', reviewTarget: target, requestOpen: false });
   coachCurrentProposal();
-  setState({ notice: `V${version}을 ${round}차 검토 대상으로 고정했습니다. 검토 중에는 이 버전을 바꾸지 않습니다.` });
+  // 보낸 뒤 검증·코칭 화면으로 데려간다. 어디로 가야 할지 사용자가 찾지 않게 한다.
+  setState({ activeTool: 'coaching', notice: `V${version}을 ${round}차 검토 대상으로 고정했습니다. 이 화면에서 검증을 실행하세요. 검토 중에는 이 버전을 바꾸지 않습니다.` });
 }
 // 검토가 끝나면 회차를 기록한다. 결과 자체는 기존 coaching 구조를 그대로 쓴다.
 function recordReviewRound(result) {
@@ -2443,7 +2455,8 @@ async function runProposalCoaching() {
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(coachingFailureMessage(result, response.status));
     state.coaching.pendingJob = { id: result.jobId, status: result.status || 'queued', pollCount: 0, startedAt: busyStartedAt || Date.now(), diagnostic: result.diagnostic || null };
-    setState({ busy: '', coaching: state.coaching, notice: 'background 검증 작업을 시작했습니다.' });
+    // busy를 유지해 검증이 끝날 때까지 같은 경과시간을 계속 보여 준다.
+    setState({ busy: '계획서 검증 중', coaching: state.coaching, notice: 'background 검증 작업을 시작했습니다.' });
     void pollProposalCoaching();
   } catch (error) { setState({ busy: '', error: error.message }); }
 }
@@ -2468,7 +2481,8 @@ async function pollProposalCoaching() {
     if (!response.ok) throw new Error(coachingFailureMessage(result, response.status));
     if (!state.coaching.pendingJob || state.coaching.pendingJob.id !== jobId) return;
     state.coaching.pendingJob = { ...state.coaching.pendingJob, status: result.status, pollCount: Number(state.coaching.pendingJob.pollCount || 0) + 1, diagnostic: result.diagnostic || state.coaching.pendingJob.diagnostic };
-    saveState(); render();
+    if (['queued', 'in_progress'].includes(result.status)) state.busy = '계획서 검증 중';
+    saveState(); render(); startBusyElapsedTimer();
     if (['queued', 'in_progress'].includes(result.status)) setTimeout(() => pollProposalCoaching(), 5000);
     else if (result.status === 'completed') await completeProposalCoaching(result);
   } catch (error) {
@@ -2508,18 +2522,30 @@ function updateCoachingStatus(index, status) {
   void persistCoachingWorkboard();
 }
 
+// 수정안 요청은 문제가 가리키는 항목만 보낸다. 계획서 전체를 보내면 요청이 커져 실패한다.
+function revisionScopeText(issue) {
+  const full = state.coaching.text || '';
+  const blocks = sectionsFromProposalText(full);
+  const matched = matchSectionsForIssue(blocks, issue);
+  const picked = (matched.length ? matched : blocks.filter(block => String(issue.location || '').includes(block.title))).slice(0, 2);
+  const text = picked.map(block => `${block.title}\n${block.content}`).join('\n\n').trim();
+  return text.length >= 40 && text.length < full.length ? text : full.slice(0, 12_000);
+}
 async function requestCoachingRevision(index) {
   const issue = state.coaching.result?.issues?.[index];
   if (!issue || !state.coaching.text.trim()) return;
   setAiBusy('선택한 문제의 수정안만 작성하는 중...', { error: '', notice: '' }, 'coachingRevision');
   try {
-    const response = await fetch('/api/proposal-coaching', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Archive-Key': getArchiveRecoveryKey() }, body: JSON.stringify({ action: 'reviseIssue', title: state.coaching.title, proposalText: state.coaching.text, criteriaText: state.coaching.criteriaText, issue }) });
+    const response = await fetch('/api/proposal-coaching', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Archive-Key': getArchiveRecoveryKey() }, body: JSON.stringify({ action: 'reviseIssue', title: state.coaching.title, proposalText: revisionScopeText(issue), criteriaText: state.coaching.criteriaText, issue }) });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || `항목 수정안 요청 실패 (${response.status})`);
     state.coaching.workItems[index] = { ...state.coaching.workItems[index], status: result.requiresConfirmation ? '확인필요' : '수정중', revision: result, applied: false };
     setState({ busy: '', coaching: state.coaching, notice: '선택한 문제의 AI 수정안을 만들었습니다. 비교 후 적용하세요.' });
     void persistCoachingWorkboard();
-  } catch (error) { setState({ busy: '', error: error.message }); }
+  } catch (error) {
+    // 수정안이 규칙에 걸려 실패해도 다른 길이 있다는 것을 알려 준다.
+    setState({ busy: '', error: `${error.message} 「직접 수정」으로 계획서 쓰기에 보내거나 「확인정보 입력」으로 값을 채운 뒤 다시 시도할 수 있습니다.` });
+  }
 }
 
 function applyCoachingRevision(index) {
@@ -2589,6 +2615,23 @@ async function analyzeNoticeBundleFiles() {
 }
 
 // 공고에서 선정 논리를 구조화한다. AI 호출 없이 공고 원문만 사용한다.
+function ensureNoticeLogic() {
+  if (state.noticeLogic?.structure) return state.noticeLogic;
+  const notice = noticeLogicSource() || (state.sourceText.trim().length >= 200 ? { title: state.project.title, overview: state.sourceText, criteriaText: manualCriteriaText() } : null);
+  if (!notice) return null;
+  const structure = analyzeNoticeStructure(notice);
+  if (!structure.totalChars) return null;
+  const logic = buildSelectionLogic(structure);
+  const requirements = selectionRequirements(structure);
+  state.noticeLogic = { structure, logic, requirements, summary: noticeLogicSummary(structure, logic, requirements) };
+  return state.noticeLogic;
+}
+function manualCriteriaText() {
+  return state.manualSources
+    .filter(item => ['세부 공고문', '심사·평가기준', '예산 편성 기준'].includes(item.sourceType) && item.extractionStatus === 'success')
+    .map(item => item.extractedText)
+    .join('\n\n');
+}
 function analyzeNoticeSelectionLogic() {
   const notice = noticeLogicSource();
   if (!notice) return setState({ error: '분석할 공고를 먼저 선택해 주세요.' });
@@ -3262,6 +3305,7 @@ async function generateCompleteProposal() {
   if (state.sourceText.trim().length + manualLength < 30) return setState({ error: '사업계획서를 작성할 공식 또는 직접 자료를 30자 이상 입력해 주세요.' });
   if (state.sourceText.length > 180000 || state.sourceText.length + manualLength > 220000) return setState({ error: '생성 입력 자료가 허용 길이를 초과했습니다. 자료를 나누거나 불필요한 내용을 줄여 주세요.' });
   setAiBusy('공고문을 분석하고 마스터 설계를 작성하는 중...', { error: '', notice: '', sections: [], assemblyCheck: null, stagedGeneration: structuredClone(initial.stagedGeneration) }, 'master');
+  ensureNoticeLogic();
   const completePayload = generationPayload();
   try {
     const result = await masterWithAI(completePayload);
@@ -3289,11 +3333,15 @@ async function generateCompleteProposal() {
     state.stagedGeneration = structuredClone(initial.stagedGeneration);
     state.aiMode = 'local';
     state.designUnavailable = true;
-    state.notice = `공고 자료 분석은 완료되었지만 AI 정밀 사업설계를 실행하지 못했습니다. ${error.message}`;
+    state.notice = '공고 원문에서 확인할 수 있는 내용만 정리했습니다. 아래에서 다시 시도할 수 있습니다.';
+    state.designFailure = `AI 정밀 사업설계를 실행하지 못했습니다. ${error.message}`;
   }
   state.answers = state.analysis.questions || [];
   state.matches = buildMatches();
-  navigateToStep(4, { busy: '' });
+  // 실패했는데 완료로 보이지 않게 한다. 실패 표시와 다시 시도를 함께 남긴다.
+  const failure = state.designFailure || '';
+  state.designFailure = '';
+  navigateToStep(4, { busy: '', error: failure });
 }
 
 function generationPayload() {
@@ -3348,6 +3396,7 @@ async function generateProposalParts() {
   if (!groups.length) return setState({ error: '작성할 신청서 항목 구조가 없습니다.' });
   const completed = new Set(staged.completedGroupIds || []);
   state.stagedGeneration.phase = 'parts-generating';
+  const startedAt = Date.now();
   setAiBusy('전체 계획서 작성 중', { stagedGeneration: state.stagedGeneration, error: '', notice: '' }, 'parts');
   try {
     for (const group of groups) {
@@ -3363,7 +3412,8 @@ async function generateProposalParts() {
     }
     setState({ busy: '', stagedGeneration: state.stagedGeneration, notice: '전체 계획서 초안을 작성했습니다. 확인되지 않은 값은 [확인 필요]로 남겼습니다.' });
     // 항목이 모두 끝나면 사용자가 다시 누르지 않아도 하나의 계획서로 합친다.
-    if (completed.size === all.length) assembleProposal();
+    // 이어서 결합할 때는 전체 작성에 걸린 시간을 그대로 이어 보여 준다.
+    if (completed.size === all.length) assembleProposal(startedAt);
     void archiveCurrentProposal('parts').catch(() => {});
   } catch (error) {
     state.stagedGeneration.phase = 'parts-generating';
@@ -3377,7 +3427,7 @@ function relevantPreviousSections(group, parts) {
   return (parts || []).flatMap(part => part.sections || []).filter(section => needed.has(section.id)).map(section => ({ id: section.id, title: section.title, content: String(section.content || '').slice(0, 3000), citations: section.citations || [] }));
 }
 
-function assembleProposal() {
+function assembleProposal(startedAt = Date.now()) {
   const staged = state.stagedGeneration;
   const groups = staged?.master?.sectionPlan || [];
   const allSections = (staged.parts || []).flatMap(part => part.sections || []);
@@ -3397,7 +3447,9 @@ function assembleProposal() {
   state.reviewResult = null;
   state.reviewOriginalDraft = null;
   state.reviewFingerprint = '';
-  markAiDone('assemble', { stagedGeneration: state.stagedGeneration, sections: state.sections, assemblyCheck, notice: assemblyCheck.valid ? '분할 항목을 공식 신청서 순서의 하나의 사업계획서로 완성했습니다.' : '계획서를 조립했지만 확인할 불일치가 있습니다. 사실을 자동 보정하지 않았습니다.', error: '' });
+  // 첫 완성본을 V1로 남긴다. 이후 수정·확정값 반영은 새 버전으로만 쌓인다.
+  if (!(state.proposalVersions || []).length) state.proposalVersions = appendProposalVersion([], { sections: state.sections, label: 'V1 완성본', source: '계획서 작성' });
+  markAiDoneAt('assemble', startedAt, { stagedGeneration: state.stagedGeneration, sections: state.sections, proposalVersions: state.proposalVersions, assemblyCheck, notice: assemblyCheck.valid ? '분할 항목을 공식 신청서 순서의 하나의 사업계획서로 완성했습니다.' : '계획서를 조립했지만 확인할 불일치가 있습니다. 사실을 자동 보정하지 않았습니다.', error: '' });
   markProposalAssembled();
   void archiveCurrentProposal('complete').catch(() => {});
 }

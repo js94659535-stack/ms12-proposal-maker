@@ -10,7 +10,9 @@ test('조립이 끝나면 검증 전 완성본 상태로 보관한다', () => {
   assert.match(app, /const PROPOSAL_STATES = \['작성중', '완성본·검토전', '검토중', '수정중', '재검토', '최종본'\]/);
   assert.match(app, /function markProposalAssembled\(\)/);
   assert.match(app, /setProposalFlow\(\{ status: '완성본·검토전'/);
-  assert.match(app, /markAiDone\('assemble'[\s\S]{0,400}markProposalAssembled\(\)/);
+  assert.match(app, /markAiDoneAt\('assemble', startedAt[\s\S]{0,400}markProposalAssembled\(\)/);
+  // 첫 완성본은 V1로 남는다.
+  assert.match(app, /if \(!\(state\.proposalVersions \|\| \[\]\)\.length\) state\.proposalVersions = appendProposalVersion\(\[\], \{ sections: state\.sections, label: 'V1 완성본'/);
   assert.match(app, /archiveCurrentProposal\('complete'\)/);
   // 완성 화면의 다섯 갈래
   for (const label of ['전체 계획서 보기', 'DOCX 내려받기', 'PDF 내려받기', '수정 요청', '검토·제출로 보내기']) {
@@ -89,4 +91,20 @@ test('최종본은 사용자가 승인할 때만 만들고 이전 버전을 지�
   assert.match(app, /id="approve-final-proposal"/);
   assert.match(app, /final: '최종본'/);
   assert.doesNotMatch(app, /proposalVersions = \[\]/);
+});
+
+test('검토 제출·수정 요청은 화면 이동과 대안까지 이어진다', () => {
+  // 검토로 보내면 검증 화면까지 데려간다.
+  assert.match(app, /coachCurrentProposal\(\);\s*\n\s*\/\/ 보낸 뒤 검증·코칭 화면으로 데려간다[\s\S]{0,120}activeTool: 'coaching'/);
+  // 문제 하나를 고칠 때 계획서 전체를 보내지 않는다.
+  assert.match(app, /function revisionScopeText\(issue\)/);
+  assert.match(app, /proposalText: revisionScopeText\(issue\)/);
+  // 수정안이 규칙에 걸리면 다른 경로를 안내한다.
+  assert.match(app, /「직접 수정」으로 계획서 쓰기에 보내거나 「확인정보 입력」으로 값을 채운 뒤 다시 시도할 수 있습니다/);
+  // 사업설계가 실패하면 완료로 표시하지 않는다.
+  assert.match(app, /state\.designFailure = `AI 정밀 사업설계를 실행하지 못했습니다/);
+  assert.match(app, /navigateToStep\(4, \{ busy: '', error: failure \}\)/);
+  // 공고문만 붙여넣어도 선정 논리를 만들어 다음 단계로 넘긴다.
+  assert.match(app, /function ensureNoticeLogic\(\)/);
+  assert.match(app, /ensureNoticeLogic\(\);\s*\n\s*const completePayload = generationPayload\(\);/);
 });
