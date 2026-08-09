@@ -1381,7 +1381,7 @@ function stagedGenerationView() {
   const logic = master.masterLogic || {};
   const completed = new Set(staged.completedGroupIds || []);
   const progress = groups.length ? Math.round((completed.size / groups.length) * 100) : 0;
-  const waitingForAnswers = (state.missingInformation || []).some(question => !String(state.designAnswers[question] || '').trim());
+  const waitingForAnswers = pendingRequiredAnswers().length > 0;
   return `<div class="card" id="result-master" tabindex="-1"><div class="card-title"><div><h3>계획서 생성 3단계</h3><span>마스터 설계 → 분할 생성 → 완성</span></div><span class="tag ${staged.phase === 'parts-ready' ? 'mandatory' : ''}">${staged.phase === 'master-ready' ? '마스터 설계 완료' : staged.phase === 'parts-ready' ? '분할 생성 완료' : '분할 생성 중'}</span></div>
     <div class="summary-grid"><div><span>사업명</span><strong>${escapeHtml(master.projectDesign?.projectName || state.project.title)}</strong></div><div><span>대상·인원</span><strong>${escapeHtml([master.projectDesign?.target, master.projectDesign?.participantCount].filter(Boolean).join(' · '))}</strong></div><div><span>사업기간</span><strong>${escapeHtml(master.projectDesign?.projectPeriod || '')}</strong></div><div><span>분할 기준</span><strong>신청서 항목·목차 ${groups.length}개 묶음</strong></div></div>
     <details open><summary>마스터 논리사슬과 선정 대응</summary><div class="summary-grid"><div><span>문제와 필요성</span><strong>${escapeHtml(logic.problem || '')}</strong></div><div><span>대상 선정 근거</span><strong>${escapeHtml(logic.targetRationale || '')}</strong></div><div><span>핵심 전략</span><strong>${escapeHtml(logic.coreStrategy || '')}</strong></div><div><span>차별성</span><strong>${escapeHtml(logic.differentiation || '')}</strong></div></div><p class="muted">문제 → ${(logic.causes || []).map(escapeHtml).join(' · ')} → 대상 → 전략 → ${(logic.executionMethods || []).map(escapeHtml).join(' · ')} → 산출 → 변화 → 성과측정</p><div class="three-col"><div><h4>기준값</h4>${listOrEmpty((logic.baselineValues || []).map(item => `${item.item}: ${item.value}`))}</div><div><h4>산출·성과·측정 연결</h4>${listOrEmpty((logic.outputOutcomeMeasurementLinks || []).map(item => `${item.output} → ${item.outcomeGoal} → ${item.indicator}`))}</div><div><h4>평가기준 대응</h4>${listOrEmpty((logic.evaluationResponsePlan || []).map(item => `${item.criterion}: ${item.response}`))}</div></div><details><summary>주장별 공식 자료 근거</summary>${(logic.claimEvidencePlan || []).map(item => `<blockquote><strong>${escapeHtml(item.claim)}</strong><br>${escapeHtml(item.evidence)} <small>${escapeHtml(item.location)}</small></blockquote>`).join('')}</details></details>
@@ -1424,6 +1424,17 @@ function currentDesignQuestions() {
     structure, fitResult, blueprint: currentBlueprint(), applicant,
     projectValues: state.projectValues, aiQuestions: state.missingInformation || [], answers: state.designAnswers || {}
   });
+}
+// 화면에 실제로 보여 준 필수 확인 질문 중 아직 답이 없는 것만 생성 잠금 조건으로 본다.
+// 표시되지 않은 질문 때문에 생성이 잠기면 사용자가 풀 방법이 없다.
+function pendingRequiredAnswers() {
+  // 사업설계 AI가 「반드시 확인」으로 남긴 질문만 생성을 막는다.
+  // 설계도에서 나온 확인 항목은 [확인 필요]로 본문에 남길 수 있으므로 초안 작성을 막지 않는다.
+  const required = new Set(state.missingInformation || []);
+  return currentDesignQuestions().questions
+    .filter(item => required.has(item.question))
+    .filter(item => !String(state.designAnswers[item.question] || '').trim())
+    .map(item => item.question);
 }
 function designQuestionsView() {
   const plan = currentDesignQuestions();
@@ -3285,6 +3296,9 @@ function applyApplicantAnswers(questions) {
 }
 
 async function generateProposalParts(onlyGroupId = '') {
+  // 화면 disabled에만 기대지 않고 실행 직전에 한 번 더 확인한다.
+  const pendingAnswers = pendingRequiredAnswers();
+  if (pendingAnswers.length) return setState({ error: `필수 확인 질문 ${pendingAnswers.length}건에 답한 뒤 생성할 수 있습니다. 먼저 확인할 질문: ${pendingAnswers[0]}` });
   const staged = state.stagedGeneration;
   const all = staged?.master?.sectionPlan || [];
   // 개별 생성이면 해당 항목만, 일괄이면 남은 항목 전체를 만든다.

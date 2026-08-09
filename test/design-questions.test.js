@@ -86,3 +86,26 @@ test('질문 화면 문구를 바꾸고 새 AI 호출을 만들지 않는다', (
   // 답변 반영은 기존 재생성 버튼 하나만 쓴다.
   assert.match(app, /id="regenerate-design"/);
 });
+
+test('생성 잠금은 화면에 보여 준 필수 질문만 기준으로 한다', () => {
+  // 사업설계 AI가 남긴 필수 질문을 가장 먼저 보여 준다(잠금 대상이므로 답할 자리가 있어야 한다).
+  const many = Array.from({ length: 8 }, (_, index) => `추가 확인 질문 ${index + 1}: 확인 항목 ${index + 1}은 무엇입니까?`);
+  const plan = buildDesignQuestions({ ...base, aiQuestions: many });
+  assert.equal(plan.questions.length, MAX_DESIGN_QUESTIONS);
+  for (const item of plan.questions) assert.ok(many.includes(item.question), item.question);
+  // 잠금은 표시된 질문 중 미답변인 것만 본다.
+  assert.match(app, /function pendingRequiredAnswers\(\)/);
+  assert.match(app, /const required = new Set\(state\.missingInformation \|\| \[\]\);/);
+  assert.match(app, /currentDesignQuestions\(\)\.questions\s*\n\s*\.filter\(item => required\.has\(item\.question\)\)/);
+  assert.match(app, /const waitingForAnswers = pendingRequiredAnswers\(\)\.length > 0;/);
+  assert.doesNotMatch(app, /const waitingForAnswers = \(state\.missingInformation \|\| \[\]\)\.some/);
+  // 화면 disabled에만 기대지 않고 실행 직전에도 막는다.
+  assert.match(app, /async function generateProposalParts\(onlyGroupId = ''\) \{\n  \/\/ 화면 disabled에만 기대지 않고[\s\S]{0,120}if \(pendingAnswers\.length\) return setState/);
+});
+
+test('비활성 버튼은 갈색 활성 버튼과 구분되게 표시한다', () => {
+  const css = fs.readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+  assert.match(css, /\.button:disabled,\.button\[disabled\]\{[^}]*cursor:not-allowed/);
+  assert.match(css, /\.button:disabled,\.button\[disabled\]\{[^}]*background:#efece8/);
+  assert.match(css, /\.button:disabled:hover,\.button\[disabled\]:hover\{/);
+});

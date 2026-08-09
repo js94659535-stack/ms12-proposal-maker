@@ -322,3 +322,8 @@
   100%{box-shadow:0 0 0 0 rgba(140,90,51,0)}
 }
 @media(max-width:600px){.ai-result{flex-wrap:wrap}.ai-result>div{margin-left:0;width:100%}}
+/* 비활성 버튼은 브라운 활성 버튼과 확실히 구분되게 저채도 회색으로 둔다. 기능 변화 없음. */
+.button:disabled,.button[disabled]{background:#efece8;color:#a9a29a;border-color:#e4dfd9;cursor:not-allowed;box-shadow:none;opacity:1}
+.button:disabled:hover,.button[disabled]:hover{background:#efece8;color:#a9a29a;border-color:#e4dfd9}
+.button.primary:disabled,.button.secondary:disabled,.button.ghost:disabled{background:#efece8;color:#a9a29a;border:1px solid #e4dfd9}
+.home-actions .button:disabled,.home-hero .home-actions .button:disabled{background:rgba(120,100,80,.12);color:#9c9086;border-color:transparent;opacity:1}

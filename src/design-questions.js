@@ -54,6 +54,10 @@ export function buildDesignQuestions({ structure = null, fitResult = null, bluep
     candidates.push({ ...entry, question });
   };
 
+  // 0) 사업설계 AI가 「반드시 확인」으로 남긴 질문을 가장 먼저 묻는다(이 질문만 생성을 막는다).
+  for (const question of aiQuestions || []) {
+    push({ id: `ai-${text(question).slice(0, 24)}`, question, kind: '필수 확인', reason: '필수정보', priority: '공식 필수조건' });
+  }
   // 1) 공식 필수조건: 설계도가 확인 필요로 남긴 핵심 항목
   for (const item of blueprint?.items || []) {
     if (item.status !== 'NEEDS_CONFIRMATION' || !item.question) continue;
@@ -84,10 +88,6 @@ export function buildDesignQuestions({ structure = null, fitResult = null, bluep
     push({ id: entry.id, question: entry.question, kind: '경쟁력', reason: entry.reason, priority: entry.priority });
   }
 
-  // 기존 사업설계 AI가 남긴 질문도 같은 규칙으로 걸러 뒤에 붙인다(새 호출 없음).
-  for (const question of aiQuestions || []) {
-    push({ id: `ai-${text(question).slice(0, 24)}`, question, kind: '필수 확인', reason: '필수정보', priority: '공식 필수조건' });
-  }
 
   const asked = candidates
     .filter(entry => !text(answers?.[entry.question]))
