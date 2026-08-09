@@ -122,3 +122,43 @@
   .home-flow,.home-grid,.home-grid.four{grid-template-columns:1fr}
   .home-actions .button{width:100%}
 }
+/* 홈 랜딩 V2: 딥 네이비 · 이머럴드 · 웜 아이보리 */
+.home-layout{background:#fbfaf7}
+.home-header{position:sticky;top:0;z-index:30;background:#10233c;
+.home-header{border-bottom:1px solid #1c3450}
+.home-brand strong{font-size:15.5px}
+.home-nav{gap:6px}
+.home-nav .button.ghost{border-color:transparent;color:#c8d6e6;padding:9px 12px;font-size:13.5px}
+.home-nav .button.ghost:hover{background:#1a3352}
+.home-nav .button.primary{background:#0f9d76;padding:10px 16px}
+.home-hero{padding:72px 0 52px;border-bottom:1px solid #ece8e1}
+.home-hero h1{font-size:46px;line-height:1.24;letter-spacing:-.035em;color:#10233c;margin:0 0 18px}
+.home-hero p{font-size:17px;color:#4d5a6b;max-width:720px}
+.home-actions .button.primary{background:#0f9d76}
+.home-startbox{margin-top:36px;background:#fff;border:1px solid #e6e2da;border-radius:14px;padding:26px;max-width:760px}
+.home-startbox-title{margin:0 0 16px;font-size:16px;font-weight:800;color:#10233c}
+.home-startbox-actions{display:flex;gap:10px;flex-wrap:wrap}
+.home-startbox-actions .button{padding:12px 20px}
+.home-startbox-note{margin:14px 0 0;color:var(--muted);font-size:13px}
+.home-section{padding:52px 0}
+.home-head h2{font-size:24px}
+.home-grid.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+.home-shot{background:#fff;border:1px solid #e8e5e0;border-radius:12px;padding:22px;display:flex;flex-direction:column;gap:9px}
+.home-shot span{font-size:11.5px;font-weight:800;color:#0f9d76;letter-spacing:.04em}
+.home-shot h3{margin:0;font-size:17px;color:#10233c}
+.home-shot p{margin:0;color:#5c6673;font-size:13.5px;line-height:1.7}
+.home-shot .button.ghost{color:#10233c;border-color:#dcd8d2;align-self:flex-start;margin-top:auto}
+.home-final{background:#10233c;color:#fff;border-radius:16px;padding:48px 40px;margin:16px 0 36px;text-align:center}
+.home-final h2{margin:0 0 10px;font-size:27px;letter-spacing:-.02em}
+.home-final p{margin:0 0 22px;color:#a9bacd}
+.home-final .home-actions{justify-content:center}
+.home-final .button.ghost{color:#dbe4ef;border-color:#33465f}
+.home-badge{background:#e6f6f0;color:#0f7a5d}
+@media(max-width:900px){
+  .home-hero{padding:36px 0 30px}
+  .home-hero h1{font-size:30px}
+  .home-nav{width:100%;justify-content:flex-start;overflow:visible}
+  .home-startbox{padding:20px}
+  .home-final{padding:32px 20px}
+  .home-grid.three{grid-template-columns:1fr}
+}

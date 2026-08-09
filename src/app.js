@@ -192,30 +192,34 @@ function homeView() {
   const marks = state.sections.reduce((sum, section) => sum + (String(section.content).match(/\[확인 필요[^\]]*\]/g) || []).length, 0);
   const readiness = writing ? (conflicts.length || marks ? `제출 전 확인 ${conflicts.length + (marks ? 1 : 0)}건` : '제출 검토 가능') : '';
   const saved = (state.archiveProposals || []).slice(0, 4);
-  const stageOf = stage => archiveStageLabel(stage);
   const recentCards = [
-    ...(writing ? [`<article class="home-card work"><div class="home-work-top"><span class="home-badge">작성 중</span><span class="home-when">방금 자동 저장됨</span></div>
+    ...(writing ? [`<article class="home-card work"><div class="home-work-top"><span class="home-badge">작성 중</span><span class="home-when">자동 저장됨</span></div>
       <h3>${escapeHtml(String(state.project.title || '제목 미정').slice(0, 44))}</h3>
       <p>${escapeHtml(String(state.project.issuer || state.selectedNotice?.title || '공고 정보 미지정').slice(0, 52))}</p>
       <dl><div><dt>현재 단계</dt><dd>${escapeHtml(currentStep)}</dd></div><div><dt>버전</dt><dd>${versions ? `V${versions}` : 'V1 작성 중'}</dd></div><div><dt>제출 준비</dt><dd>${escapeHtml(readiness)}</dd></div></dl>
       <button class="button primary" data-home-continue="1">계속 작업</button></article>`] : []),
-    ...saved.map(item => `<article class="home-card work"><div class="home-work-top"><span class="home-badge quiet">${escapeHtml(stageOf(item.stage))}</span><span class="home-when">${escapeHtml(String(item.updatedAt || item.createdAt || '').slice(0, 10))}</span></div>
+    ...saved.map(item => `<article class="home-card work"><div class="home-work-top"><span class="home-badge quiet">${escapeHtml(archiveStageLabel(item.stage))}</span><span class="home-when">${escapeHtml(String(item.updatedAt || item.createdAt || '').slice(0, 10))}</span></div>
       <h3>${escapeHtml(String(item.title || '제목 없음').slice(0, 44))}</h3>
       <p>${escapeHtml(String(item.institution || item.noticeTitle || '보관된 계획서').slice(0, 52))}</p>
-      <dl><div><dt>보관 단계</dt><dd>${escapeHtml(stageOf(item.stage))}</dd></div><div><dt>저장일</dt><dd>${escapeHtml(String(item.createdAt || '').slice(0, 10) || '-')}</dd></div><div><dt>제출 준비</dt><dd>열어서 확인</dd></div></dl>
+      <dl><div><dt>보관 단계</dt><dd>${escapeHtml(archiveStageLabel(item.stage))}</dd></div><div><dt>저장일</dt><dd>${escapeHtml(String(item.createdAt || '').slice(0, 10) || '-')}</dd></div><div><dt>제출 준비</dt><dd>열어서 확인</dd></div></dl>
       <button class="button secondary" data-open-archived-proposal="${escapeHtml(item.id)}">계속 작업</button></article>`)
   ].join('');
   return `
     <div class="home">
       <header class="home-header">
-        <div><strong>사업계획서 작성 도우미</strong><span>공고 분석부터 제출본까지</span></div>
-        <nav><button class="button primary" data-home-start="1">새 계획서</button><button class="button ghost" data-home-archive="1">자료보관함</button><button class="button ghost" data-home-recent="1">최근 작업</button></nav>
+        <div class="home-brand"><strong>사업계획서 작성 도우미</strong><span>공고 분석부터 제출본까지</span></div>
+        <nav class="home-nav"><button class="button ghost" data-home-scroll="home-product">제품소개</button><button class="button ghost" data-home-scroll="home-flow">이용방법</button><button class="button ghost" data-home-scroll="home-features">주요기능</button><button class="button ghost" data-home-archive="1">자료보관함</button><button class="button primary" data-home-start="1">무료로 시작하기</button></nav>
       </header>
 
-      <section class="home-hero">
-        <h1>공고 분석부터 제출본까지,<br>하나의 흐름으로 완성합니다.</h1>
-        <p>공고 요구를 읽고, 신청기관과 연결하고, 사업을 설계하여 작성·검증·수정·제출까지 이어주는 사업계획서 업무공간입니다.</p>
-        <div class="home-actions"><button class="button primary" data-home-start="1">새 사업계획서 시작</button><button class="button secondary" data-home-continue="1" ${writing ? '' : 'disabled'}>작성 중인 계획서 계속하기</button></div>
+      <section class="home-hero" id="home-product">
+        <h1>공고 분석부터 제출본까지,<br>하나의 흐름으로</h1>
+        <p>공고문을 분석하고 기관정보와 연결해 사업설계·작성·검증·제출까지 지원합니다.</p>
+        <div class="home-actions"><button class="button primary" data-home-start="1">무료로 시작하기</button><button class="button secondary" data-home-continue="1" ${writing ? '' : 'disabled'}>작성 중인 계획서 계속하기</button></div>
+        <div class="home-startbox">
+          <p class="home-startbox-title">공고문을 업로드하거나 사업 내용을 입력해 주세요</p>
+          <div class="home-startbox-actions"><button class="button primary" data-home-upload="1">공고문 업로드</button><button class="button secondary" data-home-manual="1">직접 입력</button></div>
+          <p class="home-startbox-note">PDF · DOCX · TXT · HWPX 파일을 읽고, 공고문이 없으면 사업 내용을 직접 입력해 시작할 수 있습니다.</p>
+        </div>
       </section>
 
       <section class="home-section" id="home-flow">
@@ -223,13 +227,31 @@ function homeView() {
         <div class="home-flow">${HOME_FLOW.map(step => { const active = writing && step.covers.includes(state.step); return `<article class="home-step ${active ? 'current' : ''}"><span class="home-step-no">${step.no}</span><h3>${escapeHtml(step.title)}</h3><p>${escapeHtml(step.desc)}</p>${active ? '<span class="home-step-state">진행 중</span>' : ''}<button class="button ghost" data-home-step="${step.step}">열기</button></article>`; }).join('')}</div>
       </section>
 
-      <section class="home-section" id="home-recent">
-        <div class="home-head"><h2>최근 작업</h2><p>저장된 실제 작업만 표시합니다.</p></div>
-        ${recentCards ? `<div class="home-grid">${recentCards}</div>` : `<div class="home-empty"><p>아직 작성 중인 계획서가 없습니다.</p><button class="button primary" data-home-start="1">새 계획서 시작</button></div>`}
+      <section class="home-section" id="home-features">
+        <div class="home-head"><h2>주요 기능</h2><p>공모사업 작성에 필요한 과정을 한 곳에서 관리합니다.</p></div>
+        <div class="home-grid four">
+          <article class="home-card"><h3>공고 분석</h3><p>공고문·첨부 자료에서 목적·자격·필수내용·평가·성과 요구를 원문 근거와 함께 정리합니다.</p></article>
+          <article class="home-card"><h3>기관정보 관리</h3><p>기관별 확인된 정보와 과거 실적을 나눠 보관하고 사업마다 다시 씁니다.</p></article>
+          <article class="home-card"><h3>사업 설계도</h3><p>신청유형·대상·프로그램·예산·성과를 한 장으로 정리하고 미확정 항목을 추적합니다.</p></article>
+          <article class="home-card"><h3>계획서 작성</h3><p>설계도를 기준으로 신청서 항목별 초안을 만들고 근거를 연결합니다.</p></article>
+          <article class="home-card"><h3>검증·코칭</h3><p>평가기준으로 문제를 찾아 위치·근거·수정 방향을 함께 제시합니다.</p></article>
+          <article class="home-card"><h3>수정계획과 버전</h3><p>수정 가능한 것만 반영하고 V1·V2·V3를 각각 보존합니다.</p></article>
+          <article class="home-card"><h3>제출본 출력</h3><p>검토본을 DOCX·PDF로 출력합니다.</p></article>
+          <article class="home-card"><h3>자료보관함</h3><p>공고와 계획서를 보관하고 언제든 이어서 작업합니다.</p></article>
+        </div>
       </section>
 
       <section class="home-section">
-        <div class="home-head"><h2>핵심 가치</h2></div>
+        <div class="home-head"><h2>서비스 화면</h2><p>실제 작업 화면에서 이렇게 진행됩니다.</p></div>
+        <div class="home-grid three">
+          <article class="home-shot"><span>공고 분석</span><h3>선정 논리 11항목</h3><p>목적·자격·필수 사업내용·평가·성과 요구를 공고 원문 문장과 함께 확인합니다.</p><button class="button ghost" data-home-step="1">화면 열기</button></article>
+          <article class="home-shot"><span>사업 설계</span><h3>설계도 한 장</h3><p>확정·근거 있음·설계안·확인 필요를 구분해 보여 주고 값을 바로 확정합니다.</p><button class="button ghost" data-home-step="3">화면 열기</button></article>
+          <article class="home-shot"><span>검토·수정</span><h3>검증과 버전</h3><p>문제·근거·수정 상태와 V1·V2 비교를 한 화면에서 확인합니다.</p><button class="button ghost" data-home-step="5">화면 열기</button></article>
+        </div>
+      </section>
+
+      <section class="home-section">
+        <div class="home-head"><h2>핵심 가치</h2><p>확인되지 않은 기관 사실은 만들지 않고, 확인이 필요한 내용은 사용자에게 남깁니다.</p></div>
         <div class="home-grid four">
           <article class="home-card"><h3>공고 근거 기반 작성</h3><p>모든 문장을 공고 원문 문장과 출처에 연결합니다.</p></article>
           <article class="home-card"><h3>기관정보 재사용</h3><p>확인된 기관 정보를 사업마다 다시 입력하지 않습니다.</p></article>
@@ -238,8 +260,13 @@ function homeView() {
         </div>
       </section>
 
+      <section class="home-section" id="home-recent">
+        <div class="home-head"><h2>최근 작업</h2><p>저장된 실제 작업만 표시합니다.</p></div>
+        ${recentCards ? `<div class="home-grid">${recentCards}</div>` : `<div class="home-empty"><p>아직 작성 중인 계획서가 없습니다.</p><button class="button primary" data-home-start="1">새 사업계획서 시작</button></div>`}
+      </section>
+
       <section class="home-section">
-        <div class="home-head"><h2>작성 원칙</h2><p>확인되지 않은 기관 사실은 만들지 않고, 확인이 필요한 내용은 사용자에게 남깁니다.</p></div>
+        <div class="home-head"><h2>작성 원칙</h2></div>
         <div class="home-trust">
           <span><b>근거 추적</b>원문 문장·출처 연결</span>
           <span><b>확인 필요 관리</b>모르는 값은 [확인 필요]</span>
@@ -247,6 +274,12 @@ function homeView() {
           <span><b>버전 보존</b>이전 버전 유지</span>
           <span><b>제출본 출력</b>DOCX·PDF 검토본</span>
         </div>
+      </section>
+
+      <section class="home-final">
+        <h2>공고 하나로 시작해 제출본까지 완성하세요</h2>
+        <p>지금 공고문을 올리거나 사업 내용을 입력하면 첫 단계부터 안내합니다.</p>
+        <div class="home-actions"><button class="button primary" data-home-start="1">무료로 시작하기</button><button class="button ghost" data-home-archive="1">자료보관함 보기</button></div>
       </section>
 
       <footer class="home-footer"><span>사업계획서 작성 도우미</span><div><button class="button ghost" data-home-start="1">새 계획서</button><button class="button ghost" data-home-archive="1">자료보관함</button><button class="button ghost" data-open-applicants="1">신청기관 정보</button></div></footer>
@@ -1283,6 +1316,10 @@ function bind() {
   document.querySelectorAll('[data-home-continue]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(state.sections.length ? Math.max(state.step, 4) : 0, { notice: '', error: '' }); });
   document.querySelectorAll('[data-home-archive]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(0, { notice: '자료보관함은 공고 준비 화면 아래에서 확인합니다.', error: '' }); });
   document.querySelectorAll('[data-home-recent]').forEach(el => el.onclick = () => document.querySelector('#home-recent')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  document.querySelectorAll('[data-home-scroll]').forEach(el => el.onclick = () => document.querySelector(`#${el.dataset.homeScroll}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  // 대화형 시작: 공고문 업로드와 직접 입력 모두 기존 공고 준비 단계로 연결한다.
+  document.querySelectorAll('[data-home-upload]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(0, { notice: '공고문·신청서 파일을 업로드해 주세요. 아래 업로드 영역에 파일을 끌어다 놓아도 됩니다.', error: '' }); });
+  document.querySelectorAll('[data-home-manual]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(0, { notice: '공고문이 없으면 아래 직접 입력란에 사업 내용을 붙여넣어 시작할 수 있습니다.', error: '' }); });
   document.querySelectorAll('[data-home-step]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(Number(el.dataset.homeStep), { notice: '', error: '' }); });
   document.querySelector('#coaching-applicant-target')?.addEventListener('change', event => setState({ coachingApplicantId: event.target.value, applicantExtraction: null }));
   document.querySelector('#harvest-coaching-applicant')?.addEventListener('click', harvestApplicantFromCoaching);

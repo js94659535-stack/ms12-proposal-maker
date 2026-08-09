@@ -181,3 +181,17 @@ test('첫 화면과 상단 표시가 서비스용 한국어로 정리되어 있�
   assert.match(css, /\.workflow-steps\{overflow-x:visible;flex-wrap:wrap/);
   assert.match(css, /\.workflow-step\.active\{background:var\(--blue-soft\)/);
 });
+
+test('홈 랜딩은 상단 메뉴·대화형 시작창·마지막 CTA를 갖춘다', () => {
+  const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  for (const label of ['제품소개', '이용방법', '주요기능', '무료로 시작하기', '공고문을 업로드하거나 사업 내용을 입력해 주세요', '공고문 업로드', '직접 입력', '서비스 화면']) {
+    assert.ok(app.includes(label), label);
+  }
+  // 상단 메뉴는 랜딩 섹션으로 이동하고, 시작창은 기존 공고 준비 흐름으로 연결한다.
+  assert.match(app, /data-home-scroll="home-product"/);
+  assert.match(app, /querySelectorAll\('\[data-home-scroll\]'\)/);
+  assert.match(app, /querySelectorAll\('\[data-home-upload\]'\)[\s\S]{0,200}navigateToStep\(0/);
+  assert.match(app, /querySelectorAll\('\[data-home-manual\]'\)[\s\S]{0,200}navigateToStep\(0/);
+  // 가짜 로고·후기·숫자를 만들지 않는다.
+  assert.doesNotMatch(app, /고객사|도입 기관 \d|후기|평점/);
+});
