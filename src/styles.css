@@ -175,23 +175,30 @@
 /* 자료보관함 목록형: 검색·필터 · 표 · 페이지 이동 */
 .archive-toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0 8px}
 .archive-toolbar input{flex:1 1 280px;min-width:220px;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font-size:13px}
-.archive-filters{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;padding:10px 12px;background:#f7f9fc;border:1px solid var(--line);border-radius:10px}
+.archive-filters{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;padding:8px 0 12px;background:none;border:0;border-bottom:1px solid var(--line)}
 .archive-filter{display:flex;flex-direction:column;gap:4px;font-size:12px;color:#5c6673;font-weight:700}
 .archive-filter select{padding:7px 8px;border:1px solid var(--line);border-radius:7px;font-size:12.5px;background:#fff;min-width:110px}
 .archive-bulk{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:10px 0;font-size:12.5px;color:#5c6673}
-.archive-table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:#fff}
-.archive-table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:880px}
+/* 표는 평평하게 둔다. 테두리 박스·음영 없이 가로선으로만 행을 나눈다. */
+.archive-table-wrap{overflow-x:auto;background:#fff}
+.archive-table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:880px;background:#fff}
 .archive-table tbody tr{cursor:context-menu}
-.archive-table th,.archive-table td{padding:9px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle;white-space:nowrap}
-.archive-table thead th{background:#f4f7fb;color:var(--navy);font-weight:800;font-size:12px;position:sticky;top:0}
+.archive-table tbody tr:hover td{background:#fbfcfe}
+.archive-table th,.archive-table td{padding:10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle;white-space:nowrap;background:none}
+.archive-table thead th{background:#fff;color:#5c6673;font-weight:700;font-size:11.5px;letter-spacing:.02em;border-bottom:1px solid var(--line);position:sticky;top:0}
 .archive-table th.archive-check,.archive-table td:first-child{width:34px;text-align:center}
-.archive-table tr.selected td{background:#eef6ff}
+.archive-table tr.selected td{background:#f5f9ff}
 .archive-table td.archive-num{font-variant-numeric:tabular-nums;color:#5c6673}
 .archive-table td.archive-num.closed{color:#b23b3b;font-weight:700}
 .archive-table td.archive-title{white-space:normal;max-width:360px}
-.archive-sort{background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer;font-weight:800}
-.archive-sort.active{color:var(--blue)}
+.archive-sort{background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer;font-weight:700}
+.archive-sort.active{color:var(--navy);font-weight:800}
 .archive-link{background:none;border:0;padding:0;font:inherit;color:var(--blue);cursor:pointer;text-align:left;text-decoration:none}
+/* 사업명은 박스 없는 강조 텍스트, 신청기관은 평평한 보조 텍스트로 둔다. */
+.archive-table td.archive-title .archive-link{color:var(--navy);font-weight:700;line-height:1.55}
+.archive-table td.archive-title .archive-link:hover{text-decoration:underline}
+.archive-table td:nth-child(8) .archive-link{color:#5c6673;font-weight:500}
+.archive-table td:nth-child(8) .archive-link:hover{color:var(--blue)}
 .archive-link.danger{color:#b23b3b}
 .archive-status{padding:5px 6px;border:1px solid var(--line);border-radius:6px;font-size:12px;background:#fff}
 /* 행 우클릭·길게 누르기 메뉴 */
