@@ -24,6 +24,15 @@ const TYPES = [
 ];
 // 업무 흐름 6단계. 라벨만 정리하고 단계 번호·연결 로직은 그대로 둔다.
 const STEPS = ['공고 준비', '공고 분석', '신청기관 준비', '사업 설계', '계획서 작성', '검토·제출'];
+// 홈 화면에 보여 주는 업무 흐름 6단계 요약(단계 번호는 작업 화면과 같다).
+const HOME_FLOW = [
+  { no: '01', title: '공고 준비', desc: '공고 업로드 · 요구사항 확인' },
+  { no: '02', title: '공고 분석', desc: '선정 논리 · 평가기준 구조화' },
+  { no: '03', title: '신청기관 준비', desc: '기관정보 · 실적 · 적합성' },
+  { no: '04', title: '사업 설계', desc: '대상 · 프로그램 · 예산 · 성과' },
+  { no: '05', title: '계획서 작성', desc: '근거 기반 V1 작성' },
+  { no: '06', title: '검토·제출', desc: 'AI 코칭 · V2 · 최종본 · 보관' }
+];
 const STEP_GUIDE = [
   { title: '공고 준비', icon: '①', desc: '공고를 가져오거나 공고문·양식을 올립니다.', items: ['기관 공고 조회', '공고문·신청서 업로드', '자료보관함 불러오기'] },
   { title: '공고 분석', icon: '②', desc: '선정 논리와 필수 요건을 원문 근거로 구조화합니다.', items: ['선정 논리 11항목', '첨부 자료묶음 분석', '평가·배점 확인'] },
@@ -36,7 +45,7 @@ const SOURCE_TYPES = ['공고 공문', '세부 공고문', '공모신청서', '�
 const NAVIGATION_KEY = 'ms12_workflow_navigation_v1';
 const NAVIGATION_LIMIT = 10;
 const initial = {
-  step: 0, activeTool: 'workflow', project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
+  step: 0, activeTool: 'home', project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
   coaching: { title: '', text: '', validatedText: '', criteriaText: '', officialEvaluationProvided: false, sourceProposalId: '', sourceNoticeKey: '', seriesId: '', currentArchiveId: '', result: null, workItems: [], pendingJob: null, version: 0, references: [], referenceType: REFERENCE_TYPES[0], referenceDraft: '', referenceNameDraft: '' },
   applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, coachingApplicantId: '',
   revisionPlan: null, draftReview: null, proposalVersions: [], coachingSelection: [], applicantSkipped: false, noticeLogic: null,
@@ -48,6 +57,7 @@ const app = document.querySelector('#app');
 let busyStartedAt = 0;
 let busyTimer = null;
 let archiveLoaded = false;
+let homeArchiveLoaded = false;
 let coachingPollActive = false;
 
 function loadState() {
@@ -152,6 +162,8 @@ function organizationForGeneration() {
 }
 
 function shell(content) {
+  // 홈은 작업용 단계 내비게이션 없이 자체 화면으로만 보여 준다.
+  if (state.activeTool === 'home') return `<div class="layout home-layout"><main class="main">${state.notice ? `<div class="alert success">${escapeHtml(state.notice)}</div>` : ''}${state.error ? `<div class="alert danger">${escapeHtml(state.error)}</div>` : ''}${content}${state.busy ? `<div class="busy"><div class="loader"></div><strong>${escapeHtml(state.busy)}</strong></div>` : ''}</main></div>`;
   return `
     <div class="layout">
       <main class="main">
@@ -171,63 +183,74 @@ function footer({ next = true, back = true, nextLabel = '다음 단계', nextId 
   return `<div class="actions">${back && state.step > 0 ? '<button class="button secondary" id="back">이전</button>' : '<span></span>'}${next ? `<button class="button primary" id="${nextId}">${nextLabel} →</button>` : ''}</div>`;
 }
 
-// 랜딩 화면. 기존 상태·단계 이동만 재사용하고 새 기능은 만들지 않는다.
-function startPanelView() {
+// 홈 대시보드. 작업 화면과 분리된 별도 화면이며 기존 상태·단계 이동만 재사용한다.
+function homeView() {
   const writing = state.sections.length > 0;
   const versions = (state.proposalVersions || []).length;
-  const recent = (state.archiveProposals || []).slice(0, 3);
   const currentStep = STEPS[state.step] || STEPS[0];
-  const stepCards = STEP_GUIDE.map((step, index) => `<article class="landing-card ${state.step === index ? 'current' : ''}"><header><span class="landing-step">${step.icon}</span><h3>${escapeHtml(step.title)}</h3></header><p>${escapeHtml(step.desc)}</p><ul>${step.items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul><button class="button secondary" data-step="${index}">${state.step === index ? '진행 중인 단계 열기' : '이 단계로 이동'}</button></article>`).join('');
-  const recentList = recent.map(item => `<li>${escapeHtml(String(item.title).slice(0, 26))} · ${escapeHtml(archiveStageLabel(item.stage))}</li>`).join('');
-  const recentButtons = recent.map(item => `<button class="button secondary" data-open-archived-proposal="${escapeHtml(item.id)}">${escapeHtml(String(item.title).slice(0, 18))} 이어서 작업</button>`).join('');
+  const conflicts = currentOfficialConflicts();
+  const marks = state.sections.reduce((sum, section) => sum + (String(section.content).match(/\[확인 필요[^\]]*\]/g) || []).length, 0);
+  const readiness = writing ? (conflicts.length || marks ? `제출 전 확인 ${conflicts.length + (marks ? 1 : 0)}건` : '제출 검토 가능') : '';
+  const saved = (state.archiveProposals || []).slice(0, 4);
+  const stageOf = stage => archiveStageLabel(stage);
+  const recentCards = [
+    ...(writing ? [`<article class="home-card work"><div class="home-work-top"><span class="home-badge">작성 중</span><span class="home-when">방금 자동 저장됨</span></div>
+      <h3>${escapeHtml(String(state.project.title || '제목 미정').slice(0, 44))}</h3>
+      <p>${escapeHtml(String(state.project.issuer || state.selectedNotice?.title || '공고 정보 미지정').slice(0, 52))}</p>
+      <dl><div><dt>현재 단계</dt><dd>${escapeHtml(currentStep)}</dd></div><div><dt>버전</dt><dd>${versions ? `V${versions}` : 'V1 작성 중'}</dd></div><div><dt>제출 준비</dt><dd>${escapeHtml(readiness)}</dd></div></dl>
+      <button class="button primary" data-home-continue="1">계속 작업</button></article>`] : []),
+    ...saved.map(item => `<article class="home-card work"><div class="home-work-top"><span class="home-badge quiet">${escapeHtml(stageOf(item.stage))}</span><span class="home-when">${escapeHtml(String(item.updatedAt || item.createdAt || '').slice(0, 10))}</span></div>
+      <h3>${escapeHtml(String(item.title || '제목 없음').slice(0, 44))}</h3>
+      <p>${escapeHtml(String(item.institution || item.noticeTitle || '보관된 계획서').slice(0, 52))}</p>
+      <dl><div><dt>보관 단계</dt><dd>${escapeHtml(stageOf(item.stage))}</dd></div><div><dt>저장일</dt><dd>${escapeHtml(String(item.createdAt || '').slice(0, 10) || '-')}</dd></div><div><dt>제출 준비</dt><dd>열어서 확인</dd></div></dl>
+      <button class="button secondary" data-open-archived-proposal="${escapeHtml(item.id)}">계속 작업</button></article>`)
+  ].join('');
   return `
-    <section class="landing">
-      <div class="landing-hero">
-        <p class="landing-eyebrow">사업계획서 작성 도우미</p>
-        <h1>공고 분석부터 제출본까지, 하나의 흐름으로</h1>
-        <p class="landing-lead">공고의 선정 논리를 읽고, 확인된 기관 정보와 이번 사업의 확정값만으로 계획서를 만듭니다. 확인되지 않은 값은 만들어 채우지 않고 [확인 필요]로 남겨 제출 전에 정리합니다.</p>
-        <div class="landing-cta"><button class="button primary" data-step="0">새 계획서 시작</button>${writing ? '<button class="button secondary" data-step="4">작성 중인 계획서 계속하기</button>' : '<button class="button secondary" id="open-coaching-home">이미 쓴 계획서 검증하기</button>'}</div>
-        <p class="landing-note">브라우저에 자동 저장되며, 자료보관함에 저장한 계획서는 언제든 다시 열 수 있습니다.</p>
-      </div>
-      <div class="landing-section">
-        <div class="landing-head"><h2>업무 흐름 6단계</h2><p>각 단계의 세부 기능은 해당 단계 화면에서만 보여 줍니다.</p></div>
-        <div class="landing-grid three">${stepCards}</div>
-      </div>
-      <div class="landing-section">
-        <div class="landing-head"><h2>최근 작업</h2><p>진행 중인 계획서와 보관된 계획서를 이어서 작업합니다.</p></div>
-        <div class="landing-grid two">
-          <article class="landing-card"><header><h3>진행 중인 계획서</h3></header>
-            <p>${writing ? escapeHtml(String(state.project.title || '제목 미정').slice(0, 40)) : '아직 작성 중인 계획서가 없습니다.'}</p>
-            <ul><li>현재 단계: ${escapeHtml(currentStep)}</li><li>항목 ${state.sections.length}개${versions ? ` · 버전 V${versions}` : ''}</li><li>${writing ? '자동 저장됨' : '새 계획서를 시작해 주세요'}</li></ul>
-            <button class="button ${writing ? 'primary' : 'secondary'}" data-step="${writing ? 4 : 0}">${writing ? '계속하기' : '새 계획서 시작'}</button></article>
-          <article class="landing-card"><header><h3>자료보관함</h3></header>
-            <p>${recent.length ? `보관된 계획서 ${recent.length}건을 다시 열 수 있습니다.` : '저장한 계획서와 공고가 여기에 쌓입니다.'}</p>
-            <ul>${recent.length ? recentList : '<li>계획서 저장</li><li>공고 보관</li><li>버전 이력</li>'}</ul>
-            ${recent.length ? recentButtons : '<button class="button secondary" data-step="1">자료보관함 열기</button>'}</article>
+    <div class="home">
+      <header class="home-header">
+        <div><strong>사업계획서 작성 도우미</strong><span>공고 분석부터 제출본까지</span></div>
+        <nav><button class="button primary" data-home-start="1">새 계획서</button><button class="button ghost" data-home-archive="1">자료보관함</button><button class="button ghost" data-home-recent="1">최근 작업</button></nav>
+      </header>
+
+      <section class="home-hero">
+        <h1>공고 분석부터 제출본까지,<br>하나의 흐름으로 완성합니다.</h1>
+        <p>공고 요구를 읽고, 신청기관과 연결하고, 사업을 설계하여 작성·검증·수정·제출까지 이어주는 사업계획서 업무공간입니다.</p>
+        <div class="home-actions"><button class="button primary" data-home-start="1">새 사업계획서 시작</button><button class="button secondary" data-home-continue="1" ${writing ? '' : 'disabled'}>작성 중인 계획서 계속하기</button></div>
+      </section>
+
+      <section class="home-section" id="home-flow">
+        <div class="home-head"><h2>업무 흐름</h2><p>여섯 단계로 나눠 진행하고, 각 단계의 세부 기능은 해당 화면에서만 다룹니다.</p></div>
+        <div class="home-flow">${HOME_FLOW.map((step, index) => `<article class="home-step ${writing && state.step === index ? 'current' : ''}"><span class="home-step-no">${step.no}</span><h3>${escapeHtml(step.title)}</h3><p>${escapeHtml(step.desc)}</p>${writing && state.step === index ? '<span class="home-step-state">진행 중</span>' : ''}<button class="button ghost" data-home-step="${index}">열기</button></article>`).join('')}</div>
+      </section>
+
+      <section class="home-section" id="home-recent">
+        <div class="home-head"><h2>최근 작업</h2><p>저장된 실제 작업만 표시합니다.</p></div>
+        ${recentCards ? `<div class="home-grid">${recentCards}</div>` : `<div class="home-empty"><p>아직 작성 중인 계획서가 없습니다.</p><button class="button primary" data-home-start="1">새 계획서 시작</button></div>`}
+      </section>
+
+      <section class="home-section">
+        <div class="home-head"><h2>핵심 가치</h2></div>
+        <div class="home-grid four">
+          <article class="home-card"><h3>공고 근거 기반 작성</h3><p>모든 문장을 공고 원문 문장과 출처에 연결합니다.</p></article>
+          <article class="home-card"><h3>기관정보 재사용</h3><p>확인된 기관 정보를 사업마다 다시 입력하지 않습니다.</p></article>
+          <article class="home-card"><h3>AI 검증·수정</h3><p>평가기준으로 문제를 찾고 수정 방향을 함께 제시합니다.</p></article>
+          <article class="home-card"><h3>버전 보존</h3><p>V1·V2·V3를 덮어쓰지 않고 각각 남깁니다.</p></article>
         </div>
-      </div>
-      <div class="landing-section">
-        <div class="landing-head"><h2>주요 기능</h2></div>
-        <div class="landing-grid three">
-          <article class="landing-card plain"><h3>공고 분석</h3><p>공고문·첨부 자료묶음에서 목적·자격·필수내용·평가·성과 요구를 원문 근거와 함께 정리합니다.</p></article>
-          <article class="landing-card plain"><h3>기관 정보</h3><p>기관별로 확인된 정보와 과거 실적을 나눠 보관하고 이번 사업 값과 섞이지 않게 관리합니다.</p></article>
-          <article class="landing-card plain"><h3>AI 작성</h3><p>설계도를 기준으로 마스터 설계와 신청서 항목별 초안을 만들고 근거를 연결합니다.</p></article>
-          <article class="landing-card plain"><h3>검증·코칭</h3><p>공식 평가기준으로 문제를 찾아 위치·근거·수정 방향을 함께 제시합니다.</p></article>
-          <article class="landing-card plain"><h3>버전 관리</h3><p>V1·V2·V3를 덮어쓰지 않고 각각 보존하며 무엇이 왜 바뀌었는지 남깁니다.</p></article>
-          <article class="landing-card plain"><h3>제출본 출력</h3><p>검토본을 DOCX·PDF로 출력하고 자료보관함에 보관합니다.</p></article>
+      </section>
+
+      <section class="home-section">
+        <div class="home-head"><h2>작성 원칙</h2><p>확인되지 않은 기관 사실은 만들지 않고, 확인이 필요한 내용은 사용자에게 남깁니다.</p></div>
+        <div class="home-trust">
+          <span><b>근거 추적</b>원문 문장·출처 연결</span>
+          <span><b>확인 필요 관리</b>모르는 값은 [확인 필요]</span>
+          <span><b>자동 저장</b>작업 중 상태 보존</span>
+          <span><b>버전 보존</b>이전 버전 유지</span>
+          <span><b>제출본 출력</b>DOCX·PDF 검토본</span>
         </div>
-      </div>
-      <div class="landing-section">
-        <div class="landing-head"><h2>이 도구가 지키는 것</h2></div>
-        <div class="landing-grid four">
-          <article class="landing-card plain"><h3>근거 추적</h3><p>모든 판단에 공고 원문 문장과 출처를 연결합니다.</p></article>
-          <article class="landing-card plain"><h3>버전 보존</h3><p>수정본을 만들어도 이전 버전은 그대로 남습니다.</p></article>
-          <article class="landing-card plain"><h3>확인 필요 관리</h3><p>모르는 값은 만들지 않고 [확인 필요]로 추적합니다.</p></article>
-          <article class="landing-card plain"><h3>제출 준비 상태</h3><p>남은 확인 항목이 있으면 제출 가능으로 올리지 않습니다.</p></article>
-        </div>
-      </div>
-      <footer class="landing-footer"><span>사업계획서 작성 도우미 · 근거 있는 계획서</span><div><button class="button secondary" data-step="1">자료보관함</button><button class="button secondary" data-step="0">새 계획서</button><button class="button secondary" data-open-applicants="1">신청기관 정보</button></div></footer>
-    </section>
+      </section>
+
+      <footer class="home-footer"><span>사업계획서 작성 도우미</span><div><button class="button ghost" data-home-start="1">새 계획서</button><button class="button ghost" data-home-archive="1">자료보관함</button><button class="button ghost" data-open-applicants="1">신청기관 정보</button></div></footer>
+    </div>
 `;
 }
 
@@ -241,7 +264,7 @@ function noticeListView() {
 }
 
 function noticeImportView() {
-  return `${startPanelView()}<div class="page-heading"><div><h2>공고와 신청 자료를 가져오세요</h2><p>기관 공고를 조회하거나 공식 공고문·신청서를 직접 추가할 수 있습니다.</p></div><span class="privacy">🔒 파일은 분석 요청 시에만 전송됩니다</span></div>
+  return `<div class="page-heading"><div><h2>공고와 신청 자료를 가져오세요</h2><p>기관 공고를 조회하거나 공식 공고문·신청서를 직접 추가할 수 있습니다.</p></div><span class="privacy">🔒 파일은 분석 요청 시에만 전송됩니다</span></div>
     <div class="card"><div class="card-title"><div><h3>기관 공고 가져오기</h3><span>사랑의열매 중앙회 · 광주지회</span></div><button class="button primary" id="fetch-notices">공고 가져오기</button></div><p class="muted">${state.noticeResults.length ? `진행 중 공고 ${state.noticeResults.length}건을 가져왔습니다.` : '버튼을 누를 때만 공식 공모사업을 조회합니다.'}<br><b>지금 가져온 목록은 이 화면에서만 쓰는 임시 목록</b>이며 새로고침하면 사라집니다. 과거에 가져온 공고는 아래 <b>「자료보관함」</b>에서 검색해 다시 열 수 있습니다.</p>${state.noticeResults.length ? '<div class="actions"><span></span><button class="button primary" data-step="1">가져온 공고 확인 →</button></div>' : ''}</div>
     <div class="source-grid"><div class="card"><div class="card-title"><h3>공고문·신청서 업로드</h3><span>PDF · DOCX · TXT · HWPX</span></div><label class="dropzone" for="source-files"><strong>파일을 선택하거나 여기에 놓으세요</strong><small>스캔 PDF는 OCR이 필요할 수 있습니다.</small><input id="source-files" type="file" accept=".pdf,.docx,.txt,.hwpx" multiple></label><div class="file-list">${state.files.length ? state.files.map((f, i) => `<div class="file-item"><span class="file-badge">${escapeHtml(f.type)}</span><div><strong>${escapeHtml(f.name)}</strong><small>${Number(f.characters || 0).toLocaleString()}자</small></div><button data-remove-file="${i}" aria-label="파일 제거">×</button></div>`).join('') : '<p class="empty-inline">업로드한 파일이 없습니다.</p>'}</div></div>
     <div class="card"><div class="card-title"><h3>공고문 직접 붙여넣기</h3><span id="char-count">${state.sourceText.length.toLocaleString()}자</span></div><textarea id="source-text" class="source-text" placeholder="기관 공고문 또는 신청서 원문을 붙여넣으세요.">${escapeHtml(state.sourceText)}</textarea></div></div>
@@ -897,7 +920,7 @@ function directFactsView() {
 
 function render() {
   const views = [noticeImportView, noticeConfirmView, applicantSelectView, businessSelectView, documentView, documentView];
-  const tools = { coaching: coachingView, applicants: applicantsToolView };
+  const tools = { home: homeView, coaching: coachingView, applicants: applicantsToolView };
   app.innerHTML = shell((tools[state.activeTool] || views[state.step] || views[0])()); bind(); startBusyElapsedTimer();
 }
 
@@ -1106,6 +1129,7 @@ function updateInputs() {
 function bind() {
   updateInputs();
   if (state.step === 0 && !archiveLoaded) void loadRecentArchive();
+  if (state.activeTool === 'home' && !homeArchiveLoaded) void loadHomeRecent();
   document.querySelectorAll('[data-type]').forEach(el => el.onclick = () => { state.project.type = el.dataset.type; saveState(); render(); });
   document.querySelector('#business-type')?.addEventListener('change', event => { state.project.type = event.target.value; saveState(); render(); });
   document.querySelectorAll('[data-step]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(Number(el.dataset.step), { notice: '', error: '' }); });
@@ -1119,7 +1143,7 @@ function bind() {
   document.querySelector('#back')?.addEventListener('click', () => navigateToStep(state.step - 1, { notice: '', error: '' }));
   document.querySelector('#next')?.addEventListener('click', () => navigateToStep(state.step + 1, { notice: '', error: '' }));
   document.querySelector('#workflow-back')?.addEventListener('click', () => { state.activeTool = 'workflow'; navigateBack(); });
-  document.querySelector('#workflow-home')?.addEventListener('click', () => { state.activeTool = 'workflow'; navigateToStep(0); });
+  document.querySelector('#workflow-home')?.addEventListener('click', () => setState({ activeTool: 'home', notice: '', error: '' }));
   document.querySelector('#workflow-forward')?.addEventListener('click', () => { state.activeTool = 'workflow'; navigateForward(); });
   document.querySelector('#go-to-review')?.addEventListener('click', () => navigateToStep(4));
   document.querySelector('#menu-toggle')?.addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
@@ -1255,6 +1279,11 @@ function bind() {
     setBlueprintValue(key, field?.label || key, document.querySelector(`[data-decision-input="${key}"]`)?.value || '');
   });
   document.querySelector('#build-final-version')?.addEventListener('click', buildFinalVersion);
+  document.querySelectorAll('[data-home-start]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(0, { notice: '', error: '' }); });
+  document.querySelectorAll('[data-home-continue]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(state.sections.length ? Math.max(state.step, 4) : 0, { notice: '', error: '' }); });
+  document.querySelectorAll('[data-home-archive]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(0, { notice: '자료보관함은 공고 준비 화면 아래에서 확인합니다.', error: '' }); });
+  document.querySelectorAll('[data-home-recent]').forEach(el => el.onclick = () => document.querySelector('#home-recent')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  document.querySelectorAll('[data-home-step]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(Number(el.dataset.homeStep), { notice: '', error: '' }); });
   document.querySelector('#coaching-applicant-target')?.addEventListener('change', event => setState({ coachingApplicantId: event.target.value, applicantExtraction: null }));
   document.querySelector('#harvest-coaching-applicant')?.addEventListener('click', harvestApplicantFromCoaching);
   if (state.activeTool === 'coaching' && state.coaching.pendingJob && !coachingPollActive) setTimeout(() => pollProposalCoaching(), 250);
@@ -2076,6 +2105,13 @@ async function searchNoticeArchive() {
     const result = await searchArchivedNotices(state.archiveFilters);
     setState({ busy: '', archiveNotices: result.notices || [], notice: `자료보관함(D1)에 보관된 공고 ${result.notices?.length || 0}건을 찾았습니다${elapsedLabel()}.` });
   } catch (error) { setState({ busy: '', error: `${error.message}${elapsedLabel()}` }); }
+}
+
+async function loadHomeRecent() {
+  homeArchiveLoaded = true;
+  // 홈 최근 작업은 실제 보관 데이터만 보여 준다. 실패해도 화면을 막지 않는다.
+  try { const result = await listArchivedProposals(); setState({ archiveProposals: result.proposals || [] }); }
+  catch { /* 보관함 조회 실패는 홈 표시만 비운다. */ }
 }
 
 async function loadRecentArchive() {

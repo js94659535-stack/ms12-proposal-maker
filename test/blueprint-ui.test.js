@@ -162,12 +162,16 @@ test('첫 화면과 상단 표시가 서비스용 한국어로 정리되어 있�
   // 개발용 표현 제거
   assert.doesNotMatch(app, /Proposal Workbench|마인드스토리 내부용/);
   assert.match(app, /사업계획서 작성 도우미/);
-  // 첫 화면 진입 경로 4가지
-  assert.match(app, /class="landing"/);
-  // 첫 화면(공고 가져오기)에서 실제로 렌더링된다.
-  assert.ok(app.includes('function noticeImportView() {\n  return `${startPanelView()}'), '시작 패널이 첫 화면에 연결되지 않았습니다');
-  assert.ok(app.includes('function startPanelView()'), 'startPanelView 없음');
-  for (const label of ['새 계획서 시작', '계속하기', '자료보관함', '업무 흐름 6단계', '주요 기능', '이 도구가 지키는 것']) assert.ok(app.includes(label), label);
+  // 홈은 작업 화면과 분리된 별도 화면으로 존재한다.
+  assert.match(app, /function homeView\(\)/);
+  assert.match(app, /const tools = \{ home: homeView/);
+  assert.match(app, /if \(state\.activeTool === 'home'\) return/);
+  assert.match(app, /step: 0, activeTool: 'home'/);
+  // 작업 화면(공고 준비)을 랜딩처럼 쓰지 않는다.
+  assert.doesNotMatch(app, /startPanelView/);
+  for (const label of ['공고 분석부터 제출본까지', '새 사업계획서 시작', '작성 중인 계획서 계속하기', '업무 흐름', '최근 작업', '핵심 가치', '작성 원칙', '아직 작성 중인 계획서가 없습니다']) assert.ok(app.includes(label), label);
+  // 홈 진입점이 기존 흐름으로 연결된다.
+  for (const key of ['data-home-start', 'data-home-continue', 'data-home-archive', 'data-home-step']) assert.ok(app.includes(key), key);
   // 6개 대분류가 랜딩과 상단 내비게이션에서 같은 이름을 쓴다.
   for (const label of ['공고 준비', '공고 분석', '신청기관 준비', '사업 설계', '계획서 작성', '검토·제출']) assert.ok(app.includes(label), label);
   assert.match(app, /querySelector\('#open-coaching-home'\)\?\.addEventListener/);

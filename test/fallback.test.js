@@ -817,7 +817,8 @@ test('뒤로·홈·앞으로 버튼은 모든 6단계 공통 셸에 표시되고
   assert.match(source, /⌂ 홈/);
   assert.match(source, /앞으로 →/);
   assert.match(source, /document\.querySelector\('#workflow-back'\)/);
-  assert.match(source, /navigateToStep\(0\)/);
+  // ⌂ 홈은 작업 화면이 아니라 홈 대시보드로 이동한다.
+  assert.match(source, /querySelector\('#workflow-home'\)\?\.addEventListener\('click', \(\) => setState\(\{ activeTool: 'home'/);
   assert.match(source, /document\.querySelector\('#workflow-forward'\)/);
   assert.doesNotMatch(source, /function navigateToStep[\s\S]*?structuredClone\(state\)/);
   assert.match(source, /class="workflow-header"/);
