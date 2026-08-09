@@ -171,7 +171,7 @@ function shell(content) {
       <main class="main">
         <header class="workflow-header">
           <div class="workflow-brand"><div class="brand"><span class="brand-mark">계</span><div><strong>사업계획서 작성 도우미</strong><small>공고 분석부터 제출본까지</small></div></div><span class="save-state">● 자동 저장 중</span></div>
-          <div class="workflow-row"><label class="type-select-label" for="business-type">사업 유형<select id="business-type">${TYPES.map(([id, name]) => `<option value="${id}" ${state.project.type === id ? 'selected' : ''}>${name}</option>`).join('')}</select></label><nav class="workflow-steps" aria-label="작성 단계">${STEPS.map((name, i) => { const complete = isStepComplete(i); return `<button data-step="${i}" class="workflow-step ${state.activeTool === 'workflow' && state.step === i ? 'active' : ''} ${complete ? 'done' : ''}" ${state.activeTool === 'workflow' && state.step === i ? 'aria-current="step"' : ''}><span>${complete ? '✓' : i + 1}</span>${name}</button>`; }).join('')}</nav><button class="history-button" id="open-archive-box">자료보관함</button><button class="history-button" id="open-applicants" aria-pressed="${state.activeTool === 'applicants'}">신청기관 정보</button><button class="history-button" id="open-coaching" aria-pressed="${state.activeTool === 'coaching'}">계획서 검증·코칭</button><nav class="workflow-history" aria-label="앱 작업 화면 이동"><button class="history-button" id="workflow-back" aria-label="직전 작업 화면으로 뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="history-button" id="workflow-home" aria-label="홈 화면으로 가기" ${state.activeTool === 'workflow' && state.step === 0 ? 'disabled' : ''}>⌂ 홈 화면</button><button class="history-button" id="workflow-forward" aria-label="다음 작업 화면으로 앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button></nav></div>
+          <div class="workflow-row"><label class="type-select-label" for="business-type">사업 유형<select id="business-type">${TYPES.map(([id, name]) => `<option value="${id}" ${state.project.type === id ? 'selected' : ''}>${name}</option>`).join('')}</select></label><nav class="workflow-steps" aria-label="작성 단계">${STEPS.map((name, i) => { const complete = isStepComplete(i); return `<button data-step="${i}" class="workflow-step ${state.activeTool === 'workflow' && state.step === i ? 'active' : ''} ${complete ? 'done' : ''}" ${state.activeTool === 'workflow' && state.step === i ? 'aria-current="step"' : ''}><span>${complete ? '✓' : i + 1}</span>${name}</button>`; }).join('')}</nav><button class="history-button" id="open-archive-box">자료보관함</button><button class="history-button" id="open-applicants" aria-pressed="${state.activeTool === 'applicants'}">신청기관 정보</button><button class="history-button" id="open-coaching" aria-pressed="${state.activeTool === 'coaching'}">계획서 검증·코칭</button><nav class="workflow-history" aria-label="앱 작업 화면 이동"><button class="history-button" id="workflow-back" aria-label="직전 작업 화면으로 뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="history-button" id="workflow-home" aria-label="홈 화면으로 가기">⌂ 홈 화면</button><button class="history-button" id="workflow-forward" aria-label="다음 작업 화면으로 앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button></nav></div>
         </header>
         ${state.notice ? `<div class="alert success">${escapeHtml(state.notice)}</div>` : ''}
         ${state.error ? `<div class="alert danger">${escapeHtml(state.error)}</div>` : ''}
@@ -308,14 +308,51 @@ function noticeImportView() {
     ${footer({ back: false, nextLabel: state.noticeResults.length ? '공고 확인' : '직접 자료로 계획서 작성', nextId: state.noticeResults.length ? 'next' : 'analyze' })}`;
 }
 
+// 자료보관함. 보관량이 늘어도 찾기 쉽도록 기관 → 연도 → 공고 목차로 묶어 보여 준다.
+// 검색·불러오기·복구키 등 기존 동작과 버튼은 그대로 재사용한다.
+function archiveYearOf(item) {
+  const year = String(item.deadline || item.applicationPeriod || item.archiveUpdatedAt || item.archivedAt || '').match(/(20\d{2})/);
+  return year ? `${year[1]}년` : '연도 미표기';
+}
+function archiveNoticeGroups(notices) {
+  const groups = new Map();
+  for (const item of notices) {
+    const key = String(item.sourceLabel || item.source || '기관 미표기').trim() || '기관 미표기';
+    groups.set(key, [...(groups.get(key) || []), item]);
+  }
+  return [...groups.entries()].sort((left, right) => right[1].length - left[1].length);
+}
+function archiveNoticeRow(item, index) {
+  return `<article class="requirement"><div><span class="tag">${escapeHtml(archiveYearOf(item))}</span><div><strong>${escapeHtml(String(item.title || '제목 없음').slice(0, 70))}</strong><small>${escapeHtml(item.applicationPeriod || item.deadline || '기간 정보 없음')} · ${item.linkedProposalCount ? `연결 계획서 ${item.linkedProposalCount}건` : '연결 계획서 없음'}</small></div></div>
+    <p class="muted notice-card-preview">${escapeHtml(String(item.summary || '상세 공고문 확인 필요').slice(0, 200))}</p>
+    <div class="actions"><span></span><div>${item.linkedProposalId ? `<button class="button secondary" data-open-archived-proposal="${escapeHtml(item.linkedProposalId)}">작성 계획서 열기</button>` : ''}<button class="button secondary" data-view-archived-notice="${index}">공고 상세</button><button class="button primary" data-use-archived-notice="${index}">공고 확인 목록에 열기</button></div></div></article>`;
+}
 function archiveView() {
   const filters = state.archiveFilters || initial.archiveFilters;
-  return `<details class="card org-details" id="archive-box" open><summary><b>자료보관함</b> · 보관된 공고와 저장한 계획서 다시 열기</summary><p class="muted">한 번 가져온 공고는 D1 자료보관함에 계속 남습니다. 마감이 지난 과거 공고도 여기에서 검색해 다시 열 수 있습니다. 위쪽 임시 목록과 달리 새로고침해도 사라지지 않습니다.</p>
-    <div class="two-col"><div class="field"><label for="archive-institution">기관</label><input id="archive-institution" value="${escapeHtml(filters.institution)}" placeholder="예: 광주지회"></div><div class="field"><label for="archive-keyword">핵심어</label><input id="archive-keyword" value="${escapeHtml(filters.keyword)}" placeholder="예: 아동·청소년"></div></div>
+  const notices = state.archiveNotices || [];
+  const proposals = state.archiveProposals || [];
+  const groups = archiveNoticeGroups(notices);
+  const proposalGroups = proposals.reduce((map, item) => {
+    const key = String(item.noticeKey || '공고 미연결');
+    map.set(key, [...(map.get(key) || []), item]);
+    return map;
+  }, new Map());
+  const noticeTitleOf = key => notices.find(item => item.archiveNoticeKey === key)?.title || '';
+  const conditions = [filters.institution, filters.keyword, filters.from || filters.to ? '기간 지정' : ''].filter(Boolean).join(' · ');
+  return `<details class="card org-details" id="archive-box" open><summary><b>자료보관함</b> · 보관된 공고와 저장한 계획서 다시 열기</summary>
+    <p class="muted">한 번 가져온 공고는 자동으로 보관됩니다. 아래 목차에서 기관 → 연도 순으로 찾거나 검색을 사용하세요.</p>
+    <div class="summary-grid"><div><span>보관 공고</span><strong>${notices.length}건</strong><small>기관 ${groups.length}곳</small></div>
+      <div><span>저장한 계획서</span><strong>${proposals.length}건</strong><small>공고 ${proposalGroups.size}건에 연결</small></div>
+      <div><span>검색 조건</span><strong>${escapeHtml(conditions || '전체')}</strong><small>조건을 비우면 전체가 보입니다</small></div>
+      <div><span>최근 보관</span><strong>${escapeHtml(String(proposals[0]?.updatedAt || notices[0]?.archiveUpdatedAt || '').slice(0, 10) || '-')}</strong><small>가장 최근 저장일</small></div></div>
+    <div class="two-col"><div class="field"><label for="archive-institution">기관</label><input id="archive-institution" value="${escapeHtml(filters.institution)}" placeholder="예: 광주지회"></div><div class="field"><label for="archive-keyword">키워드</label><input id="archive-keyword" value="${escapeHtml(filters.keyword)}" placeholder="예: 아동, 가족기능"></div></div>
     <div class="two-col"><div class="field"><label for="archive-from">마감일 시작</label><input id="archive-from" type="date" value="${escapeHtml(filters.from)}"></div><div class="field"><label for="archive-to">마감일 종료</label><input id="archive-to" type="date" value="${escapeHtml(filters.to)}"></div></div>
     <div class="actions"><span>검색은 저장 자료만 조회하며, 맞춤 찾기는 사용자가 눌렀을 때만 공식 공고를 갱신합니다.</span><div><button class="button secondary" id="search-archive">보관함 검색</button><button class="button primary" id="find-matching-notices">맞춤 공고 찾기</button><button class="button secondary" id="list-archived-proposals">계획서 보관함</button></div></div>
-    ${state.archiveNotices.length ? `<h4>자료보관함(D1)에 보관된 공고 ${state.archiveNotices.length}건</h4><div class="requirement-list">${state.archiveNotices.map((item, index) => `<article class="requirement"><div><span class="tag">보관함 · ${escapeHtml(item.sourceLabel)}</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.applicationPeriod || item.deadline || '기간 정보 없음')} · ${item.linkedProposalCount ? `연결 계획서 ${item.linkedProposalCount}건` : '연결 계획서 없음'}</small></div></div><p class="muted notice-card-preview">${escapeHtml(String(item.summary || '상세 공고문 확인 필요').slice(0, 300))}</p><div class="actions"><span></span><div><button class="button secondary" data-view-archived-notice="${index}">공고 상세</button>${item.linkedProposalId ? `<button class="button secondary" data-open-archived-proposal="${escapeHtml(item.linkedProposalId)}">작성 계획서 열기</button>` : ''}<button class="button primary" data-use-archived-notice="${index}">공고 확인 목록에 열기</button></div></div></article>`).join('')}</div>` : '<p class="muted">검색 전에는 최근 저장 공고를 불러옵니다. 조건 없이 ‘보관함 검색’을 누르면 최근 공고부터 표시됩니다.</p>'}
-    ${state.archiveProposals.length ? `<div class="requirement-list"><h4>저장된 계획서</h4>${state.archiveProposals.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(archiveStageLabel(item.stage))}</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(new Date(item.updatedAt).toLocaleString('ko-KR'))}</small></div></div><button class="button primary" data-open-archived-proposal="${escapeHtml(item.id)}">이어서 수정</button></article>`).join('')}</div>` : ''}
+    ${notices.length ? `<h4>보관 공고 목차 · 기관 ${groups.length}곳 / 총 ${notices.length}건</h4><div class="archive-index">${groups.map(([institution, items], groupIndex) => {
+      const years = items.reduce((map, item) => { const year = archiveYearOf(item); map.set(year, [...(map.get(year) || []), item]); return map; }, new Map());
+      return `<details class="archive-group" ${groupIndex === 0 ? 'open' : ''}><summary>${escapeHtml(institution)} <b>${items.length}건</b></summary>${[...years.entries()].sort((left, right) => String(right[0]).localeCompare(String(left[0]))).map(([year, list], yearIndex) => `<details class="archive-year" ${groupIndex === 0 && yearIndex === 0 ? 'open' : ''}><summary>${escapeHtml(year)} · ${list.length}건</summary><div class="requirement-list">${list.map(item => archiveNoticeRow(item, notices.indexOf(item))).join('')}</div></details>`).join('')}</details>`;
+    }).join('')}</div>` : '<p class="muted">보관된 공고가 없습니다. 공고를 한 번 가져오면 자동으로 보관됩니다.</p>'}
+    ${proposals.length ? `<h4>저장한 계획서 ${proposals.length}건 · 공고별 ${proposalGroups.size}묶음</h4><div class="archive-index">${[...proposalGroups.entries()].map(([key, items], index) => `<details class="archive-group" ${index === 0 ? 'open' : ''}><summary>${escapeHtml(String(noticeTitleOf(key) || items[0].title || '공고 미연결').slice(0, 50))} <b>${items.length}건</b></summary><div class="requirement-list">${items.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(archiveStageLabel(item.stage))}</span><div><strong>${escapeHtml(item.title)}</strong><small class="muted">저장 ${escapeHtml(String(item.createdAt || '').slice(0, 10))} · 수정 ${escapeHtml(String(item.updatedAt || '').slice(0, 10))}</small></div></div><button class="button primary" data-open-archived-proposal="${escapeHtml(item.id)}">이어서 수정</button></article>`).join('')}</div></details>`).join('')}</div>` : '<p class="muted">저장한 계획서가 없습니다. 작성 화면의 「자료보관함에 저장」을 누르면 여기에 쌓입니다.</p>'}
     <details><summary>다른 기기에서 같은 보관함 사용</summary><p class="muted">현재 복구키를 비밀번호 관리도구 등 안전한 장소에 보관하세요. 새 기기에서 같은 키를 입력하면 기존 계획서 보관함에 연결됩니다. 복구키를 잃으면 서버에서도 복원할 수 없습니다.</p><div class="actions"><button class="button secondary" id="copy-archive-key">현재 복구키 복사</button></div><div class="field"><label for="archive-recovery-key">기존 보관함 복구키</label><input id="archive-recovery-key" type="password" autocomplete="off" value="${escapeHtml(state.archiveKeyDraft)}" placeholder="다른 기기에서 보관한 복구키 붙여넣기"><button class="button primary" id="apply-archive-key">이 기기에 기존 보관함 연결</button></div></details></details>`;
 }
 

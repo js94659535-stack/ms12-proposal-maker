@@ -163,3 +163,12 @@
   .home-grid.three{grid-template-columns:1fr}
 }
 .home-step ul{margin:2px 0 4px;padding-left:16px;color:#6a7482;font-size:12.5px;line-height:1.85}
+/* 자료보관함 목차: 기관 → 연도 → 공고 */
+.archive-index{display:grid;gap:8px;margin:8px 0 18px}
+.archive-group{border:1px solid var(--line);border-radius:10px;background:#fff;padding:12px 14px}
+.archive-group>summary{font-weight:800;font-size:14px;cursor:pointer;color:var(--navy)}
+.archive-group>summary b{color:var(--blue);font-weight:800;margin-left:6px;font-size:12.5px}
+.archive-year{margin:8px 0 0 8px;border-left:2px solid var(--line);padding-left:12px}
+.archive-year>summary{font-size:13px;font-weight:700;color:#5c6673;cursor:pointer}
+.archive-year .requirement{padding:12px 0}
+.archive-index h4,.org-details h4{margin:16px 0 8px;font-size:14px;color:var(--navy)}

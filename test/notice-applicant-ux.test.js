@@ -36,8 +36,12 @@ test('공고 불러오기는 기존 경과시간 표시를 사용하고 완료·
 
 test('과거 공고는 자료보관함에서 찾고 임시 목록과 구분해 표시한다', () => {
   assert.match(appSource, /<summary><b>자료보관함<\/b> · 보관된 공고와 저장한 계획서 다시 열기<\/summary>/);
-  assert.match(appSource, /자료보관함\(D1\)에 보관된 공고 \$\{state\.archiveNotices\.length\}건/);
-  assert.match(appSource, /보관함 · \$\{escapeHtml\(item\.sourceLabel\)\}/);
+  // 보관량이 늘어도 찾기 쉽도록 기관 → 연도 목차로 묶어 보여 준다.
+  assert.match(appSource, /보관 공고 목차 · 기관 \$\{groups\.length\}곳 \/ 총 \$\{notices\.length\}건/);
+  assert.match(appSource, /function archiveNoticeGroups\(notices\)/);
+  assert.match(appSource, /function archiveYearOf\(item\)/);
+  // 기관은 목차 그룹 제목으로, 연도는 항목 태그로 보여 준다.
+  assert.match(appSource, /item\.sourceLabel \|\| item\.source \|\| '기관 미표기'/);
   assert.match(appSource, /이번에 가져온 공고 \$\{state\.noticeResults\.length\}건 · 임시 목록/);
   assert.match(appSource, /지금 가져온 목록은 이 화면에서만 쓰는 임시 목록/);
   // 기존 검색·열기 경로를 그대로 사용하고 새 API를 만들지 않는다.

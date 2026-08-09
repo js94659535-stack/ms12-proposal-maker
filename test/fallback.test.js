@@ -338,7 +338,7 @@ test('공고 보관함 검색은 날짜·기관·핵심어와 상세 원문·세
   assert.match(appSource, /loadRecentArchive\(\)/);
   assert.match(appSource, /data-view-archived-notice/);
   assert.match(appSource, /작성 계획서 열기/);
-  assert.match(appSource, /slice\(0, 300\)/);
+  assert.match(appSource, /notice-card-preview/);
 });
 
 test('자료보관함 복구키로 새 브라우저에서도 동일한 D1 소유 자료에 접근한다', () => {
