@@ -611,7 +611,8 @@ function documentView() {
   const toolbarActions = completionMode
     ? `<button class="button secondary" id="save-proposal-archive">자료보관함에 저장</button><button class="button secondary" id="proposal-review">${state.reviewResult ? '명시적으로 재검토' : '심사 검토·고도화'}</button><button class="button secondary" id="print">인쇄</button><button class="button secondary" id="pdf">PDF 인쇄·저장</button><button class="button primary" id="docx">검토용 DOCX</button>`
     : '<button class="button secondary" id="save-proposal-archive">자료보관함에 저장</button><button class="button primary" id="go-to-review">검토·완성으로 이동 →</button>';
-  return `${strategy}${questions}${proposalPipelineView()}${draftBlueprintCheckView()}${assemblyCheckView()}<div class="document-toolbar"><div><h2>${escapeHtml(state.project.title || '사업계획서 검토본')}</h2><p><span class="mode">신청기관 ${escapeHtml(selectedApplicant()?.name || '미선택')}</span> ${(state.proposalVersions || [])[0]?.source === EXTERNAL_SOURCE ? '<span class="mode">외부 계획서 작업본 · 원본 보존</span> ' : ''}<span class="mode">${state.selectedNotice?.officialTextExtracted ? '공고문 반영 초안' : '안내 페이지 기반 임시 초안'}</span> <span class="mode ${state.aiMode === 'ai' ? 'ai' : ''}">${state.aiMode === 'ai' ? 'AI 정밀 사업설계' : '로컬 사실 추출'}</span> ${completionMode ? '심사 검토와 출력 전 최종 편집을 진행하세요. DOCX는 공식 신청서 양식이 아닌 검토본입니다.' : '필요한 질문을 확인하고 초안을 편집하세요.'}</p></div><div>${toolbarActions}</div></div>
+  return `${strategy}${questions}${proposalPipelineView()}${decisionCenterView()}${draftBlueprintCheckView()}${assemblyCheckView()}<div class="document-toolbar"><div><h2>${escapeHtml(state.project.title || '사업계획서 검토본')}</h2><p><span class="mode">신청기관 ${escapeHtml(selectedApplicant()?.name || '미선택')}</span> ${(state.proposalVersions || [])[0]?.source === EXTERNAL_SOURCE ? '<span class="mode">외부 계획서 작업본 · 원본 보존</span> ' : ''}<span class="mode">${state.selectedNotice?.officialTextExtracted ? '공고문 반영 초안' : '안내 페이지 기반 임시 초안'}</span> <span class="mode ${state.aiMode === 'ai' ? 'ai' : ''}">${state.aiMode === 'ai' ? 'AI 정밀 사업설계' : '로컬 사실 추출'}</span> ${completionMode ? '심사 검토와 출력 전 최종 편집을 진행하세요. DOCX는 공식 신청서 양식이 아닌 검토본입니다.' : '필요한 질문을 확인하고 초안을 편집하세요.'}</p></div><div>${toolbarActions}</div></div>
+    ${completionMode ? finalSubmissionView() : ''}
     ${completionMode ? proposalReviewView() : ''}
     ${revisionPlanView()}
     <div class="editor-layout"><aside class="outline">${state.sections.map((s, i) => `<a href="#section-${i}"><span>${i + 1}</span>${escapeHtml(s.title.replace(/^\d+[.)]?\s*/, ''))}</a>`).join('')}</aside><div class="paper">${state.sections.map((s, i) => `<section id="section-${i}" class="doc-section"><div class="section-head"><input data-section-title="${i}" value="${escapeHtml(s.title)}"><span class="status ${s.status?.replace(' ', '-')}">${escapeHtml(s.status || '검토 필요')}</span></div><textarea data-section-content="${i}">${escapeHtml(s.content)}</textarea><div class="section-meta"><span>근거 ${s.citations?.length || 0}개</span><span><button data-confirm-fact="${i}">회사 정보로 확정 저장</button><button data-rewrite="${i}">이 항목 재작성</button></span></div>${sectionCoachingView(s)}${s.citations?.length ? `<details><summary>반영한 원문 근거</summary>${s.citations.map(id => { const r = (state.analysis?.requirements || []).find(v => v.id === id); return r ? `<blockquote>${escapeHtml(r.evidence)} <small>${escapeHtml(r.location)}</small></blockquote>` : ''; }).join('')}</details>` : ''}</section>`).join('')}</div></div>`;
@@ -643,6 +644,78 @@ function sectionCoachingView(section) {
   const items = handoffItemsForSection(state.revisionPlan, section);
   if (!items.length) return '';
   return `<details open class="org-details"><summary>검증·코칭 수정 요청 ${items.length}건</summary>${items.map(item => `<blockquote><b>${escapeHtml(item.priority)} · ${escapeHtml(item.problem)}</b><br>이유: ${escapeHtml(item.reason)}<br>개선 방향: ${escapeHtml(item.direction)}${item.lockedValues.length ? `<br>유지할 값: ${escapeHtml(item.lockedValues.join(' · '))}` : ''}</blockquote>`).join('')}</details>`;
+}
+
+// 남은 사용자 결정 항목을 한 화면에 모은다. 사용자가 확정한 값만 이번 사업 값으로 저장한다.
+const DECISION_FIELDS = [
+  { key: 'headcount', label: '참여인원 확정', hint: '공고 기준과 현재 설계값이 다르면 이번 사업의 확정 인원을 적어 주세요.', conflictField: '인원' },
+  { key: 'sessions', label: '회기 확정', hint: '초기면접·사례회의·사후점검을 포함한 1인당 회기를 적어 주세요.', conflictField: '회기' },
+  { key: 'staff', label: '기관 자격·수행인력', hint: '개입 자격 증빙과 담당 인력(자격·인원·전담 여부)을 적어 주세요.', blueprintKey: 'delivery' },
+  { key: 'partners', label: '협력체계', hint: '협력기관명과 협약·연계 상태를 적어 주세요.', blueprintKey: 'partners' },
+  { key: 'regionalNeed', label: '지역 필요성 근거', hint: '지역 사례 규모·욕구·서비스 공백을 보여 주는 통계나 조사 출처를 적어 주세요.', blueprintKey: 'problem' },
+  { key: 'outcomeGoals', label: '성과목표 수치', hint: '대상 수·변화 정도 등 목표치를 적어 주세요.', blueprintKey: 'outcomeGoals' },
+  { key: 'indicators', label: '성과지표·측정도구', hint: '사용할 척도명과 측정 시점을 적어 주세요.', blueprintKey: 'indicators' },
+  { key: 'budget', label: '예산 총액·산출근거', hint: '총 사업비와 항목별 수량×단가×횟수를 적어 주세요.', blueprintKey: 'budget' },
+  { key: 'submissionDocs', label: '제출서류 준비', hint: '신청기관현황·점검표·증빙서류 준비 상태를 적어 주세요.' }
+];
+
+function decisionCenterView() {
+  if (!state.sections.length) return '';
+  const blueprint = currentBlueprint();
+  const conflicts = currentOfficialConflicts();
+  const plans = currentRepairPlans().filter(plan => plan.repairLevel === 'USER_CONFIRMATION');
+  const openTitles = new Set((blueprint?.items || []).filter(item => item.status === 'NEEDS_CONFIRMATION').map(item => item.key));
+  const rows = DECISION_FIELDS.map(field => {
+    const value = blueprintValueOf(field.key);
+    const conflict = conflicts.find(item => item.field === field.conflictField);
+    const open = conflict || (field.blueprintKey ? openTitles.has(field.blueprintKey) : !value);
+    return { ...field, value, conflict, open: Boolean(open) && !value };
+  });
+  const remaining = rows.filter(row => row.open).length + plans.filter(plan => !String(state.coaching.repairAnswers?.[plan.id] || '').trim()).length;
+  return `<div class="card" id="decision-center"><div class="card-title"><div><h3>남은 사용자 결정 ${remaining}건</h3><span>여기서 확정한 값만 계획서에 반영합니다. 확정 전에는 어떤 값도 자동으로 바꾸지 않습니다.</span></div><button class="button primary" id="build-final-version" ${remaining === rows.filter(row => row.open || row.value).length ? '' : ''}>확정값 반영해 최종본 만들기</button></div>
+    <div class="requirement-list">${rows.map(row => `<article class="requirement"><div><span class="status ${row.value ? '충족' : row.conflict ? '부족' : '확인-필요'}">${row.value ? '확정됨' : row.conflict ? '공식요건 충돌' : '확인 필요'}</span><div><strong>${escapeHtml(row.label)}</strong>
+      ${row.conflict ? `<small>공고 ${escapeHtml(row.conflict.officialValue)} vs 현재 ${escapeHtml(row.conflict.userValue)} — 어느 쪽으로 확정할지 정해 주세요.</small><small class="muted">공고 근거: ${escapeHtml(String(row.conflict.officialEvidence.sentence).slice(0, 120))}</small>` : `<small>${escapeHtml(row.hint)}</small>`}
+      ${row.value ? `<small class="muted">현재 확정값: ${escapeHtml(row.value)}</small>` : ''}</div></div>
+      <div class="two-col" style="margin:10px 0 0 64px"><div class="field" style="margin:0"><label for="decision-${row.key}">확정값 입력</label><input id="decision-${row.key}" data-decision-input="${row.key}" value="${escapeHtml(row.value)}" placeholder="확인된 사실만 입력하세요. 모르면 비워 두세요."></div><div class="field" style="margin:0"><label>&nbsp;</label><button class="button secondary" data-decision-save="${row.key}">이 값으로 확정</button></div></div></article>`).join('')}</div>
+    ${plans.length ? `<details><summary>검증에서 확인을 요청한 수정 ${plans.length}건</summary><p class="muted">아래 수정계획 카드에서 값을 입력하면 해당 문단만 수정합니다. 입력 전에는 수정하지 않습니다.</p></details>` : ''}</div>`;
+}
+
+// 사용자가 확정한 값만 반영한 최종본을 새 버전으로 만든다. 이전 버전은 그대로 남는다.
+function buildFinalVersion() {
+  const confirmed = (state.projectValues || []).filter(item => item.blueprintKey && DECISION_FIELDS.some(field => field.key === item.blueprintKey));
+  const answers = Object.fromEntries(Object.entries(state.coaching.repairAnswers || {}).filter(([, value]) => String(value).trim()));
+  if (!confirmed.length && !Object.keys(answers).length) return setState({ error: '확정된 값이 없습니다. 남은 결정 항목에 값을 입력한 뒤 다시 시도해 주세요.' });
+  const plans = currentRepairPlans();
+  const run = applyRepairPlans(state.sections, plans, { confirmations: answers });
+  const confirmedBlock = confirmed.map(item => `${item.label}: ${item.value}`).join('\n');
+  const sections = run.sections.map(section => section.id === 'goals' && confirmedBlock
+    ? { ...section, content: `${section.content}\n\n[확정 사항]\n${confirmedBlock}` }
+    : section);
+  state.sections = sections;
+  state.proposalVersions = appendProposalVersion(state.proposalVersions || [], { sections, label: '사용자 확정 반영 최종본', source: '사용자 확정' });
+  const version = state.proposalVersions[state.proposalVersions.length - 1].version;
+  setState({
+    sections, proposalVersions: state.proposalVersions,
+    notice: `확정값 ${confirmed.length}건${run.applied.length ? ` · 수정계획 ${run.applied.length}건` : ''}을 반영해 V${version}을 만들었습니다. 확인 필요 ${run.questions.length}건은 그대로 두었습니다. 이전 버전은 보존됩니다.`,
+    error: ''
+  });
+  void archiveCurrentProposal(`final-v${version}`).catch(() => {});
+}
+
+// 최종 제출본 보기. 제출 가능 여부는 남은 확인 항목으로만 판단하고 임의로 올리지 않는다.
+function finalSubmissionView() {
+  if (!state.sections.length) return '';
+  const conflicts = currentOfficialConflicts();
+  const pending = currentRepairPlans().filter(plan => plan.repairLevel === 'USER_CONFIRMATION');
+  const marks = state.sections.reduce((sum, section) => sum + (String(section.content).match(/\[확인 필요[^\]]*\]/g) || []).length, 0);
+  const ready = conflicts.length === 0 && pending.length === 0 && marks === 0;
+  return `<div class="card" id="final-submission"><div class="card-title"><div><h3>최종 제출본</h3><span>제출 가능 여부는 남은 확인 항목으로 판단합니다. 임의로 제출 가능으로 올리지 않습니다.</span></div><strong>${ready ? '제출 검토 가능' : '제출 전 확인 필요'}</strong></div>
+    <div class="summary-grid"><div><span>공식요건 충돌</span><strong>${conflicts.length}건</strong><small>확정 전 제출 불가</small></div>
+    <div><span>확인 요청 수정</span><strong>${pending.length}건</strong><small>사용자 입력 대기</small></div>
+    <div><span>[확인 필요] 표기</span><strong>${marks}곳</strong><small>본문에 남은 자리</small></div>
+    <div><span>버전</span><strong>V${(state.proposalVersions || []).length || 1}</strong><small>이전 버전 보존</small></div></div>
+    <p class="muted">${ready ? '남은 확인 항목이 없습니다. 출력물은 검토본이며 공식 신청서 양식이 아닙니다.' : '남은 항목이 있어도 검토본 출력은 가능합니다. 제출 전에 위 항목을 확정하세요.'}</p>
+    <div class="actions"><span></span><div><button class="button secondary" id="print">인쇄</button><button class="button secondary" id="pdf">PDF 인쇄·저장</button><button class="button primary" id="docx">검토용 DOCX</button></div></div></div>`;
 }
 
 // V1 → 검증 → 수정계획 → V2 → 재검증 진행 상태. 새 메뉴 없이 작성 화면 안에서 단계만 구분해 보여준다.
@@ -1109,6 +1182,12 @@ function bind() {
     saveState();
   });
   document.querySelector('#apply-repair-plans')?.addEventListener('click', applyRepairPlansToProposal);
+  document.querySelectorAll('[data-decision-save]').forEach(el => el.onclick = () => {
+    const key = el.dataset.decisionSave;
+    const field = DECISION_FIELDS.find(item => item.key === key);
+    setBlueprintValue(key, field?.label || key, document.querySelector(`[data-decision-input="${key}"]`)?.value || '');
+  });
+  document.querySelector('#build-final-version')?.addEventListener('click', buildFinalVersion);
   document.querySelector('#coaching-applicant-target')?.addEventListener('change', event => setState({ coachingApplicantId: event.target.value, applicantExtraction: null }));
   document.querySelector('#harvest-coaching-applicant')?.addEventListener('click', harvestApplicantFromCoaching);
   if (state.activeTool === 'coaching' && state.coaching.pendingJob && !coachingPollActive) setTimeout(() => pollProposalCoaching(), 250);

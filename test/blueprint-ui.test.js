@@ -106,7 +106,7 @@ test('유형 선택 → 확인 필요 입력 → 즉시 재계산이 화면 경�
 test('작성 화면에서 V1 → 검증 → 수정계획 → V2 → 남은 확인 필요를 구분해 보여준다', () => {
   const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   assert.match(app, /function proposalPipelineView\(\)/);
-  assert.match(app, /\$\{proposalPipelineView\(\)\}\$\{draftBlueprintCheckView\(\)\}/);
+  assert.match(app, /\$\{proposalPipelineView\(\)\}\$\{decisionCenterView\(\)\}\$\{draftBlueprintCheckView\(\)\}/);
   // 단계 구분: V1 초안 · 검증 결과 · 수정계획 · V2 수정본 · 남은 확인 필요
   for (const label of ['V1 초안', '검증 결과', '수정계획', 'V2 수정본', '남은 확인 필요']) assert.ok(app.includes(label), label);
   // 남은 항목이 있으면 제출 준비 완료로 올리지 않는다는 문구를 유지한다.
@@ -120,4 +120,26 @@ test('수정 상태를 다섯 가지로 구분해 보여준다', () => {
   for (const label of ['수정됨', '근거로 보강됨', '사용자 확인 필요', '아직 자료 부족', '공식요건 충돌']) assert.ok(app.includes(label), label);
   // 공식요건 충돌은 수정 상태와 분리해 표시한다.
   assert.match(app, /const conflict = plan\.conflictingValues\?\.length >= 2/);
+});
+
+test('남은 사용자 결정 6가지를 한 화면에 모으고 확정값만 반영한다', () => {
+  const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  assert.match(app, /function decisionCenterView\(\)/);
+  assert.match(app, /\$\{proposalPipelineView\(\)\}\$\{decisionCenterView\(\)\}/);
+  // 인원·회기 충돌, 자격·협력, 지역 근거, 성과목표·측정도구, 예산·제출서류
+  for (const label of ['참여인원 확정', '회기 확정', '기관 자격·수행인력', '협력체계', '지역 필요성 근거', '성과목표 수치', '성과지표·측정도구', '예산 총액·산출근거', '제출서류 준비']) {
+    assert.ok(app.includes(label), label);
+  }
+  // 입력·저장은 이번 사업 값으로만 저장한다.
+  assert.match(app, /data-decision-save/);
+  assert.match(app, /setBlueprintValue\(key, field\?\.label \|\| key/);
+  // 확정값이 없으면 최종본을 만들지 않는다.
+  assert.match(app, /function buildFinalVersion\(\)/);
+  assert.match(app, /확정된 값이 없습니다/);
+  assert.match(app, /appendProposalVersion\(state\.proposalVersions \|\| \[\], \{ sections, label: '사용자 확정 반영 최종본'/);
+  // 최종 제출본과 출력 흐름
+  assert.match(app, /function finalSubmissionView\(\)/);
+  assert.match(app, /completionMode \? finalSubmissionView\(\)/);
+  assert.match(app, /임의로 제출 가능으로 올리지 않습니다/);
+  assert.match(app, /id="docx"/);
 });
