@@ -147,6 +147,15 @@ test('분할 생성은 구조적 실패만 막고 자기점검·충돌은 경고
   const explained = { ...ok, sections: [{ ...ok.sections[0], content: body('공고에는 아동보호형도 있으나 본 사업은 해당하지 않는다.') }, ok.sections[1]] };
   assert.equal(validatePartResult(explained, group, payload), '');
 
+  // officialConflicts로 이미 구조화된 공고 기준값은 일반 경고에서 중복 생성하지 않는다.
+  const bothValues = { ...ok, sections: [{ ...ok.sections[0], content: `${ok.sections[0].content} 공고 기준은 70명 이상이고 현재 설계값은 15명이다.` }, ok.sections[1]] };
+  const dedup = partReviewState(bothValues, payload);
+  assert.equal(dedup.warnings.filter(item => item.check === 'confirmedValue').length, 0, JSON.stringify(dedup.warnings));
+  assert.equal(dedup.officialConflicts.length, 1);
+  // 충돌로 등록되지 않은 다른 수치는 계속 경고한다.
+  const strayValue = { ...ok, sections: [{ ...ok.sections[0], content: `${ok.sections[0].content} 참여아동은 40명으로 한다.` }, ok.sections[1]] };
+  assert.equal(partReviewState(strayValue, payload).warnings.filter(item => item.check === 'confirmedValue').length, 1);
+
   // 경고도 충돌도 없으면 PART_READY
   const clean = partReviewState({ ...ok, continuityCheck: { masterAligned: true, applicationStructureAligned: true, terminologyConsistent: true, numericConsistent: true, noUnnecessaryRepetition: true, issues: [] } }, { group, projectBlueprint: { applicationType: '재학대예방형', otherApplicationTypes: ['아동보호형'], items: [] } });
   assert.equal(clean.partStatus, 'PART_READY');

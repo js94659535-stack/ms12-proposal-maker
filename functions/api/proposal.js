@@ -391,11 +391,15 @@ export function partReviewState(result, payload = {}) {
   const text = (result?.sections || []).map(section => String(section.content || '')).join('\n');
   // 확정값과 다른 수치가 같은 단위로 쓰였는지 본문 기준으로 확인한다(경고).
   const confirmedValues = (payload.projectBlueprint?.items || []).filter(item => item.status === '확정');
+  // officialConflicts로 이미 구조화된 공고 기준값은 일반 경고에서 다시 만들지 않는다.
+  const knownConflictNumbers = new Set(officialConflicts.flatMap(item => [...String(item.officialValue || '').match(/\d[\d,]*\s*(?:명|회기|회|원)/g) || [], ...String(item.userValue || '').match(/\d[\d,]*\s*(?:명|회기|회|원)/g) || []]).map(value => value.replace(/\s/g, '')));
   const valueWarnings = [];
   for (const item of confirmedValues) {
     for (const number of String(item.value).match(/\d[\d,]*\s*(?:명|회기|회|원)/g) || []) {
       const unit = number.replace(/[\d,\s]/g, '');
-      const others = [...new Set(text.match(new RegExp(`\\d[\\d,]*\\s*${unit}`, 'g')) || [])].filter(found => found.replace(/\s/g, '') !== number.replace(/\s/g, ''));
+      const others = [...new Set(text.match(new RegExp(`\\d[\\d,]*\\s*${unit}`, 'g')) || [])]
+        .filter(found => found.replace(/\s/g, '') !== number.replace(/\s/g, ''))
+        .filter(found => !knownConflictNumbers.has(found.replace(/\s/g, '')));
       if (others.length) valueWarnings.push({ check: 'confirmedValue', label: '확정값과 다른 수치', message: `${item.section} 확정값 ${number}와 다른 값(${others.join(' / ')})이 본문에 있습니다. 공고 기준 병기인지 확인이 필요합니다.` });
     }
   }
