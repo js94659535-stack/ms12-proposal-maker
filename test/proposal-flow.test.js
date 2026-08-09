@@ -69,11 +69,11 @@ test('문제별 선택지와 환각 방지 규칙을 그대로 유지한다', ()
   assert.ok(check.removed.length > 0);
 });
 
-test('계획서 보관함은 상태별로 보이고 저장 데이터를 새로 만들지 않는다', () => {
+test('계획서보관함은 상태별로 보이고 저장 데이터를 새로 만들지 않는다', () => {
   assert.match(app, /function proposalArchiveStatus\(item\)/);
   assert.match(app, /if \(stage === 'final'\) return '최종본';/);
   assert.match(app, /function proposalArchiveView\(proposals\)/);
-  assert.match(app, /계획서 보관함 \$\{proposals\.length\}건/);
+  assert.match(app, /계획서보관함 \$\{proposals\.length\}건/);
   for (const label of ['공고', '신청기관', '현재 버전', '버전 이력', '검토 이력', '수정 이력', '최종본']) {
     assert.ok(app.includes(`['${label}'`) || app.includes(`>${label}<`) || app.includes(`'${label}',`), label);
   }

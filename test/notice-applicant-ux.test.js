@@ -26,7 +26,7 @@ test('공고 불러오기는 기존 경과시간 표시를 사용하고 완료·
   assert.match(appSource, /setAiBusy\('공고를 불러오는 중'/);
   assert.match(appSource, /setAiBusy\('공고 상세 내용을 불러오는 중'/);
   assert.match(appSource, /setAiBusy\('선택한 공고 본문을 불러오는 중'/);
-  assert.match(appSource, /setAiBusy\('자료보관함에서 과거 공고를 검색하는 중'/);
+  assert.match(appSource, /setAiBusy\('공고보관함에서 과거 공고를 검색하는 중'/);
   assert.match(appSource, /function elapsedLabel\(\)/);
   assert.match(appSource, /공고 \$\{notices\.length\}건을 불러왔습니다\$\{elapsed\}/);
   // 기존 AI 작업 경과시간 표시를 그대로 재사용한다.
@@ -34,8 +34,8 @@ test('공고 불러오기는 기존 경과시간 표시를 사용하고 완료·
   assert.doesNotMatch(appSource, /busy: '중앙회와 광주지회 공고를 불러오는 중/);
 });
 
-test('과거 공고는 자료보관함에서 찾고 임시 목록과 구분해 표시한다', () => {
-  assert.match(appSource, /<summary><b>자료보관함<\/b> · 보관 공고 목록과 저장한 계획서<\/summary>/);
+test('과거 공고는 공고보관함에서 찾고 임시 목록과 구분해 표시한다', () => {
+  assert.match(appSource, /<summary><b>공고보관함·계획서보관함<\/b> · 보관 공고와 저장한 계획서<\/summary>/);
   // 보관량이 많아도 빠르게 찾도록 표·검색·필터·페이지 구조로 보여 준다.
   assert.match(appSource, /class="archive-table"/);
   assert.match(appSource, /id="archive-query"/);
@@ -50,7 +50,7 @@ test('과거 공고는 자료보관함에서 찾고 임시 목록과 구분해 �
   assert.match(appSource, /data-archive-use/);
 });
 
-test('자료보관함 표는 복수 기관 매칭·작업 단계 이동·목록 삭제를 지원한다', () => {
+test('공고보관함 표는 복수 기관 매칭·작업 단계 이동·목록 삭제를 지원한다', () => {
   // 한 공고에 여러 신청기관을 연결하되 기관별 계획서 작업은 따로 유지한다.
   assert.match(appSource, /data-archive-applicant="\$\{escapeHtml\(row\.key\)\}"/);
   assert.match(appSource, /'\+ 기관 매칭'/);
