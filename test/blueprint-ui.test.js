@@ -170,6 +170,8 @@ test('첫 화면과 상단 표시가 서비스용 한국어로 정리되어 있�
   // 작업 화면(공고 준비)을 랜딩처럼 쓰지 않는다.
   assert.doesNotMatch(app, /startPanelView/);
   for (const label of ['공고 분석부터 제출본까지', '새 사업계획서 시작', '작성 중인 계획서 계속하기', '업무 흐름', '최근 작업', '핵심 가치', '작성 원칙', '아직 작성 중인 계획서가 없습니다']) assert.ok(app.includes(label), label);
+  // 홈 워크플로 6단계는 요구된 이름·설명을 그대로 쓴다.
+  for (const label of ['공고 업로드 · 요구사항 확인', '기관정보 · 실적 · 적합성', '대상 · 프로그램 · 예산 · 성과', '근거 기반 V1 작성', 'AI 코칭 · V2 · 사용자 결정', '최종본 · DOCX/PDF · 자료보관']) assert.ok(app.includes(label), label);
   // 홈 진입점이 기존 흐름으로 연결된다.
   for (const key of ['data-home-start', 'data-home-continue', 'data-home-archive', 'data-home-step']) assert.ok(app.includes(key), key);
   // 6개 대분류가 랜딩과 상단 내비게이션에서 같은 이름을 쓴다.
