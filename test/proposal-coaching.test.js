@@ -237,7 +237,7 @@ test('상단 독립 코칭 화면은 외부 파일·붙여넣기·보관함·재
   assert.match(source, /남은 문제/);
   assert.match(source, /새로 생긴 문제/);
   assert.match(source, /validatedText/);
-  for (const label of ['개선 작업판', '미수정', '수정중', '해결', '확인필요', '이 문제만 AI 수정안 만들기', '수정안 적용', '적용 되돌리기', '코칭 보고서 PDF 인쇄·저장']) assert.match(source, new RegExp(label));
+  for (const label of ['개선 작업판', '미수정', '수정중', '해결', '확인필요', 'AI에게 수정 요청', '직접 수정', '확인정보 입력', '현재 유지', '수정안 적용', '적용 되돌리기', '코칭 보고서 PDF 인쇄·저장']) assert.match(source, new RegExp(label));
   for (const label of ['근거 바로 확인', '자료명', '페이지·항목', '관련 원문', '제출 전 점검', '제출 전 필수 보완', '주요 개선 권장', '제출 검토 완료']) assert.match(source, new RegExp(label));
   assert.match(source, /action: 'reviseIssue'/);
   assert.match(source, /currentArchiveId/);
