@@ -715,7 +715,7 @@ function finalSubmissionView() {
     <div><span>[확인 필요] 표기</span><strong>${marks}곳</strong><small>본문에 남은 자리</small></div>
     <div><span>버전</span><strong>V${(state.proposalVersions || []).length || 1}</strong><small>이전 버전 보존</small></div></div>
     <p class="muted">${ready ? '남은 확인 항목이 없습니다. 출력물은 검토본이며 공식 신청서 양식이 아닙니다.' : '남은 항목이 있어도 검토본 출력은 가능합니다. 제출 전에 위 항목을 확정하세요.'}</p>
-    <div class="actions"><span></span><div><button class="button secondary" id="print">인쇄</button><button class="button secondary" id="pdf">PDF 인쇄·저장</button><button class="button primary" id="docx">검토용 DOCX</button></div></div></div>`;
+    <div class="actions"><span></span><div><button class="button secondary" id="final-print">인쇄</button><button class="button secondary" id="final-pdf">PDF 인쇄·저장</button><button class="button primary" id="final-docx">검토용 DOCX</button></div></div></div>`;
 }
 
 // V1 → 검증 → 수정계획 → V2 → 재검증 진행 상태. 새 메뉴 없이 작성 화면 안에서 단계만 구분해 보여준다.
@@ -1133,6 +1133,10 @@ function bind() {
   document.querySelector('#docx')?.addEventListener('click', () => exportDocx(state.project, state.sections).catch(showError));
   document.querySelector('#pdf')?.addEventListener('click', () => exportPdf(state.project, state.sections).catch(showError));
   document.querySelector('#print')?.addEventListener('click', printDocument);
+  // 최종 제출본 카드의 출력 버튼. 상단 도구모음과 같은 현재 본문을 출력한다.
+  document.querySelector('#final-docx')?.addEventListener('click', () => exportDocx(state.project, state.sections).catch(showError));
+  document.querySelector('#final-pdf')?.addEventListener('click', () => exportPdf(state.project, state.sections).catch(showError));
+  document.querySelector('#final-print')?.addEventListener('click', printDocument);
   document.querySelector('#proposal-review')?.addEventListener('click', () => runProposalReview(Boolean(state.reviewResult)));
   document.querySelectorAll('[data-apply-review]').forEach(el => el.onclick = () => applyReviewSection(Number(el.dataset.applyReview)));
   document.querySelector('#apply-all-review')?.addEventListener('click', applyAllReviewSections);
@@ -2438,7 +2442,7 @@ async function archiveCurrentProposal(forcedStage, announce = false) {
   state.archiveProposalId = id;
   saveState();
   const stage = forcedStage || (state.reviewResult ? 'review' : state.sections.length ? 'complete' : state.stagedGeneration?.phase === 'parts-ready' ? 'parts' : 'master');
-  const fields = ['project', 'sourceText', 'analysis', 'sponsorIntent', 'projectDesign', 'missingInformation', 'evidenceMap', 'qualityCheck', 'designAnswers', 'designUnavailable', 'stagedGeneration', 'assemblyCheck', 'manualSources', 'matches', 'answers', 'sections', 'reviewResult', 'reviewOriginalDraft', 'reviewFingerprint', 'companyFacts', 'selectedNotice', 'aiMode', 'selectedApplicantId', 'projectValues', 'applicantResolvedQuestions', 'proposalVersions', 'revisionPlan'];
+  const fields = ['project', 'sourceText', 'analysis', 'sponsorIntent', 'projectDesign', 'missingInformation', 'evidenceMap', 'qualityCheck', 'designAnswers', 'designUnavailable', 'stagedGeneration', 'assemblyCheck', 'manualSources', 'matches', 'answers', 'sections', 'reviewResult', 'reviewOriginalDraft', 'reviewFingerprint', 'companyFacts', 'selectedNotice', 'aiMode', 'selectedApplicantId', 'projectValues', 'applicantResolvedQuestions', 'proposalVersions', 'revisionPlan', 'noticeLogic', 'draftReview'];
   // 계획서에는 사용 시점의 신청기관 사본만 남기고, 신청기관 원본은 별도 보관 항목으로만 수정한다.
   const snapshot = { ...Object.fromEntries(fields.map(key => [key, structuredClone(state[key])])), applicantSnapshot: selectedApplicant() ? structuredClone(selectedApplicant()) : null };
   const result = await saveArchivedProposal({ id, noticeKey: archiveNoticeKey(state.selectedNotice), title: state.project.title || state.selectedNotice?.title, stage, snapshot });

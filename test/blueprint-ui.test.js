@@ -143,3 +143,15 @@ test('남은 사용자 결정 6가지를 한 화면에 모으고 확정값만 �
   assert.match(app, /임의로 제출 가능으로 올리지 않습니다/);
   assert.match(app, /id="docx"/);
 });
+
+test('최종 제출본 출력 버튼과 보관 스냅샷 연결이 끊기지 않는다', () => {
+  const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  // 상단 도구모음과 최종 제출본 카드의 출력 버튼 id가 겹치지 않는다.
+  assert.equal((app.match(/id="docx"/g) || []).length, 1);
+  assert.match(app, /id="final-docx"/);
+  assert.match(app, /querySelector\('#final-docx'\)\?\.addEventListener/);
+  assert.match(app, /querySelector\('#final-pdf'\)\?\.addEventListener/);
+  assert.match(app, /querySelector\('#final-print'\)\?\.addEventListener/);
+  // 자료보관함에서 다시 열 때 공고 선정논리와 초안 상태가 함께 복원된다.
+  assert.match(app, /'revisionPlan', 'noticeLogic', 'draftReview'\]/);
+});
