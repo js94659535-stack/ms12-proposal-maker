@@ -35,7 +35,7 @@ test('공고 불러오기는 기존 경과시간 표시를 사용하고 완료·
 });
 
 test('과거 공고는 자료보관함에서 찾고 임시 목록과 구분해 표시한다', () => {
-  assert.match(appSource, /<summary>자료보관함 · 과거에 가져온 공고 다시 찾기<\/summary>/);
+  assert.match(appSource, /<summary><b>자료보관함<\/b> · 보관된 공고와 저장한 계획서 다시 열기<\/summary>/);
   assert.match(appSource, /자료보관함\(D1\)에 보관된 공고 \$\{state\.archiveNotices\.length\}건/);
   assert.match(appSource, /보관함 · \$\{escapeHtml\(item\.sourceLabel\)\}/);
   assert.match(appSource, /이번에 가져온 공고 \$\{state\.noticeResults\.length\}건 · 임시 목록/);

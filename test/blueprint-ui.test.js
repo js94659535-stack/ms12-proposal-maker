@@ -203,3 +203,16 @@ test('이전에 저장된 화면 상태가 새 홈을 가리지 않는다', () =
   assert.match(app, /activeTool: 'home', homeSeen: false/);
   assert.doesNotMatch(app, /if \(!saved\.homeSeen\)[\s\S]{0,120}sections: \[\]/);
 });
+
+test('모든 화면에서 홈·뒤로·앞으로 이동과 자료보관함 바로가기를 제공한다', () => {
+  const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  // 작업·도구 화면(공통 셸)과 홈 화면 모두 이동 버튼을 갖는다.
+  assert.match(app, /id="workflow-back" aria-label="뒤로 가기"/); // 홈 헤더
+  assert.match(app, /id="workflow-forward" aria-label="앞으로 가기"/);
+  assert.match(app, /⌂ 홈 화면/);
+  assert.match(app, /querySelector\('#workflow-home'\)\?\.addEventListener\('click', \(\) => setState\(\{ activeTool: 'home'/);
+  // 자료보관함은 홈과 작업 화면 상단에서 바로 열 수 있고, 해당 카드로 이동한다.
+  assert.match(app, /id="open-archive-box"/);
+  assert.match(app, /id="archive-box"/);
+  assert.match(app, /querySelector\('#archive-box'\)\?\.scrollIntoView/);
+});
