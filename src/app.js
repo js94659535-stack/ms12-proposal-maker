@@ -611,7 +611,7 @@ function documentView() {
   const toolbarActions = completionMode
     ? `<button class="button secondary" id="save-proposal-archive">자료보관함에 저장</button><button class="button secondary" id="proposal-review">${state.reviewResult ? '명시적으로 재검토' : '심사 검토·고도화'}</button><button class="button secondary" id="print">인쇄</button><button class="button secondary" id="pdf">PDF 인쇄·저장</button><button class="button primary" id="docx">검토용 DOCX</button>`
     : '<button class="button secondary" id="save-proposal-archive">자료보관함에 저장</button><button class="button primary" id="go-to-review">검토·완성으로 이동 →</button>';
-  return `${strategy}${questions}${draftBlueprintCheckView()}${assemblyCheckView()}<div class="document-toolbar"><div><h2>${escapeHtml(state.project.title || '사업계획서 검토본')}</h2><p><span class="mode">신청기관 ${escapeHtml(selectedApplicant()?.name || '미선택')}</span> ${(state.proposalVersions || [])[0]?.source === EXTERNAL_SOURCE ? '<span class="mode">외부 계획서 작업본 · 원본 보존</span> ' : ''}<span class="mode">${state.selectedNotice?.officialTextExtracted ? '공고문 반영 초안' : '안내 페이지 기반 임시 초안'}</span> <span class="mode ${state.aiMode === 'ai' ? 'ai' : ''}">${state.aiMode === 'ai' ? 'AI 정밀 사업설계' : '로컬 사실 추출'}</span> ${completionMode ? '심사 검토와 출력 전 최종 편집을 진행하세요. DOCX는 공식 신청서 양식이 아닌 검토본입니다.' : '필요한 질문을 확인하고 초안을 편집하세요.'}</p></div><div>${toolbarActions}</div></div>
+  return `${strategy}${questions}${proposalPipelineView()}${draftBlueprintCheckView()}${assemblyCheckView()}<div class="document-toolbar"><div><h2>${escapeHtml(state.project.title || '사업계획서 검토본')}</h2><p><span class="mode">신청기관 ${escapeHtml(selectedApplicant()?.name || '미선택')}</span> ${(state.proposalVersions || [])[0]?.source === EXTERNAL_SOURCE ? '<span class="mode">외부 계획서 작업본 · 원본 보존</span> ' : ''}<span class="mode">${state.selectedNotice?.officialTextExtracted ? '공고문 반영 초안' : '안내 페이지 기반 임시 초안'}</span> <span class="mode ${state.aiMode === 'ai' ? 'ai' : ''}">${state.aiMode === 'ai' ? 'AI 정밀 사업설계' : '로컬 사실 추출'}</span> ${completionMode ? '심사 검토와 출력 전 최종 편집을 진행하세요. DOCX는 공식 신청서 양식이 아닌 검토본입니다.' : '필요한 질문을 확인하고 초안을 편집하세요.'}</p></div><div>${toolbarActions}</div></div>
     ${completionMode ? proposalReviewView() : ''}
     ${revisionPlanView()}
     <div class="editor-layout"><aside class="outline">${state.sections.map((s, i) => `<a href="#section-${i}"><span>${i + 1}</span>${escapeHtml(s.title.replace(/^\d+[.)]?\s*/, ''))}</a>`).join('')}</aside><div class="paper">${state.sections.map((s, i) => `<section id="section-${i}" class="doc-section"><div class="section-head"><input data-section-title="${i}" value="${escapeHtml(s.title)}"><span class="status ${s.status?.replace(' ', '-')}">${escapeHtml(s.status || '검토 필요')}</span></div><textarea data-section-content="${i}">${escapeHtml(s.content)}</textarea><div class="section-meta"><span>근거 ${s.citations?.length || 0}개</span><span><button data-confirm-fact="${i}">회사 정보로 확정 저장</button><button data-rewrite="${i}">이 항목 재작성</button></span></div>${sectionCoachingView(s)}${s.citations?.length ? `<details><summary>반영한 원문 근거</summary>${s.citations.map(id => { const r = (state.analysis?.requirements || []).find(v => v.id === id); return r ? `<blockquote>${escapeHtml(r.evidence)} <small>${escapeHtml(r.location)}</small></blockquote>` : ''; }).join('')}</details>` : ''}</section>`).join('')}</div></div>`;
@@ -643,6 +643,32 @@ function sectionCoachingView(section) {
   const items = handoffItemsForSection(state.revisionPlan, section);
   if (!items.length) return '';
   return `<details open class="org-details"><summary>검증·코칭 수정 요청 ${items.length}건</summary>${items.map(item => `<blockquote><b>${escapeHtml(item.priority)} · ${escapeHtml(item.problem)}</b><br>이유: ${escapeHtml(item.reason)}<br>개선 방향: ${escapeHtml(item.direction)}${item.lockedValues.length ? `<br>유지할 값: ${escapeHtml(item.lockedValues.join(' · '))}` : ''}</blockquote>`).join('')}</details>`;
+}
+
+// V1 → 검증 → 수정계획 → V2 → 재검증 진행 상태. 새 메뉴 없이 작성 화면 안에서 단계만 구분해 보여준다.
+function proposalPipelineView() {
+  if (!state.sections.length) return '';
+  const versions = state.proposalVersions || [];
+  const baseline = versions.find(item => item.version === 1) || null;
+  const latest = versions.length ? versions[0] : null;
+  const plans = currentRepairPlans();
+  const summary = plans.length ? repairPlanSummary(plans) : null;
+  const pending = plans.filter(plan => plan.repairLevel === 'USER_CONFIRMATION');
+  const unresolved = state.draftReview?.unresolvedItems?.length || 0;
+  const conflicts = currentOfficialConflicts();
+  const step = (name, done, detail) => `<div><span>${escapeHtml(name)}</span><strong>${done ? '완료' : '대기'}</strong><small>${escapeHtml(detail)}</small></div>`;
+  return `<div class="card"><div class="card-title"><div><h3>계획서 진행 상태</h3><span>V1 원문은 보존하고 수정본은 새 버전으로만 쌓습니다.</span></div><strong>${escapeHtml(state.coaching.result ? coachingVerdict(state.coaching.result).verdict : '검증 전')}</strong></div>
+    <div class="summary-grid">
+    ${step('V1 초안', state.sections.length === 10, baseline ? `${baseline.label} · ${String(baseline.savedAt).slice(0, 10)}` : '현재 작성본')}
+    ${step('검증 결과', Boolean(state.coaching.result), state.coaching.result ? `문제 ${(state.coaching.result.issues || []).length}건 · v${state.coaching.version}` : '검증·코칭 미실행')}
+    ${step('수정계획', plans.length > 0, summary ? `자동 ${summary.byLevel.AUTO || 0} · 근거확인 ${summary.byLevel.EVIDENCE_BASED || 0} · 사용자확인 ${summary.byLevel.USER_CONFIRMATION || 0}` : '검증 후 생성')}
+    ${step('V2 수정본', versions.some(item => item.version > 1), latest && latest.version > 1 ? `최신 V${latest.version} · ${escapeHtml(latest.label)}` : '아직 없음')}
+    </div>
+    <div class="alert ${pending.length || conflicts.length || unresolved ? 'warning' : 'success'}"><strong>남은 확인 필요</strong>
+      <p>사용자 확인 필요 수정 ${pending.length}건 · 공고 기준 충돌 ${conflicts.length}건 · [확인 필요] 항목 ${unresolved}개 — 확인 전에는 제출 준비 완료로 올리지 않습니다.</p>
+      ${conflicts.map(item => `<p>· ${escapeHtml(item.field)}: 공고 ${escapeHtml(item.officialValue)} vs 확정 ${escapeHtml(item.userValue)}</p>`).join('')}
+      ${pending.slice(0, 3).map(plan => `<p>· ${escapeHtml(plan.issueTypeLabel)}: ${escapeHtml(plan.confirmationQuestion || plan.problem)}</p>`).join('')}</div>
+    ${versions.length ? `<details><summary>버전 ${versions.length}개 · V1과 이후 수정본 비교</summary><div class="requirement-list">${versions.map(item => `<article class="requirement"><div><span class="tag">V${item.version}</span><div><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(String(item.savedAt).slice(0, 16).replace('T', ' '))}${item.verdict ? ` · ${escapeHtml(item.verdict)}` : ''}</small></div></div></article>`).join('')}</div></details>` : ''}</div>`;
 }
 
 // V1 초안이 설계도를 따랐는지 자동 점검한다. V1 원문은 바꾸지 않는다.

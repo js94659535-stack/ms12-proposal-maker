@@ -102,3 +102,15 @@ test('유형 선택 → 확인 필요 입력 → 즉시 재계산이 화면 경�
     '수완지역아동센터', '2024년 총사업비 16,100,000원 집행', '주 2회 20회기 운영'
   ]);
 });
+
+test('작성 화면에서 V1 → 검증 → 수정계획 → V2 → 남은 확인 필요를 구분해 보여준다', () => {
+  const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  assert.match(app, /function proposalPipelineView\(\)/);
+  assert.match(app, /\$\{proposalPipelineView\(\)\}\$\{draftBlueprintCheckView\(\)\}/);
+  // 단계 구분: V1 초안 · 검증 결과 · 수정계획 · V2 수정본 · 남은 확인 필요
+  for (const label of ['V1 초안', '검증 결과', '수정계획', 'V2 수정본', '남은 확인 필요']) assert.ok(app.includes(label), label);
+  // 남은 항목이 있으면 제출 준비 완료로 올리지 않는다는 문구를 유지한다.
+  assert.match(app, /확인 전에는 제출 준비 완료로 올리지 않습니다/);
+  // 새 상위 메뉴를 만들지 않는다(기존 워크플로 단계만 사용).
+  assert.match(app, /const STEPS = \['공고 가져오기', '공고 확인', '신청기관 선택', '사업 선택', '계획서 작성', '검토·완성'\]/);
+});

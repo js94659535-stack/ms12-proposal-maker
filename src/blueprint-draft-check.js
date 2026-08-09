@@ -46,6 +46,17 @@ export const BLUEPRINT_SECTION_MAP = {
 };
 export const UNRESOLVED_MARK = '[확인 필요]';
 
+// 선택하지 않은 유형이 설계 문장으로 쓰였는지만 본다. 근거 인용·충돌 설명·유형 구분 문장은 제외한다.
+const EXPLANATORY = /충돌|근거|공고|제외|해당하지|아니라|구분|비교|참고/;
+const TYPE_MARKERS = { 아동보호형: ['요보호아동'] };
+export function designSentencesUsing(sections, option, selected) {
+  const markers = [option.name, ...(TYPE_MARKERS[option.name] || [])];
+  return (sections || [])
+    .flatMap(section => String(section.content || section.body || '').split(/(?<=[.!?])\s+|\n+/))
+    .filter(sentence => markers.some(marker => sentence.includes(marker)))
+    .filter(sentence => !sentence.includes(selected) && !EXPLANATORY.test(sentence));
+}
+
 // AI 원본 V1은 바꾸지 않는다. 표시용 사본에만 미확정 표시를 붙인다.
 export function annotateDraftSections({ blueprint, sections } = {}) {
   const open = (blueprint?.items || []).filter(item => item.status === 'NEEDS_CONFIRMATION' && BLUEPRINT_SECTION_MAP[item.key]);
@@ -135,10 +146,9 @@ export function checkDraftAgainstBlueprint({ blueprint, sections, applicant, str
   if (!blueprint.applicationTypes?.options?.length) checks.push(check('신청유형', 'PASS', '공고에 신청유형 구분이 없습니다.'));
   else if (!selected) checks.push(check('신청유형', 'FAIL', '신청유형을 고르지 않은 채 작성했습니다.'));
   else {
-    // 유형 이름이 직접 나오거나, 그 유형에만 있는 표현이 여러 개 나올 때만 혼입으로 본다.
-    const selectedTokens = new Set(tokensOf((blueprint.applicationTypes.options.find(option => option.name === selected) || {}).description));
-    const mixed = others.filter(option => draft.includes(option.name)
-      || tokensOf(option.description).filter(token => token.length >= 3 && !selectedTokens.has(token) && draft.includes(token)).length >= 3);
+    // 선택하지 않은 유형의 대상조건·사업내용이 설계 문장으로 들어간 경우만 혼입으로 본다.
+    // 공식 근거 인용·충돌 설명·유형 구분을 위한 언급은 혼입이 아니다(서버 mixedTypeInSections와 같은 기준).
+    const mixed = others.filter(option => designSentencesUsing(sections, option, selected).length > 0);
     checks.push(mixed.length
       ? check('다른 신청유형 혼입', 'FAIL', `선택하지 않은 유형 내용이 섞였습니다: ${mixed.map(option => option.name).join(' · ')}`, mixed.map(option => option.name))
       : check('신청유형', 'PASS', `${selected}만 사용했습니다.`));
