@@ -15,6 +15,7 @@ import { buildBlueprint } from './project-blueprint.js';
 import { BLUEPRINT_SECTION_MAP, annotateDraftSections, checkDraftAgainstBlueprint, officialRequirementConflicts } from './blueprint-draft-check.js';
 import { EXTERNAL_SOURCE, appendProposalVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, proposalTextFromSections, proposalTextFromSnapshot, revisionInstruction, verifyLockedValues } from './coaching-handoff.js';
 import { splitApplicantProfile } from './applicants.js';
+import { ARCHIVE_PAGE_SIZES, ARCHIVE_STATUSES, archiveTableRows, shortDate } from './archive-table.js';
 import { APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
 
 const TYPES = [
@@ -25,6 +26,14 @@ const TYPES = [
 // 업무 흐름 6단계. 라벨만 정리하고 단계 번호·연결 로직은 그대로 둔다.
 const STEPS = ['공고 준비', '공고 분석', '신청기관 준비', '사업 설계', '계획서 작성', '검토·제출'];
 // 홈 화면에 보여 주는 업무 흐름 6단계 요약(단계 번호는 작업 화면과 같다).
+const ARCHIVE_WORK_STEPS = [
+  { step: 0, label: '공고 준비' },
+  { step: 1, label: '공고 분석' },
+  { step: 2, label: '신청기관 연결' },
+  { step: 3, label: '사업 설계' },
+  { step: 4, label: '계획서 작성' },
+  { step: 5, label: '검증·제출본' }
+];
 const HOME_FLOW = [
   { no: '01', title: '공고 준비', desc: '공고 업로드 · 요구사항 확인', step: 0, covers: [0, 1], items: ['공고 조회·업로드', '선정 논리 구조화', '첨부 자료묶음 분석'] },
   { no: '02', title: '신청기관 준비', desc: '기관정보 · 실적 · 적합성', step: 2, covers: [2], items: ['확인된 기관정보 관리', '과거 실적 정리', '공고 적합성 매칭'] },
@@ -49,7 +58,7 @@ const initial = {
   coaching: { title: '', text: '', validatedText: '', criteriaText: '', officialEvaluationProvided: false, sourceProposalId: '', sourceNoticeKey: '', seriesId: '', currentArchiveId: '', result: null, workItems: [], pendingJob: null, version: 0, references: [], referenceType: REFERENCE_TYPES[0], referenceDraft: '', referenceNameDraft: '' },
   applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, coachingApplicantId: '',
   revisionPlan: null, draftReview: null, proposalVersions: [], coachingSelection: [], applicantSkipped: false, noticeLogic: null,
-  analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
+  analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveTable: { query: '', sortKey: 'collectedAt', sortDir: 'desc', page: 1, pageSize: 20, selected: [], expandedKey: '', applicantPickerKey: '', filters: { collected: '', institution: '', field: '', status: '', applicant: '', deadline: '' } }, archiveNoticeLinks: {}, archiveHiddenNotices: [], archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
 let navigationHistory = loadNavigationHistory();
@@ -69,6 +78,10 @@ function loadState() {
       ? { ...structuredClone(initial.stagedGeneration), ...saved.stagedGeneration, parts: Array.isArray(saved.stagedGeneration.parts) ? saved.stagedGeneration.parts : [], completedGroupIds: Array.isArray(saved.stagedGeneration.completedGroupIds) ? saved.stagedGeneration.completedGroupIds : [] }
       : structuredClone(initial.stagedGeneration);
     const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantDocDraft: '', applicantExtraction: null, coachingSelection: [] };
+    // 자료보관함 목록의 선택·펼침 상태는 다시 열 때 초기화하고, 기관 매칭·숨김 기록만 유지한다.
+    restored.archiveTable = { ...structuredClone(initial.archiveTable), ...(saved.archiveTable || {}), filters: { ...structuredClone(initial.archiveTable.filters), ...((saved.archiveTable || {}).filters || {}) }, selected: [], expandedKey: '', applicantPickerKey: '', page: 1 };
+    restored.archiveNoticeLinks = saved.archiveNoticeLinks && typeof saved.archiveNoticeLinks === 'object' ? saved.archiveNoticeLinks : {};
+    restored.archiveHiddenNotices = Array.isArray(saved.archiveHiddenNotices) ? saved.archiveHiddenNotices : [];
     // 이전 버전에서 저장된 화면 상태 때문에 새 홈이 가려지지 않게 한 번은 홈을 먼저 보여 준다. 작업 데이터는 그대로 둔다.
     if (!saved.homeSeen) { restored.activeTool = 'home'; restored.homeSeen = true; }
     return withMigratedApplicants(restored);
@@ -308,53 +321,128 @@ function noticeImportView() {
     ${footer({ back: false, nextLabel: state.noticeResults.length ? '공고 확인' : '직접 자료로 계획서 작성', nextId: state.noticeResults.length ? 'next' : 'analyze' })}`;
 }
 
-// 자료보관함. 보관량이 늘어도 찾기 쉽도록 기관 → 연도 → 공고 목차로 묶어 보여 준다.
-// 검색·불러오기·복구키 등 기존 동작과 버튼은 그대로 재사용한다.
-function archiveYearOf(item) {
-  const year = String(item.deadline || item.applicationPeriod || item.archiveUpdatedAt || item.archivedAt || '').match(/(20\d{2})/);
-  return year ? `${year[1]}년` : '연도 미표기';
+// 자료보관함. 보관량이 많아도 빠르게 찾도록 「표 + 검색 + 필터」 목록으로 보여 준다.
+// 공고 수집·계획서 작성 로직은 그대로 두고 화면과 선택 상태만 다룬다.
+function archiveTableState() {
+  return { ...structuredClone(initial.archiveTable), ...(state.archiveTable || {}), filters: { ...structuredClone(initial.archiveTable.filters), ...((state.archiveTable || {}).filters || {}) } };
 }
-function archiveNoticeGroups(notices) {
-  const groups = new Map();
-  for (const item of notices) {
-    const key = String(item.sourceLabel || item.source || '기관 미표기').trim() || '기관 미표기';
-    groups.set(key, [...(groups.get(key) || []), item]);
-  }
-  return [...groups.entries()].sort((left, right) => right[1].length - left[1].length);
+function archiveLinks() { return state.archiveNoticeLinks || {}; }
+function archiveLinkOf(key) { return archiveLinks()[key] || {}; }
+function setArchiveLink(key, patch, notice = '') {
+  const links = { ...archiveLinks(), [key]: { ...archiveLinkOf(key), ...patch } };
+  setState({ archiveNoticeLinks: links, notice, error: '' });
 }
-function archiveNoticeRow(item, index) {
-  return `<article class="requirement"><div><span class="tag">${escapeHtml(archiveYearOf(item))}</span><div><strong>${escapeHtml(String(item.title || '제목 없음').slice(0, 70))}</strong><small>${escapeHtml(item.applicationPeriod || item.deadline || '기간 정보 없음')} · ${item.linkedProposalCount ? `연결 계획서 ${item.linkedProposalCount}건` : '연결 계획서 없음'}</small></div></div>
-    <p class="muted notice-card-preview">${escapeHtml(String(item.summary || '상세 공고문 확인 필요').slice(0, 200))}</p>
-    <div class="actions"><span></span><div>${item.linkedProposalId ? `<button class="button secondary" data-open-archived-proposal="${escapeHtml(item.linkedProposalId)}">작성 계획서 열기</button>` : ''}<button class="button secondary" data-view-archived-notice="${index}">공고 상세</button><button class="button primary" data-use-archived-notice="${index}">공고 확인 목록에 열기</button></div></div></article>`;
+function setArchiveTable(patch, extra = {}) {
+  setState({ archiveTable: { ...archiveTableState(), ...patch }, ...extra });
+}
+// 보관 공고에 저장된 계획서 단계를 붙여 상태 열의 근거로 쓴다.
+function archiveNoticesWithStage() {
+  const proposals = state.archiveProposals || [];
+  return (state.archiveNotices || []).map(item => {
+    const linked = proposals.find(proposal => proposal.noticeKey === item.archiveNoticeKey);
+    return linked ? { ...item, linkedProposalStage: linked.stage } : item;
+  });
+}
+function archiveTableData() {
+  const table = archiveTableState();
+  return archiveTableRows(archiveNoticesWithStage(), {
+    links: archiveLinks(), applicants: state.applicants || [], today: todayIso(), hidden: state.archiveHiddenNotices || [],
+    query: table.query, filters: table.filters, sortKey: table.sortKey, sortDir: table.sortDir, page: table.page, pageSize: table.pageSize
+  });
+}
+function todayIso() { return new Date().toISOString().slice(0, 10); }
+function archiveSortButton(key, label, table) {
+  const active = table.sortKey === key;
+  return `<button class="archive-sort ${active ? 'active' : ''}" data-archive-sort="${key}">${escapeHtml(label)}${active ? (table.sortDir === 'asc' ? ' ▲' : ' ▼') : ''}</button>`;
+}
+function archiveSelectField(label, name, value, options, labelOf = option => option) {
+  return `<label class="archive-filter"><span>${escapeHtml(label)}</span><select data-archive-filter="${name}"><option value="">전체</option>${options.map(option => `<option value="${escapeHtml(option)}" ${value === option ? 'selected' : ''}>${escapeHtml(labelOf(option))}</option>`).join('')}</select></label>`;
+}
+function archiveWorkMenu(row) {
+  const applicants = (state.applicants || []).filter(item => row.applicantIds.includes(item.id));
+  const targets = applicants.length ? applicants : [{ id: '', name: '기관 미지정' }];
+  return `<details class="archive-work"><summary>작업하기 ▼</summary><div class="archive-work-menu">${targets.map(target => `<div class="archive-work-group"><b>${escapeHtml(target.name)}</b>${ARCHIVE_WORK_STEPS.map(step => `<button data-archive-work="${escapeHtml(row.key)}" data-archive-work-step="${step.step}" data-archive-work-applicant="${escapeHtml(target.id)}">${escapeHtml(step.label)}</button>`).join('')}</div>`).join('')}</div></details>`;
+}
+function archiveDetailRow(row) {
+  const notice = row.notice || {};
+  const cells = [['사업개요', notice.summary], ['지원대상', notice.eligibility], ['지원규모', notice.supportLimit || notice.supportDetails], ['주요조건', notice.applicationPeriod]];
+  return `<tr class="archive-detail"><td colspan="11"><div class="archive-detail-grid">${cells.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><p>${escapeHtml(String(value || '공고 원문에서 확인이 필요합니다.').slice(0, 600))}</p></div>`).join('')}</div>
+    <div class="actions"><span>보관 원본은 그대로 두고 이번 작업 목록에만 엽니다.</span><div><button class="button secondary" data-archive-view="${escapeHtml(row.key)}">공고 상세 불러오기</button><button class="button primary" data-archive-use="${escapeHtml(row.key)}">공고 확인 목록에 열기</button></div></div></td></tr>`;
+}
+function archiveApplicantRow(row) {
+  const applicants = state.applicants || [];
+  return `<tr class="archive-detail"><td colspan="11"><div class="archive-picker"><b>신청기관 매칭</b><span class="muted">한 공고에 여러 기관을 연결할 수 있고, 기관별 계획서 작업은 각각 별도로 유지됩니다.</span>
+    ${applicants.length ? applicants.map(item => `<label><input type="checkbox" data-archive-applicant="${escapeHtml(row.key)}" value="${escapeHtml(item.id)}" ${row.applicantIds.includes(item.id) ? 'checked' : ''}> ${escapeHtml(item.name)}</label>`).join('') : '<span class="muted">등록된 신청기관이 없습니다. 「신청기관 정보」에서 먼저 등록하세요.</span>'}
+    <button class="button secondary" data-archive-applicant-close="${escapeHtml(row.key)}">닫기</button></div></td></tr>`;
+}
+function archiveTableRow(row, table) {
+  const selected = (table.selected || []).includes(row.key);
+  return `<tr class="${selected ? 'selected' : ''}">
+    <td><input type="checkbox" data-archive-select="${escapeHtml(row.key)}" ${selected ? 'checked' : ''} aria-label="행 선택"></td>
+    <td class="archive-num">${escapeHtml(shortDate(row.collectedAt) || '-')}</td>
+    <td>${escapeHtml(row.institution)}</td>
+    <td>${escapeHtml(row.field)}</td>
+    <td class="archive-title"><button class="archive-link" data-archive-detail="${escapeHtml(row.key)}" title="${escapeHtml(row.summary)}">${escapeHtml(row.title.slice(0, 80))}</button></td>
+    <td class="archive-num ${row.deadline.closed ? 'closed' : ''}">${escapeHtml(row.deadline.text)}</td>
+    <td><select class="archive-status" data-archive-status="${escapeHtml(row.key)}">${ARCHIVE_STATUSES.map(status => `<option value="${escapeHtml(status)}" ${row.status === status ? 'selected' : ''}>${escapeHtml(status)}</option>`).join('')}</select></td>
+    <td><button class="archive-link" data-archive-applicant-open="${escapeHtml(row.key)}">${escapeHtml(row.applicantText || '기관 매칭 +')}</button></td>
+    <td>${archiveWorkMenu(row)}</td>
+    <td><a class="archive-link" href="${escapeHtml(row.sourceUrl)}" target="_blank" rel="noopener noreferrer" title="공모기관 원문 열기">↗</a></td>
+    <td><button class="archive-link danger" data-archive-remove="${escapeHtml(row.key)}" title="목록에서 삭제">삭제</button></td>
+  </tr>${table.expandedKey === row.key ? archiveDetailRow(row) : ''}${table.applicantPickerKey === row.key ? archiveApplicantRow(row) : ''}`;
 }
 function archiveView() {
   const filters = state.archiveFilters || initial.archiveFilters;
-  const notices = state.archiveNotices || [];
+  const table = archiveTableState();
+  const data = archiveTableData();
   const proposals = state.archiveProposals || [];
-  const groups = archiveNoticeGroups(notices);
-  const proposalGroups = proposals.reduce((map, item) => {
-    const key = String(item.noticeKey || '공고 미연결');
-    map.set(key, [...(map.get(key) || []), item]);
-    return map;
-  }, new Map());
-  const noticeTitleOf = key => notices.find(item => item.archiveNoticeKey === key)?.title || '';
-  const conditions = [filters.institution, filters.keyword, filters.from || filters.to ? '기간 지정' : ''].filter(Boolean).join(' · ');
-  return `<details class="card org-details" id="archive-box" open><summary><b>자료보관함</b> · 보관된 공고와 저장한 계획서 다시 열기</summary>
-    <p class="muted">한 번 가져온 공고는 자동으로 보관됩니다. 아래 목차에서 기관 → 연도 순으로 찾거나 검색을 사용하세요.</p>
-    <div class="summary-grid"><div><span>보관 공고</span><strong>${notices.length}건</strong><small>기관 ${groups.length}곳</small></div>
-      <div><span>저장한 계획서</span><strong>${proposals.length}건</strong><small>공고 ${proposalGroups.size}건에 연결</small></div>
-      <div><span>검색 조건</span><strong>${escapeHtml(conditions || '전체')}</strong><small>조건을 비우면 전체가 보입니다</small></div>
-      <div><span>최근 보관</span><strong>${escapeHtml(String(proposals[0]?.updatedAt || notices[0]?.archiveUpdatedAt || '').slice(0, 10) || '-')}</strong><small>가장 최근 저장일</small></div></div>
-    <div class="two-col"><div class="field"><label for="archive-institution">기관</label><input id="archive-institution" value="${escapeHtml(filters.institution)}" placeholder="예: 광주지회"></div><div class="field"><label for="archive-keyword">키워드</label><input id="archive-keyword" value="${escapeHtml(filters.keyword)}" placeholder="예: 아동, 가족기능"></div></div>
-    <div class="two-col"><div class="field"><label for="archive-from">마감일 시작</label><input id="archive-from" type="date" value="${escapeHtml(filters.from)}"></div><div class="field"><label for="archive-to">마감일 종료</label><input id="archive-to" type="date" value="${escapeHtml(filters.to)}"></div></div>
-    <div class="actions"><span>검색은 저장 자료만 조회하며, 맞춤 찾기는 사용자가 눌렀을 때만 공식 공고를 갱신합니다.</span><div><button class="button secondary" id="search-archive">보관함 검색</button><button class="button primary" id="find-matching-notices">맞춤 공고 찾기</button><button class="button secondary" id="list-archived-proposals">계획서 보관함</button></div></div>
-    ${notices.length ? `<h4>보관 공고 목차 · 기관 ${groups.length}곳 / 총 ${notices.length}건</h4><div class="archive-index">${groups.map(([institution, items], groupIndex) => {
-      const years = items.reduce((map, item) => { const year = archiveYearOf(item); map.set(year, [...(map.get(year) || []), item]); return map; }, new Map());
-      return `<details class="archive-group" ${groupIndex === 0 ? 'open' : ''}><summary>${escapeHtml(institution)} <b>${items.length}건</b></summary>${[...years.entries()].sort((left, right) => String(right[0]).localeCompare(String(left[0]))).map(([year, list], yearIndex) => `<details class="archive-year" ${groupIndex === 0 && yearIndex === 0 ? 'open' : ''}><summary>${escapeHtml(year)} · ${list.length}건</summary><div class="requirement-list">${list.map(item => archiveNoticeRow(item, notices.indexOf(item))).join('')}</div></details>`).join('')}</details>`;
-    }).join('')}</div>` : '<p class="muted">보관된 공고가 없습니다. 공고를 한 번 가져오면 자동으로 보관됩니다.</p>'}
-    ${proposals.length ? `<h4>저장한 계획서 ${proposals.length}건 · 공고별 ${proposalGroups.size}묶음</h4><div class="archive-index">${[...proposalGroups.entries()].map(([key, items], index) => `<details class="archive-group" ${index === 0 ? 'open' : ''}><summary>${escapeHtml(String(noticeTitleOf(key) || items[0].title || '공고 미연결').slice(0, 50))} <b>${items.length}건</b></summary><div class="requirement-list">${items.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(archiveStageLabel(item.stage))}</span><div><strong>${escapeHtml(item.title)}</strong><small class="muted">저장 ${escapeHtml(String(item.createdAt || '').slice(0, 10))} · 수정 ${escapeHtml(String(item.updatedAt || '').slice(0, 10))}</small></div></div><button class="button primary" data-open-archived-proposal="${escapeHtml(item.id)}">이어서 수정</button></article>`).join('')}</div></details>`).join('')}</div>` : '<p class="muted">저장한 계획서가 없습니다. 작성 화면의 「자료보관함에 저장」을 누르면 여기에 쌓입니다.</p>'}
-    <details><summary>다른 기기에서 같은 보관함 사용</summary><p class="muted">현재 복구키를 비밀번호 관리도구 등 안전한 장소에 보관하세요. 새 기기에서 같은 키를 입력하면 기존 계획서 보관함에 연결됩니다. 복구키를 잃으면 서버에서도 복원할 수 없습니다.</p><div class="actions"><button class="button secondary" id="copy-archive-key">현재 복구키 복사</button></div><div class="field"><label for="archive-recovery-key">기존 보관함 복구키</label><input id="archive-recovery-key" type="password" autocomplete="off" value="${escapeHtml(state.archiveKeyDraft)}" placeholder="다른 기기에서 보관한 복구키 붙여넣기"><button class="button primary" id="apply-archive-key">이 기기에 기존 보관함 연결</button></div></details></details>`;
+  const selected = (table.selected || []).filter(key => data.rows.some(row => row.key === key) || (state.archiveNotices || []).some(item => item.archiveNoticeKey === key));
+  const linkedCount = Object.values(archiveLinks()).filter(link => (link.applicantIds || []).length).length;
+  const pageKeys = data.rows.map(row => row.key);
+  const allChecked = pageKeys.length > 0 && pageKeys.every(key => selected.includes(key));
+  return `<details class="card org-details" id="archive-box" open><summary><b>자료보관함</b> · 보관 공고 목록과 저장한 계획서</summary>
+    <p class="muted">한 번 가져온 공고는 자동으로 보관됩니다. 검색·필터로 찾고 「작업하기」에서 원하는 단계로 바로 이동하세요.</p>
+    <div class="summary-grid"><div><span>보관 공고</span><strong>${data.total}건</strong><small>기관 ${data.institutions.length}곳</small></div>
+      <div><span>검색 결과</span><strong>${data.matched}건</strong><small>${data.matched ? `${data.from}–${data.to}번 표시` : '조건에 맞는 공고 없음'}</small></div>
+      <div><span>신청기관 연결</span><strong>${linkedCount}건</strong><small>공고당 여러 기관 연결 가능</small></div>
+      <div><span>저장한 계획서</span><strong>${proposals.length}건</strong><small>작업하기에서 이어서 작성</small></div></div>
+    <div class="archive-toolbar"><input id="archive-query" value="${escapeHtml(table.query)}" placeholder="사업명·기관명·키워드 검색 후 Enter">
+      <button class="button secondary" id="archive-apply-query">목록 검색</button>
+      <button class="button secondary" id="search-archive">보관함 다시 불러오기</button>
+      <button class="button primary" id="find-matching-notices">맞춤 공고 찾기</button>
+      <button class="button secondary" id="list-archived-proposals">계획서 보관함</button></div>
+    <div class="archive-filters">
+      ${archiveSelectField('수집일', 'collected', table.filters.collected, data.collectedDates, shortDate)}
+      ${archiveSelectField('공모기관', 'institution', table.filters.institution, data.institutions)}
+      ${archiveSelectField('분야', 'field', table.filters.field, data.fields)}
+      ${archiveSelectField('상태', 'status', table.filters.status, ARCHIVE_STATUSES)}
+      <label class="archive-filter"><span>신청기관</span><select data-archive-filter="applicant"><option value="">전체</option><option value="미연결" ${table.filters.applicant === '미연결' ? 'selected' : ''}>미연결</option>${(state.applicants || []).map(item => `<option value="${escapeHtml(item.id)}" ${table.filters.applicant === item.id ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}</select></label>
+      ${archiveSelectField('마감일', 'deadline', table.filters.deadline, ['진행중', '7일이내', '마감'])}
+      <button class="button secondary" id="archive-reset-filters">필터 초기화</button></div>
+    <div class="archive-bulk"><span>${selected.length ? `선택 ${selected.length}건` : '행 선택 후 일괄 삭제할 수 있습니다.'}</span><button class="button secondary" id="archive-delete-selected" ${selected.length ? '' : 'disabled'}>선택 삭제</button></div>
+    ${data.total ? `<div class="archive-table-wrap"><table class="archive-table"><thead><tr>
+      <th class="archive-check"><input type="checkbox" id="archive-select-page" ${allChecked ? 'checked' : ''} aria-label="현재 페이지 전체 선택"></th>
+      <th>${archiveSortButton('collectedAt', '수집일', table)}</th>
+      <th>${archiveSortButton('institution', '공모기관', table)}</th>
+      <th>${archiveSortButton('field', '분야', table)}</th>
+      <th>${archiveSortButton('title', '사업명', table)}</th>
+      <th>${archiveSortButton('deadline', '마감일', table)}</th>
+      <th>상태</th><th>신청기관</th><th>작업하기</th><th>원문</th><th>삭제</th>
+    </tr></thead><tbody>${data.rows.map(row => archiveTableRow(row, { ...table, selected })).join('') || '<tr><td colspan="11" class="muted">조건에 맞는 공고가 없습니다. 필터를 초기화해 보세요.</td></tr>'}</tbody></table></div>
+    <div class="archive-pager"><span>총 ${data.matched}건 중 ${data.from}–${data.to} · ${data.page}/${data.pageCount}쪽</span>
+      <label>페이지당 <select id="archive-page-size">${ARCHIVE_PAGE_SIZES.map(size => `<option value="${size}" ${data.pageSize === size ? 'selected' : ''}>${size}개</option>`).join('')}</select></label>
+      <button class="button secondary" data-archive-page="${data.page - 1}" ${data.page <= 1 ? 'disabled' : ''}>이전</button>
+      <button class="button secondary" data-archive-page="${data.page + 1}" ${data.page >= data.pageCount ? 'disabled' : ''}>다음</button></div>` : '<p class="muted">보관된 공고가 없습니다. 공고를 한 번 가져오면 자동으로 보관됩니다.</p>'}
+    ${(state.archiveHiddenNotices || []).length ? `<div class="archive-bulk"><span>목록에서 숨긴 공고 ${(state.archiveHiddenNotices || []).length}건 (보관 원본과 연결된 계획서는 남아 있습니다)</span><button class="button secondary" id="archive-restore-hidden">숨긴 공고 되돌리기</button></div>` : ''}
+    ${proposals.length ? `<details><summary>저장한 계획서 ${proposals.length}건</summary><div class="requirement-list">${proposals.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(archiveStageLabel(item.stage))}</span><div><strong>${escapeHtml(item.title)}</strong><small class="muted">저장 ${escapeHtml(String(item.createdAt || '').slice(0, 10))} · 수정 ${escapeHtml(String(item.updatedAt || '').slice(0, 10))}</small></div></div><button class="button primary" data-open-archived-proposal="${escapeHtml(item.id)}">이어서 수정</button></article>`).join('')}</div></details>` : '<p class="muted">저장한 계획서가 없습니다. 작성 화면의 「자료보관함에 저장」을 누르면 여기에 쌓입니다.</p>'}
+    <details><summary>서버 검색 조건 · 다른 기기에서 같은 보관함 사용</summary>
+      <div class="two-col"><div class="field"><label for="archive-institution">기관</label><input id="archive-institution" value="${escapeHtml(filters.institution)}" placeholder="예: 광주지회"></div><div class="field"><label for="archive-keyword">키워드</label><input id="archive-keyword" value="${escapeHtml(filters.keyword)}" placeholder="예: 아동, 가족기능"></div></div>
+      <div class="two-col"><div class="field"><label for="archive-from">마감일 시작</label><input id="archive-from" type="date" value="${escapeHtml(filters.from)}"></div><div class="field"><label for="archive-to">마감일 종료</label><input id="archive-to" type="date" value="${escapeHtml(filters.to)}"></div></div>
+      <p class="muted">현재 복구키를 비밀번호 관리도구 등 안전한 장소에 보관하세요. 새 기기에서 같은 키를 입력하면 기존 계획서 보관함에 연결됩니다. 복구키를 잃으면 서버에서도 복원할 수 없습니다.</p>
+      <div class="actions"><button class="button secondary" id="copy-archive-key">현재 복구키 복사</button></div>
+      <div class="field"><label for="archive-recovery-key">기존 보관함 복구키</label><input id="archive-recovery-key" type="password" autocomplete="off" value="${escapeHtml(state.archiveKeyDraft)}" placeholder="다른 기기에서 보관한 복구키 붙여넣기"><button class="button primary" id="apply-archive-key">이 기기에 기존 보관함 연결</button></div></details></details>`;
 }
+
 
 function archiveStageLabel(stage) { if (String(stage).startsWith('revision-v')) return `코칭 반영 수정본 ${String(stage).replace('revision-', '')}`; return String(stage).startsWith('coaching-v') ? `검증·코칭 ${String(stage).replace('coaching-', '')}` : ({ master: '마스터 설계', parts: '분할 생성', complete: '완성본', review: '검토본' })[stage] || stage; }
 
@@ -951,7 +1039,7 @@ function stagedGenerationView() {
   return `<div class="card"><div class="card-title"><div><h3>계획서 생성 3단계</h3><span>마스터 설계 → 분할 생성 → 완성</span></div><span class="tag ${staged.phase === 'parts-ready' ? 'mandatory' : ''}">${staged.phase === 'master-ready' ? '마스터 설계 완료' : staged.phase === 'parts-ready' ? '분할 생성 완료' : '분할 생성 중'}</span></div>
     <div class="summary-grid"><div><span>사업명</span><strong>${escapeHtml(master.projectDesign?.projectName || state.project.title)}</strong></div><div><span>대상·인원</span><strong>${escapeHtml([master.projectDesign?.target, master.projectDesign?.participantCount].filter(Boolean).join(' · '))}</strong></div><div><span>사업기간</span><strong>${escapeHtml(master.projectDesign?.projectPeriod || '')}</strong></div><div><span>분할 기준</span><strong>신청서 항목·목차 ${groups.length}개 묶음</strong></div></div>
     <details open><summary>마스터 논리사슬과 선정 대응</summary><div class="summary-grid"><div><span>문제와 필요성</span><strong>${escapeHtml(logic.problem || '')}</strong></div><div><span>대상 선정 근거</span><strong>${escapeHtml(logic.targetRationale || '')}</strong></div><div><span>핵심 전략</span><strong>${escapeHtml(logic.coreStrategy || '')}</strong></div><div><span>차별성</span><strong>${escapeHtml(logic.differentiation || '')}</strong></div></div><p class="muted">문제 → ${(logic.causes || []).map(escapeHtml).join(' · ')} → 대상 → 전략 → ${(logic.executionMethods || []).map(escapeHtml).join(' · ')} → 산출 → 변화 → 성과측정</p><div class="three-col"><div><h4>기준값</h4>${listOrEmpty((logic.baselineValues || []).map(item => `${item.item}: ${item.value}`))}</div><div><h4>산출·성과·측정 연결</h4>${listOrEmpty((logic.outputOutcomeMeasurementLinks || []).map(item => `${item.output} → ${item.outcomeGoal} → ${item.indicator}`))}</div><div><h4>평가기준 대응</h4>${listOrEmpty((logic.evaluationResponsePlan || []).map(item => `${item.criterion}: ${item.response}`))}</div></div><details><summary>주장별 공식 자료 근거</summary>${(logic.claimEvidencePlan || []).map(item => `<blockquote><strong>${escapeHtml(item.claim)}</strong><br>${escapeHtml(item.evidence)} <small>${escapeHtml(item.location)}</small></blockquote>`).join('')}</details></details>
-    <details open><summary>확정된 마스터 구조 보기</summary><div class="requirement-list">${groups.map((group, index) => `<article class="requirement"><div><span class="tag">${index + 1}</span><div><strong>${escapeHtml(group.title)}</strong><small>${escapeHtml((group.sectionKeys || []).map(sectionTitle).join(' · '))}</small></div></div><span class="status ${completed.has(group.id) ? '충족' : '확인-필요'}">${completed.has(group.id) ? '완료' : '대기'}</span></article>`).join('')}</div></details>
+    <details open><summary>확정된 마스터 구조 보기</summary><div class="requirement-list">${groups.map((group, index) => `<article class="requirement"><div><span class="tag">${index + 1}</span><div><strong>${escapeHtml(group.title)}</strong><small>${escapeHtml((group.sectionKeys || []).map(sectionTitle).join(' · '))}</small></div></div><span class="status ${completed.has(group.id) ? '충족' : '확인-필요'}">${completed.has(group.id) ? '완료' : '대기'}</span><button class="button ${completed.has(group.id) ? 'secondary' : 'primary'}" data-generate-part="${escapeHtml(group.id)}" ${state.busy || waitingForAnswers ? 'disabled' : ''}>${completed.has(group.id) ? '이 항목만 다시 생성' : '이 항목만 AI 생성'}</button></article>`).join('')}</div></details>
     <div class="field"><label>분할 생성 진행률 ${completed.size} / ${groups.length}</label><progress value="${completed.size}" max="${Math.max(groups.length, 1)}" style="width:100%">${progress}%</progress></div>
     <div class="actions"><span>${waitingForAnswers ? '필수 확인 질문에 답한 뒤 마스터 설계를 다시 확정하세요.' : staged.phase === 'parts-ready' ? '모든 항목이 동일한 마스터 설계를 기준으로 작성되었습니다.' : '사용자가 시작해야 분할 생성을 실행합니다.'}</span>${staged.phase === 'master-ready' || staged.phase === 'parts-generating' ? `<button class="button primary" id="generate-parts" ${waitingForAnswers ? 'disabled' : ''}>분할 생성</button>` : ''}${staged.phase === 'parts-ready' ? '<button class="button primary" id="assemble-proposal">계획서 완성하기</button>' : ''}</div></div>`;
 }
@@ -1243,6 +1331,49 @@ function bind() {
   document.querySelectorAll('[data-use-archived-notice]').forEach(el => el.onclick = () => useArchivedNotice(Number(el.dataset.useArchivedNotice)));
   document.querySelectorAll('[data-view-archived-notice]').forEach(el => el.onclick = () => viewArchivedNotice(Number(el.dataset.viewArchivedNotice)));
   document.querySelectorAll('[data-open-archived-proposal]').forEach(el => el.onclick = () => openArchivedProposal(el.dataset.openArchivedProposal));
+  // 자료보관함 목록: 검색·필터·정렬·선택·페이지 이동은 모두 화면 상태만 바꾼다.
+  const archiveQuery = document.querySelector('#archive-query');
+  if (archiveQuery) {
+    archiveQuery.oninput = event => { state.archiveTable = { ...archiveTableState(), query: event.target.value }; saveState(); };
+    archiveQuery.onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); setArchiveTable({ query: event.target.value, page: 1 }); } };
+  }
+  document.querySelector('#archive-apply-query')?.addEventListener('click', () => setArchiveTable({ query: document.querySelector('#archive-query')?.value || '', page: 1 }));
+  document.querySelectorAll('[data-archive-filter]').forEach(el => el.onchange = () => setArchiveTable({ filters: { ...archiveTableState().filters, [el.dataset.archiveFilter]: el.value }, page: 1 }));
+  document.querySelector('#archive-reset-filters')?.addEventListener('click', () => setArchiveTable({ query: '', filters: structuredClone(initial.archiveTable.filters), page: 1 }));
+  document.querySelectorAll('[data-archive-sort]').forEach(el => el.onclick = () => {
+    const table = archiveTableState();
+    const key = el.dataset.archiveSort;
+    setArchiveTable({ sortKey: key, sortDir: table.sortKey === key && table.sortDir === 'desc' ? 'asc' : 'desc', page: 1 });
+  });
+  document.querySelector('#archive-page-size')?.addEventListener('change', event => setArchiveTable({ pageSize: Number(event.target.value), page: 1 }));
+  document.querySelectorAll('[data-archive-page]').forEach(el => el.onclick = () => setArchiveTable({ page: Number(el.dataset.archivePage) }));
+  document.querySelectorAll('[data-archive-select]').forEach(el => el.onchange = () => {
+    const selected = new Set(archiveTableState().selected || []);
+    if (el.checked) selected.add(el.dataset.archiveSelect); else selected.delete(el.dataset.archiveSelect);
+    setArchiveTable({ selected: [...selected] });
+  });
+  document.querySelector('#archive-select-page')?.addEventListener('change', event => {
+    const keys = [...document.querySelectorAll('[data-archive-select]')].map(el => el.dataset.archiveSelect);
+    const selected = new Set(archiveTableState().selected || []);
+    keys.forEach(key => (event.target.checked ? selected.add(key) : selected.delete(key)));
+    setArchiveTable({ selected: [...selected] });
+  });
+  document.querySelectorAll('[data-archive-detail]').forEach(el => el.onclick = () => setArchiveTable({ expandedKey: archiveTableState().expandedKey === el.dataset.archiveDetail ? '' : el.dataset.archiveDetail }));
+  document.querySelectorAll('[data-archive-status]').forEach(el => el.onchange = () => setArchiveLink(el.dataset.archiveStatus, { status: el.value }, `공고 상태를 ${el.value}(으)로 바꿨습니다.`));
+  document.querySelectorAll('[data-archive-applicant-open]').forEach(el => el.onclick = () => setArchiveTable({ applicantPickerKey: archiveTableState().applicantPickerKey === el.dataset.archiveApplicantOpen ? '' : el.dataset.archiveApplicantOpen }));
+  document.querySelectorAll('[data-archive-applicant-close]').forEach(el => el.onclick = () => setArchiveTable({ applicantPickerKey: '' }));
+  document.querySelectorAll('[data-archive-applicant]').forEach(el => el.onchange = () => {
+    const key = el.dataset.archiveApplicant;
+    const current = new Set(archiveLinkOf(key).applicantIds || []);
+    if (el.checked) current.add(el.value); else current.delete(el.value);
+    setArchiveLink(key, { applicantIds: [...current] }, '신청기관 매칭을 저장했습니다. 기관별 계획서 작업은 각각 따로 유지됩니다.');
+  });
+  document.querySelectorAll('[data-archive-use]').forEach(el => el.onclick = () => useArchivedNotice(archiveIndexOfKey(el.dataset.archiveUse)));
+  document.querySelectorAll('[data-archive-view]').forEach(el => el.onclick = () => viewArchivedNotice(archiveIndexOfKey(el.dataset.archiveView)));
+  document.querySelectorAll('[data-archive-work]').forEach(el => el.onclick = () => startArchiveWork(el.dataset.archiveWork, Number(el.dataset.archiveWorkStep), el.dataset.archiveWorkApplicant || ''));
+  document.querySelectorAll('[data-archive-remove]').forEach(el => el.onclick = () => hideArchivedNotices([el.dataset.archiveRemove]));
+  document.querySelector('#archive-delete-selected')?.addEventListener('click', () => hideArchivedNotices(archiveTableState().selected || []));
+  document.querySelector('#archive-restore-hidden')?.addEventListener('click', () => setState({ archiveHiddenNotices: [], notice: '숨긴 공고를 다시 목록에 표시했습니다.' }));
   document.querySelector('#import-notice-url')?.addEventListener('click', addMissingNotice);
   document.querySelectorAll('[data-notice-content]').forEach(panel => { panel.style.display = 'none'; });
   document.querySelectorAll('[data-notice-panel]').forEach(el => el.onclick = () => {
@@ -1278,7 +1409,9 @@ function bind() {
   document.querySelector('#draft')?.addEventListener('click', createDraft);
   document.querySelectorAll('[data-design-answer]').forEach(el => el.oninput = () => { const question = state.missingInformation[Number(el.dataset.designAnswer)]; if (question) { state.designAnswers[question] = el.value; saveState(); } });
   document.querySelector('#regenerate-design')?.addEventListener('click', generateCompleteProposal);
-  document.querySelector('#generate-parts')?.addEventListener('click', generateProposalParts);
+  // 일괄 생성은 남은 항목 전체, 개별 생성은 해당 항목만 AI로 만든다.
+  document.querySelector('#generate-parts')?.addEventListener('click', () => generateProposalParts());
+  document.querySelectorAll('[data-generate-part]').forEach(el => el.onclick = () => generateProposalParts(el.dataset.generatePart));
   document.querySelector('#assemble-proposal')?.addEventListener('click', assembleProposal);
   document.querySelectorAll('[data-section-title]').forEach(el => el.oninput = () => { state.sections[Number(el.dataset.sectionTitle)].title = el.value; saveState(); });
   document.querySelectorAll('[data-section-content]').forEach(el => el.oninput = () => { state.sections[Number(el.dataset.sectionContent)].content = el.value; saveState(); });
@@ -2201,8 +2334,35 @@ async function loadHomeRecent() {
 
 async function loadRecentArchive() {
   archiveLoaded = true;
+  // 목록의 상태 열은 저장된 계획서 단계를 근거로 하므로 계획서 목록도 함께 가져온다.
   try { const result = await searchArchivedNotices({}); setState({ archiveNotices: result.notices || [] }); }
   catch { /* 자료보관함 장애가 기존 첫 화면을 막지 않게 한다. */ }
+  try { const saved = await listArchivedProposals(); setState({ archiveProposals: saved.proposals || [] }); }
+  catch { /* 계획서 목록 조회 실패는 상태 표시만 비운다. */ }
+}
+
+function archiveIndexOfKey(key) {
+  return (state.archiveNotices || []).findIndex(item => item.archiveNoticeKey === key);
+}
+// 「작업하기」는 기존 단계 이동을 그대로 쓴다. 기관을 지정하면 그 기관을 선택한 상태로 이동한다.
+function startArchiveWork(key, step, applicantId = '') {
+  const index = archiveIndexOfKey(key);
+  const notice = state.archiveNotices[index];
+  if (!notice) return setState({ error: '보관된 공고를 찾지 못했습니다. 보관함을 다시 불러와 주세요.' });
+  const existing = state.noticeResults.findIndex(item => archiveNoticeKey(item) === archiveNoticeKey(notice));
+  const noticeResults = existing >= 0 ? state.noticeResults : [...state.noticeResults, notice];
+  const patch = { noticeResults, activeTool: 'workflow', notice: `보관 공고를 「${STEPS[step] || STEPS[0]}」 단계에서 이어서 작업합니다.` };
+  if (applicantId && (state.applicants || []).some(item => item.id === applicantId)) patch.selectedApplicantId = applicantId;
+  navigateToStep(step, patch);
+}
+// 보관 공고 원본과 연결된 계획서는 지우지 않고 이 기기 목록에서만 숨긴다.
+function hideArchivedNotices(keys) {
+  const targets = [...new Set((keys || []).filter(Boolean))];
+  if (!targets.length) return;
+  if (!window.confirm(`선택한 공고 ${targets.length}건을 목록에서 삭제할까요? 보관 원본과 연결된 계획서는 지워지지 않습니다.`)) return;
+  const hidden = [...new Set([...(state.archiveHiddenNotices || []), ...targets])];
+  const table = archiveTableState();
+  setState({ archiveHiddenNotices: hidden, archiveTable: { ...table, selected: [], expandedKey: '', applicantPickerKey: '', page: 1 }, notice: `공고 ${targets.length}건을 목록에서 삭제했습니다.`, error: '' });
 }
 
 async function copyArchiveRecoveryKey() {
@@ -2537,11 +2697,13 @@ function applyApplicantAnswers(questions) {
   return plan.ask;
 }
 
-async function generateProposalParts() {
+async function generateProposalParts(onlyGroupId = '') {
   const staged = state.stagedGeneration;
-  const groups = staged?.master?.sectionPlan || [];
+  const all = staged?.master?.sectionPlan || [];
+  // 개별 생성이면 해당 항목만, 일괄이면 남은 항목 전체를 만든다.
+  const groups = onlyGroupId ? all.filter(group => group.id === onlyGroupId) : all;
   if (!groups.length) return setState({ error: '분할 생성할 신청서 항목 구조가 없습니다.' });
-  const completed = new Set(staged.completedGroupIds || []);
+  const completed = new Set((staged.completedGroupIds || []).filter(id => id !== onlyGroupId));
   state.stagedGeneration.phase = 'parts-generating';
   setAiBusy('신청서 항목별 계획서를 분할 생성하는 중...', { stagedGeneration: state.stagedGeneration, error: '', notice: '' });
   try {
@@ -2553,10 +2715,10 @@ async function generateProposalParts() {
       state.stagedGeneration.continuitySummary = result.continuitySummary;
       completed.add(group.id);
       state.stagedGeneration.completedGroupIds = [...completed];
-      state.stagedGeneration.phase = completed.size === groups.length ? 'parts-ready' : 'parts-generating';
-      setState({ stagedGeneration: state.stagedGeneration, busy: completed.size === groups.length ? '' : `신청서 항목별 계획서를 분할 생성하는 중... (${completed.size}/${groups.length})` });
+      state.stagedGeneration.phase = completed.size === all.length ? 'parts-ready' : 'parts-generating';
+      setState({ stagedGeneration: state.stagedGeneration, busy: completed.size === all.length ? '' : `신청서 항목별 계획서를 분할 생성하는 중... (${completed.size}/${groups.length})` });
     }
-    setState({ busy: '', stagedGeneration: state.stagedGeneration, notice: '분할 생성이 완료되었습니다. 내용을 하나의 계획서로 완성해 주세요.' });
+    setState({ busy: '', stagedGeneration: state.stagedGeneration, notice: onlyGroupId ? `이 항목을 생성했습니다. 남은 항목 ${all.length - completed.size}개는 개별 또는 일괄로 생성할 수 있습니다.` : '분할 생성이 완료되었습니다. 내용을 하나의 계획서로 완성해 주세요.' });
     void archiveCurrentProposal('parts').catch(() => {});
   } catch (error) {
     state.stagedGeneration.phase = 'parts-generating';

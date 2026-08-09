@@ -85,6 +85,19 @@ test('모든 계획서는 마스터 설계와 신청서 항목별 분할 생성�
   assert.doesNotMatch(apiSource, /sectionPlan: \{ type: 'array', minItems: 2, maxItems:/);
 });
 
+test('분할 생성은 항목별 AI 생성과 남은 항목 일괄 생성을 모두 제공한다', () => {
+  const appSource = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  // 일괄 버튼은 그대로 두고 항목마다 개별 생성 버튼을 붙인다.
+  assert.match(appSource, /async function generateProposalParts\(onlyGroupId = ''\)/);
+  assert.match(appSource, /const groups = onlyGroupId \? all\.filter\(group => group\.id === onlyGroupId\) : all;/);
+  assert.match(appSource, /data-generate-part="\$\{escapeHtml\(group\.id\)\}"/);
+  assert.match(appSource, /이 항목만 AI 생성/);
+  assert.match(appSource, /이 항목만 다시 생성/);
+  // 개별 생성이 전체 완료 판정을 앞당기지 않게 한다.
+  assert.match(appSource, /completed\.size === all\.length \? 'parts-ready' : 'parts-generating'/);
+  assert.match(appSource, /generateProposalParts\(el\.dataset\.generatePart\)/);
+});
+
 test('마스터 설계는 10개 호환 항목을 중복 없이 포함하고 분할 결과는 요청 항목과 일치한다', () => {
   const keys = ['necessity', 'purpose', 'goals', 'target', 'programs', 'schedule', 'roles', 'budget', 'indicators', 'outcomes'];
   const masterLogic = { problem: '공식 문제', coreStrategy: '핵심 전략', outputOutcomeMeasurementLinks: [{}], evaluationResponsePlan: [{}], claimEvidencePlan: [{}] };
@@ -336,9 +349,9 @@ test('공고 보관함 검색은 날짜·기관·핵심어와 상세 원문·세
   assert.match(serverSource, /deadline >= \?/);
   assert.match(serverSource, /deadline <= \?/);
   assert.match(appSource, /loadRecentArchive\(\)/);
-  assert.match(appSource, /data-view-archived-notice/);
-  assert.match(appSource, /작성 계획서 열기/);
-  assert.match(appSource, /notice-card-preview/);
+  assert.match(appSource, /data-archive-view/);
+  assert.match(appSource, /data-archive-use/);
+  assert.match(appSource, /data-archive-work/);
 });
 
 test('자료보관함 복구키로 새 브라우저에서도 동일한 D1 소유 자료에 접근한다', () => {

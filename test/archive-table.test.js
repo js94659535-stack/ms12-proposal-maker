@@ -1,0 +1,84 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { ARCHIVE_STATUSES, applicantLabel, archiveField, archiveTableRows, deadlineInfo, noticeSourceUrl, noticeStatus, shortDate, stageStatus } from '../src/archive-table.js';
+
+const appSource = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+
+const notices = [
+  { archiveNoticeKey: 'central:1', source: 'central', sourceLabel: '중앙회', title: '아동 정서지원 사업', summary: '지역아동센터 아동 정서지원', deadline: '2026-08-14', archivedAt: '2026-08-09T01:00:00.000Z', dstbBsnsCode: '20260700100022' },
+  { archiveNoticeKey: 'gwangju:2', source: 'gwangju', sourceLabel: '광주지회', title: '어르신 돌봄 지원', summary: '노인 돌봄', deadline: '2026-07-01', archivedAt: '2026-06-01T01:00:00.000Z' },
+  { archiveNoticeKey: 'gwangju:3', source: 'gwangju', sourceLabel: '광주지회', title: '장애인 자립생활 지원', summary: '장애인 자립', deadline: '', archivedAt: '2026-08-01T01:00:00.000Z' }
+];
+const applicants = [{ id: 'a1', name: '마인드스토리' }, { id: 'a2', name: '수완지역아동센터' }, { id: 'a3', name: 'B기관' }];
+
+test('수집일·마감일은 YYMMDD로 표시하고 마감일에는 D-day를 붙인다', () => {
+  assert.equal(shortDate('2026-08-09T01:00:00.000Z'), '260809');
+  assert.equal(shortDate(''), '');
+  assert.equal(deadlineInfo(notices[0], '2026-08-09').text, '260814 · D-5');
+  assert.equal(deadlineInfo({ deadline: '2026-08-09' }, '2026-08-09').text, '260809 · D-day');
+  const closed = deadlineInfo(notices[1], '2026-08-09');
+  assert.equal(closed.text, '260701 · 마감');
+  assert.equal(closed.closed, true);
+  assert.equal(deadlineInfo({}, '2026-08-09').text, '기간 미표기');
+});
+
+test('분야는 공고 표현으로만 분류하고 근거가 없으면 기타로 둔다', () => {
+  assert.equal(archiveField(notices[0]), '아동·청소년');
+  assert.equal(archiveField(notices[1]), '노인');
+  assert.equal(archiveField(notices[2]), '장애인');
+  assert.equal(archiveField({ title: '식별할 수 없는 공고' }), '기타');
+});
+
+test('상태는 사용자가 지정한 값을 먼저 쓰고 없으면 저장 단계·마감으로 정한다', () => {
+  assert.equal(noticeStatus(notices[0], { status: '보류' }, '2026-08-09'), '보류');
+  assert.equal(noticeStatus({ ...notices[0], linkedProposalStage: 'complete' }, {}, '2026-08-09'), '제출준비');
+  assert.equal(noticeStatus(notices[1], {}, '2026-08-09'), '마감');
+  assert.equal(noticeStatus(notices[2], {}, '2026-08-09'), '신규');
+  assert.equal(stageStatus('revision-v2'), '수정중');
+  assert.equal(stageStatus('coaching-v1'), '검토중');
+  assert.ok(ARCHIVE_STATUSES.includes('제출준비'));
+});
+
+test('원문 버튼은 공식 공고 주소로만 연결한다', () => {
+  assert.match(noticeSourceUrl(notices[0]), /^https:\/\/proposal\.chest\.or\.kr\/mobile\/mobileMainBsnsDetail\.do\?dstbBsnsCode=20260700100022/);
+  assert.equal(noticeSourceUrl(notices[1]), 'https://gwangju.chest.or.kr/bbs/1000/initPostList.do');
+  assert.equal(noticeSourceUrl({ source: 'central' }), 'https://chest.or.kr/bbs/1000/initPostList.do');
+});
+
+test('신청기관은 여러 곳을 연결하고 두 곳부터 외 N곳으로 줄여 표시한다', () => {
+  assert.equal(applicantLabel([], applicants), '');
+  assert.equal(applicantLabel(['a1'], applicants), '마인드스토리');
+  assert.equal(applicantLabel(['a1', 'a2', 'a3'], applicants), '마인드스토리 외 2곳');
+});
+
+test('검색·필터·정렬·페이지는 보관 원본을 바꾸지 않고 목록만 좁힌다', () => {
+  const base = { applicants, today: '2026-08-09', links: { 'central:1': { applicantIds: ['a1', 'a2'] } } };
+  const all = archiveTableRows(notices, base);
+  assert.equal(all.total, 3);
+  assert.deepEqual(all.rows.map(row => row.key), ['central:1', 'gwangju:3', 'gwangju:2']);
+  assert.equal(all.rows[0].applicantText, '마인드스토리 외 1곳');
+
+  assert.deepEqual(archiveTableRows(notices, { ...base, query: '아동' }).rows.map(row => row.key), ['central:1']);
+  assert.deepEqual(archiveTableRows(notices, { ...base, filters: { institution: '광주지회' } }).rows.map(row => row.key), ['gwangju:3', 'gwangju:2']);
+  assert.deepEqual(archiveTableRows(notices, { ...base, filters: { applicant: '미연결' } }).rows.map(row => row.key), ['gwangju:3', 'gwangju:2']);
+  assert.deepEqual(archiveTableRows(notices, { ...base, filters: { applicant: 'a2' } }).rows.map(row => row.key), ['central:1']);
+  assert.deepEqual(archiveTableRows(notices, { ...base, filters: { deadline: '마감' } }).rows.map(row => row.key), ['gwangju:2']);
+  assert.deepEqual(archiveTableRows(notices, { ...base, filters: { deadline: '7일이내' } }).rows.map(row => row.key), ['central:1']);
+  assert.deepEqual(archiveTableRows(notices, { ...base, sortKey: 'deadline', sortDir: 'asc' }).rows.map(row => row.key), ['gwangju:3', 'gwangju:2', 'central:1']);
+
+  const paged = archiveTableRows(notices, { ...base, pageSize: 5, page: 2 });
+  assert.equal(paged.page, 1);
+  assert.equal(paged.pageSize, 5);
+  const second = archiveTableRows(notices, { ...base, pageSize: 5, page: 1, hidden: ['central:1'] });
+  assert.equal(second.total, 2);
+  assert.equal(second.matched, 2);
+  assert.equal(second.from, 1);
+  assert.equal(second.to, 2);
+});
+
+test('자료보관함 표는 기존 상태 키만 새로 저장하고 보관 원본을 지우지 않는다', () => {
+  assert.match(appSource, /archiveNoticeLinks: \{\}, archiveHiddenNotices: \[\]/);
+  assert.match(appSource, /restored\.archiveNoticeLinks = saved\.archiveNoticeLinks/);
+  assert.doesNotMatch(appSource, /deleteArchivedNotice|deleteArchivedProposal/);
+});

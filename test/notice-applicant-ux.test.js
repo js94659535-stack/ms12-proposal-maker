@@ -35,16 +35,33 @@ test('공고 불러오기는 기존 경과시간 표시를 사용하고 완료·
 });
 
 test('과거 공고는 자료보관함에서 찾고 임시 목록과 구분해 표시한다', () => {
-  assert.match(appSource, /<summary><b>자료보관함<\/b> · 보관된 공고와 저장한 계획서 다시 열기<\/summary>/);
-  // 보관량이 늘어도 찾기 쉽도록 기관 → 연도 목차로 묶어 보여 준다.
-  assert.match(appSource, /보관 공고 목차 · 기관 \$\{groups\.length\}곳 \/ 총 \$\{notices\.length\}건/);
-  assert.match(appSource, /function archiveNoticeGroups\(notices\)/);
-  assert.match(appSource, /function archiveYearOf\(item\)/);
-  // 기관은 목차 그룹 제목으로, 연도는 항목 태그로 보여 준다.
-  assert.match(appSource, /item\.sourceLabel \|\| item\.source \|\| '기관 미표기'/);
+  assert.match(appSource, /<summary><b>자료보관함<\/b> · 보관 공고 목록과 저장한 계획서<\/summary>/);
+  // 보관량이 많아도 빠르게 찾도록 표·검색·필터·페이지 구조로 보여 준다.
+  assert.match(appSource, /class="archive-table"/);
+  assert.match(appSource, /id="archive-query"/);
+  assert.match(appSource, /archiveSelectField\('공모기관', 'institution'/);
+  assert.match(appSource, /archiveSortButton\('deadline', '마감일', table\)/);
+  assert.match(appSource, /data-archive-filter="\$\{name\}"/);
+  assert.match(appSource, /id="archive-page-size"/);
   assert.match(appSource, /이번에 가져온 공고 \$\{state\.noticeResults\.length\}건 · 임시 목록/);
   assert.match(appSource, /지금 가져온 목록은 이 화면에서만 쓰는 임시 목록/);
   // 기존 검색·열기 경로를 그대로 사용하고 새 API를 만들지 않는다.
   assert.match(appSource, /id="search-archive"/);
-  assert.match(appSource, /data-use-archived-notice/);
+  assert.match(appSource, /data-archive-use/);
+});
+
+test('자료보관함 표는 복수 기관 매칭·작업 단계 이동·목록 삭제를 지원한다', () => {
+  // 한 공고에 여러 신청기관을 연결하되 기관별 계획서 작업은 따로 유지한다.
+  assert.match(appSource, /data-archive-applicant="\$\{escapeHtml\(row\.key\)\}"/);
+  assert.match(appSource, /기관 매칭 \+/);
+  assert.match(appSource, /기관별 계획서 작업은 각각 따로 유지됩니다/);
+  // 작업하기는 기존 단계 이동 함수를 그대로 사용한다.
+  assert.match(appSource, /function startArchiveWork\(key, step, applicantId = ''\)/);
+  assert.match(appSource, /navigateToStep\(step, patch\)/);
+  assert.match(appSource, /const ARCHIVE_WORK_STEPS = \[/);
+  // 삭제는 보관 원본과 계획서를 지우지 않고 이 기기 목록에서만 숨긴다.
+  assert.match(appSource, /function hideArchivedNotices\(keys\)/);
+  assert.match(appSource, /보관 원본과 연결된 계획서는 지워지지 않습니다/);
+  assert.match(appSource, /id="archive-delete-selected"/);
+  assert.match(appSource, /id="archive-select-page"/);
 });
