@@ -195,3 +195,11 @@ test('홈 랜딩은 상단 메뉴·대화형 시작창·마지막 CTA를 갖춘�
   // 가짜 로고·후기·숫자를 만들지 않는다.
   assert.doesNotMatch(app, /고객사|도입 기관 \d|후기|평점/);
 });
+
+test('이전에 저장된 화면 상태가 새 홈을 가리지 않는다', () => {
+  const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  // 저장된 activeTool이 있어도 최초 1회는 홈을 보여 주고, 작업 데이터는 건드리지 않는다.
+  assert.match(app, /if \(!saved\.homeSeen\) \{ restored\.activeTool = 'home'; restored\.homeSeen = true; \}/);
+  assert.match(app, /activeTool: 'home', homeSeen: false/);
+  assert.doesNotMatch(app, /if \(!saved\.homeSeen\)[\s\S]{0,120}sections: \[\]/);
+});
