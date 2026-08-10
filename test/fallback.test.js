@@ -80,7 +80,7 @@ test('모든 계획서는 마스터 설계와 신청서 항목별 분할 생성�
   assert.match(appSource, /id="generate-parts"/);
   assert.match(appSource, /draftPartWithAI/);
   assert.match(appSource, /id="assemble-proposal"/);
-  assert.match(appSource, /마스터 설계 → 전체 작성 → 완성/);
+  assert.match(appSource, /설계안 승인 → 전체 계획서 완성/);
   assert.match(apiSource, /페이지 수·문서 길이로 나누지 않는다/);
   assert.match(apiSource, /sectionPlan: \{ type: 'array', minItems: 2, items:/);
   assert.doesNotMatch(apiSource, /sectionPlan: \{ type: 'array', minItems: 2, maxItems:/);
@@ -93,7 +93,9 @@ test('계획서는 자유입력과 「전체 작성」 버튼 하나로 만든�
   assert.match(appSource, /async function generateProposalParts\(\) \{/);
   // 사용자는 한 번만 누르고, 남은 항목이 있으면 이어서 작성한다.
   // 버튼은 하나이고, 설계 승인 전에는 비활성으로만 막는다.
-  assert.ok(appSource.includes(`id="generate-parts" \${generationPermission().allowed ? '' : 'disabled'}>\${resumed ? '남은 내용 이어서 작성' : 'AI와 함께 전체 계획서 작성'}`));
+  // 신규 계획서는 승인된 설계안으로 한 번에 만들고, 이어쓰기 경로만 분할 버튼을 쓴다.
+  assert.ok(appSource.includes(`id="generate-proposal" ${'${'}generationPermission().allowed ? '' : 'disabled'}>AI와 함께 전체 계획서 작성`));
+  assert.ok(appSource.includes(`id="generate-parts" ${'${'}generationPermission().allowed ? '' : 'disabled'}>남은 내용 이어서 작성`));
   assert.ok(appSource.includes('const completed = new Set(staged.completedGroupIds || []);'));
   // 자유입력은 선택이며 이번 사업에만 저장한다.
   assert.match(appSource, /id="proposal-freeform"/);
@@ -278,7 +280,7 @@ test('마스터 설계는 문제부터 성과측정까지 논리사슬과 평가
   assert.match(apiSource, /baselineValues/);
   assert.match(apiSource, /문제→원인→대상→전략→실행→산출→변화→성과측정/);
   assert.match(apiSource, /\[확인 필요\]/);
-  assert.match(appSource, /마스터 논리사슬과 선정 대응/);
+  assert.match(appSource, /선정 논리와 평가기준 대응/);
   assert.match(appSource, /주장별 공식 자료 근거/);
 });
 
@@ -893,7 +895,7 @@ test('확정값 반영은 한 번의 finalize 호출로 관련 문단만 고친�
   const apiSource = fs.readFileSync(new URL('../functions/api/proposal.js', import.meta.url), 'utf8');
   const appSource = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   // 새 작업은 허용 목록과 출력 상한에 함께 등록한다.
-  assert.match(apiSource, /'draft', 'rewrite', 'finalize'\]\.includes\(body\.action\)/);
+  assert.match(apiSource, /'draft', 'fullProposal', 'rewrite', 'finalize'\]\.includes\(body\.action\)/);
   assert.match(apiSource, /rewrite: 4_000, finalize: 9_000/);
   assert.match(apiSource, /name: 'proposal_finalize', schema: FINALIZE_SCHEMA/);
   // 계획서를 새로 쓰지 않고 값이 필요한 문단만 돌려준다.

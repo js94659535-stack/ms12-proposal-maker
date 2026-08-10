@@ -8,7 +8,7 @@ const LIMITS = Object.freeze({
   rewriteInstructionChars: 4_000,
   analysisChars: 300_000,
   timeoutMs: 300_000,
-  outputTokens: Object.freeze({ analyze: 6_000, master: 12_000, draftPart: 7_000, draft: 12_000, rewrite: 4_000, finalize: 9_000 })
+  outputTokens: Object.freeze({ analyze: 6_000, master: 12_000, draftPart: 7_000, draft: 12_000, fullProposal: 20_000, rewrite: 4_000, finalize: 9_000 })
 });
 
 export async function onRequest(context) {
@@ -24,7 +24,7 @@ export async function onRequest(context) {
     if (new TextEncoder().encode(rawBody).byteLength > LIMITS.requestBytes) return limitError('요청 본문');
     let body;
     try { body = JSON.parse(rawBody); } catch { return json({ error: '요청 JSON 형식이 올바르지 않습니다.' }, 400); }
-    if (!['analyze', 'master', 'draftPart', 'draft', 'rewrite', 'finalize'].includes(body.action)) return json({ error: '지원하지 않는 작업입니다.' }, 400);
+    if (!['analyze', 'master', 'draftPart', 'draft', 'fullProposal', 'rewrite', 'finalize'].includes(body.action)) return json({ error: '지원하지 않는 작업입니다.' }, 400);
     const validation = validate(body.action, body.payload);
     if (validation) return json({ error: validation }, 400);
 
@@ -132,6 +132,11 @@ function validate(action, payload) {
     if (!Array.isArray(payload.sections) || !payload.sections.length) return '확정값을 반영할 계획서 본문이 없습니다.';
     if (!Array.isArray(payload.confirmedValues) || !payload.confirmedValues.length) return '반영할 확정값이 없습니다.';
     if (jsonLength(payload.sections) > 300_000) return '계획서 본문이 허용 길이를 초과했습니다.';
+    return '';
+  }
+  if (action === 'fullProposal') {
+    if (!payload.designPlan || typeof payload.designPlan !== 'object') return '승인된 설계안이 없습니다.';
+    if (jsonLength(payload.designPlan) > 200_000) return '설계안이 허용 길이를 초과했습니다.';
     return '';
   }
   if (action !== 'analyze' && !payload.analysis && !includesSource) return '확정된 분석 결과가 없습니다.';
@@ -249,6 +254,16 @@ function taskSpecification(action, payload) {
 masterLogic은 문제→원인→대상→전략→실행→산출→변화→성과측정이 끊기지 않는 하나의 논리사슬이어야 한다. baselineValues에는 이후 모든 분할이 그대로 재사용할 인원·기간·회기·역할·예산 기준값을 둔다. outputOutcomeMeasurementLinks에는 각 산출물과 성과목표·측정지표·측정시기·담당을 연결한다. evaluationResponsePlan에는 평가기준과 대응전략·반영항목·근거를 연결하고 claimEvidencePlan에는 핵심 주장과 공식 자료 근거·위치를 연결한다. 공식 자료에서 확인할 수 없는 내용은 사실처럼 확정하지 말고 해당 값에 [확인 필요]를 표시하며 missingInformation에도 현재 설계에 필요한 질문으로 최대 5개만 둔다.
 sectionPlan은 실제 공모신청서·사업계획서 서식의 질문과 목차 결합 관계를 우선하여 필요한 수만큼 가변적으로 정한다. 2~5개로 고정하거나 페이지 수·문서 길이로 나누지 않는다. 호환용 10개 sectionKeys(necessity, purpose, goals, target, programs, schedule, roles, budget, indicators, outcomes)를 빠짐없이 정확히 한 번씩 배치하고, 실제 신청서에서 함께 요구하는 항목은 같은 묶음에 둔다. 각 묶음 제목은 공식 신청서의 항목명 또는 그 구조를 명확히 나타내는 한국어로 작성한다.`
   };
+  // 승인된 설계안 하나를 기준으로 계획서 본문 10개 항목과 표를 한 번에 만든다. 분할 호출을 쓰지 않는다.
+  if (action === 'fullProposal') return {
+    name: 'proposal_full_document', schema: FULL_PROPOSAL_SCHEMA,
+    prompt: `사업 유형: ${payload.projectType}\n<SELECTED_SUBPROGRAM>${payload.selectedSubprogram || payload.project?.title || ''}</SELECTED_SUBPROGRAM>\n<PROJECT>${JSON.stringify(payload.project)}</PROJECT>\n<APPROVED_DESIGN_PLAN>${JSON.stringify(payload.designPlan)}</APPROVED_DESIGN_PLAN>\n<CONFIRMED_USER_ANSWERS>${JSON.stringify(payload.userAnswers || {})}</CONFIRMED_USER_ANSWERS>\n<CANDIDATE_ASSETS>${JSON.stringify(payload.organization)}</CANDIDATE_ASSETS>\n<USER_NARRATIVE>${String(payload.narrative || '').slice(0, 4000)}</USER_NARRATIVE>\n${blueprintBlock(payload)}
+APPROVED_DESIGN_PLAN은 고객·운영자가 승인한 설계안이며 이번 작성의 기준이다. 설계안이 정한 목차·대상·인원·기간·회기·예산·성과·핵심 수행모델을 그대로 따르고 임의로 바꾸지 않는다.
+계획서 본문은 호환용 10개 항목(necessity, purpose, goals, target, programs, schedule, roles, budget, indicators, outcomes)을 정확히 한 번씩, 설계안 목차 순서대로 작성한다. 각 항목의 id는 이 키를 그대로 쓰고 title은 설계안의 항목명을 쓴다.
+각 항목은 설계안 documentPlan의 목표 분량을 기준으로 ±30% 안에서 작성한다. 분량을 채우려고 같은 문장을 반복하거나 확인되지 않은 사실을 만들지 않는다.
+표로 보여야 하는 내용(예산·일정·성과지표·대상·인력)은 본문에 표를 그리지 말고 tables에 columns와 rows로 구조화해 넣는다. 본문에는 표가 무엇을 보여 주는지만 한 문장으로 적는다.
+확인되지 않은 인력·실적·자격·예산·수치는 만들지 말고 그 자리에 [확인 필요]로 남기고 missingInformation에 최대 5개까지 질문으로 남긴다. 확인된 기관 정보만 사실로 쓴다.`
+  };
   if (action === 'draftPart') return {
     name: 'proposal_draft_part', schema: DRAFT_PART_SCHEMA,
     prompt: `<MASTER_CONTEXT>${JSON.stringify(partContext(payload))}</MASTER_CONTEXT>\n<CURRENT_APPLICATION_GROUP>${JSON.stringify(payload.group)}</CURRENT_APPLICATION_GROUP>\n<CONTINUITY_SUMMARY>${JSON.stringify(payload.continuitySummary || {})}</CONTINUITY_SUMMARY>\n<RELEVANT_PREVIOUS_SECTIONS>${JSON.stringify(payload.relevantSections || [])}</RELEVANT_PREVIOUS_SECTIONS>\n<CONFIRMED_USER_ANSWERS>${JSON.stringify(payload.userAnswers || {})}</CONFIRMED_USER_ANSWERS>\n${payload.noticeContract?.rules?.length ? `${CONTRACT_RULE}\n` : ''}${BLUEPRINT_RULE}\n
@@ -344,6 +359,28 @@ const ANALYSIS_SCHEMA = {
 };
 const section = { type: 'object', additionalProperties: false, properties: { id: { type: 'string' }, title: { type: 'string' }, content: { type: 'string' }, citations: { type: 'array', items: { type: 'string' } }, status: { type: 'string', enum: ['확정', '검토 필요', '확인 필요'] } }, required: ['id', 'title', 'content', 'citations', 'status'] };
 const DRAFT_SCHEMA = { type: 'object', additionalProperties: false, properties: { sections: { type: 'array', items: section } }, required: ['sections'] };
+// 표는 코드가 조판할 수 있게 구조로 받는다. 본문 문장 안에 표를 그려 넣지 않는다.
+const proposalTable = {
+  type: 'object', additionalProperties: false,
+  properties: {
+    id: { type: 'string' }, title: { type: 'string' },
+    kind: { type: 'string', enum: ['예산표', '일정표', '성과지표표', '대상표', '인력표', '기타'] },
+    columns: { type: 'array', items: { type: 'string' } },
+    rows: { type: 'array', items: { type: 'array', items: { type: 'string' } } },
+    note: { type: 'string' }
+  },
+  required: ['id', 'title', 'kind', 'columns', 'rows', 'note']
+};
+// 승인된 설계안 하나로 계획서 본문과 표를 한 번에 받는다.
+const FULL_PROPOSAL_SCHEMA = {
+  type: 'object', additionalProperties: false,
+  properties: {
+    sections: { type: 'array', items: section },
+    tables: { type: 'array', items: proposalTable },
+    missingInformation: { type: 'array', items: { type: 'string' } }
+  },
+  required: ['sections', 'tables', 'missingInformation']
+};
 const stringArray = { type: 'array', items: { type: 'string' } };
 const sponsorIntent = { type: 'object', additionalProperties: false, properties: {
   coreProblem: { type: 'string' }, policyPurpose: { type: 'string' }, requiredTarget: { type: 'string' }, expectedChange: { type: 'string' },

@@ -1,6 +1,7 @@
 // 「사업계획서 의뢰 건」 한 건의 경계를 정한다. 규칙 기반 로컬 처리만 하고 외부 API를 호출하지 않는다.
 // 기관 영구정보(신청기관에 계속 남는 사실)와 이번 사업 정보(이 의뢰 건에서만 쓰는 값)를 절대 자동으로 섞지 않는다.
 import { CONFIRMED_STATUS, splitApplicantProfile } from './applicants.js';
+import { applyFormSpecToOutline, mergeFormTables } from './form-spec.js';
 
 // 고객이 보는 단계. 내부 6단계 작업 화면과 별개이며 고객에게는 이 4단계만 보여 준다.
 export const ENGAGEMENT_STAGES = ['공고 요청', '정보 확인', '설계 승인', '결과 확인'];
@@ -43,6 +44,30 @@ const CORE_FIELDS = [
   { key: 'sessions', label: '회기' }, { key: 'budget', label: '예산' }
 ];
 
+// 조판 가능한 표는 코드가 정한다. 공고 실행계약서에 그 기준이 있을 때만 표를 요구한다.
+const TABLE_PLANS = [
+  { id: 'budget-table', kind: '예산표', title: '예산 산출 내역', columns: ['항목', '산출 근거(수량×단가×횟수)', '금액(원)'], when: rules => rules.some(item => item.category === '예산') },
+  { id: 'schedule-table', kind: '일정표', title: '추진 일정', columns: ['시기', '추진 내용', '담당'], when: rules => rules.some(item => item.category === '사업기간') },
+  { id: 'indicator-table', kind: '성과지표표', title: '성과지표·측정 계획', columns: ['성과목표', '지표', '측정도구', '측정시기', '담당'], when: rules => rules.some(item => item.category === '성과' || item.category === '활동횟수') },
+  { id: 'target-table', kind: '대상표', title: '참여자 구성', columns: ['구분', '인원', '선정 기준'], when: rules => rules.some(item => item.category === '참여규모') }
+];
+// 문서 목표 분량과 항목별 분량, 코드가 조판할 표를 설계안에서 미리 정한다.
+// 신청서 서식이 있으면 서식이 정한 항목명·분량·필수 표가 기본값보다 우선한다.
+export function buildDocumentPlan(contract, formSpec = null) {
+  const rules = contract?.rules || [];
+  const fromContract = TABLE_PLANS.filter(plan => plan.when(rules)).map(({ when, ...plan }) => ({ ...plan, source: '공고 실행계약서' }));
+  const outline = applyFormSpecToOutline(PROPOSAL_OUTLINE, formSpec);
+  return {
+    outline,
+    targetTotalChars: outline.reduce((sum, item) => sum + item.targetChars, 0),
+    tables: mergeFormTables(fromContract, formSpec),
+    attachments: formSpec?.attachments || [],
+    budgetForm: formSpec?.budgetForm || null,
+    formSpecStatus: formSpec ? formSpec.status : '서식 없음',
+    limitSource: formSpec?.items?.length ? '신청서 서식' : '기본값'
+  };
+}
+
 export function makeDesignApproval(value = {}) {
   return {
     requestedAt: text(value.requestedAt, 40), requestedBy: APPROVAL_ROLES.includes(value.requestedBy) ? value.requestedBy : '',
@@ -70,7 +95,7 @@ export function canGenerateProposal({ approval, sections = [], startedParts = 0 
 }
 
 // 승인 전에 보여 줄 설계안 한 장. 공고 강제조건과 이번 사업 값, 확인된 사실을 한자리에 모은다.
-export function buildDesignBrief({ contract, blueprint, applicant, projectValues = [], locks = {} } = {}) {
+export function buildDesignBrief({ contract, blueprint, applicant, projectValues = [], locks = {}, formSpec = null } = {}) {
   const rules = contract?.rules || [];
   const valueOf = key => (projectValues || []).find(item => (item.blueprintKey || item.key) === key)?.value || '';
   const coreValues = CORE_FIELDS.map(field => {
@@ -94,8 +119,10 @@ export function buildDesignBrief({ contract, blueprint, applicant, projectValues
       ...split.permanent.filter(item => item.status !== '확인됨').map(item => `${item.label} (기관 정보 확인 필요)`),
       ...coreValues.filter(item => item.value === '[확인 필요]').map(item => `${item.label} (이번 사업 값 미정)`)
     ],
-    outline: PROPOSAL_OUTLINE,
-    targetTotalChars: PROPOSAL_OUTLINE.reduce((sum, item) => sum + item.targetChars, 0)
+    documentPlan: buildDocumentPlan(contract, formSpec),
+    formSpec: formSpec ? { status: formSpec.status, items: formSpec.items.length, tables: formSpec.tables.length, attachments: formSpec.attachments.length, openPoints: formSpec.openPoints, sources: formSpec.sources } : null,
+    outline: buildDocumentPlan(contract, formSpec).outline,
+    targetTotalChars: buildDocumentPlan(contract, formSpec).targetTotalChars
   };
 }
 
@@ -119,6 +146,8 @@ export function normalizeEngagement(value = {}) {
   return {
     client: makeClient(value.client), request: makeNoticeRequest(value.request),
     design: makeDesignApproval(value.design),
+    // 신청서 서식 규격표는 이 의뢰 건에 저장한다. 없으면 null로 둔다.
+    formSpec: value.formSpec && typeof value.formSpec === 'object' ? value.formSpec : null,
     view: value.view === 'operator' ? 'operator' : 'customer'
   };
 }
@@ -145,7 +174,7 @@ function part(key, state, detail) {
   return { key, title: meta.title, scope: meta.scope, state, detail };
 }
 
-export function buildEngagement({ client, request, design, applicant, noticeLogic, manualSources = [], projectValues = [], sections = [], proposalVersions = [], proposalFlow = null, gate = null, blueprint = null, locks = {} } = {}) {
+export function buildEngagement({ client, request, design, applicant, noticeLogic, manualSources = [], projectValues = [], sections = [], proposalVersions = [], proposalFlow = null, gate = null, blueprint = null, locks = {}, formSpec = null } = {}) {
   const normalizedClient = makeClient(client);
   const normalizedRequest = makeNoticeRequest(request);
   const approval = makeDesignApproval(design);
@@ -169,7 +198,7 @@ export function buildEngagement({ client, request, design, applicant, noticeLogi
     : !applicant?.name || !boundary.confirmed ? '정보 확인'
       : !sections.length ? '설계 승인'
         : '결과 확인';
-  const brief = buildDesignBrief({ contract, blueprint, applicant, projectValues, locks });
+  const brief = buildDesignBrief({ contract, blueprint, applicant, projectValues, locks, formSpec });
   const customerNext = nextAction(stage, { boundary, gate, sections, blueprint, designState, brief });
 
   return {

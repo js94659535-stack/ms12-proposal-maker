@@ -119,13 +119,13 @@ test('운영자 상세는 공고 분석·계약서·설계도·버전·게이트
 });
 
 test('저장 값은 정규화하고 예전 저장분도 그대로 열린다', () => {
-  assert.deepEqual(normalizeEngagement({}), { client: makeClient(), request: makeNoticeRequest(), design: makeDesignApproval(), view: 'customer' });
+  assert.deepEqual(normalizeEngagement({}), { client: makeClient(), request: makeNoticeRequest(), design: makeDesignApproval(), formSpec: null, view: 'customer' });
   assert.equal(normalizeEngagement({ view: '이상한값' }).view, 'customer');
   assert.equal(normalizeEngagement({ view: 'operator' }).view, 'operator');
   // 예전 상태에는 engagement가 없다. 빈 값으로 채우기만 하고 기존 데이터는 건드리지 않는다.
   assert.match(app, /restored\.engagement = normalizeEngagement\(saved\.engagement \|\| \{\}\);/);
   // 보관 스냅샷에 의뢰 건을 함께 담되 저장 경로를 새로 만들지 않는다.
-  assert.match(app, /'draftReview', 'projectNarrative', 'engagement'\]/);
+  assert.match(app, /'draftReview', 'projectNarrative', 'engagement', 'proposalTables'\]/);
   assert.doesNotMatch(app, /action: 'saveEngagement'/);
 });
 
@@ -163,7 +163,7 @@ test('설계안은 강제조건·유형·핵심값·수행모델·확인사항·
   assert.ok(brief.openFacts.some(item => item.includes('상근 인력')));
   assert.ok(brief.openFacts.some(item => item.includes('회기')));
   assert.equal(brief.outline.length, 10);
-  assert.deepEqual(brief.outline, PROPOSAL_OUTLINE);
+  assert.deepEqual(brief.outline.map(item => item.key), PROPOSAL_OUTLINE.map(item => item.key));
   assert.ok(brief.targetTotalChars > 0);
 });
 
