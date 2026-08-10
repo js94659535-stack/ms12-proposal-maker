@@ -13,7 +13,8 @@ test('사업 설계도를 사업 선택 화면에 연결하고 엔진을 그대�
   assert.match(source, /import \{ buildBlueprint \} from '\.\/project-blueprint\.js'/);
   assert.match(source, /import \{ matchApplicantToNotice \} from '\.\/fit-matching\.js'/);
   assert.match(source, /function currentBlueprint\(\)/);
-  assert.match(source, /buildBlueprint\(\{ structure, applicant, fitResult: matchApplicantToNotice\(structure, applicant\), projectValues: blueprintProjectValues\(\) \}\)/);
+  // 공고 원문까지 함께 넘겨 「신청자격 및 유형」처럼 제목·글머리표로 나뉜 공고의 신청유형도 읽는다.
+  assert.match(source, /buildBlueprint\(\{ structure, applicant, fitResult: matchApplicantToNotice\(structure, applicant\), projectValues: blueprintProjectValues\(\), notice: noticeSourceOrPasted\(\) \}\)/);
   // 계획서 작성(4단계) 앞 단계인 사업 선택 화면에 붙인다.
   assert.match(source, /function businessSelectView\(\)[\s\S]{0,900}\$\{blueprintView\(\)\}/);
   // 화면에 보여야 하는 항목

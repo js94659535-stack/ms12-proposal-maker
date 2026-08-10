@@ -60,7 +60,11 @@ export async function onRequest(context) {
     } finally {
       clearTimeout(timeoutId);
     }
-    if (!response.ok) return json({ error: normalizeOpenAIError(raw, response.status) }, response.status === 429 ? 429 : 502);
+    if (!response.ok) {
+      // 429는 원인이 서로 다르다. 안전한 필드만 진단으로 함께 돌려준다.
+      const diagnostic = openAIDiagnostic(raw, response.status, response.headers);
+      return json({ error: normalizeOpenAIError(raw, response.status, response.headers), ...(response.status === 429 ? { rateLimitDiagnostic: diagnostic } : {}) }, response.status === 429 ? 429 : 502);
+    }
     // 응답이 끝까지 생성되지 않은 경우와 형식 오류를 구분한다. 자동 재시도는 하지 않는다.
     const incomplete = incompleteFailure(raw);
     if (incomplete) return json(incomplete, 502);
@@ -117,6 +121,7 @@ function validate(action, payload) {
   if (includesSource && payload.sourceText.length > LIMITS.sourceChars) return `분석 원문은 ${LIMITS.sourceChars.toLocaleString()}자 이하여야 합니다.`;
   if (includesSource && payload.sourceText.length + manualChars > LIMITS.combinedSourceChars) return `전체 생성 자료는 ${LIMITS.combinedSourceChars.toLocaleString()}자 이하여야 합니다.`;
   if (jsonLength(payload.projectBlueprint) > 40_000) return '사업 설계도 정보가 허용 길이를 초과했습니다.';
+  if (jsonLength(payload.noticeContract) > 40_000) return '공고 실행계약 정보가 허용 길이를 초과했습니다.';
   if (jsonLength(payload.organization) > LIMITS.organizationChars) return `기관 정보는 ${LIMITS.organizationChars.toLocaleString()}자 이하여야 합니다.`;
   if (jsonLength(payload.answers) > LIMITS.answersChars) return `사용자 보완 내용은 ${LIMITS.answersChars.toLocaleString()}자 이하여야 합니다.`;
   if (typeof payload.instruction === 'string' && payload.instruction.length > LIMITS.rewriteInstructionChars) return `재작성 요청은 ${LIMITS.rewriteInstructionChars.toLocaleString()}자 이하여야 합니다.`;
@@ -163,6 +168,8 @@ export function partContext(payload) {
   const organization = payload.organization || {};
   return {
     group: { id: group.id, title: group.title, sectionKeys: group.sectionKeys || [] },
+    // 공고 실행계약서는 분할 작성에서도 최상위 기준으로 함께 간다.
+    noticeContract: payload.noticeContract || null,
     fixedBasis: {
       selectedSubprogram: payload.selectedSubprogram || payload.project?.title || '',
       applicationType: blueprint.applicationType || '',
@@ -203,9 +210,23 @@ export function partContext(payload) {
 
 // 사업 설계도를 작성 기준으로 넘긴다. 설계도 자체는 앱에서 만든 결과이며 여기서 다시 설계하지 않는다.
 function blueprintBlock(payload) {
-  if (!payload.projectBlueprint) return '';
-  return `<PROJECT_BLUEPRINT>${JSON.stringify(payload.projectBlueprint)}</PROJECT_BLUEPRINT>\n<BLUEPRINT_RULE>${BLUEPRINT_RULE}</BLUEPRINT_RULE>\n`;
+  const contract = contractBlock(payload);
+  if (!payload.projectBlueprint) return contract;
+  return `${contract}<PROJECT_BLUEPRINT>${JSON.stringify(payload.projectBlueprint)}</PROJECT_BLUEPRINT>\n<BLUEPRINT_RULE>${BLUEPRINT_RULE}</BLUEPRINT_RULE>\n`;
 }
+// 공고 실행계약서는 작성의 최상위 기준이다. 사용자 자유입력도 이 조건을 덮을 수 없다.
+function contractBlock(payload) {
+  if (!payload.noticeContract?.rules?.length) return '';
+  return `<NOTICE_CONTRACT>${JSON.stringify(payload.noticeContract)}</NOTICE_CONTRACT>\n<NOTICE_CONTRACT_RULE>${CONTRACT_RULE}</NOTICE_CONTRACT_RULE>\n`;
+}
+const CONTRACT_RULE = `NOTICE_CONTRACT는 공고가 이미 정한 조건이며 이번 작성의 최상위 기준이다. 다른 어떤 입력보다 우선한다.
+우선순위: 1) NOTICE_CONTRACT 2) 이번 사업 사용자 확정값 3) 신청기관 확인정보 4) 사용자 자유입력 5) AI 제안.
+ruleType별로 다음을 지킨다. EXACT는 그 값을 그대로 쓴다(사업기간을 임의로 바꾸지 않는다). MIN은 그 값 이상, MAX는 그 값 이하로만 설계한다.
+CHOICE는 공고가 선택지(options)만 정하고, 그중 무엇을 고를지는 이번 사업 사용자 확정값(selected)이 정한다. selected가 있으면 그 유형이 이번 사업의 신청유형이며 이를 공고와의 충돌로 보지 않는다.
+selected 유형의 조건만 쓰고 다른 유형의 대상·사업내용을 섞지 않는다. 선택한 신청유형 이름을 계획서 본문(사업 개요 또는 대상 항목)에 반드시 밝힌다. selected가 비어 있을 때만 신청유형을 [확인 필요]로 남긴다.
+REQUIRED는 공고가 요구한 핵심 수행모델이다. 일반적인 프로그램으로 대체하지 말고 그 요소를 계획서 본문에 실제 설계로 담는다.
+사용자 자유입력이 계약조건과 어긋나면(예: MIN 70명인데 18명으로 작성 요청) 어긋난 값으로 쓰지 말고 계약 기준을 지키며, 그 차이를 missingInformation 또는 [확인 필요]로 남긴다.
+계약조건을 지킬 수 없다고 판단되면 사실을 만들어 맞추지 말고 해당 항목을 [확인 필요]로 남긴다.`;
 const BLUEPRINT_RULE = `PROJECT_BLUEPRINT는 이번 사업의 확정된 설계 기준이다. 작성 우선순위를 다음 순서로 지킨다.
 1) 공고의 공식 요구·선정논리 2) 사용자가 확정한 이번 사업 값(상태 "확정") 3) 신청기관의 확인된 현재 정보 4) 관련성이 확인된 기관 실적 5) 설계도의 "설계안"(proposedOnly) 6) 확인되지 않은 정보는 [확인 필요].
 설계도의 applicationType(신청유형)에 해당하는 대상·사업내용·요건만 사용하고 다른 신청유형의 대상·프로그램·성과를 섞지 않는다.
@@ -230,7 +251,7 @@ sectionPlan은 실제 공모신청서·사업계획서 서식의 질문과 목�
   };
   if (action === 'draftPart') return {
     name: 'proposal_draft_part', schema: DRAFT_PART_SCHEMA,
-    prompt: `<MASTER_CONTEXT>${JSON.stringify(partContext(payload))}</MASTER_CONTEXT>\n<CURRENT_APPLICATION_GROUP>${JSON.stringify(payload.group)}</CURRENT_APPLICATION_GROUP>\n<CONTINUITY_SUMMARY>${JSON.stringify(payload.continuitySummary || {})}</CONTINUITY_SUMMARY>\n<RELEVANT_PREVIOUS_SECTIONS>${JSON.stringify(payload.relevantSections || [])}</RELEVANT_PREVIOUS_SECTIONS>\n<CONFIRMED_USER_ANSWERS>${JSON.stringify(payload.userAnswers || {})}</CONFIRMED_USER_ANSWERS>\n${BLUEPRINT_RULE}\n
+    prompt: `<MASTER_CONTEXT>${JSON.stringify(partContext(payload))}</MASTER_CONTEXT>\n<CURRENT_APPLICATION_GROUP>${JSON.stringify(payload.group)}</CURRENT_APPLICATION_GROUP>\n<CONTINUITY_SUMMARY>${JSON.stringify(payload.continuitySummary || {})}</CONTINUITY_SUMMARY>\n<RELEVANT_PREVIOUS_SECTIONS>${JSON.stringify(payload.relevantSections || [])}</RELEVANT_PREVIOUS_SECTIONS>\n<CONFIRMED_USER_ANSWERS>${JSON.stringify(payload.userAnswers || {})}</CONFIRMED_USER_ANSWERS>\n${payload.noticeContract?.rules?.length ? `${CONTRACT_RULE}\n` : ''}${BLUEPRINT_RULE}\n
 MASTER_CONTEXT는 master 단계에서 이미 확정·검증된 기준이다. 다시 설계하거나 값을 바꾸지 말고 CURRENT_APPLICATION_GROUP.sectionKeys에 지정된 공식 신청서 질문·목차에 정확히 대응하는 항목만 이어서 작성하라. fixedBasis의 문제→원인→대상→전략→실행→산출→변화→성과측정 논리와 baselineValues(대상·인원·기간·회기·역할·예산·성과지표 기준값)는 모든 분할의 변경 불가능한 공통 기준이다.
 공고 원문 전체는 다시 제공되지 않는다. 근거가 필요한 문장은 officialEvidence와 fixedBasis.claimEvidencePlan에 있는 근거 문장·출처만 사용하고, 그 안에 없는 공고 조건·자격·배점·수치는 새로 만들지 말고 [확인 필요]로 남긴다.
 fixedBasis.applicationType의 조건만 사용하고 excludedApplicationTypes의 대상·사업내용은 쓰지 않는다. thisProject.confirmedValues와 projectSpecificValues의 값은 그대로 유지하고 다른 수치로 바꾸지 않는다. thisProject.unresolved 항목과 officialConflicts는 임의로 확정·해결하지 말고 두 값을 함께 드러내며 [확인 필요]를 유지한다. applicantConfirmed에 없는 기관 인력·실적·자격·예산은 사실로 쓰지 않는다.
@@ -554,9 +575,43 @@ function extractOutputText(response) {
   if (typeof response.output_text === 'string') return response.output_text;
   return (response.output || []).flatMap(item => item.content || []).filter(item => item.type === 'output_text').map(item => item.text).join('');
 }
-function normalizeOpenAIError(raw, status) {
+// 429 진단에 남기는 값은 이 목록뿐이다. 요청 본문·공고문·기관정보·응답 원문·키는 절대 담지 않는다.
+const RATE_LIMIT_HEADERS = [
+  'retry-after',
+  'x-ratelimit-limit-requests', 'x-ratelimit-limit-tokens',
+  'x-ratelimit-remaining-requests', 'x-ratelimit-remaining-tokens',
+  'x-ratelimit-reset-requests', 'x-ratelimit-reset-tokens'
+];
+// type·code는 식별자 형태만 통과시킨다. 문장이 섞여 오면 버려서 본문 유출 통로를 막는다.
+function safeCode(value) {
+  const text = String(value ?? '').trim();
+  return /^[a-z0-9_.-]{1,60}$/i.test(text) ? text : '';
+}
+export function openAIDiagnostic(raw, status, headers) {
+  const rateLimit = {};
+  for (const name of RATE_LIMIT_HEADERS) {
+    const value = headers?.get?.(name);
+    if (value) rateLimit[name] = String(value).slice(0, 40);
+  }
+  return { status: Number(status) || 0, type: safeCode(raw?.error?.type), code: safeCode(raw?.error?.code), param: safeCode(raw?.error?.param), rateLimit };
+}
+// 사용 한도(결제·크레딧) 초과와 분당 속도 제한은 대응이 다르다. 화면에서 구분할 수 있게 한다.
+const QUOTA_CODES = new Set(['insufficient_quota', 'billing_hard_limit_reached', 'quota_exceeded', 'billing_not_active']);
+function rateLimitLabel(diagnostic) {
+  if (QUOTA_CODES.has(diagnostic.code) || QUOTA_CODES.has(diagnostic.type)) return '사용 한도(결제·크레딧)를 초과했습니다. 자동 재시도해도 풀리지 않으니 결제·크레딧 설정을 확인하세요.';
+  if (diagnostic.rateLimit['x-ratelimit-remaining-tokens'] === '0') return '분당 토큰 한도(TPM)를 초과했습니다.';
+  if (diagnostic.rateLimit['x-ratelimit-remaining-requests'] === '0') return '분당 요청 한도(RPM)를 초과했습니다.';
+  if (diagnostic.code === 'rate_limit_exceeded' || diagnostic.type === 'requests' || diagnostic.type === 'tokens') return '요청 속도 제한을 초과했습니다.';
+  return '사용 한도 또는 요청 속도를 초과했습니다.';
+}
+export function normalizeOpenAIError(raw, status, headers) {
   if (status === 401) return 'OpenAI API 키가 유효하지 않습니다.';
-  if (status === 429) return 'OpenAI 사용 한도 또는 요청 속도를 초과했습니다.';
+  if (status === 429) {
+    const diagnostic = openAIDiagnostic(raw, status, headers);
+    const resetHint = diagnostic.rateLimit['retry-after'] || diagnostic.rateLimit['x-ratelimit-reset-requests'] || diagnostic.rateLimit['x-ratelimit-reset-tokens'] || '';
+    const detail = [diagnostic.code, diagnostic.type].filter(Boolean).join(' · ');
+    return `OpenAI ${rateLimitLabel(diagnostic)}${resetHint ? ` 재시도 가능 시점: ${resetHint}.` : ''}${detail ? ` (${detail})` : ''}`;
+  }
   if (raw?.error?.code === 'model_not_found' || /model/i.test(raw?.error?.message || '')) return '설정한 OpenAI 모델을 사용할 수 없습니다. OPENAI_MODEL과 프로젝트 권한을 확인하세요.';
   return 'OpenAI API 요청에 실패했습니다. 잠시 후 다시 시도하거나 관리자에게 문의하세요.';
 }

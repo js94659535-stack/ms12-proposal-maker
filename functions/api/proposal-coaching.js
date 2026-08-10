@@ -121,7 +121,7 @@ async function requestOpenAI(env, { policy, input, schema, schemaName, maxOutput
     // background=true requires OpenAI to retain response data temporarily for polling (about 10 minutes), even with store=false.
     const response = await fetch('https://api.openai.com/v1/responses', { method: 'POST', signal: controller.signal, headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: env.OPENAI_MODEL, store: false, ...(background ? { background: true } : {}), reasoning: { effort: reasoningEffort }, max_output_tokens: maxOutputTokens, input: [{ role: 'developer', content: [{ type: 'input_text', text: policy }] }, { role: 'user', content: [{ type: 'input_text', text: input }] }], text: { verbosity: 'medium', format: { type: 'json_schema', name: schemaName, strict: true, schema } } }) });
     const data = await response.json().catch(() => ({}));
-    const diagnostic = safeDiagnostic(env.OPENAI_MODEL, response.status, data?.error?.type || '', data?.error?.code || '', response.headers.get('x-request-id') || '', Date.now() - startedAt);
+    const diagnostic = safeDiagnostic(env.OPENAI_MODEL, response.status, data?.error?.type || '', data?.error?.code || '', response.headers.get('x-request-id') || '', Date.now() - startedAt, response.status === 429 ? rateLimitInfo(response.headers) : {});
     if (!response.ok) console.error('openai_upstream_failure', diagnostic);
     return { ok: response.ok, status: response.status, data, diagnostic, failureStage: response.ok ? '' : 'openai-upstream' };
   } catch (error) {
@@ -138,7 +138,7 @@ async function retrieveOpenAI(env, jobId) {
   try {
     const response = await fetch(`https://api.openai.com/v1/responses/${encodeURIComponent(jobId)}`, { method: 'GET', signal: controller.signal, headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` } });
     const data = await response.json().catch(() => ({}));
-    const diagnostic = safeDiagnostic(env.OPENAI_MODEL, response.status, data?.error?.type || '', data?.error?.code || '', response.headers.get('x-request-id') || '', Date.now() - startedAt);
+    const diagnostic = safeDiagnostic(env.OPENAI_MODEL, response.status, data?.error?.type || '', data?.error?.code || '', response.headers.get('x-request-id') || '', Date.now() - startedAt, response.status === 429 ? rateLimitInfo(response.headers) : {});
     return { ok: response.ok, status: response.status, data, diagnostic, failureStage: response.ok ? '' : 'openai-upstream' };
   } catch (error) {
     const diagnostic = safeDiagnostic(env.OPENAI_MODEL, 0, error?.name || 'network_error', error?.code || '', '', Date.now() - startedAt);
@@ -188,20 +188,54 @@ async function forgetCoachingJob(env, jobId) {
 }
 
 function diagnosticErrorResponse(upstream, label) {
-  const message = normalizeOpenAIError(upstream.data, upstream.status, label);
+  const message = normalizeOpenAIError(upstream.data, upstream.status, label, upstream.diagnostic?.rateLimit || {});
   const status = upstream.status >= 400 && upstream.status <= 599 ? upstream.status : 502;
   return failure(upstream.failureStage || 'openai-upstream', message, status, upstream.diagnostic);
 }
 function failure(stage, error, status, diagnostic) { return json({ error, failureStage: stage, diagnostic }, status); }
-function diagnosticFromResponse(model, upstream, error) { return safeDiagnostic(model, upstream.status, error?.type || '', error?.code || '', upstream.diagnostic?.upstreamRequestId || '', upstream.diagnostic?.elapsedMs || 0); }
-function normalizeOpenAIError(raw, status, label) {
+function diagnosticFromResponse(model, upstream, error) { return safeDiagnostic(model, upstream.status, error?.type || '', error?.code || '', upstream.diagnostic?.upstreamRequestId || '', upstream.diagnostic?.elapsedMs || 0, upstream.diagnostic?.rateLimit || {}); }
+// 429 진단은 계획서 작성(api/proposal.js)과 같은 기준을 쓴다. 허용 목록 밖의 값은 담지 않는다.
+const RATE_LIMIT_HEADERS = [
+  'retry-after',
+  'x-ratelimit-limit-requests', 'x-ratelimit-limit-tokens',
+  'x-ratelimit-remaining-requests', 'x-ratelimit-remaining-tokens',
+  'x-ratelimit-reset-requests', 'x-ratelimit-reset-tokens'
+];
+// type·code·request id는 식별자 형태만 통과시킨다. 문장이 섞여 오면 버려서 본문 유출 통로를 막는다.
+function safeCode(value) {
+  const text = String(value ?? '').trim();
+  return /^[a-z0-9_.-]{1,60}$/i.test(text) ? text : '';
+}
+export function rateLimitInfo(headers) {
+  const picked = {};
+  for (const name of RATE_LIMIT_HEADERS) {
+    const value = headers?.get?.(name);
+    if (value) picked[name] = String(value).slice(0, 40);
+  }
+  return picked;
+}
+const QUOTA_CODES = new Set(['insufficient_quota', 'billing_hard_limit_reached', 'quota_exceeded', 'billing_not_active']);
+function rateLimitLabel(code, type, rateLimit) {
+  if (QUOTA_CODES.has(code) || QUOTA_CODES.has(type)) return '사용 한도(결제·크레딧)를 초과했습니다. 자동 재시도해도 풀리지 않으니 결제·크레딧 설정을 확인하세요.';
+  if (rateLimit['x-ratelimit-remaining-tokens'] === '0') return '분당 토큰 한도(TPM)를 초과했습니다.';
+  if (rateLimit['x-ratelimit-remaining-requests'] === '0') return '분당 요청 한도(RPM)를 초과했습니다.';
+  if (code === 'rate_limit_exceeded' || type === 'requests' || type === 'tokens') return '요청 속도 제한을 초과했습니다.';
+  return '사용 한도 또는 요청 속도를 초과했습니다.';
+}
+export function normalizeOpenAIError(raw, status, label, rateLimit = {}) {
   if (status === 401) return `${label}: OpenAI API 키가 유효하지 않습니다.`;
-  if (status === 429) return `${label}: OpenAI 사용 한도 또는 요청 속도를 초과했습니다.`;
+  if (status === 429) {
+    const code = safeCode(raw?.error?.code);
+    const type = safeCode(raw?.error?.type);
+    const resetHint = rateLimit['retry-after'] || rateLimit['x-ratelimit-reset-requests'] || rateLimit['x-ratelimit-reset-tokens'] || '';
+    const detail = [code, type].filter(Boolean).join(' · ');
+    return `${label}: OpenAI ${rateLimitLabel(code, type, rateLimit)}${resetHint ? ` 재시도 가능 시점: ${resetHint}.` : ''}${detail ? ` (${detail})` : ''}`;
+  }
   if (raw?.error?.code === 'model_not_found' || /model/i.test(raw?.error?.message || '')) return `${label}: 설정한 OpenAI 모델을 사용할 수 없습니다.`;
   return `${label}: OpenAI 요청이 실패했습니다 (${status || 'network'}).`;
 }
-function safeDiagnostic(configuredModel, upstreamStatus, upstreamErrorType, upstreamErrorCode, upstreamRequestId, elapsedMs) {
-  return { configuredModel: String(configuredModel || ''), upstreamStatus: Number(upstreamStatus || 0), upstreamErrorType: String(upstreamErrorType || ''), upstreamErrorCode: String(upstreamErrorCode || ''), upstreamRequestId: String(upstreamRequestId || ''), elapsedMs: Number(elapsedMs || 0) };
+export function safeDiagnostic(configuredModel, upstreamStatus, upstreamErrorType, upstreamErrorCode, upstreamRequestId, elapsedMs, rateLimit = {}) {
+  return { configuredModel: String(configuredModel || ''), upstreamStatus: Number(upstreamStatus || 0), upstreamErrorType: safeCode(upstreamErrorType), upstreamErrorCode: safeCode(upstreamErrorCode), upstreamRequestId: safeCode(upstreamRequestId), elapsedMs: Number(elapsedMs || 0), rateLimit };
 }
 function constantTimeEqual(left, right) {
   const leftBytes = new TextEncoder().encode(String(left));

@@ -14,6 +14,7 @@ import { matchApplicantToNotice } from './fit-matching.js';
 import { buildDesignQuestions, reusableAnswerCandidates } from './design-questions.js';
 import { buildBlueprint } from './project-blueprint.js';
 import { BLUEPRINT_SECTION_MAP, UNRESOLVED_MARK, annotateDraftSections, checkDraftAgainstBlueprint, officialRequirementConflicts } from './blueprint-draft-check.js';
+import { OFFICIAL_LOCKED, buildNoticeContract, checkProposalAgainstContract, contractCapabilityCheck, contractConflicts, contractFieldLocks } from './notice-contract.js';
 import { EXTERNAL_SOURCE, appendProposalVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, matchSectionsForIssue, proposalTextFromSections, proposalTextFromSnapshot, revisionInstruction, sectionsFromProposalText, verifyLockedValues } from './coaching-handoff.js';
 import { splitApplicantProfile } from './applicants.js';
 import { ARCHIVE_PAGE_SIZES, ARCHIVE_STATUSES, archiveTableRows, shortDate } from './archive-table.js';
@@ -61,7 +62,7 @@ const initial = {
   step: 0, activeTool: 'home', homeSeen: false, project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
   coaching: { title: '', text: '', validatedText: '', criteriaText: '', officialEvaluationProvided: false, sourceProposalId: '', sourceNoticeKey: '', seriesId: '', currentArchiveId: '', result: null, workItems: [], pendingJob: null, version: 0, references: [], referenceType: REFERENCE_TYPES[0], referenceDraft: '', referenceNameDraft: '' },
   applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
-  revisionPlan: null, draftReview: null, projectNarrative: '', proposalVersions: [], proposalFlow: { status: '', baselineVersion: 0, reviewTarget: null, rounds: [], requests: [], requestOpen: false, requestText: '', requestScope: [], openVersion: 0, compareVersion: 0, approvedVersion: 0, approvedAt: '' }, coachingSelection: [], applicantSkipped: false, noticeLogic: null,
+  revisionPlan: null, draftReview: null, projectNarrative: '', proposalVersions: [], proposalFlow: { status: '', baselineVersion: 0, reviewTarget: null, rounds: [], requests: [], requestOpen: false, requestText: '', requestScope: [], openVersion: 0, compareVersion: 0, approvedVersion: 0, approvedAt: '' }, coachingSelection: [], applicantSkipped: false, noticeLogic: null, redesignForContract: false,
   analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveTable: { query: '', sortKey: 'collectedAt', sortDir: 'desc', page: 1, pageSize: 20, selected: [], expandedKey: '', applicantPickerKey: '', filters: { collected: '', institution: '', field: '', status: '', applicant: '', deadline: '' } }, archiveNoticeLinks: {}, archiveHiddenNotices: [], archiveOpenProposal: '', sampleStage: '', sampleReturn: '', aiResult: null, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
@@ -630,6 +631,13 @@ function noticeLogicSource() {
   return { ...notice, overview: notice.overview || notice.detailText || notice.summary || '', criteriaText };
 }
 
+// 공고를 목록에서 고르지 않고 원문만 붙여넣은 경우에도 같은 공고 자료로 취급한다.
+function noticeSourceOrPasted() {
+  return noticeLogicSource() || (state.sourceText.trim().length >= 200
+    ? { title: state.project.title, overview: state.sourceText, criteriaText: manualCriteriaText() }
+    : null);
+}
+
 function selectionLogicView() {
   const notice = noticeLogicSource();
   if (!notice) return '';
@@ -688,15 +696,39 @@ function unresolvedSectionsOf(blueprint) {
   }
   return [...grouped.entries()].map(([sectionKey, from]) => ({ sectionKey, from }));
 }
-// 공고의 최소·최대 기준과 사용자가 확정한 이번 사업 값의 충돌만 뽑는다.
+// 공고 실행계약서. 공고가 이미 정한 조건을 규칙으로 들고 있다.
+function currentNoticeContract() {
+  const stored = state.noticeLogic?.contract;
+  if (stored?.rules?.length) return stored;
+  const structure = state.noticeLogic?.structure;
+  if (!structure) return null;
+  // 예전에 저장한 계획서에는 계약서가 없다. 그 자리에서 다시 만들고 이후에는 저장된 값을 쓴다.
+  const rebuilt = buildNoticeContract({ structure, notice: noticeSourceOrPasted() });
+  if (state.noticeLogic) state.noticeLogic.contract = rebuilt;
+  return rebuilt;
+}
+// 공고 기준과 이번 사업 값의 불일치. 어느 쪽으로 할지 묻지 않고 무엇에 맞춰야 하는지 알린다.
 function currentOfficialConflicts() {
-  return officialRequirementConflicts(state.noticeLogic?.structure, (state.projectValues || []).filter(item => item.blueprintKey));
+  const values = (state.projectValues || []).filter(item => item.blueprintKey);
+  const contract = currentNoticeContract();
+  if (contract?.rules?.length) return contractConflicts(contract, values);
+  return officialRequirementConflicts(state.noticeLogic?.structure, values);
+}
+// 제출 적합성 게이트. 계약서와 계획서를 독립적으로 대조한다.
+function currentSubmissionGate() {
+  const contract = currentNoticeContract();
+  if (!contract?.rules?.length || !state.sections.length) return null;
+  const blueprint = currentBlueprint();
+  // 게이트도 작성 payload와 같은 신청유형 값을 본다.
+  const types = resolvedApplicationTypes(blueprint);
+  return checkProposalAgainstContract({ contract, sections: state.sections, projectValues: state.projectValues || [], blueprint: { ...blueprint, applicationTypes: { ...(blueprint?.applicationTypes || {}), selected: types.selected } } });
 }
 function currentBlueprint() {
   const structure = state.noticeLogic?.structure;
   const applicant = selectedApplicant();
   if (!structure || !applicant) return null;
-  return buildBlueprint({ structure, applicant, fitResult: matchApplicantToNotice(structure, applicant), projectValues: blueprintProjectValues() });
+  // 공고 원문을 함께 넘긴다. 「신청자격 및 유형」처럼 제목과 글머리표로 나뉜 공고도 유형을 읽게 한다.
+  return buildBlueprint({ structure, applicant, fitResult: matchApplicantToNotice(structure, applicant), projectValues: blueprintProjectValues(), notice: noticeSourceOrPasted() });
 }
 
 function blueprintTypeView(blueprint) {
@@ -759,7 +791,7 @@ function blueprintView() {
 
 function businessSelectView() {
   const choice = state.pendingNoticeChoice ? `<div class="card"><div class="card-title"><div><h3>작성할 세부사업을 선택하세요</h3><span>선택한 사업 내용만 계획서에 반영됩니다.</span></div></div><div class="requirement-list">${state.pendingNoticeChoice.subprojects.map((item, index) => `<article class="requirement"><div><span class="tag">${escapeHtml(item.id)}</span><strong>${escapeHtml(item.title)}</strong></div><button class="button primary" data-select-subproject="${index}">이 사업 선택</button></article>`).join('')}</div></div>` : '';
-  return `<div class="page-heading"><div><h2>작성할 사업을 확정하세요</h2><p>복수 세부사업일 때만 한 사업을 선택합니다. 아래 사업 설계도를 확인한 뒤 초안 작성으로 넘어갑니다.</p></div><div class="actions">${sampleButton('blueprint', '[샘플] 완성 설계도 보기')}</div></div>${choice}${selectedNoticeDetailView()}${blueprintView()}${attachmentView()}${!state.pendingNoticeChoice && !state.selectedNotice ? '<div class="empty-state"><div>◉</div><h2>선택한 공고가 없습니다</h2><button class="button primary" data-step="1">공고 확인으로 이동</button></div>' : ''}`;
+  return `<div class="page-heading"><div><h2>작성할 사업을 확정하세요</h2><p>복수 세부사업일 때만 한 사업을 선택합니다. 아래 사업 설계도를 확인한 뒤 초안 작성으로 넘어갑니다.</p></div><div class="actions">${sampleButton('blueprint', '[샘플] 완성 설계도 보기')}</div></div>${choice}${contractLockView()}${selectedNoticeDetailView()}${blueprintView()}${attachmentView()}${!state.pendingNoticeChoice && !state.selectedNotice ? '<div class="empty-state"><div>◉</div><h2>선택한 공고가 없습니다</h2><button class="button primary" data-step="1">공고 확인으로 이동</button></div>' : ''}`;
 }
 
 function applicantStatusTag(status) { return `<span class="status ${status === CONFIRMED_STATUS ? '충족' : status === '오래된 정보' ? '부분-충족' : '확인-필요'}">${escapeHtml(status)}</span>`; }
@@ -1043,12 +1075,12 @@ function questionsView() {
 function documentView() {
   const strategy = strategyView();
   const questions = designQuestionsView();
-  if (!state.sections.length) return `${strategy}${questions}${stagedGenerationView()}${state.designUnavailable ? `<div class="empty-state"><div>▤</div><h2>AI 정밀 사업설계를 실행할 수 없음</h2><p>공고 자료 분석은 완료되었지만 AI 정밀 사업설계를 실행하지 못했습니다. 아래에는 공식 원문에서 직접 추출한 사실만 표시합니다.</p>${directFactsView()}</div>` : ''}`;
+  if (!state.sections.length) return `${strategy}${contractLockView()}${questions}${stagedGenerationView()}${state.designUnavailable ? `<div class="empty-state"><div>▤</div><h2>AI 정밀 사업설계를 실행할 수 없음</h2><p>공고 자료 분석은 완료되었지만 AI 정밀 사업설계를 실행하지 못했습니다. 아래에는 공식 원문에서 직접 추출한 사실만 표시합니다.</p>${directFactsView()}</div>` : ''}`;
   const completionMode = state.step === STEPS.length - 1;
   const toolbarActions = completionMode
     ? `${sampleButton('final', '[샘플] 완성본 보기')}<button class="button secondary" id="save-proposal-archive">계획서보관함에 저장</button><button class="button secondary" id="proposal-review">${state.reviewResult ? '명시적으로 재검토' : '심사 검토·고도화'}</button><button class="button secondary" id="print">인쇄</button><button class="button secondary" id="pdf">PDF 인쇄·저장</button><button class="button primary" id="docx">검토용 DOCX</button>`
     : `${sampleButton('draftV1', '[샘플] V1 보기')}<button class="button secondary" id="save-proposal-archive">계획서보관함에 저장</button><button class="button primary" id="go-to-review">검토·완성으로 이동 →</button>`;
-  return `${strategy}${questions}${completionPanelView()}${proposalPipelineView()}${decisionCenterView()}${draftBlueprintCheckView()}${assemblyCheckView()}<div class="document-toolbar"><div><h2>${escapeHtml(state.project.title || '사업계획서 검토본')}</h2><p><span class="mode">신청기관 ${escapeHtml(selectedApplicant()?.name || '미선택')}</span> ${(state.proposalVersions || [])[0]?.source === EXTERNAL_SOURCE ? '<span class="mode">외부 계획서 작업본 · 원본 보존</span> ' : ''}<span class="mode">${state.selectedNotice?.officialTextExtracted ? '공고문 반영 초안' : '안내 페이지 기반 임시 초안'}</span> <span class="mode ${state.aiMode === 'ai' ? 'ai' : ''}">${state.aiMode === 'ai' ? 'AI 정밀 사업설계' : '로컬 사실 추출'}</span> ${completionMode ? '심사 검토와 출력 전 최종 편집을 진행하세요. DOCX는 공식 신청서 양식이 아닌 검토본입니다.' : '필요한 질문을 확인하고 초안을 편집하세요.'}</p></div><div>${toolbarActions}</div></div>
+  return `${strategy}${questions}${completionPanelView()}${submissionGateView()}${proposalPipelineView()}${decisionCenterView()}${draftBlueprintCheckView()}${assemblyCheckView()}<div class="document-toolbar"><div><h2>${escapeHtml(state.project.title || '사업계획서 검토본')}</h2><p><span class="mode">신청기관 ${escapeHtml(selectedApplicant()?.name || '미선택')}</span> ${(state.proposalVersions || [])[0]?.source === EXTERNAL_SOURCE ? '<span class="mode">외부 계획서 작업본 · 원본 보존</span> ' : ''}<span class="mode">${state.selectedNotice?.officialTextExtracted ? '공고문 반영 초안' : '안내 페이지 기반 임시 초안'}</span> <span class="mode ${state.aiMode === 'ai' ? 'ai' : ''}">${state.aiMode === 'ai' ? 'AI 정밀 사업설계' : '로컬 사실 추출'}</span> ${completionMode ? '심사 검토와 출력 전 최종 편집을 진행하세요. DOCX는 공식 신청서 양식이 아닌 검토본입니다.' : '필요한 질문을 확인하고 초안을 편집하세요.'}</p></div><div>${toolbarActions}</div></div>
     ${completionMode ? finalSubmissionView() : ''}
     ${completionMode ? proposalReviewView() : ''}
     ${revisionPlanView()}
@@ -1098,6 +1130,24 @@ const DECISION_FIELDS = [
   { key: 'submissionDocs', label: '제출서류 준비', hint: '신청기관현황·점검표·증빙서류 준비 상태를 적어 주세요.' }
 ];
 
+// 공고가 이미 정한 값은 결정 대상이 아니다. 작성 전에도 잠긴 값으로 보여 주고 다시 묻지 않는다.
+function contractLockView() {
+  const contract = currentNoticeContract();
+  if (!contract?.rules?.length) return '';
+  const locks = contractFieldLocks(contract);
+  const locked = Object.values(locks).filter(lock => lock.mode === OFFICIAL_LOCKED);
+  const bounds = Object.values(locks).filter(lock => lock.mode !== OFFICIAL_LOCKED);
+  const conflicts = currentOfficialConflicts();
+  if (!locked.length && !bounds.length && !conflicts.length) return '';
+  return `<div class="card" id="notice-contract-locks"><div class="card-title"><div><h3>공고 실행계약 ${contract.rules.length}개 조건</h3><span>공고가 이미 정한 값은 사용자·AI가 바꿀 수 없습니다. 범위만 정해진 값은 그 안에서 정합니다.</span></div><strong>강제조건 ${contract.blockingCount}개</strong></div>
+    ${locked.length ? `<div class="alert"><strong>공고가 이미 정한 값 ${locked.length}건 — 선택 대상이 아닙니다</strong>
+      ${locked.map(lock => `<p>· <b>${escapeHtml(lock.value)}</b> — ${escapeHtml(lock.note)}<br><small>공고 근거 [${escapeHtml(lock.location)}] “${escapeHtml(String(lock.evidence).slice(0, 120))}”</small></p>`).join('')}</div>` : ''}
+    ${bounds.length ? `<div class="alert"><strong>공고가 허용한 범위 ${bounds.length}건 — 이 범위 안에서 이번 사업 값을 정합니다</strong>
+      ${bounds.map(lock => `<p>· ${escapeHtml(lock.bound)}<br><small>공고 근거 [${escapeHtml(lock.location)}] “${escapeHtml(String(lock.evidence).slice(0, 120))}”</small></p>`).join('')}</div>` : ''}
+    ${conflicts.length ? `<div class="alert danger"><strong>공고 기준 불일치 ${conflicts.length}건 — 어느 쪽으로 할지 고르는 항목이 아닙니다</strong>
+      ${conflicts.map(item => `<p>· <b>${escapeHtml(item.field)}</b> — 공고 <b>${escapeHtml(item.officialValue)}</b> · 현재 ${escapeHtml(item.userValue)}<br>→ ${escapeHtml(item.instruction)}<br><small>조정할 수 없으면 ${escapeHtml(item.unadjustable)}입니다.</small></p>`).join('')}</div>` : ''}</div>`;
+}
+
 function decisionCenterView() {
   if (!state.sections.length) return '';
   const blueprint = currentBlueprint();
@@ -1111,9 +1161,13 @@ function decisionCenterView() {
     return { ...field, value, conflict, open: Boolean(open) && !value };
   });
   const remaining = rows.filter(row => row.open).length + plans.filter(plan => !String(state.coaching.repairAnswers?.[plan.id] || '').trim()).length;
-  return `<div class="card" id="decision-center"><div class="card-title"><div><h3>남은 사용자 결정 ${remaining}건</h3><span>여기서 확정한 값만 계획서에 반영합니다. 확정 전에는 어떤 값도 자동으로 바꾸지 않습니다.</span></div><button class="button primary" id="build-final-version" ${remaining === rows.filter(row => row.open || row.value).length ? '' : ''}>확정값 반영해 최종본 만들기</button></div>
-    <div class="requirement-list">${rows.map(row => `<article class="requirement"><div><span class="status ${row.value ? '충족' : row.conflict ? '부족' : '확인-필요'}">${row.value ? '확정됨' : row.conflict ? '공식요건 충돌' : '확인 필요'}</span><div><strong>${escapeHtml(row.label)}</strong>
-      ${row.conflict ? `<small>공고 ${escapeHtml(row.conflict.officialValue)} vs 현재 ${escapeHtml(row.conflict.userValue)} — 어느 쪽으로 확정할지 정해 주세요.</small><small class="muted">공고 근거: ${escapeHtml(String(row.conflict.officialEvidence.sentence).slice(0, 120))}</small>` : `<small>${escapeHtml(row.hint)}</small>`}
+  const boundOf = key => {
+    const lock = contractFieldLocks(currentNoticeContract() || { rules: [] })[key];
+    return lock && lock.mode !== OFFICIAL_LOCKED ? lock : null;
+  };
+  return `${contractLockView()}<div class="card" id="decision-center"><div class="card-title"><div><h3>남은 사용자 결정 ${remaining}건</h3><span>여기서 확정한 값만 계획서에 반영합니다. 확정 전에는 어떤 값도 자동으로 바꾸지 않습니다.</span></div><button class="button primary" id="build-final-version" ${remaining === rows.filter(row => row.open || row.value).length ? '' : ''}>확정값 반영해 최종본 만들기</button></div>
+    <div class="requirement-list">${rows.map(row => `<article class="requirement"><div><span class="status ${row.value ? '충족' : row.conflict ? '부족' : '확인-필요'}">${row.value ? '확정됨' : row.conflict ? '공고 기준 불일치' : '확인 필요'}</span><div><strong>${escapeHtml(row.label)}</strong>
+      ${row.conflict ? `<small>공고 <b>${escapeHtml(row.conflict.officialValue)}</b> · 현재 ${escapeHtml(row.conflict.userValue)} → ${escapeHtml(row.conflict.instruction || '공고 기준으로 조정해야 합니다.')}</small><small class="muted">조정할 수 없으면 ${escapeHtml(row.conflict.unadjustable || '이 공고에 제출할 수 없음')}입니다. 공고 근거: ${escapeHtml(String(row.conflict.officialEvidence.sentence).slice(0, 120))}</small>` : `<small>${escapeHtml(row.hint)}</small>${boundOf(row.key) ? `<small class="muted">${escapeHtml(boundOf(row.key).note)}</small>` : ''}`}
       ${row.value ? `<small class="muted">현재 확정값: ${escapeHtml(row.value)}</small>` : ''}</div></div>
       <div class="two-col" style="margin:10px 0 0 64px"><div class="field" style="margin:0"><label for="decision-${row.key}">확정값 입력</label><input id="decision-${row.key}" data-decision-input="${row.key}" value="${escapeHtml(row.value)}" placeholder="확인된 사실만 입력하세요. 모르면 비워 두세요."></div><div class="field" style="margin:0"><label>&nbsp;</label><button class="button secondary" data-decision-save="${row.key}">이 값으로 확정</button></div></div></article>`).join('')}</div>
     ${plans.length ? `<details><summary>검증에서 확인을 요청한 수정 ${plans.length}건</summary><p class="muted">아래 수정계획 카드에서 값을 입력하면 해당 문단만 수정합니다. 입력 전에는 수정하지 않습니다.</p></details>` : ''}</div>`;
@@ -1361,6 +1415,11 @@ function recordReviewRound(result) {
 // 10) 최종본은 사용자가 승인할 때만 만든다. 이전 버전은 그대로 둔다.
 function approveFinalProposal() {
   if (!state.sections.length) return setState({ error: '최종본으로 승인할 계획서가 없습니다.' });
+  // 공고의 강제조건을 어긴 계획서는 사용자가 확인해도 최종본으로 올리지 않는다.
+  const gate = currentSubmissionGate();
+  if (gate?.blocking.length) {
+    return setState({ error: `공고 적합성 ${gate.status} — 공고 강제조건 ${gate.blocking.length}건을 지키지 못해 최종본으로 승인할 수 없습니다. ${gate.reasons.slice(0, 3).join(' / ')}` });
+  }
   const conflicts = currentOfficialConflicts();
   const pending = currentRepairPlans().filter(plan => plan.repairLevel === 'USER_CONFIRMATION');
   const marks = state.sections.reduce((sum, section) => sum + (String(section.content).match(/\[확인 필요[^\]]*\]/g) || []).length, 0);
@@ -1370,6 +1429,44 @@ function approveFinalProposal() {
   setProposalFlow({ status: '최종본', approvedVersion: version, approvedAt: new Date().toISOString() }, { notice: `V${version}을 최종본으로 승인했습니다. 이전 버전과 검토 이력은 그대로 남습니다.` });
   void archiveCurrentProposal('final').catch(() => {});
 }
+// 공고 적합성 게이트 — 공고 실행계약서와 계획서를 규칙 단위로 대조한다. AI 판단이 아니라 코드 비교다.
+const GATE_TONE = { '제출 가능': 'success', '보완 필요': 'warning', '제출 차단': 'danger' };
+const GATE_STATE_TONE = { 충족: '충족', 미확정: '확인-필요', 불일치: '부족' };
+function submissionGateView() {
+  const gate = currentSubmissionGate();
+  if (!gate) return '';
+  const failed = gate.results.filter(item => item.state !== '충족');
+  const capability = contractCapabilityCheck(currentNoticeContract(), selectedApplicant());
+  return `<div class="card" id="result-submission-gate" tabindex="-1"><div class="card-title"><div><h3>공고 적합성: ${escapeHtml(gate.status)}</h3><span>공고가 정한 조건과 계획서를 규칙마다 직접 대조합니다. 문장 품질은 보지 않습니다.</span></div><strong>${escapeHtml(gate.status)}</strong></div>
+    <div class="summary-grid">
+      <div><span>핵심 조건</span><strong>${gate.total}개</strong><small>공고 실행계약서</small></div>
+      <div><span>✓ 충족</span><strong>${gate.counts['충족']}</strong><small>계획서에서 확인됨</small></div>
+      <div><span>? 미확정</span><strong>${gate.counts['미확정']}</strong><small>계획서에서 확인 안 됨</small></div>
+      <div><span>✕ 불일치</span><strong>${gate.counts['불일치']}</strong><small>공고 기준과 어긋남</small></div>
+    </div>
+    <div class="alert ${GATE_TONE[gate.status]}"><strong>${gate.blocking.length ? `제출을 막는 조건 ${gate.blocking.length}건 — 최종본 승인과 제출 준비 완료가 잠깁니다.` : gate.required.length ? `보완할 조건 ${gate.required.length}건` : '공고의 강제조건을 모두 지켰습니다.'}</strong>
+      ${gate.blocking.map(item => `<p>✕ <b>${escapeHtml(item.title)}</b><br>공고: ${escapeHtml(item.official)}<br>계획서: ${escapeHtml(item.found || '미포함')}<br><small>공고 근거 [${escapeHtml(item.location)}] “${escapeHtml(String(item.evidence).slice(0, 140))}”</small></p>`).join('')}
+      ${gate.blocking.length ? '<button class="button primary" id="redesign-to-contract">공고 기준에 맞게 다시 설계</button>' : ''}</div>
+    ${capability ? `<div class="alert ${capability.status === '수행 가능' ? 'success' : capability.status === '적합성 부족' ? 'danger' : 'warning'}"><strong>기관 수행 가능성: ${escapeHtml(capability.status)}</strong><p>${escapeHtml(capability.note)}</p>
+      ${capability.missing.map(item => `<p>· 수행 근거 없음 — ${escapeHtml(String(item.title).slice(0, 80))} (필요 근거: ${escapeHtml(item.keyphrases.join(' · '))})</p>`).join('')}</div>` : ''}
+    ${failed.length ? `<details><summary>불일치·미확정 ${failed.length}건 자세히 보기</summary><div class="requirement-list">${failed.map(item => `<article class="requirement"><div><span class="status ${GATE_STATE_TONE[item.state]}">${escapeHtml(item.state)}</span><div><strong>${escapeHtml(item.title)} · ${escapeHtml(item.category)} · ${escapeHtml(item.severity)}</strong><small>${escapeHtml(item.detail)}</small><small class="muted">공고 [${escapeHtml(item.location)}] “${escapeHtml(String(item.evidence).slice(0, 160))}”</small></div></div></article>`).join('')}</div></details>` : ''}</div>`;
+}
+
+// 제출 차단이면 계약 기준으로 다시 설계한다. V1과 이전 버전은 지우지 않고 새 버전으로만 쌓는다.
+async function redesignToContract() {
+  const gate = currentSubmissionGate();
+  if (!gate) return setState({ error: '공고 실행계약서가 없어 재설계할 수 없습니다.' });
+  const conflicts = currentOfficialConflicts();
+  // 공고와 충돌하는 값만 내려놓는다. 충돌하지 않는 사용자 확정값과 신청기관 확인정보는 그대로 둔다.
+  if (conflicts.length) {
+    state.projectValues = (state.projectValues || []).filter(value => !conflicts.some(item => item.field === (value.label || value.blueprintKey)));
+  }
+  state.redesignForContract = true;
+  await generateCompleteProposal();
+  if (!state.stagedGeneration?.master) { state.redesignForContract = false; return; }
+  await generateProposalParts();
+}
+
 function proposalPipelineView() {
   if (!state.sections.length) return '';
   const versions = state.proposalVersions || [];
@@ -1945,6 +2042,7 @@ function bind() {
   document.querySelector('#apply-revision-request')?.addEventListener('click', applyRevisionRequest);
   document.querySelector('#send-to-review')?.addEventListener('click', sendVersionToReview);
   document.querySelector('#approve-final-proposal')?.addEventListener('click', approveFinalProposal);
+  document.querySelector('#redesign-to-contract')?.addEventListener('click', () => redesignToContract().catch(showError));
   document.querySelector('#open-version-history')?.addEventListener('click', () => document.querySelector('#result-completion')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   document.querySelectorAll('[data-proposal-detail]').forEach(el => el.onclick = () => setState({ archiveOpenProposal: state.archiveOpenProposal === el.dataset.proposalDetail ? '' : el.dataset.proposalDetail }));
   document.querySelectorAll('[data-view-version]').forEach(el => el.onclick = () => setProposalFlow({ openVersion: proposalFlow().openVersion === Number(el.dataset.viewVersion) ? 0 : Number(el.dataset.viewVersion) }));
@@ -2607,7 +2705,7 @@ async function analyzeNoticeBundleFiles() {
     const requirements = selectionRequirements(structure);
     const summary = { ...noticeLogicSummary(structure, logic, requirements), bundle: bundleSummary(files, conflicts) };
     setState({
-      busy: '', noticeLogic: { structure, logic, requirements, summary, files, conflicts },
+      busy: '', noticeLogic: { structure, logic, requirements, summary, files, conflicts, contract: buildNoticeContract({ structure, notice }) },
       notice: `자료묶음 ${files.length}건 중 ${summary.bundle.read}건을 읽었습니다${elapsedLabel()}. 공식 근거 확인 ${summary.confirmedFields}/${structure.fields.length} · 확정 선정요건 ${summary.officialRequirements}개${summary.bundle.conversionNeeded ? ` · 변환 필요 ${summary.bundle.conversionNeeded}건` : ''}`,
       error: ''
     });
@@ -2617,13 +2715,13 @@ async function analyzeNoticeBundleFiles() {
 // 공고에서 선정 논리를 구조화한다. AI 호출 없이 공고 원문만 사용한다.
 function ensureNoticeLogic() {
   if (state.noticeLogic?.structure) return state.noticeLogic;
-  const notice = noticeLogicSource() || (state.sourceText.trim().length >= 200 ? { title: state.project.title, overview: state.sourceText, criteriaText: manualCriteriaText() } : null);
+  const notice = noticeSourceOrPasted();
   if (!notice) return null;
   const structure = analyzeNoticeStructure(notice);
   if (!structure.totalChars) return null;
   const logic = buildSelectionLogic(structure);
   const requirements = selectionRequirements(structure);
-  state.noticeLogic = { structure, logic, requirements, summary: noticeLogicSummary(structure, logic, requirements) };
+  state.noticeLogic = { structure, logic, requirements, summary: noticeLogicSummary(structure, logic, requirements), contract: buildNoticeContract({ structure, notice }) };
   return state.noticeLogic;
 }
 function manualCriteriaText() {
@@ -2640,7 +2738,7 @@ function analyzeNoticeSelectionLogic() {
   const logic = buildSelectionLogic(structure);
   const requirements = selectionRequirements(structure);
   setState({
-    noticeLogic: { structure, logic, requirements, summary: noticeLogicSummary(structure, logic, requirements) },
+    noticeLogic: { structure, logic, requirements, summary: noticeLogicSummary(structure, logic, requirements), contract: buildNoticeContract({ structure, notice }) },
     notice: `선정 논리를 정리했습니다. 공식 근거 확인 ${structure.fields.filter(field => field.status === '공식 근거 확인').length}개 · 선정 요건 ${requirements.length}개 · ${logic.scoring.mode}`,
     error: ''
   });
@@ -3345,7 +3443,7 @@ async function generateCompleteProposal() {
 }
 
 function generationPayload() {
-  return { sourceText: state.sourceText, manualSources: state.manualSources.map(({ id, fileName, sourceType, extractedText, extractionStatus, extractionError }) => ({ id, fileName, sourceType, extractedText, extractionStatus, extractionError })), projectType: typeName(), project: state.project, selectedSubprogram: state.selectedNotice?.selectedSubproject || state.selectedNotice?.title || state.project.title, organization: organizationForGeneration(), userAnswers: state.designAnswers, projectBlueprint: blueprintHandoff() };
+  return { sourceText: state.sourceText, manualSources: state.manualSources.map(({ id, fileName, sourceType, extractedText, extractionStatus, extractionError }) => ({ id, fileName, sourceType, extractedText, extractionStatus, extractionError })), projectType: typeName(), project: state.project, selectedSubprogram: state.selectedNotice?.selectedSubproject || state.selectedNotice?.title || state.project.title, organization: organizationForGeneration(), userAnswers: state.designAnswers, projectBlueprint: blueprintHandoff(), noticeContract: contractHandoff() };
 }
 
 // 분할 생성은 master가 확정한 기준만 다시 쓴다. 공고 원문·직접자료를 매 분할마다 다시 보내지 않는다.
@@ -3354,14 +3452,47 @@ function partPayload() {
   return { ...rest, narrative: String(state.projectNarrative || '').slice(0, 4000) };
 }
 
+// 사용자가 고른 신청유형은 설계도·작성 payload·게이트에서 같은 값이어야 한다.
+// 설계도가 공고에서 유형을 읽지 못한 경우에만 실행계약서의 CHOICE 규칙으로 보완한다.
+function resolvedApplicationTypes(blueprint) {
+  const options = (blueprint?.applicationTypes?.options || []).map(option => option.name);
+  if (options.length >= 2) return { options, selected: blueprint.applicationTypes.selected || '' };
+  const choice = (currentNoticeContract()?.rules || []).find(item => item.ruleType === 'CHOICE');
+  if (!choice) return { options, selected: blueprint?.applicationTypes?.selected || '' };
+  const chosen = String((state.projectValues || []).find(item => item.blueprintKey === 'applicationType')?.value || '');
+  return { options: choice.value || [], selected: (choice.value || []).find(name => chosen.includes(name)) || '' };
+}
+
+// 공고 실행계약서를 작성 엔진의 최상위 기준으로 넘긴다. 자유입력도 이 조건을 덮을 수 없다.
+function contractHandoff() {
+  const contract = currentNoticeContract();
+  if (!contract?.rules?.length) return null;
+  // CHOICE는 공고가 선택지만 정하고 무엇을 고를지는 이번 사업 사용자 확정값이 정한다.
+  // 선택 결과를 함께 보내지 않으면 작성 엔진이 선택지 자체를 공고의 지시로 오해한다.
+  const chosenType = resolvedApplicationTypes(currentBlueprint()).selected;
+  return {
+    priority: ['공고 실행계약서', '이번 사업 사용자 확정값', '신청기관 확인정보', '사용자 자유입력', 'AI 제안'],
+    rule: contract.rule,
+    rules: contract.rules.map(item => ({
+      id: item.id, category: item.category, title: String(item.title).slice(0, 120), ruleType: item.ruleType,
+      value: item.ruleType === 'CHOICE' ? (chosenType || '선택 필요') : Array.isArray(item.value) ? item.value.join(' / ') : String(item.value),
+      ...(item.ruleType === 'CHOICE' ? { options: item.value || [], selected: chosenType, selectedBy: chosenType ? '이번 사업 사용자 확정값' : '' } : {}),
+      unit: item.unit, severity: item.severity, appliesTo: item.appliesTo,
+      evidence: String(item.evidence).slice(0, 300), location: item.location
+    })),
+    conflicts: currentOfficialConflicts().map(item => ({ field: item.field, official: item.officialValue, current: item.userValue, instruction: item.instruction }))
+  };
+}
+
 // 설계도를 초안 작성으로 넘긴다. 확정값은 그대로, 설계안은 설계안으로, 미확정은 [확인 필요]로만 넘긴다.
 function blueprintHandoff() {
   const blueprint = currentBlueprint();
   if (!blueprint) return null;
+  const types = resolvedApplicationTypes(blueprint);
   return {
-    applicationType: blueprint.applicationTypes.selected || '[확인 필요]',
+    applicationType: types.selected || '[확인 필요]',
     // 선택하지 않은 유형 이름도 함께 넘겨, 다른 유형으로 작성되면 서버가 구조적 실패로 잡을 수 있게 한다.
-    otherApplicationTypes: blueprint.applicationTypes.options.filter(option => option.name !== blueprint.applicationTypes.selected).map(option => option.name),
+    otherApplicationTypes: types.options.filter(name => name !== types.selected),
     readiness: blueprint.readiness,
     // 공고 기준과 이번 사업 확정값의 충돌. 어느 쪽도 고치지 않고 함께 넘긴다.
     officialConflicts: currentOfficialConflicts(),
@@ -3449,6 +3580,11 @@ function assembleProposal(startedAt = Date.now()) {
   state.reviewFingerprint = '';
   // 첫 완성본을 V1로 남긴다. 이후 수정·확정값 반영은 새 버전으로만 쌓인다.
   if (!(state.proposalVersions || []).length) state.proposalVersions = appendProposalVersion([], { sections: state.sections, label: 'V1 완성본', source: '계획서 작성' });
+  else if (state.redesignForContract) {
+    // 공고 기준 재설계는 기존 버전을 지우지 않고 새 버전으로만 쌓는다.
+    state.proposalVersions = appendProposalVersion(state.proposalVersions, { sections: state.sections, label: '공고 기준 재설계', source: '공고 실행계약', reason: '공고 적합성 게이트 제출 차단 해소' });
+    state.redesignForContract = false;
+  }
   markAiDoneAt('assemble', startedAt, { stagedGeneration: state.stagedGeneration, sections: state.sections, proposalVersions: state.proposalVersions, assemblyCheck, notice: assemblyCheck.valid ? '분할 항목을 공식 신청서 순서의 하나의 사업계획서로 완성했습니다.' : '계획서를 조립했지만 확인할 불일치가 있습니다. 사실을 자동 보정하지 않았습니다.', error: '' });
   markProposalAssembled();
   void archiveCurrentProposal('complete').catch(() => {});

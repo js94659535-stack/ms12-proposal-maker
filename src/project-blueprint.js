@@ -111,7 +111,37 @@ function typesInSentence(entry) {
   return sliced.length >= 2 ? sliced : found;
 }
 
-export function detectApplicationTypes(structure) {
+// 「신청자격 및 유형 (계획서상 택1)」처럼 제목 줄에만 유형이라 적고
+// 선택지는 다음 글머리표 줄에 나열하는 공고가 많다. 줄 구조를 살려 그 형태도 읽는다.
+const TYPE_HEADING = /유형|택\s*1|택1|중\s*하나|중\s*1개/;
+const TYPE_ONLY_LINE = /^[○●▶▸□■\-\s]*([가-힣A-Za-z0-9·]{2,15}형)\s*[-–—:：]?\s*(.*)$/;
+const HEADING_ONLY = /^(?:신청|사업|지원)?유형$/;
+export function typesFromNoticeLines(notice) {
+  const parts = [
+    ['공고 개요', notice?.overview || notice?.detailText], ['신청 대상', notice?.eligibility],
+    ['지원 내용', notice?.supportDetails], ['첨부한 요강·평가기준', notice?.criteriaText]
+  ].filter(([, value]) => String(value || '').trim());
+  const found = [];
+  for (const [label, value] of parts) {
+    const lines = String(value).split(/\n+|(?=[○●▶▸□■])/).map(line => clean(line, 400)).filter(Boolean);
+    for (let index = 0; index < lines.length; index += 1) {
+      // 유형 선택을 알리는 제목 줄 뒤 몇 줄 안에서만 선택지를 읽는다. 공고 전체에서 「~형」을 긁지 않는다.
+      if (!TYPE_HEADING.test(lines[index])) continue;
+      for (const line of lines.slice(index + 1, index + 8)) {
+        const matched = TYPE_ONLY_LINE.exec(line);
+        if (!matched) continue;
+        const name = matched[1];
+        if (HEADING_ONLY.test(name) || found.some(type => type.name === name)) continue;
+        const detail = lines[lines.indexOf(line) + 1] || '';
+        found.push({ name, description: clean(matched[2] || (/^[-·\s]/.test(detail) ? detail : ''), 300), source: label });
+      }
+      if (found.length >= 2) return found;
+    }
+  }
+  return found.length >= 2 ? found : [];
+}
+
+export function detectApplicationTypes(structure, notice) {
   const sentences = (structure?.fields || []).flatMap(field => (field.evidence || []).map(entry => ({ source: entry.source, sentence: clean(entry.sentence, 400) })));
   // 신청유형이 적힌 문장이 여러 개면 유형 설명이 가장 잘 남는 문장을 쓴다(양식의 체크박스 줄이 아니라 공고문 설명 줄).
   let source = null;
@@ -121,6 +151,11 @@ export function detectApplicationTypes(structure) {
     const found = typesInSentence(entry);
     const score = found.filter(type => type.description.length >= 10).length * 10 + found.length;
     if (found.length >= 2 && score > best) { best = score; types = found; source = entry; }
+  }
+  // 문장 안에서 못 읽으면 공고 원문의 줄 구조로 다시 본다.
+  if (types.length < 2 && notice) {
+    const byLines = typesFromNoticeLines(notice);
+    if (byLines.length >= 2) { types = byLines; source = { source: byLines[0].source, sentence: '' }; }
   }
   if (!source || types.length < 2) return [];
   // 유형 이름이 등장하는 다른 문장까지 모아 유형 간 차이를 보여준다.
@@ -548,10 +583,10 @@ const CORE_SECTIONS = ['target', 'programs', 'programDetails', 'budget', 'outcom
 // 초안은 만들 수 있다. 다만 미확정 값은 [확인 필요]로 남기고 만들어 쓰지 않는다.
 export const READINESS_STATES = ['DRAFT_READY', 'DESIGN_INCOMPLETE', 'SUBMISSION_READY'];
 
-export function buildBlueprint({ structure, applicant, fitResult, projectValues } = {}) {
+export function buildBlueprint({ structure, applicant, fitResult, projectValues, notice } = {}) {
   const confirmed = normalizeProjectValues(projectValues);
   const inputs = blueprintInputs(structure, applicant, fitResult, confirmed);
-  const typeList = detectApplicationTypes(structure);
+  const typeList = detectApplicationTypes(structure, notice);
   const chosenType = confirmed.get('applicationType')?.value || '';
   const selectedType = typeList.find(entry => chosenType.includes(entry.name))?.name || '';
   const types = { all: typeList.map(entry => entry.name), selected: selectedType };

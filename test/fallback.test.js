@@ -62,7 +62,8 @@ test('서버 함수에는 OpenAI 외부 호출이 한 곳뿐이고 재시도 루
   const source = fs.readFileSync(new URL('../functions/api/proposal.js', import.meta.url), 'utf8');
   assert.equal((source.match(/fetch\('https:\/\/api\.openai\.com\/v1\/responses'/g) || []).length, 1);
   assert.doesNotMatch(source, /\bconsole\.(?:log|info|debug|warn|error)\b/);
-  assert.doesNotMatch(source, /\bretry\b|while\s*\(/i);
+  // 'retry-after'는 OpenAI가 알려 주는 재시도 가능 시점(응답 헤더 이름)일 뿐 재시도 로직이 아니다.
+  assert.doesNotMatch(source.replaceAll('retry-after', 'rate-limit-reset-hint'), /\bretry\b|while\s*\(/i);
   assert.match(source, /new AbortController\(\)/);
   assert.match(source, /timeoutMs:\s*300_000/);
   assert.match(source, /max_output_tokens: LIMITS\.outputTokens\[body\.action\]/);
