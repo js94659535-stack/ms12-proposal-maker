@@ -4,6 +4,7 @@ import { localAnalyze } from './fallback.js';
 import { buildDocxBlob, downloadBlob, exportDocx, exportPdf, printDocument, submissionFileName } from './export.js';
 import { buildProposalPdfBlob, exportProposalPdf } from './pdf-export.js';
 import { MANIFEST_NAME, packageStale, planSubmissionZip, zipBytes } from './submission-zip.js';
+import { UNAUTHORIZED, currentUser, login, logout } from './auth.js';
 import { fetchNoticeDetail, fetchNoticeList, importNoticeUrl, noticeBodyText } from './notices.js';
 import { deleteArchivedApplicant, getArchivedProposal, getArchiveRecoveryKey, listArchivedApplicants, listArchivedProposals, saveArchivedApplicant, saveArchivedProposal, searchArchivedNotices, syncArchivedNotices, useArchiveRecoveryKey } from './archive.js';
 import { ASOF_UNKNOWN, applySafeCandidates, applyUpdateCandidate, buildUpdateCandidates, extractApplicantCandidates } from './applicant-extract.js';
@@ -86,6 +87,40 @@ let coachingPollActive = false;
 let archiveMenuOpenedAt = 0;
 // 연결한 첨부 원본. 브라우저 메모리에만 두고 localStorage에 base64로 저장하지 않는다.
 const attachmentFiles = new Map();
+// 로그인 상태. 세션 쿠키가 진짜 근거이고 이 값은 화면 표시용이다. localStorage에 저장하지 않는다.
+let auth = { status: 'checking', user: null, emailDraft: '', passwordDraft: '', error: '', busy: false };
+
+function setAuth(patch) { auth = { ...auth, ...patch }; render(); }
+function signOutLocally(message = '') { setAuth({ status: 'anonymous', user: null, passwordDraft: '', error: message, busy: false }); }
+async function checkSession() {
+  const result = await currentUser().catch(() => ({ ok: false }));
+  if (result.ok && result.user) return setAuth({ status: 'signedIn', user: result.user, error: '', passwordDraft: '' });
+  setAuth({ status: 'anonymous', user: null, passwordDraft: '' });
+}
+async function submitLogin() {
+  if (auth.busy) return;
+  const email = auth.emailDraft.trim();
+  if (!email || !auth.passwordDraft) return setAuth({ error: '이메일과 비밀번호를 입력해 주세요.' });
+  setAuth({ busy: true, error: '' });
+  const result = await login(email, auth.passwordDraft).catch(() => ({ ok: false, error: '로그인 요청을 보내지 못했습니다.' }));
+  if (!result.ok) return setAuth({ busy: false, error: result.error || '로그인하지 못했습니다.', passwordDraft: '' });
+  setAuth({ status: 'signedIn', user: result.user, busy: false, error: '', emailDraft: '', passwordDraft: '' });
+}
+async function submitLogout() {
+  await logout().catch(() => ({}));
+  signOutLocally('로그아웃했습니다.');
+}
+function loginView() {
+  const checking = auth.status === 'checking';
+  return `<div class="layout home-layout"><main class="main"><div class="card" id="login-card" style="max-width:420px;margin:8vh auto">
+    <div class="card-title"><div><h3>MS12 사업계획서 작성 도우미</h3><span>${checking ? '로그인 상태를 확인하는 중입니다.' : '운영 계정으로 로그인하세요.'}</span></div></div>
+    ${auth.error ? `<div class="alert danger"><strong>${escapeHtml(auth.error)}</strong></div>` : ''}
+    <form id="login-form" autocomplete="on">
+      <div class="field"><label for="login-email">이메일</label><input id="login-email" type="email" autocomplete="username" value="${escapeHtml(auth.emailDraft)}" ${checking ? 'disabled' : ''}></div>
+      <div class="field"><label for="login-password">비밀번호</label><input id="login-password" type="password" autocomplete="current-password" value="${escapeHtml(auth.passwordDraft)}" ${checking ? 'disabled' : ''}></div>
+      <div class="actions"><span class="muted">계정은 관리자가 만듭니다.</span><button class="button primary" id="login-submit" type="submit" ${checking || auth.busy ? 'disabled' : ''}>${auth.busy ? '확인 중…' : '로그인'}</button></div>
+    </form></div></main></div>`;
+}
 
 function loadState() {
   try {
@@ -314,7 +349,7 @@ function shell(content) {
     <div class="layout">
       <main class="main">
         <header class="workflow-header">
-          <div class="workflow-brand"><div class="brand"><span class="brand-mark">계</span><div><strong>사업계획서 작성 도우미</strong><small>공고 분석부터 제출본까지</small></div></div><span class="save-state">● 자동 저장 중</span></div>
+          <div class="workflow-brand"><div class="brand"><span class="brand-mark">계</span><div><strong>사업계획서 작성 도우미</strong><small>공고 분석부터 제출본까지</small></div></div><span class="save-state">● 자동 저장 중</span><span class="mode">${escapeHtml(auth.user?.email || '')}</span><button class="history-button" id="sign-out">로그아웃</button></div>
           <div class="workflow-row"><label class="type-select-label" for="business-type">사업 유형<select id="business-type">${TYPES.map(([id, name]) => `<option value="${id}" ${state.project.type === id ? 'selected' : ''}>${name}</option>`).join('')}</select></label><nav class="workflow-steps" aria-label="작성 단계">${STEPS.map((name, i) => { const complete = isStepComplete(i); return `<button data-step="${i}" class="workflow-step ${state.activeTool === 'workflow' && state.step === i ? 'active' : ''} ${complete ? 'done' : ''}" ${state.activeTool === 'workflow' && state.step === i ? 'aria-current="step"' : ''}><span>${complete ? '✓' : i + 1}</span>${name}</button>`; }).join('')}</nav><button class="history-button" id="open-archive-box">공고보관함·계획서보관함</button><button class="history-button" id="open-engagement" aria-pressed="${state.activeTool === 'engagement'}">의뢰 건</button><button class="history-button" id="open-applicants" aria-pressed="${state.activeTool === 'applicants'}">신청기관 정보</button><button class="history-button" id="open-coaching" aria-pressed="${state.activeTool === 'coaching'}">계획서 검증·코칭</button><nav class="workflow-history" aria-label="앱 작업 화면 이동"><button class="history-button" id="workflow-back" aria-label="직전 작업 화면으로 뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="history-button" id="workflow-home" aria-label="홈 화면으로 가기">⌂ 홈 화면</button><button class="history-button" id="workflow-forward" aria-label="다음 작업 화면으로 앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button></nav></div>
         </header>
         ${aiResultBanner()}
@@ -2154,9 +2189,16 @@ function directFactsView() {
 }
 
 function render() {
+  // 로그인하기 전에는 작업 화면을 그리지 않는다. 실제 차단은 서버가 하고 화면은 그 결과를 따른다.
+  if (auth.status !== 'signedIn') { app.innerHTML = loginView(); bindLogin(); return; }
   const views = [noticeImportView, noticeConfirmView, applicantSelectView, businessSelectView, documentView, documentView];
   const tools = { home: homeView, coaching: coachingView, applicants: applicantsToolView, sample: sampleView, engagement: engagementView };
   app.innerHTML = shell((tools[state.activeTool] || views[state.step] || views[0])()); bind(); startBusyElapsedTimer(); runPendingAiMove();
+}
+function bindLogin() {
+  document.querySelector('#login-email')?.addEventListener('input', event => { auth.emailDraft = event.target.value; });
+  document.querySelector('#login-password')?.addEventListener('input', event => { auth.passwordDraft = event.target.value; });
+  document.querySelector('#login-form')?.addEventListener('submit', event => { event.preventDefault(); void submitLogin(); });
 }
 
 // [샘플] 프로젝트 보기. 별도 화면에서만 열리며 사용자의 실제 작업 상태는 읽지도 바꾸지도 않는다.
@@ -2471,6 +2513,7 @@ function bind() {
   document.querySelectorAll('[data-type]').forEach(el => el.onclick = () => { state.project.type = el.dataset.type; saveState(); render(); });
   document.querySelector('#business-type')?.addEventListener('change', event => { state.project.type = event.target.value; saveState(); render(); });
   document.querySelectorAll('[data-step]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(Number(el.dataset.step), { notice: '', error: '' }); });
+  document.querySelector('#sign-out')?.addEventListener('click', () => void submitLogout());
   document.querySelector('#open-archive-box')?.addEventListener('click', () => {
     state.activeTool = 'workflow';
     navigateToStep(0, { notice: '공고보관함·계획서보관함을 열었습니다.', error: '' });
@@ -3958,7 +4001,11 @@ async function rewriteSection(index) {
   try { const result = await rewriteWithAI({ section: state.sections[index], instruction, analysis: analysisForRewrite(), organization: organizationForGeneration() }); state.sections[index] = result.section; setState({ busy: '', notice: '항목을 재작성했습니다.' }); }
   catch (error) { setState({ busy: '', error: error.message }); }
 }
-function showError(error) { setState({ error: error.message }); }
+function showError(error) {
+  // 세션이 끊기면 화면만 남겨 두지 않고 로그인 화면으로 되돌린다.
+  if (String(error?.message || '').includes(UNAUTHORIZED)) return signOutLocally('로그인이 필요합니다. 다시 로그인해 주세요.');
+  setState({ error: error.message });
+}
 
 async function generateCompleteProposal() {
   const manualLength = state.manualSources.filter(value => value.extractionStatus === 'success').reduce((sum, value) => sum + value.extractedText.length, 0);
@@ -4297,3 +4344,4 @@ document.addEventListener('keydown', event => { if (event.key === 'Escape') clos
 window.addEventListener('scroll', closeArchiveMenu, true);
 window.addEventListener('resize', closeArchiveMenu);
 render();
+void checkSession();
