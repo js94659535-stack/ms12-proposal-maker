@@ -8,7 +8,7 @@ const LIMITS = Object.freeze({
   rewriteInstructionChars: 4_000,
   analysisChars: 300_000,
   timeoutMs: 300_000,
-  outputTokens: Object.freeze({ analyze: 6_000, master: 12_000, draftPart: 7_000, draft: 12_000, fullProposal: 20_000, rewrite: 4_000, finalize: 9_000 })
+  outputTokens: Object.freeze({ analyze: 6_000, master: 12_000, draftPart: 7_000, draft: 12_000, fullProposal: 20_000, preciseReview: 8_000, patchSections: 10_000, rewrite: 4_000, finalize: 9_000 })
 });
 
 export async function onRequest(context) {
@@ -24,7 +24,7 @@ export async function onRequest(context) {
     if (new TextEncoder().encode(rawBody).byteLength > LIMITS.requestBytes) return limitError('요청 본문');
     let body;
     try { body = JSON.parse(rawBody); } catch { return json({ error: '요청 JSON 형식이 올바르지 않습니다.' }, 400); }
-    if (!['analyze', 'master', 'draftPart', 'draft', 'fullProposal', 'rewrite', 'finalize'].includes(body.action)) return json({ error: '지원하지 않는 작업입니다.' }, 400);
+    if (!['analyze', 'master', 'draftPart', 'draft', 'fullProposal', 'preciseReview', 'patchSections', 'rewrite', 'finalize'].includes(body.action)) return json({ error: '지원하지 않는 작업입니다.' }, 400);
     const validation = validate(body.action, body.payload);
     if (validation) return json({ error: validation }, 400);
 
@@ -132,6 +132,12 @@ function validate(action, payload) {
     if (!Array.isArray(payload.sections) || !payload.sections.length) return '확정값을 반영할 계획서 본문이 없습니다.';
     if (!Array.isArray(payload.confirmedValues) || !payload.confirmedValues.length) return '반영할 확정값이 없습니다.';
     if (jsonLength(payload.sections) > 300_000) return '계획서 본문이 허용 길이를 초과했습니다.';
+    return '';
+  }
+  if (action === 'preciseReview' || action === 'patchSections') {
+    if (!payload.basis || typeof payload.basis !== 'object') return '검증 기준이 없습니다.';
+    if (!Array.isArray(payload.sections) || !payload.sections.length) return '검증할 계획서 본문이 없습니다.';
+    if (jsonLength(payload.basis) > 200_000 || jsonLength(payload.sections) > 300_000) return '검증 자료가 허용 길이를 초과했습니다.';
     return '';
   }
   if (action === 'fullProposal') {
@@ -254,6 +260,26 @@ function taskSpecification(action, payload) {
 masterLogic은 문제→원인→대상→전략→실행→산출→변화→성과측정이 끊기지 않는 하나의 논리사슬이어야 한다. baselineValues에는 이후 모든 분할이 그대로 재사용할 인원·기간·회기·역할·예산 기준값을 둔다. outputOutcomeMeasurementLinks에는 각 산출물과 성과목표·측정지표·측정시기·담당을 연결한다. evaluationResponsePlan에는 평가기준과 대응전략·반영항목·근거를 연결하고 claimEvidencePlan에는 핵심 주장과 공식 자료 근거·위치를 연결한다. 공식 자료에서 확인할 수 없는 내용은 사실처럼 확정하지 말고 해당 값에 [확인 필요]를 표시하며 missingInformation에도 현재 설계에 필요한 질문으로 최대 5개만 둔다.
 sectionPlan은 실제 공모신청서·사업계획서 서식의 질문과 목차 결합 관계를 우선하여 필요한 수만큼 가변적으로 정한다. 2~5개로 고정하거나 페이지 수·문서 길이로 나누지 않는다. 호환용 10개 sectionKeys(necessity, purpose, goals, target, programs, schedule, roles, budget, indicators, outcomes)를 빠짐없이 정확히 한 번씩 배치하고, 실제 신청서에서 함께 요구하는 항목은 같은 묶음에 둔다. 각 묶음 제목은 공식 신청서의 항목명 또는 그 구조를 명확히 나타내는 한국어로 작성한다.`
   };
+  // 정밀 검증: 확정된 기준과 계획서를 대조해 문제만 찾는다. 본문을 고치지 않는다.
+  if (action === 'preciseReview') return {
+    name: 'proposal_precise_review', schema: PRECISE_REVIEW_SCHEMA,
+    prompt: `<REVIEW_BASIS>${JSON.stringify(payload.basis)}</REVIEW_BASIS>\n<PROPOSAL_SECTIONS>${JSON.stringify(payload.sections)}</PROPOSAL_SECTIONS>\n<PROPOSAL_TABLES>${JSON.stringify(payload.tables || [])}</PROPOSAL_TABLES>\n
+REVIEW_BASIS는 이미 확정된 기준이다. 계획서를 이 기준과만 대조하고 다음 다섯 가지 범위에서 문제를 찾는다.
+1) 공고 강제조건 위반 2) 승인 설계안과의 불일치 3) 서식 항목·분량·필수 표 누락 4) 예산·일정·대상·성과지표 간 모순 5) 확정 수요근거와 충돌하는 서술.
+문장별 표현 품질이나 전체 환각 검사는 하지 않는다. 기준에 없는 문제를 만들지 않는다.
+문제마다 sectionId(계획서 항목 id 그대로), severity(BLOCKING/주의/참고), scope(위 다섯 범위 중 하나), problem(무엇이 문제인지), basis(어느 기준의 무엇과 어긋나는지), instruction(그 항목만 어떻게 고쳐야 하는지)을 남긴다.
+BLOCKING은 공고 강제조건 위반이나 승인 설계안과 어긋나 이대로는 제출할 수 없는 경우에만 쓴다.
+계획서 본문을 다시 쓰지 말고 문제만 반환한다. 문제가 없으면 빈 배열을 반환한다.`
+  };
+  // 부분 수정: 문제가 지목한 항목만 다시 쓴다. 지목되지 않은 항목은 요청에 넣지 않는다.
+  if (action === 'patchSections') return {
+    name: 'proposal_section_patch', schema: PATCH_SCHEMA,
+    prompt: `<REVIEW_BASIS>${JSON.stringify(payload.basis)}</REVIEW_BASIS>\n<SECTIONS_TO_FIX>${JSON.stringify(payload.sections)}</SECTIONS_TO_FIX>\n
+각 항목의 issues에 적힌 문제만 고쳐 그 항목의 content를 다시 쓴다. 받은 항목 외에는 아무것도 만들지 않는다.
+문제와 무관한 문장·수치·표현은 원문 그대로 유지한다. 확정된 수치·기간·인원·예산과 공고 근거 문장은 바꾸지 않는다.
+확인되지 않은 사실을 지어내 채우지 말고 필요하면 [확인 필요]로 남긴다.
+받은 항목마다 같은 id로 하나씩만 반환한다.`
+  };
   // 승인된 설계안 하나를 기준으로 계획서 본문 10개 항목과 표를 한 번에 만든다. 분할 호출을 쓰지 않는다.
   if (action === 'fullProposal') return {
     name: 'proposal_full_document', schema: FULL_PROPOSAL_SCHEMA,
@@ -370,6 +396,43 @@ const proposalTable = {
     note: { type: 'string' }
   },
   required: ['id', 'title', 'kind', 'columns', 'rows', 'note']
+};
+// 정밀 검증 결과. 본문을 돌려받지 않는다(검증만으로 계획서가 바뀌지 않게).
+const PRECISE_REVIEW_SCHEMA = {
+  type: 'object', additionalProperties: false,
+  properties: {
+    issues: {
+      type: 'array',
+      items: {
+        type: 'object', additionalProperties: false,
+        properties: {
+          sectionId: { type: 'string' },
+          severity: { type: 'string', enum: ['BLOCKING', '주의', '참고'] },
+          scope: { type: 'string', enum: ['공고 강제조건', '승인 설계안', '서식 규격', '내부 정합성', '수요근거 충돌'] },
+          target: { type: 'string', enum: ['본문', '표'] },
+          problem: { type: 'string' }, basis: { type: 'string' }, instruction: { type: 'string' }
+        },
+        required: ['sectionId', 'severity', 'scope', 'target', 'problem', 'basis', 'instruction']
+      }
+    },
+    summary: { type: 'string' }
+  },
+  required: ['issues', 'summary']
+};
+// 부분 수정 결과. 요청한 항목만 같은 id로 돌려받는다.
+const PATCH_SCHEMA = {
+  type: 'object', additionalProperties: false,
+  properties: {
+    sections: {
+      type: 'array',
+      items: {
+        type: 'object', additionalProperties: false,
+        properties: { id: { type: 'string' }, content: { type: 'string' }, status: { type: 'string', enum: ['확정', '검토 필요', '확인 필요'] }, note: { type: 'string' } },
+        required: ['id', 'content', 'status', 'note']
+      }
+    }
+  },
+  required: ['sections']
 };
 // 승인된 설계안 하나로 계획서 본문과 표를 한 번에 받는다.
 const FULL_PROPOSAL_SCHEMA = {

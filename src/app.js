@@ -1,4 +1,4 @@
-import { analyzeWithAI, draftPartWithAI, draftWithAI, finalizeWithAI, fullProposalWithAI, masterWithAI, rewriteWithAI } from './api.js';
+import { analyzeWithAI, draftPartWithAI, draftWithAI, finalizeWithAI, fullProposalWithAI, masterWithAI, patchSectionsWithAI, preciseReviewWithAI, rewriteWithAI } from './api.js';
 import { extractFile, extractFiles } from './files.js';
 import { localAnalyze } from './fallback.js';
 import { exportDocx, exportPdf, printDocument } from './export.js';
@@ -17,6 +17,7 @@ import { BLUEPRINT_SECTION_MAP, UNRESOLVED_MARK, annotateDraftSections, checkDra
 import { OFFICIAL_LOCKED, buildNoticeContract, checkProposalAgainstContract, contractCapabilityCheck, contractConflicts, contractFieldLocks } from './notice-contract.js';
 import { buildFormSpec } from './form-spec.js';
 import { approvedDemandEvidence, buildDemandEvidence } from './demand-evidence.js';
+import { PROPOSAL_MODES, applyPatchedSections, buildReviewBasis, normalizeReviewIssues, reviewSummary, sectionsToPatch, verifyUntouched } from './precise-review.js';
 import { ENGAGEMENT_STAGES, PROPOSAL_OUTLINE, buildDocumentPlan, buildEngagement, canGenerateProposal, designStatus, makeClient, makeDesignApproval, makeNoticeRequest, normalizeEngagement } from './engagement.js';
 import { EXTERNAL_SOURCE, appendProposalVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, matchSectionsForIssue, proposalTextFromSections, proposalTextFromSnapshot, revisionInstruction, sectionsFromProposalText, verifyLockedValues } from './coaching-handoff.js';
 import { splitApplicantProfile } from './applicants.js';
@@ -67,7 +68,7 @@ const initial = {
   applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
   revisionPlan: null, draftReview: null, projectNarrative: '', proposalVersions: [], proposalFlow: { status: '', baselineVersion: 0, reviewTarget: null, rounds: [], requests: [], requestOpen: false, requestText: '', requestScope: [], openVersion: 0, compareVersion: 0, approvedVersion: 0, approvedAt: '' }, coachingSelection: [], applicantSkipped: false, noticeLogic: null, redesignForContract: false,
   // 「사업계획서 의뢰 건」 한 건의 고객 담당자와 공고 요청서. 기관 영구정보와 섞지 않는다.
-  engagement: { client: makeClient(), request: makeNoticeRequest(), design: makeDesignApproval(), view: 'customer' }, proposalTables: [],
+  engagement: { client: makeClient(), request: makeNoticeRequest(), design: makeDesignApproval(), view: 'customer', mode: '표준형' }, proposalTables: [], preciseReview: null,
   analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveTable: { query: '', sortKey: 'collectedAt', sortDir: 'desc', page: 1, pageSize: 20, selected: [], expandedKey: '', applicantPickerKey: '', filters: { collected: '', institution: '', field: '', status: '', applicant: '', deadline: '' } }, archiveNoticeLinks: {}, archiveHiddenNotices: [], archiveOpenProposal: '', sampleStage: '', sampleReturn: '', aiResult: null, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
@@ -202,6 +203,8 @@ const AI_TASKS = {
   analyze: { busy: '공고 구조 분석 중', done: '공고 분석 완료', step: 3, anchor: '#result-analysis', retry: 'analyze' },
   master: { busy: '설계안 생성 중', done: '설계안 생성 완료', step: 4, anchor: '#result-master', retry: 'generate-master' },
   fullProposal: { busy: '전체 계획서 작성 중', done: '전체 계획서 작성 완료', step: 4, anchor: '#result-completion', retry: 'generate-proposal' },
+  preciseReview: { busy: '정밀 검증 중', done: '정밀 검증 완료', step: 5, anchor: '#precise-review', retry: 'run-precise-review' },
+  patchSections: { busy: '문제 구간 수정 중', done: '문제 구간 수정 완료', step: 5, anchor: '#precise-review', retry: 'apply-precise-fixes' },
   parts: { busy: '전체 계획서 작성 중', done: '전체 계획서 초안 완료', step: 4, anchor: '#result-completion', retry: 'generate-parts' },
   rewrite: { busy: '선택 항목 재작성 중', done: '선택 항목 재작성 완료', step: null, anchor: '#result-pipeline' },
   review: { busy: '심사 관점 검토 중', done: '심사 검토 완료', step: 5, anchor: '#result-draft-check', retry: 'proposal-review' },
@@ -724,6 +727,9 @@ function currentOfficialConflicts() {
 }
 // 제출 적합성 게이트. 계약서와 계획서를 독립적으로 대조한다.
 function currentSubmissionGate() {
+  // 공고 분석을 아직 돌리지 않았어도 공고 원문이 있으면 계약서를 만들어 게이트를 판정한다.
+  // 계약서가 없다고 제출 가능 여부를 조용히 비워 두지 않는다.
+  if (!currentNoticeContract()?.rules?.length && state.sections.length) ensureNoticeLogic();
   const contract = currentNoticeContract();
   if (!contract?.rules?.length || !state.sections.length) return null;
   const blueprint = currentBlueprint();
@@ -814,6 +820,67 @@ function currentFormSpec() {
   // 서식 자료가 바뀌면 규격표도 다시 읽는다. 서식이 없으면 예전 규격표를 지우지 않고 그대로 둔다.
   if (spec) state.engagement.formSpec = spec;
   return spec || state.engagement.formSpec || null;
+}
+
+// ---------- 정밀 검증·부분 수정 ----------
+// 정밀형에서만 쓴다. 표준형 계획서 흐름과 기존 전체 생성 구조는 그대로 둔다.
+function proposalMode() { return PROPOSAL_MODES.includes(state.engagement.mode) ? state.engagement.mode : '표준형'; }
+function setProposalMode(mode) {
+  state.engagement = normalizeEngagement({ ...state.engagement, mode });
+  setState({ engagement: state.engagement, notice: `${mode} 계획서로 진행합니다.${mode === '표준형' ? ' 정밀 검증 결과는 그대로 남습니다.' : ''}`, error: '' });
+}
+function preciseBasis() {
+  return buildReviewBasis({
+    contract: currentNoticeContract(), formSpec: currentFormSpec(),
+    designPlan: state.engagement.design?.snapshot || currentEngagement().brief,
+    demand: currentDemandEvidence()
+  });
+}
+// 1) 정밀 검증 — 운영자가 실행하며 계획서 본문은 건드리지 않는다.
+async function runPreciseReview(round = 1) {
+  if (proposalMode() !== '정밀형') return setState({ error: '정밀 검증은 정밀형 계획서에서만 실행합니다.' });
+  if (!state.sections.length) return setState({ error: '검증할 계획서가 없습니다.' });
+  const before = structuredClone(state.sections);
+  const startedAt = Date.now();
+  setAiBusy(round > 1 ? '정밀 재검증 중' : '정밀 검증 중', { error: '', notice: '' }, 'preciseReview');
+  try {
+    const result = await preciseReviewWithAI({ basis: preciseBasis(), sections: state.sections, tables: state.proposalTables || [] });
+    const issues = normalizeReviewIssues(result.issues, state.sections);
+    // 검증만으로 본문이 바뀌지 않았음을 확인한다.
+    if (JSON.stringify(before) !== JSON.stringify(state.sections)) throw new Error('검증 중 계획서 본문이 바뀌었습니다. 반영하지 않았습니다.');
+    state.preciseReview = { round, issues, summary: reviewSummary(issues), note: String(result.summary || '').slice(0, 500), at: new Date().toISOString() };
+    markAiDoneAt('preciseReview', startedAt, { preciseReview: state.preciseReview, notice: `정밀 ${round > 1 ? '재' : ''}검증에서 ${issues.length}건을 확인했습니다. 본문은 바꾸지 않았습니다.`, error: '' });
+  } catch (error) { setState({ busy: '', error: error.message }); }
+}
+// 2) 부분 수정 — 문제가 지목한 항목만 한 번의 호출로 다시 쓴다.
+async function applyPreciseFixes() {
+  const review = state.preciseReview;
+  if (!review?.issues?.length) return setState({ error: '수정할 문제가 없습니다.' });
+  const before = structuredClone(state.sections);
+  const targets = sectionsToPatch(state.sections, review.issues);
+  if (!targets.length) return setState({ error: '수정할 항목을 찾지 못했습니다.' });
+  const startedAt = Date.now();
+  setAiBusy('문제 구간만 수정하는 중', { error: '', notice: '' }, 'patchSections');
+  try {
+    const result = await patchSectionsWithAI({ basis: preciseBasis(), sections: targets });
+    const applied = applyPatchedSections(before, result.sections, review.issues);
+    const untouched = verifyUntouched(before, applied.sections, review.issues);
+    // 지목되지 않은 항목이 조금이라도 바뀌면 반영하지 않는다.
+    if (!untouched.ok) throw new Error(`수정 대상이 아닌 항목이 바뀌어 반영하지 않았습니다: ${untouched.broken.join(', ')}`);
+    if (!applied.changed.length) throw new Error('수정된 내용이 없습니다. 계획서를 그대로 두었습니다.');
+    state.sections = applied.sections;
+    state.proposalVersions = appendProposalVersion(state.proposalVersions, {
+      sections: state.sections, label: `정밀 검증 ${review.round}차 부분 수정`, source: '정밀 검증',
+      reason: `${applied.changed.length}개 항목 수정 · 문제 ${review.issues.length}건`
+    });
+    state.preciseReview = { ...review, patched: { changed: applied.changed, preserved: applied.preserved, skipped: applied.skipped, at: new Date().toISOString() } };
+    const version = state.proposalVersions.length;
+    markAiDoneAt('patchSections', startedAt, {
+      sections: state.sections, proposalVersions: state.proposalVersions, preciseReview: state.preciseReview,
+      notice: `문제 구간 ${applied.changed.length}개만 수정해 V${version}으로 저장했습니다. 나머지 ${applied.preserved.length}개 항목은 그대로입니다.`, error: ''
+    });
+    void archiveCurrentProposal(`precise-v${version}`).catch(() => {});
+  } catch (error) { setState({ busy: '', error: error.message }); }
 }
 
 // 사업환경·수요근거표. 공고·기관 확인정보·업로드 자료에서만 모으고 출처를 함께 남긴다(AI 호출 없음).
@@ -911,6 +978,37 @@ function formSpecView(brief) {
     ${plan.budgetForm ? `<div class="alert"><strong>예산 양식 · ${escapeHtml(plan.budgetForm.status)}</strong><p>${plan.budgetForm.columns.length ? `열 구성: ${escapeHtml(plan.budgetForm.columns.join(' | '))}` : '열 구성을 서식에서 찾지 못했습니다.'}</p>${plan.budgetForm.rules.map(rule => `<p>· ${escapeHtml(rule.text)}</p>`).join('')}</div>` : ''}
     ${plan.attachments.length ? `<details><summary>첨부서류 ${plan.attachments.length}건</summary>${plan.attachments.map(item => `<p>${item.required ? '필수' : '선택'} · ${escapeHtml(item.name)}<br><small class="muted">[${escapeHtml(item.location)}]</small></p>`).join('')}</details>` : ''}
     ${spec.openPoints.length ? `<div class="alert warning"><strong>서식에서 확인하지 못한 기준 ${spec.openPoints.length}건</strong>${spec.openPoints.map(item => `<p>· ${escapeHtml(item)}</p>`).join('')}<p>확인하지 못한 기준은 만들지 않고 기본값으로 작성합니다.</p></div>` : ''}</details>`;
+}
+
+// 정밀 검증 — 정밀형에서만 보이고, 운영자가 버튼으로 실행한다. 검증만으로 본문은 바뀌지 않는다.
+const SEVERITY_TONE = { BLOCKING: '부족', 주의: '부분-충족', 참고: '확인-필요' };
+function preciseReviewView() {
+  if (!state.sections.length) return '';
+  const mode = proposalMode();
+  const review = state.preciseReview;
+  const gate = currentSubmissionGate();
+  if (mode !== '정밀형') {
+    return `<details class="card" id="precise-review"><summary><strong>정밀 검증</strong> — 지금은 표준형 계획서입니다</summary>
+      <p class="muted">정밀형으로 바꾸면 공고 실행계약서·서식 규격표·승인 설계안·확정 수요근거와 대조해 문제 구간만 고칠 수 있습니다. 표준형 흐름은 그대로입니다.</p>
+      <button class="button secondary" id="set-precise-mode">정밀형으로 전환</button></details>`;
+  }
+  const summary = review?.summary || null;
+  return `<div class="card" id="precise-review" tabindex="-1"><div class="card-title"><div><h3>정밀 검증 · 부분 수정</h3><span>확정된 기준과만 대조합니다. 검증으로 계획서를 바꾸지 않습니다.</span></div><span class="status ${summary ? (summary.blocking ? '부족' : summary.total ? '부분-충족' : '충족') : '확인-필요'}">${escapeHtml(summary ? summary.verdict : '검증 전')}</span></div>
+    ${summary ? `<div class="summary-grid">
+      <div><span>확인한 문제</span><strong>${summary.total}건</strong><small>${escapeHtml(review.round)}차 검증</small></div>
+      <div><span>제출 불가</span><strong>${summary.bySeverity.BLOCKING}</strong><small>공고·설계안 위반</small></div>
+      <div><span>보완 권고</span><strong>${summary.bySeverity['주의'] + summary.bySeverity['참고']}</strong><small>확인 후 판단</small></div>
+      <div><span>대상 항목</span><strong>${summary.sections.length}개</strong><small>나머지는 손대지 않음</small></div></div>` : '<p class="muted">공고 강제조건·승인 설계안·서식 규격·내부 정합성·확정 수요근거 다섯 가지만 봅니다. 문장별 표현 검사는 하지 않습니다.</p>'}
+    ${review?.issues?.length ? `<div class="requirement-list">${review.issues.map(issue => `<article class="requirement"><div><span class="status ${SEVERITY_TONE[issue.severity]}">${escapeHtml(issue.severity)}</span><div><strong>${escapeHtml(sectionTitleById(issue.sectionId))} · ${escapeHtml(issue.scope)} · ${escapeHtml(issue.target)}</strong><small>${escapeHtml(issue.problem)}</small><small class="muted">판단 근거: ${escapeHtml(issue.basis)}</small><small class="muted">수정 지시: ${escapeHtml(issue.instruction)}</small></div></div></article>`).join('')}</div>` : ''}
+    ${review?.patched ? `<div class="alert success"><strong>수정한 항목 ${review.patched.changed.length}개 · 그대로 둔 항목 ${review.patched.preserved.length}개</strong>
+      <p>수정: ${escapeHtml(review.patched.changed.map(sectionTitleById).join(' · ') || '없음')}</p>
+      ${review.patched.skipped.length ? `<p>변경 없음으로 건너뜀: ${escapeHtml(review.patched.skipped.map(sectionTitleById).join(' · '))}</p>` : ''}
+      <p>수정 후 제출 게이트: <b>${escapeHtml(gate?.status || '판정 전')}</b>${gate?.blocking.length ? ` · 남은 강제조건 ${gate.blocking.length}건` : ''}</p></div>` : ''}
+    ${review?.note ? `<p class="muted">${escapeHtml(review.note)}</p>` : ''}
+    <div class="actions"><span class="muted">자동 재시도는 하지 않습니다. 한 번씩 눌러 진행하세요.</span><div>
+      <button class="button ${review ? 'secondary' : 'primary'}" id="run-precise-review">${review ? `정밀 재검증 (${review.round + 1}차)` : '정밀 검증 실행'}</button>
+      ${review?.issues?.length && !review.patched ? '<button class="button primary" id="apply-precise-fixes">문제 구간만 수정</button>' : ''}
+      <button class="button secondary" id="set-standard-mode">표준형으로 되돌리기</button></div></div></div>`;
 }
 
 // 사업환경·수요근거표 — 필요성을 뒷받침하는 근거를 출처와 함께 보여 준다. 출처 없는 수요는 만들지 않는다.
@@ -1264,7 +1362,7 @@ function documentView() {
   const toolbarActions = completionMode
     ? `${sampleButton('final', '[샘플] 완성본 보기')}<button class="button secondary" id="save-proposal-archive">계획서보관함에 저장</button><button class="button secondary" id="proposal-review">${state.reviewResult ? '명시적으로 재검토' : '심사 검토·고도화'}</button><button class="button secondary" id="print">인쇄</button><button class="button secondary" id="pdf">PDF 인쇄·저장</button><button class="button primary" id="docx">검토용 DOCX</button>`
     : `${sampleButton('draftV1', '[샘플] V1 보기')}<button class="button secondary" id="save-proposal-archive">계획서보관함에 저장</button><button class="button primary" id="go-to-review">검토·완성으로 이동 →</button>`;
-  return `${strategy}${questions}${completionPanelView()}${submissionGateView()}${proposalTablesView()}${proposalPipelineView()}${decisionCenterView()}${draftBlueprintCheckView()}${assemblyCheckView()}<div class="document-toolbar"><div><h2>${escapeHtml(state.project.title || '사업계획서 검토본')}</h2><p><span class="mode">신청기관 ${escapeHtml(selectedApplicant()?.name || '미선택')}</span> ${(state.proposalVersions || [])[0]?.source === EXTERNAL_SOURCE ? '<span class="mode">외부 계획서 작업본 · 원본 보존</span> ' : ''}<span class="mode">${state.selectedNotice?.officialTextExtracted ? '공고문 반영 초안' : '안내 페이지 기반 임시 초안'}</span> <span class="mode ${state.aiMode === 'ai' ? 'ai' : ''}">${state.aiMode === 'ai' ? 'AI 정밀 사업설계' : '로컬 사실 추출'}</span> ${completionMode ? '심사 검토와 출력 전 최종 편집을 진행하세요. DOCX는 공식 신청서 양식이 아닌 검토본입니다.' : '필요한 질문을 확인하고 초안을 편집하세요.'}</p></div><div>${toolbarActions}</div></div>
+  return `${strategy}${questions}${completionPanelView()}${submissionGateView()}${preciseReviewView()}${proposalTablesView()}${proposalPipelineView()}${decisionCenterView()}${draftBlueprintCheckView()}${assemblyCheckView()}<div class="document-toolbar"><div><h2>${escapeHtml(state.project.title || '사업계획서 검토본')}</h2><p><span class="mode">신청기관 ${escapeHtml(selectedApplicant()?.name || '미선택')}</span> ${(state.proposalVersions || [])[0]?.source === EXTERNAL_SOURCE ? '<span class="mode">외부 계획서 작업본 · 원본 보존</span> ' : ''}<span class="mode">${state.selectedNotice?.officialTextExtracted ? '공고문 반영 초안' : '안내 페이지 기반 임시 초안'}</span> <span class="mode ${state.aiMode === 'ai' ? 'ai' : ''}">${state.aiMode === 'ai' ? 'AI 정밀 사업설계' : '로컬 사실 추출'}</span> ${completionMode ? '심사 검토와 출력 전 최종 편집을 진행하세요. DOCX는 공식 신청서 양식이 아닌 검토본입니다.' : '필요한 질문을 확인하고 초안을 편집하세요.'}</p></div><div>${toolbarActions}</div></div>
     ${completionMode ? finalSubmissionView() : ''}
     ${completionMode ? proposalReviewView() : ''}
     ${revisionPlanView()}
@@ -2255,6 +2353,10 @@ function bind() {
   document.querySelector('#engagement-save')?.addEventListener('click', saveEngagementRequest);
   // 기관 선택은 기존 신청기관 정보를 그대로 쓴다. 여기서 기관을 새로 만들지 않는다.
   document.querySelector('#engagement-applicant')?.addEventListener('change', event => setState({ selectedApplicantId: event.target.value, notice: event.target.value ? '이 의뢰 건의 신청기관을 연결했습니다.' : '신청기관 연결을 해제했습니다.', error: '' }));
+  document.querySelector('#run-precise-review')?.addEventListener('click', () => runPreciseReview((state.preciseReview?.round || 0) + 1));
+  document.querySelector('#apply-precise-fixes')?.addEventListener('click', () => applyPreciseFixes());
+  document.querySelector('#set-precise-mode')?.addEventListener('click', () => setProposalMode('정밀형'));
+  document.querySelector('#set-standard-mode')?.addEventListener('click', () => setProposalMode('표준형'));
   document.querySelector('#design-request')?.addEventListener('click', requestDesignReview);
   document.querySelector('#design-review')?.addEventListener('click', startDesignReview);
   document.querySelector('#design-approve')?.addEventListener('click', approveDesign);
@@ -3890,7 +3992,7 @@ async function archiveCurrentProposal(forcedStage, announce = false) {
   state.archiveProposalId = id;
   saveState();
   const stage = forcedStage || (state.reviewResult ? 'review' : state.sections.length ? 'complete' : state.stagedGeneration?.phase === 'parts-ready' ? 'parts' : 'master');
-  const fields = ['project', 'sourceText', 'analysis', 'sponsorIntent', 'projectDesign', 'missingInformation', 'evidenceMap', 'qualityCheck', 'designAnswers', 'designUnavailable', 'stagedGeneration', 'assemblyCheck', 'manualSources', 'matches', 'answers', 'sections', 'reviewResult', 'reviewOriginalDraft', 'reviewFingerprint', 'companyFacts', 'selectedNotice', 'aiMode', 'selectedApplicantId', 'projectValues', 'applicantResolvedQuestions', 'proposalVersions', 'revisionPlan', 'noticeLogic', 'draftReview', 'projectNarrative', 'engagement', 'proposalTables'];
+  const fields = ['project', 'sourceText', 'analysis', 'sponsorIntent', 'projectDesign', 'missingInformation', 'evidenceMap', 'qualityCheck', 'designAnswers', 'designUnavailable', 'stagedGeneration', 'assemblyCheck', 'manualSources', 'matches', 'answers', 'sections', 'reviewResult', 'reviewOriginalDraft', 'reviewFingerprint', 'companyFacts', 'selectedNotice', 'aiMode', 'selectedApplicantId', 'projectValues', 'applicantResolvedQuestions', 'proposalVersions', 'revisionPlan', 'noticeLogic', 'draftReview', 'projectNarrative', 'engagement', 'proposalTables', 'preciseReview'];
   // 계획서에는 사용 시점의 신청기관 사본만 남기고, 신청기관 원본은 별도 보관 항목으로만 수정한다.
   const snapshot = { ...Object.fromEntries(fields.map(key => [key, structuredClone(state[key])])), applicantSnapshot: selectedApplicant() ? structuredClone(selectedApplicant()) : null };
   const result = await saveArchivedProposal({ id, noticeKey: archiveNoticeKey(state.selectedNotice), title: state.project.title || state.selectedNotice?.title, stage, snapshot });

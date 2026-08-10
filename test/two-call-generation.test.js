@@ -13,7 +13,7 @@ test('계획서 생성은 설계안 1회 + 전체 작성 1회 구조를 쓴다',
   // 첫 호출(master)은 본문이 아니라 설계안을 만든다.
   assert.match(api, /아직 계획서 본문을 작성하지 말고/);
   // 두 번째 호출은 승인된 설계안으로 본문과 표를 한 번에 만든다.
-  assert.match(api, /'draft', 'fullProposal', 'rewrite', 'finalize'\]\.includes\(body\.action\)/);
+  assert.match(api, /'draft', 'fullProposal', 'preciseReview', 'patchSections', 'rewrite', 'finalize'\]\.includes\(body\.action\)/);
   assert.match(api, /fullProposal: 20_000/);
   assert.match(api, /if \(action === 'fullProposal'\) return \{/);
   assert.match(api, /name: 'proposal_full_document', schema: FULL_PROPOSAL_SCHEMA/);
@@ -94,5 +94,5 @@ test('생성 결과는 기존 버전·보관·게이트 흐름을 그대로 쓴�
   // 실패하면 기존 계획서를 지우지 않는다.
   assert.match(fullProposalFn, /catch \(error\) \{ setState\(\{ busy: '', error: error\.message \}\); \}/);
   // 표도 보관 스냅샷에 함께 남는다.
-  assert.match(app, /'engagement', 'proposalTables'\]/);
+  assert.match(app, /'engagement', 'proposalTables', 'preciseReview'\]/);
 });

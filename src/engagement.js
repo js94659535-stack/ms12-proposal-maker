@@ -149,6 +149,8 @@ export function normalizeEngagement(value = {}) {
     design: makeDesignApproval(value.design),
     // 신청서 서식 규격표는 이 의뢰 건에 저장한다. 없으면 null로 둔다.
     formSpec: value.formSpec && typeof value.formSpec === 'object' ? value.formSpec : null,
+    // 계획서 유형. 정밀 검증·부분 수정은 정밀형에서만 쓴다.
+    mode: value.mode === '정밀형' ? '정밀형' : '표준형',
     view: value.view === 'operator' ? 'operator' : 'customer'
   };
 }

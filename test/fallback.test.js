@@ -895,7 +895,7 @@ test('확정값 반영은 한 번의 finalize 호출로 관련 문단만 고친�
   const apiSource = fs.readFileSync(new URL('../functions/api/proposal.js', import.meta.url), 'utf8');
   const appSource = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   // 새 작업은 허용 목록과 출력 상한에 함께 등록한다.
-  assert.match(apiSource, /'draft', 'fullProposal', 'rewrite', 'finalize'\]\.includes\(body\.action\)/);
+  assert.match(apiSource, /'draft', 'fullProposal', 'preciseReview', 'patchSections', 'rewrite', 'finalize'\]\.includes\(body\.action\)/);
   assert.match(apiSource, /rewrite: 4_000, finalize: 9_000/);
   assert.match(apiSource, /name: 'proposal_finalize', schema: FINALIZE_SCHEMA/);
   // 계획서를 새로 쓰지 않고 값이 필요한 문단만 돌려준다.
