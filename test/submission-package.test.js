@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { PACKAGE_STATES, buildSubmissionPackage, reviewFreshness, sectionsFingerprint } from '../src/submission-package.js';
+import { buildFormSpec } from '../src/form-spec.js';
 
 const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
 const SECTIONS = [
@@ -112,6 +113,23 @@ test('서식 openPoints와 기관 확인 필요 사항이 최종 확인 목록�
   assert.ok(!summary.checklist.some(item => item.item.includes('지역아동센터')));
   // 확인 목록이 있어도 강제조건을 지켰으면 출력은 막지 않는다.
   assert.equal(summary.canExport, true);
+});
+
+test('공고문을 붙여넣기만 해도 제출서류 목록을 읽어 필수 첨부를 잡는다', () => {
+  // 목록을 못 읽으면 필수 첨부 누락을 놓친 채 제출 가능으로 보인다.
+  assert.match(app, /공고문을 자료로 올리지 않고 붙여넣기만 했어도 제출서류 목록을 읽는다/);
+  assert.match(app, /const pasted = state\.sourceText\.trim\(\)\.length >= 200 && !state\.manualSources\.some\(item => item\.sourceType === '세부 공고문'/);
+  assert.match(app, /const spec = buildFormSpec\(\[\.\.\.state\.manualSources, \.\.\.pasted\]\);/);
+  // 실제 공고문에서 필수 8건을 읽고, 하나라도 준비 전이면 차단한다.
+  const notice = fs.readFileSync(new URL('./fixtures/notice-chest-2027-gold.txt', import.meta.url), 'utf8');
+  const spec = buildFormSpec([{ id: 'pasted-notice', fileName: '공고문', sourceType: '세부 공고문', extractionStatus: 'success', extractedText: notice }]);
+  assert.equal(spec.attachments.length, 8);
+  assert.equal(spec.attachments.filter(item => item.required).length, 8);
+  const blocked = buildSubmissionPackage({ sections: SECTIONS, gate: GATE_OK, formSpec: spec, included: [] });
+  assert.equal(blocked.status, '제출 차단');
+  assert.ok(blocked.blockers.some(item => item.reason === '필수 첨부서류 누락'));
+  const ready = buildSubmissionPackage({ sections: SECTIONS, gate: GATE_OK, formSpec: spec, included: spec.attachments.map(item => item.name) });
+  assert.equal(ready.canExport, true);
 });
 
 test('출력은 판정을 통과할 때만 나가고 기존 DOCX·PDF 경로를 그대로 쓴다', () => {

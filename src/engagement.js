@@ -88,6 +88,14 @@ export function designStatus({ approval, sections = [] } = {}) {
   if (record.requestedAt) return '확인 요청';
   return '설계 준비 중';
 }
+// 승인 뒤에 이번 사업 확정값이 바뀌면 승인 snapshot은 옛것이 된다. 그대로 기준으로 쓰지 않는다.
+export function designSnapshotStale(approval, brief) {
+  const snapshot = makeDesignApproval(approval).snapshot;
+  if (!snapshot || !brief) return false;
+  const values = plan => (plan.coreValues || []).map(item => `${item.key}=${item.value}`).join('|');
+  return values(snapshot) !== values(brief) || (snapshot.applicationType?.selected || '') !== (brief.applicationType?.selected || '');
+}
+
 // 승인 전에는 전체 계획서 작성을 실행하지 않는다. 이미 시작한 작성의 이어쓰기와 열람은 막지 않는다.
 export function canGenerateProposal({ approval, sections = [], startedParts = 0 } = {}) {
   if (makeDesignApproval(approval).approvedAt) return { allowed: true, reason: '' };

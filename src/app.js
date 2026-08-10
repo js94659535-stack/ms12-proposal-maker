@@ -19,7 +19,7 @@ import { buildFormSpec } from './form-spec.js';
 import { approvedDemandEvidence, buildDemandEvidence } from './demand-evidence.js';
 import { PROPOSAL_MODES, applyPatchedSections, buildReviewBasis, normalizeReviewIssues, reviewBasisReadiness, reviewSummary, sectionsToPatch, verifyUntouched } from './precise-review.js';
 import { buildSubmissionPackage, sectionsFingerprint } from './submission-package.js';
-import { ENGAGEMENT_STAGES, PROPOSAL_OUTLINE, buildDocumentPlan, buildEngagement, canGenerateProposal, designStatus, makeClient, makeDesignApproval, makeNoticeRequest, normalizeEngagement } from './engagement.js';
+import { ENGAGEMENT_STAGES, PROPOSAL_OUTLINE, buildDocumentPlan, buildEngagement, canGenerateProposal, designSnapshotStale, designStatus, makeClient, makeDesignApproval, makeNoticeRequest, normalizeEngagement } from './engagement.js';
 import { EXTERNAL_SOURCE, appendProposalVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, matchSectionsForIssue, proposalTextFromSections, proposalTextFromSnapshot, revisionInstruction, sectionsFromProposalText, verifyLockedValues } from './coaching-handoff.js';
 import { splitApplicantProfile } from './applicants.js';
 import { ARCHIVE_PAGE_SIZES, ARCHIVE_STATUSES, archiveTableRows, shortDate } from './archive-table.js';
@@ -817,7 +817,12 @@ function currentEngagement() {
 const PART_TONE = { 준비됨: '충족', '준비 중': '부분-충족', 없음: '확인-필요' };
 // 신청서 서식 규격표. 등록한 서식 자료에서 규칙으로 읽고 의뢰 건에 함께 저장한다(AI 호출 없음).
 function currentFormSpec() {
-  const spec = buildFormSpec(state.manualSources);
+  // 공고문을 자료로 올리지 않고 붙여넣기만 했어도 제출서류 목록을 읽는다.
+  // 목록을 못 읽으면 필수 첨부 누락을 잡지 못한 채 제출 가능으로 보일 수 있다.
+  const pasted = state.sourceText.trim().length >= 200 && !state.manualSources.some(item => item.sourceType === '세부 공고문' && item.extractionStatus === 'success')
+    ? [{ id: 'pasted-notice', fileName: `${state.project.title || '공고문'} (붙여넣은 공고문)`, sourceType: '세부 공고문', extractionStatus: 'success', extractedText: state.sourceText }]
+    : [];
+  const spec = buildFormSpec([...state.manualSources, ...pasted]);
   // 서식 자료가 바뀌면 규격표도 다시 읽는다. 서식이 없으면 예전 규격표를 지우지 않고 그대로 둔다.
   if (spec) state.engagement.formSpec = spec;
   return spec || state.engagement.formSpec || null;
@@ -1084,8 +1089,12 @@ function designBriefView(engagement, operator) {
   const brief = engagement.brief;
   const status = engagement.designState;
   const approval = engagement.approval;
+  // 확정값이 바뀌면 승인 snapshot이 옛것이 된다. 그대로 기준으로 쓰지 않고 다시 승인받는다.
+  const stale = designSnapshotStale(approval, brief);
   const actions = status === '계획서 작성 완료'
-    ? '<span class="muted">계획서가 작성되어 설계 단계는 끝났습니다.</span>'
+    ? (stale
+      ? '<span class="muted">이번 사업 확정값이 바뀌어 승인 내용이 옛것이 되었습니다.</span><button class="button primary" id="design-approve">변경된 설계안 다시 승인</button>'
+      : '<span class="muted">계획서가 작성되어 설계 단계는 끝났습니다.</span>')
     : status === '설계 승인'
       ? `<span class="muted">${escapeHtml(approval.approvedBy)} 역할로 ${escapeHtml(String(approval.approvedAt).slice(0, 16).replace('T', ' '))}에 승인</span><button class="button secondary" id="design-reopen">승인 해제</button>`
       : `${status === '설계 준비 중' ? '<button class="button primary" id="design-request">설계안 확인 요청</button>' : ''}
