@@ -3,6 +3,7 @@ const MAX_NOTICE_BATCH = 100;
 const MAX_PROPOSAL_BYTES = 700_000;
 const MAX_APPLICANT_BYTES = 300_000;
 const APPLICANT_STATUSES = ['확인됨', '확인 필요', '오래된 정보'];
+const ITEM_ORIGINS = ['고객 입력', '파일 추출', '운영자 수정', '기관 확인'];
 
 export async function onRequest(context) {
   if (context.request.method !== 'POST') return json({ error: 'POST 요청만 허용됩니다.' }, 405, { Allow: 'POST' });
@@ -102,12 +103,14 @@ export function normalizeApplicantRecord(value) {
     value: clean(item?.value, 2000),
     status: APPLICANT_STATUSES.includes(item?.status) ? item.status : '확인 필요',
     source: clean(item?.source, 300),
+    // 자료 출처(고객 입력 / 파일 추출 / 운영자 수정 / 기관 확인)는 값과 함께 보관한다.
+    origin: ITEM_ORIGINS.includes(item?.origin) ? item.origin : '',
     // 현재 기관 프로필(profile)과 사업·실적 이력(history) 구분. 같은 항목 구조 안에서만 쓴다.
     scope: ['profile', 'history'].includes(item?.scope) ? item.scope : '',
     asOf: clean(item?.asOf, 40),
     history: (Array.isArray(item?.history) ? item.history : []).slice(-20).map(entry => ({
       value: clean(entry?.value, 2000), status: APPLICANT_STATUSES.includes(entry?.status) ? entry.status : '확인 필요',
-      source: clean(entry?.source, 300), asOf: clean(entry?.asOf, 40), recordedAt: clean(entry?.recordedAt, 40)
+      source: clean(entry?.source, 300), origin: ITEM_ORIGINS.includes(entry?.origin) ? entry.origin : '', asOf: clean(entry?.asOf, 40), recordedAt: clean(entry?.recordedAt, 40)
     })),
     updatedAt: clean(item?.updatedAt, 40)
   }));

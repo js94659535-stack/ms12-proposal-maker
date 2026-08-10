@@ -21,6 +21,8 @@ const screens = [
   ...[0, 1, 2, 3, 4, 5].map(step => [`작업 ${step}단계 · 보관본 복원`, { activeTool: 'workflow', homeSeen: true, step, ...snapshot, applicants: SAMPLE_APPLICANTS }]),
   ['신청기관 정보', { activeTool: 'applicants', homeSeen: true, applicants: SAMPLE_APPLICANTS }],
   ['검증·코칭', { activeTool: 'coaching', homeSeen: true }],
+  ['의뢰 건 · 고객 화면', { activeTool: 'engagement', homeSeen: true, applicants: SAMPLE_APPLICANTS }],
+  ['의뢰 건 · 운영자 상세', { activeTool: 'engagement', homeSeen: true, applicants: SAMPLE_APPLICANTS, ...snapshot, engagement: { client: { name: '김담당' }, request: { title: '요청 사업' }, view: 'operator' } }],
   ...SAMPLE_STAGES.map(stage => [`[샘플] ${stage.no} ${stage.title}`, { activeTool: 'sample', sampleReturn: 'sample', sampleStage: stage.id, homeSeen: true }]),
   ['처음 사용', { homeSeen: true }]
 ];

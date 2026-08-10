@@ -15,6 +15,7 @@ import { buildDesignQuestions, reusableAnswerCandidates } from './design-questio
 import { buildBlueprint } from './project-blueprint.js';
 import { BLUEPRINT_SECTION_MAP, UNRESOLVED_MARK, annotateDraftSections, checkDraftAgainstBlueprint, officialRequirementConflicts } from './blueprint-draft-check.js';
 import { OFFICIAL_LOCKED, buildNoticeContract, checkProposalAgainstContract, contractCapabilityCheck, contractConflicts, contractFieldLocks } from './notice-contract.js';
+import { ENGAGEMENT_STAGES, buildEngagement, makeClient, makeNoticeRequest, normalizeEngagement } from './engagement.js';
 import { EXTERNAL_SOURCE, appendProposalVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, matchSectionsForIssue, proposalTextFromSections, proposalTextFromSnapshot, revisionInstruction, sectionsFromProposalText, verifyLockedValues } from './coaching-handoff.js';
 import { splitApplicantProfile } from './applicants.js';
 import { ARCHIVE_PAGE_SIZES, ARCHIVE_STATUSES, archiveTableRows, shortDate } from './archive-table.js';
@@ -63,6 +64,8 @@ const initial = {
   coaching: { title: '', text: '', validatedText: '', criteriaText: '', officialEvaluationProvided: false, sourceProposalId: '', sourceNoticeKey: '', seriesId: '', currentArchiveId: '', result: null, workItems: [], pendingJob: null, version: 0, references: [], referenceType: REFERENCE_TYPES[0], referenceDraft: '', referenceNameDraft: '' },
   applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
   revisionPlan: null, draftReview: null, projectNarrative: '', proposalVersions: [], proposalFlow: { status: '', baselineVersion: 0, reviewTarget: null, rounds: [], requests: [], requestOpen: false, requestText: '', requestScope: [], openVersion: 0, compareVersion: 0, approvedVersion: 0, approvedAt: '' }, coachingSelection: [], applicantSkipped: false, noticeLogic: null, redesignForContract: false,
+  // 「사업계획서 의뢰 건」 한 건의 고객 담당자와 공고 요청서. 기관 영구정보와 섞지 않는다.
+  engagement: { client: makeClient(), request: makeNoticeRequest(), view: 'customer' },
   analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveTable: { query: '', sortKey: 'collectedAt', sortDir: 'desc', page: 1, pageSize: 20, selected: [], expandedKey: '', applicantPickerKey: '', filters: { collected: '', institution: '', field: '', status: '', applicant: '', deadline: '' } }, archiveNoticeLinks: {}, archiveHiddenNotices: [], archiveOpenProposal: '', sampleStage: '', sampleReturn: '', aiResult: null, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
@@ -85,6 +88,8 @@ function loadState() {
       ? { ...structuredClone(initial.stagedGeneration), ...saved.stagedGeneration, parts: Array.isArray(saved.stagedGeneration.parts) ? saved.stagedGeneration.parts : [], completedGroupIds: Array.isArray(saved.stagedGeneration.completedGroupIds) ? saved.stagedGeneration.completedGroupIds : [] }
       : structuredClone(initial.stagedGeneration);
     const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantDocDraft: '', applicantExtraction: null, coachingSelection: [] };
+    // 예전에 저장한 상태에는 의뢰 건 정보가 없다. 빈 값으로 채우기만 하고 기존 데이터는 건드리지 않는다.
+    restored.engagement = normalizeEngagement(saved.engagement || {});
     // 자료보관함 목록의 선택·펼침 상태는 다시 열 때 초기화하고, 기관 매칭·숨김 기록만 유지한다.
     restored.archiveTable = { ...structuredClone(initial.archiveTable), ...(saved.archiveTable || {}), filters: { ...structuredClone(initial.archiveTable.filters), ...((saved.archiveTable || {}).filters || {}) }, selected: [], expandedKey: '', applicantPickerKey: '', page: 1 };
     restored.archiveNoticeLinks = saved.archiveNoticeLinks && typeof saved.archiveNoticeLinks === 'object' ? saved.archiveNoticeLinks : {};
@@ -293,7 +298,7 @@ function shell(content) {
       <main class="main">
         <header class="workflow-header">
           <div class="workflow-brand"><div class="brand"><span class="brand-mark">계</span><div><strong>사업계획서 작성 도우미</strong><small>공고 분석부터 제출본까지</small></div></div><span class="save-state">● 자동 저장 중</span></div>
-          <div class="workflow-row"><label class="type-select-label" for="business-type">사업 유형<select id="business-type">${TYPES.map(([id, name]) => `<option value="${id}" ${state.project.type === id ? 'selected' : ''}>${name}</option>`).join('')}</select></label><nav class="workflow-steps" aria-label="작성 단계">${STEPS.map((name, i) => { const complete = isStepComplete(i); return `<button data-step="${i}" class="workflow-step ${state.activeTool === 'workflow' && state.step === i ? 'active' : ''} ${complete ? 'done' : ''}" ${state.activeTool === 'workflow' && state.step === i ? 'aria-current="step"' : ''}><span>${complete ? '✓' : i + 1}</span>${name}</button>`; }).join('')}</nav><button class="history-button" id="open-archive-box">공고보관함·계획서보관함</button><button class="history-button" id="open-applicants" aria-pressed="${state.activeTool === 'applicants'}">신청기관 정보</button><button class="history-button" id="open-coaching" aria-pressed="${state.activeTool === 'coaching'}">계획서 검증·코칭</button><nav class="workflow-history" aria-label="앱 작업 화면 이동"><button class="history-button" id="workflow-back" aria-label="직전 작업 화면으로 뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="history-button" id="workflow-home" aria-label="홈 화면으로 가기">⌂ 홈 화면</button><button class="history-button" id="workflow-forward" aria-label="다음 작업 화면으로 앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button></nav></div>
+          <div class="workflow-row"><label class="type-select-label" for="business-type">사업 유형<select id="business-type">${TYPES.map(([id, name]) => `<option value="${id}" ${state.project.type === id ? 'selected' : ''}>${name}</option>`).join('')}</select></label><nav class="workflow-steps" aria-label="작성 단계">${STEPS.map((name, i) => { const complete = isStepComplete(i); return `<button data-step="${i}" class="workflow-step ${state.activeTool === 'workflow' && state.step === i ? 'active' : ''} ${complete ? 'done' : ''}" ${state.activeTool === 'workflow' && state.step === i ? 'aria-current="step"' : ''}><span>${complete ? '✓' : i + 1}</span>${name}</button>`; }).join('')}</nav><button class="history-button" id="open-archive-box">공고보관함·계획서보관함</button><button class="history-button" id="open-engagement" aria-pressed="${state.activeTool === 'engagement'}">의뢰 건</button><button class="history-button" id="open-applicants" aria-pressed="${state.activeTool === 'applicants'}">신청기관 정보</button><button class="history-button" id="open-coaching" aria-pressed="${state.activeTool === 'coaching'}">계획서 검증·코칭</button><nav class="workflow-history" aria-label="앱 작업 화면 이동"><button class="history-button" id="workflow-back" aria-label="직전 작업 화면으로 뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="history-button" id="workflow-home" aria-label="홈 화면으로 가기">⌂ 홈 화면</button><button class="history-button" id="workflow-forward" aria-label="다음 작업 화면으로 앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button></nav></div>
         </header>
         ${aiResultBanner()}
         ${state.notice ? `<div class="alert success">${escapeHtml(state.notice)}</div>` : ''}
@@ -787,6 +792,69 @@ function blueprintView() {
     </details>
     <details><summary>설계 논리 점검 (문제 → 대상 → 프로그램 → 예산 → 성과)</summary><div class="cap-grid">${blueprint.logic.map(link => `<div><span>${escapeHtml(link.state)}</span><strong>${escapeHtml(link.link)}</strong><small>${escapeHtml(link.reason)}</small></div>`).join('')}</div></details>
     <p class="muted">${escapeHtml(blueprint.rule)}</p></div>`;
+}
+
+// 「사업계획서 의뢰 건」 한 장. 고객 화면은 4단계와 다음 행동만 보여 주고,
+// 운영자 화면에서만 공고 분석·실행계약서·설계도·버전·게이트 상세를 연다.
+function currentEngagement() {
+  return buildEngagement({
+    ...state.engagement, applicant: selectedApplicant(), noticeLogic: state.noticeLogic,
+    manualSources: state.manualSources, projectValues: state.projectValues, sections: state.sections,
+    proposalVersions: state.proposalVersions, proposalFlow: proposalFlow(),
+    gate: currentSubmissionGate(), blueprint: currentBlueprint()
+  });
+}
+const PART_TONE = { 준비됨: '충족', '준비 중': '부분-충족', 없음: '확인-필요' };
+function setEngagementView(view) {
+  state.engagement = normalizeEngagement({ ...state.engagement, view });
+  setState({ engagement: state.engagement, notice: '', error: '' });
+}
+// 요청서는 이 의뢰 건에만 저장한다. 기관 영구정보(신청기관 정보)로 옮기지 않는다.
+function saveEngagementRequest() {
+  const request = state.engagement.request;
+  if (!request.title.trim()) return setState({ error: '요청 사업명을 적어 주세요.' });
+  state.engagement = normalizeEngagement({ ...state.engagement, request: { ...request, receivedAt: request.receivedAt || new Date().toISOString().slice(0, 10) } });
+  setState({ engagement: state.engagement, notice: '공고 요청서를 이 의뢰 건에 저장했습니다. 신청기관 정보는 바뀌지 않았습니다.', error: '' });
+  if (state.archiveProposalId) void archiveCurrentProposal().catch(() => {});
+}
+function engagementView() {
+  const engagement = currentEngagement();
+  const operator = state.engagement.view === 'operator';
+  const next = engagement.customerNext;
+  return `<div class="page-heading"><div><h2>사업계획서 의뢰 건</h2><p>이 건에 필요한 정보를 한 곳에서 봅니다. 기관에 계속 남는 정보와 이번 사업에서만 쓰는 값은 섞지 않습니다.</p></div>
+      <div class="actions"><button class="button ${operator ? 'secondary' : 'primary'}" id="engagement-view-customer" aria-pressed="${!operator}">고객 화면</button><button class="button ${operator ? 'primary' : 'secondary'}" id="engagement-view-operator" aria-pressed="${operator}">운영자 상세</button></div></div>
+    <div class="card" id="engagement-progress"><div class="card-title"><div><h3>진행 단계</h3><span>고객에게는 이 네 단계만 보여 줍니다.</span></div><strong>${escapeHtml(engagement.stage)}</strong></div>
+      <nav class="workflow-steps" aria-label="의뢰 진행 단계">${ENGAGEMENT_STAGES.map((name, index) => `<button class="workflow-step ${index === engagement.stageIndex ? 'active' : ''} ${index < engagement.stageIndex ? 'done' : ''}" type="button" disabled><span>${index < engagement.stageIndex ? '✓' : index + 1}</span>${escapeHtml(name)}</button>`).join('')}</nav>
+      <div class="alert success" id="engagement-next"><strong>다음 하실 일: ${escapeHtml(next.label)}</strong><p>${escapeHtml(next.why)}</p></div></div>
+    <div class="card" id="engagement-request"><div class="card-title"><div><h3>공고 요청서 · 고객 담당자</h3><span>고객이 의뢰한 내용입니다. 기관 영구정보로 올리지 않습니다.</span></div></div>
+      <div class="two-col"><div class="field"><label for="engagement-client-name">담당자 이름</label><input id="engagement-client-name" data-engagement-client="name" value="${escapeHtml(state.engagement.client.name)}"></div>
+        <div class="field"><label for="engagement-client-position">직위·부서</label><input id="engagement-client-position" data-engagement-client="position" value="${escapeHtml(state.engagement.client.position)}"></div></div>
+      <div class="two-col"><div class="field"><label for="engagement-client-contact">연락처</label><input id="engagement-client-contact" data-engagement-client="contact" value="${escapeHtml(state.engagement.client.contact)}" placeholder="이 건 진행에 필요한 연락처만 적습니다."></div>
+        <div class="field"><label for="engagement-request-manager">담당 운영자</label><input id="engagement-request-manager" data-engagement-request="manager" value="${escapeHtml(state.engagement.request.manager)}"></div></div>
+      <div class="two-col"><div class="field"><label for="engagement-request-title">요청 사업명</label><input id="engagement-request-title" data-engagement-request="title" value="${escapeHtml(state.engagement.request.title)}"></div>
+        <div class="field"><label for="engagement-request-deadline">마감일</label><input id="engagement-request-deadline" data-engagement-request="deadline" value="${escapeHtml(state.engagement.request.deadline)}" placeholder="YYYY-MM-DD"></div></div>
+      <div class="field"><label for="engagement-request-ask">요청 내용</label><textarea id="engagement-request-ask" data-engagement-request="ask" placeholder="어떤 공고에 무엇을 준비해야 하는지 적어 주세요.">${escapeHtml(state.engagement.request.ask)}</textarea></div>
+      <div class="actions"><span class="muted">여기 적은 내용은 이 의뢰 건에만 저장됩니다.</span><button class="button primary" id="engagement-save">요청서 저장</button></div></div>
+    ${operator ? engagementOperatorView(engagement) : `<div class="card"><div class="card-title"><div><h3>준비 상태</h3><span>준비된 것과 아직 필요한 것만 보여 드립니다.</span></div></div>
+      <div class="requirement-list">${engagement.parts.map(item => `<article class="requirement"><div><span class="status ${PART_TONE[item.state]}">${escapeHtml(item.state)}</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small></div></div></article>`).join('')}</div></div>`}`;
+}
+
+function engagementOperatorView(engagement) {
+  const operator = engagement.operator;
+  const boundary = engagement.boundary;
+  return `<div class="card" id="engagement-operator"><div class="card-title"><div><h3>운영자 상세</h3><span>공고 분석·실행계약서·기관현황 근거·설계도·버전·제출 게이트</span></div><strong>${escapeHtml(operator.gateStatus || '게이트 대기')}</strong></div>
+      <div class="summary-grid">
+        <div><span>공고 실행계약</span><strong>${operator.contractRules}개</strong><small>강제조건 ${operator.blockingRules}개</small></div>
+        <div><span>신청유형</span><strong>${escapeHtml(operator.applicationType || '미선택')}</strong><small>${escapeHtml(operator.blueprintReadiness || '설계 전')}</small></div>
+        <div><span>계획서</span><strong>${operator.versions ? `V${operator.versions}` : '없음'}</strong><small>검토 ${operator.reviewRounds}회 · ${escapeHtml(operator.proposalStatus || '미시작')}</small></div>
+        <div><span>제출 게이트</span><strong>${escapeHtml(operator.gateStatus || '-')}</strong><small>${operator.gateCounts ? `충족 ${operator.gateCounts['충족']} · 미확정 ${operator.gateCounts['미확정']} · 불일치 ${operator.gateCounts['불일치']}` : '계획서 작성 후 판정'}</small></div>
+      </div>
+      ${operator.gateBlocking ? `<div class="alert danger"><strong>제출을 막는 공고 조건 ${operator.gateBlocking}건</strong><p>계획서 작성 화면의 「공고 적합성」에서 사유와 근거를 볼 수 있습니다.</p></div>` : ''}
+      ${boundary.mixed.length ? `<div class="alert danger"><strong>기관 실적이 이번 사업 값으로 그대로 들어온 항목 ${boundary.mixed.length}건</strong>${boundary.mixed.map(item => `<p>· ${escapeHtml(item.label || item.key)} = ${escapeHtml(String(item.value).slice(0, 80))} (기관 실적 「${escapeHtml(item.from)}」과 같음)</p>`).join('')}<p>자동으로 고치지 않았습니다. 이번 사업 값으로 맞는지 확인하세요.</p></div>` : `<div class="alert success"><strong>기관 영구정보와 이번 사업 값이 분리되어 있습니다</strong><p>기관 영구정보 ${boundary.permanent.length}건 · 기관 실적 ${boundary.records.length}건 · 이번 사업 확정값 ${boundary.thisProject.length}건</p></div>`}
+      ${boundary.withoutOrigin ? `<div class="alert warning"><strong>출처가 기록되지 않은 기관자료 ${boundary.withoutOrigin}건</strong><p>고객 입력 / 파일 추출 / 운영자 수정 / 기관 확인 중 어디서 왔는지 기록하면 근거를 추적할 수 있습니다.</p></div>` : ''}
+      <details><summary>기관 영구정보 ${boundary.permanent.length}건 · 출처·확인상태</summary><div class="requirement-list">${boundary.permanent.map(item => `<article class="requirement"><div><span class="status ${item.status === '확인됨' ? '충족' : '확인-필요'}">${escapeHtml(item.status)}</span><div><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(String(item.value).slice(0, 160))}</small><small class="muted">출처 ${escapeHtml(item.origin || '미기록')}${item.asOf ? ` · 기준시점 ${escapeHtml(item.asOf)}` : ''}</small></div></div></article>`).join('') || '<p class="muted">등록된 기관 영구정보가 없습니다.</p>'}</div></details>
+      <details><summary>이번 사업 확정값 ${boundary.thisProject.length}건</summary><div class="requirement-list">${boundary.thisProject.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(item.key || '값')}</span><div><strong>${escapeHtml(item.label || item.key)}</strong><small>${escapeHtml(String(item.value).slice(0, 160))}</small></div></div></article>`).join('') || '<p class="muted">이번 사업 확정값이 없습니다.</p>'}</div></details>
+      <div class="actions"><span class="muted">상세 작업은 기존 화면에서 이어서 합니다.</span><div><button class="button secondary" data-step="1">공고 분석</button><button class="button secondary" data-step="3">사업 설계도</button><button class="button secondary" data-step="4">계획서 작성</button><button class="button secondary" id="engagement-open-coaching">검증·코칭</button></div></div></div>`;
 }
 
 function businessSelectView() {
@@ -1620,7 +1688,7 @@ function directFactsView() {
 
 function render() {
   const views = [noticeImportView, noticeConfirmView, applicantSelectView, businessSelectView, documentView, documentView];
-  const tools = { home: homeView, coaching: coachingView, applicants: applicantsToolView, sample: sampleView };
+  const tools = { home: homeView, coaching: coachingView, applicants: applicantsToolView, sample: sampleView, engagement: engagementView };
   app.innerHTML = shell((tools[state.activeTool] || views[state.step] || views[0])()); bind(); startBusyElapsedTimer(); runPendingAiMove();
 }
 
@@ -2043,6 +2111,13 @@ function bind() {
   document.querySelector('#send-to-review')?.addEventListener('click', sendVersionToReview);
   document.querySelector('#approve-final-proposal')?.addEventListener('click', approveFinalProposal);
   document.querySelector('#redesign-to-contract')?.addEventListener('click', () => redesignToContract().catch(showError));
+  document.querySelector('#open-engagement')?.addEventListener('click', () => setState({ activeTool: 'engagement', notice: '', error: '' }));
+  document.querySelector('#engagement-view-customer')?.addEventListener('click', () => setEngagementView('customer'));
+  document.querySelector('#engagement-view-operator')?.addEventListener('click', () => setEngagementView('operator'));
+  document.querySelector('#engagement-open-coaching')?.addEventListener('click', () => setState({ activeTool: 'coaching', notice: '', error: '' }));
+  document.querySelectorAll('[data-engagement-client]').forEach(el => el.addEventListener('input', () => { state.engagement.client = makeClient({ ...state.engagement.client, [el.dataset.engagementClient]: el.value }); saveState(); }));
+  document.querySelectorAll('[data-engagement-request]').forEach(el => el.addEventListener('input', () => { state.engagement.request = makeNoticeRequest({ ...state.engagement.request, [el.dataset.engagementRequest]: el.value }); saveState(); }));
+  document.querySelector('#engagement-save')?.addEventListener('click', saveEngagementRequest);
   document.querySelector('#open-version-history')?.addEventListener('click', () => document.querySelector('#result-completion')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   document.querySelectorAll('[data-proposal-detail]').forEach(el => el.onclick = () => setState({ archiveOpenProposal: state.archiveOpenProposal === el.dataset.proposalDetail ? '' : el.dataset.proposalDetail }));
   document.querySelectorAll('[data-view-version]').forEach(el => el.onclick = () => setProposalFlow({ openVersion: proposalFlow().openVersion === Number(el.dataset.viewVersion) ? 0 : Number(el.dataset.viewVersion) }));
@@ -3622,7 +3697,7 @@ async function archiveCurrentProposal(forcedStage, announce = false) {
   state.archiveProposalId = id;
   saveState();
   const stage = forcedStage || (state.reviewResult ? 'review' : state.sections.length ? 'complete' : state.stagedGeneration?.phase === 'parts-ready' ? 'parts' : 'master');
-  const fields = ['project', 'sourceText', 'analysis', 'sponsorIntent', 'projectDesign', 'missingInformation', 'evidenceMap', 'qualityCheck', 'designAnswers', 'designUnavailable', 'stagedGeneration', 'assemblyCheck', 'manualSources', 'matches', 'answers', 'sections', 'reviewResult', 'reviewOriginalDraft', 'reviewFingerprint', 'companyFacts', 'selectedNotice', 'aiMode', 'selectedApplicantId', 'projectValues', 'applicantResolvedQuestions', 'proposalVersions', 'revisionPlan', 'noticeLogic', 'draftReview', 'projectNarrative'];
+  const fields = ['project', 'sourceText', 'analysis', 'sponsorIntent', 'projectDesign', 'missingInformation', 'evidenceMap', 'qualityCheck', 'designAnswers', 'designUnavailable', 'stagedGeneration', 'assemblyCheck', 'manualSources', 'matches', 'answers', 'sections', 'reviewResult', 'reviewOriginalDraft', 'reviewFingerprint', 'companyFacts', 'selectedNotice', 'aiMode', 'selectedApplicantId', 'projectValues', 'applicantResolvedQuestions', 'proposalVersions', 'revisionPlan', 'noticeLogic', 'draftReview', 'projectNarrative', 'engagement'];
   // 계획서에는 사용 시점의 신청기관 사본만 남기고, 신청기관 원본은 별도 보관 항목으로만 수정한다.
   const snapshot = { ...Object.fromEntries(fields.map(key => [key, structuredClone(state[key])])), applicantSnapshot: selectedApplicant() ? structuredClone(selectedApplicant()) : null };
   const result = await saveArchivedProposal({ id, noticeKey: archiveNoticeKey(state.selectedNotice), title: state.project.title || state.selectedNotice?.title, stage, snapshot });

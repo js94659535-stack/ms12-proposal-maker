@@ -1,5 +1,7 @@
 // 「신청기관 정보」 도메인 규칙. DOM에 의존하지 않으므로 브라우저와 node --test에서 동일하게 사용한다.
 export const APPLICANT_STATUSES = ['확인됨', '확인 필요', '오래된 정보'];
+// 기관자료가 어디서 왔는지. 값과 함께 남기고 출처만으로 확인 상태를 올리지 않는다.
+export const ITEM_ORIGINS = ['고객 입력', '파일 추출', '운영자 수정', '기관 확인'];
 export const CONFIRMED_STATUS = '확인됨';
 
 export const APPLICANT_AREAS = [
@@ -59,11 +61,14 @@ export function makeApplicantItem(value = {}) {
     value: text(value.value, 2000),
     status: APPLICANT_STATUSES.includes(value.status) ? value.status : '확인 필요',
     source: text(value.source, 300),
+    // origin은 이 값이 어디서 왔는지다(고객 입력 / 파일 추출 / 운영자 수정 / 기관 확인).
+    // 비어 있으면 「출처 미기록」이며 확인 상태를 자동으로 올리지 않는다.
+    origin: ITEM_ORIGINS.includes(value.origin) ? value.origin : '',
     // asOf는 이 정보의 기준시점이다. 비어 있으면 기준시점 확인이 필요하다는 뜻이며 파일 업로드 날짜로 대신하지 않는다.
     asOf: text(value.asOf, 40),
     history: (Array.isArray(value.history) ? value.history : []).slice(-20).map(entry => ({
       value: text(entry?.value, 2000), status: APPLICANT_STATUSES.includes(entry?.status) ? entry.status : '확인 필요',
-      source: text(entry?.source, 300), asOf: text(entry?.asOf, 40), recordedAt: text(entry?.recordedAt, 40)
+      source: text(entry?.source, 300), origin: ITEM_ORIGINS.includes(entry?.origin) ? entry.origin : '', asOf: text(entry?.asOf, 40), recordedAt: text(entry?.recordedAt, 40)
     })),
     updatedAt: text(value.updatedAt, 40) || new Date().toISOString()
   };
