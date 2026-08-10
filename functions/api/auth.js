@@ -86,7 +86,7 @@ async function clearAttempts(db, emailHash, clientHash) {
 }
 
 function publicUser(user) {
-  return { id: user.id, email: user.email, role: user.role, orgId: user.org_id || '', name: user.name || '' };
+  return { id: user.id, email: user.email, role: user.role, orgId: user.org_id || '', name: user.name || '', status: user.status };
 }
 function json(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), { status, headers: { ...JSON_HEADERS, ...headers } });

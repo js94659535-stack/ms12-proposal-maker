@@ -4,7 +4,7 @@ import { localAnalyze } from './fallback.js';
 import { buildDocxBlob, downloadBlob, exportDocx, exportPdf, printDocument, submissionFileName } from './export.js';
 import { buildProposalPdfBlob, exportProposalPdf } from './pdf-export.js';
 import { MANIFEST_NAME, packageStale, planSubmissionZip, zipBytes } from './submission-zip.js';
-import { UNAUTHORIZED, currentUser, login, logout } from './auth.js';
+import { UNAUTHORIZED, accountProfile, clearOAuthCallback, currentUser, finishSocial, login, logout, readOAuthCallback, saveAccountProfile, startSocial } from './auth.js';
 import { fetchNoticeDetail, fetchNoticeList, importNoticeUrl, noticeBodyText } from './notices.js';
 import { deleteArchivedApplicant, getArchivedProposal, getArchiveRecoveryKey, listArchivedApplicants, listArchivedProposals, saveArchivedApplicant, saveArchivedProposal, searchArchivedNotices, syncArchivedNotices, useArchiveRecoveryKey } from './archive.js';
 import { ASOF_UNKNOWN, applySafeCandidates, applyUpdateCandidate, buildUpdateCandidates, extractApplicantCandidates } from './applicant-extract.js';
@@ -88,14 +88,114 @@ let archiveMenuOpenedAt = 0;
 // 연결한 첨부 원본. 브라우저 메모리에만 두고 localStorage에 base64로 저장하지 않는다.
 const attachmentFiles = new Map();
 // 로그인 상태. 세션 쿠키가 진짜 근거이고 이 값은 화면 표시용이다. localStorage에 저장하지 않는다.
-let auth = { status: 'checking', user: null, emailDraft: '', passwordDraft: '', error: '', busy: false };
+let auth = {
+  status: 'checking', user: null, emailDraft: '', passwordDraft: '', error: '', notice: '', busy: false,
+  identities: [], profileDraft: { name: '', phone: '', orgName: '', isContact: null, agreeTerms: false, agreePrivacy: false }
+};
 
 function setAuth(patch) { auth = { ...auth, ...patch }; render(); }
-function signOutLocally(message = '') { setAuth({ status: 'anonymous', user: null, passwordDraft: '', error: message, busy: false }); }
+function signOutLocally(message = '') { setAuth({ status: 'anonymous', user: null, passwordDraft: '', identities: [], error: message, notice: '', busy: false }); }
+// 승인 전 계정은 가입 절차 화면만 본다.
+function pendingAccount() { return auth.status === 'signedIn' && auth.user?.status === 'pending'; }
+
 async function checkSession() {
+  // 공급자가 돌려보낸 주소면 먼저 마무리한다.
+  const callback = readOAuthCallback();
+  if (callback) {
+    clearOAuthCallback();
+    if (callback.error || !callback.code || !callback.state) return setAuth({ status: 'anonymous', user: null, error: '소셜 로그인을 마치지 못했습니다. 다시 시도해 주세요.' });
+    setAuth({ status: 'checking', error: '' });
+    const done = await finishSocial(callback.provider, callback.code, callback.state).catch(() => ({ ok: false }));
+    if (done.ok && done.signedIn) return applySignedIn(done.user, done.created ? '가입이 접수되었습니다. 아래 정보를 입력해 주세요.' : '');
+    if (done.ok && done.linked) { await loadAccount(); return setAuth({ notice: done.alreadyLinked ? '이미 연결된 계정입니다.' : '소셜 계정을 연결했습니다.' }); }
+    return setAuth({ status: 'anonymous', user: null, error: done.error || '소셜 로그인을 마치지 못했습니다.' });
+  }
   const result = await currentUser().catch(() => ({ ok: false }));
-  if (result.ok && result.user) return setAuth({ status: 'signedIn', user: result.user, error: '', passwordDraft: '' });
+  if (result.ok && result.user) return applySignedIn(result.user);
   setAuth({ status: 'anonymous', user: null, passwordDraft: '' });
+}
+function applySignedIn(user, notice = '') {
+  setAuth({ status: 'signedIn', user, error: '', notice, passwordDraft: '', emailDraft: '' });
+  void loadAccount();
+}
+async function loadAccount() {
+  const result = await accountProfile().catch(() => ({ ok: false }));
+  if (!result.ok) return;
+  const saved = result.profile || {};
+  setAuth({
+    identities: result.identities || [],
+    user: { ...auth.user, ...result.user },
+    profileDraft: {
+      name: auth.profileDraft.name || result.user?.name || '', phone: auth.profileDraft.phone || saved.phone || '',
+      orgName: auth.profileDraft.orgName || saved.orgName || '', isContact: auth.profileDraft.isContact ?? (saved.consentedAt ? saved.isContact : null),
+      agreeTerms: auth.profileDraft.agreeTerms, agreePrivacy: auth.profileDraft.agreePrivacy
+    }
+  });
+}
+// 소셜 가입·연결 시작. 설정값이 없으면 그대로 사유를 보여 준다.
+async function beginSocial(provider, mode) {
+  setAuth({ busy: true, error: '', notice: '' });
+  const result = await startSocial(provider, mode).catch(() => ({ ok: false }));
+  if (!result.ok || !result.authorizeUrl) return setAuth({ busy: false, error: result.error || '소셜 로그인을 시작하지 못했습니다.' });
+  window.location.assign(result.authorizeUrl);
+}
+async function submitProfile() {
+  if (auth.busy) return;
+  setAuth({ busy: true, error: '', notice: '' });
+  const result = await saveAccountProfile(auth.profileDraft).catch(() => ({ ok: false }));
+  if (!result.ok) return setAuth({ busy: false, error: result.error || '정보를 저장하지 못했습니다.' });
+  setAuth({ busy: false, notice: '가입 정보를 저장했습니다. 관리자 승인 후 이용할 수 있습니다.' });
+  await loadAccount();
+}
+// 소셜 계정 행의 email은 내부 식별용이다. 사람에게는 연결된 소셜 이메일을 보여 준다.
+function accountEmail() {
+  const social = auth.identities.find(item => item.email)?.email;
+  const own = String(auth.user?.email || '');
+  return social || (own.endsWith('@social.ms12.invalid') ? '소셜 계정' : own);
+}
+const SOCIAL_BUTTONS = [['google', 'Google'], ['kakao', '카카오']];
+function socialButtons(mode) {
+  return SOCIAL_BUTTONS.map(([provider, label]) =>
+    `<button class="button secondary" data-social="${provider}" data-social-mode="${mode}" ${auth.busy ? 'disabled' : ''}>${label}${mode === 'link' ? ' 계정 연결' : '로 시작하기'}</button>`).join('');
+}
+// 승인 전 계정이 채우는 최소 정보.
+function pendingView() {
+  const draft = auth.profileDraft;
+  const done = Boolean(auth.user?.profileCompleted);
+  return `<div class="layout home-layout"><main class="main"><div class="card" style="max-width:520px;margin:6vh auto">
+    <div class="card-title"><div><h3>가입 정보 입력</h3><span>${escapeHtml(accountEmail())} · 관리자 승인 후 이용할 수 있습니다.</span></div><span class="status 확인-필요">승인 대기</span></div>
+    ${auth.error ? `<div class="alert danger"><strong>${escapeHtml(auth.error)}</strong></div>` : ''}
+    ${auth.notice ? `<div class="alert success"><strong>${escapeHtml(auth.notice)}</strong></div>` : ''}
+    ${done ? '<div class="alert success"><strong>정보를 모두 받았습니다</strong><p>관리자가 승인하면 작업 화면이 열립니다.</p></div>' : ''}
+    <form id="profile-form">
+      <div class="field"><label for="profile-name">표시 이름</label><input id="profile-name" value="${escapeHtml(draft.name)}"></div>
+      <div class="field"><label for="profile-phone">연락처</label><input id="profile-phone" inputmode="tel" placeholder="010-0000-0000" value="${escapeHtml(draft.phone)}"></div>
+      <div class="field"><label for="profile-org">기관명</label><input id="profile-org" value="${escapeHtml(draft.orgName)}"></div>
+      <div class="field"><label for="profile-contact">담당자 여부</label><select id="profile-contact">
+        <option value="" ${draft.isContact === null ? 'selected' : ''}>선택해 주세요</option>
+        <option value="yes" ${draft.isContact === true ? 'selected' : ''}>기관의 사업 담당자입니다</option>
+        <option value="no" ${draft.isContact === false ? 'selected' : ''}>담당자가 아닙니다</option></select></div>
+      <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="agree-terms" ${draft.agreeTerms ? 'checked' : ''}>이용약관에 동의합니다 (${CONSENT_TERMS})</label>
+      <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="agree-privacy" ${draft.agreePrivacy ? 'checked' : ''}>개인정보 수집·이용에 동의합니다 (${CONSENT_PRIVACY})</label>
+      <div class="actions"><button class="button secondary" id="sign-out" type="button">로그아웃</button><button class="button primary" id="profile-submit" type="submit" ${auth.busy ? 'disabled' : ''}>${auth.busy ? '저장 중…' : '제출'}</button></div>
+    </form>
+    ${accountLinkPanel()}</div></main></div>`;
+}
+const CONSENT_TERMS = '2026-08-10';
+const CONSENT_PRIVACY = '2026-08-10';
+// 로그인한 사람의 계정 설정 화면.
+function accountView() {
+  return `<div class="card"><div class="card-title"><div><h3>계정 설정</h3><span>${escapeHtml(accountEmail())} · ${escapeHtml(auth.user?.role || '')}</span></div><span class="status 충족">${escapeHtml(auth.user?.status || '')}</span></div>
+    ${auth.error ? `<div class="alert danger"><strong>${escapeHtml(auth.error)}</strong></div>` : ''}
+    ${auth.notice ? `<div class="alert success"><strong>${escapeHtml(auth.notice)}</strong></div>` : ''}
+    ${accountLinkPanel()}</div>`;
+}
+// 로그인한 사람이 두 번째 소셜 계정을 연결하는 곳.
+function accountLinkPanel() {
+  const linked = new Set(auth.identities.map(item => item.provider));
+  return `<details ${linked.size ? '' : 'open'}><summary>연결된 소셜 계정 ${auth.identities.length}개</summary>
+    <div class="requirement-list">${auth.identities.map(item => `<article class="requirement"><div><span class="status 충족">${escapeHtml(item.label)}</span><div><strong>${escapeHtml(item.email || '이메일 없음')}</strong><small class="muted">${escapeHtml(String(item.linkedAt).slice(0, 10))} 연결</small></div></div></article>`).join('') || '<p class="muted">아직 연결된 소셜 계정이 없습니다.</p>'}</div>
+    <div class="actions"><span class="muted">같은 계정에 Google과 카카오를 함께 연결할 수 있습니다.</span><div>${SOCIAL_BUTTONS.filter(([provider]) => !linked.has(provider)).map(([provider, label]) => `<button class="button secondary" data-social="${provider}" data-social-mode="link" ${auth.busy ? 'disabled' : ''}>${label} 계정 연결</button>`).join('') || '<span class="muted">두 공급자가 모두 연결되어 있습니다.</span>'}</div></div></details>`;
 }
 async function submitLogin() {
   if (auth.busy) return;
@@ -115,6 +215,9 @@ function loginView() {
   return `<div class="layout home-layout"><main class="main"><div class="card" id="login-card" style="max-width:420px;margin:8vh auto">
     <div class="card-title"><div><h3>MS12 사업계획서 작성 도우미</h3><span>${checking ? '로그인 상태를 확인하는 중입니다.' : '운영 계정으로 로그인하세요.'}</span></div></div>
     ${auth.error ? `<div class="alert danger"><strong>${escapeHtml(auth.error)}</strong></div>` : ''}
+    ${auth.notice ? `<div class="alert success"><strong>${escapeHtml(auth.notice)}</strong></div>` : ''}
+    <div class="actions" style="justify-content:stretch"><div style="display:flex;gap:8px;flex-wrap:wrap">${socialButtons('signup')}</div></div>
+    <p class="muted">소셜로 처음 시작하면 승인 대기 상태로 가입되고, 관리자가 승인해야 이용할 수 있습니다.</p>
     <form id="login-form" autocomplete="on">
       <div class="field"><label for="login-email">이메일</label><input id="login-email" type="email" autocomplete="username" value="${escapeHtml(auth.emailDraft)}" ${checking ? 'disabled' : ''}></div>
       <div class="field"><label for="login-password">비밀번호</label><input id="login-password" type="password" autocomplete="current-password" value="${escapeHtml(auth.passwordDraft)}" ${checking ? 'disabled' : ''}></div>
@@ -349,7 +452,7 @@ function shell(content) {
     <div class="layout">
       <main class="main">
         <header class="workflow-header">
-          <div class="workflow-brand"><div class="brand"><span class="brand-mark">계</span><div><strong>사업계획서 작성 도우미</strong><small>공고 분석부터 제출본까지</small></div></div><span class="save-state">● 자동 저장 중</span><span class="mode">${escapeHtml(auth.user?.email || '')}</span><button class="history-button" id="sign-out">로그아웃</button></div>
+          <div class="workflow-brand"><div class="brand"><span class="brand-mark">계</span><div><strong>사업계획서 작성 도우미</strong><small>공고 분석부터 제출본까지</small></div></div><span class="save-state">● 자동 저장 중</span><span class="mode">${escapeHtml(accountEmail())}</span><button class="history-button" id="open-account" aria-pressed="${state.activeTool === 'account'}">계정 설정</button><button class="history-button" id="sign-out">로그아웃</button></div>
           <div class="workflow-row"><label class="type-select-label" for="business-type">사업 유형<select id="business-type">${TYPES.map(([id, name]) => `<option value="${id}" ${state.project.type === id ? 'selected' : ''}>${name}</option>`).join('')}</select></label><nav class="workflow-steps" aria-label="작성 단계">${STEPS.map((name, i) => { const complete = isStepComplete(i); return `<button data-step="${i}" class="workflow-step ${state.activeTool === 'workflow' && state.step === i ? 'active' : ''} ${complete ? 'done' : ''}" ${state.activeTool === 'workflow' && state.step === i ? 'aria-current="step"' : ''}><span>${complete ? '✓' : i + 1}</span>${name}</button>`; }).join('')}</nav><button class="history-button" id="open-archive-box">공고보관함·계획서보관함</button><button class="history-button" id="open-engagement" aria-pressed="${state.activeTool === 'engagement'}">의뢰 건</button><button class="history-button" id="open-applicants" aria-pressed="${state.activeTool === 'applicants'}">신청기관 정보</button><button class="history-button" id="open-coaching" aria-pressed="${state.activeTool === 'coaching'}">계획서 검증·코칭</button><nav class="workflow-history" aria-label="앱 작업 화면 이동"><button class="history-button" id="workflow-back" aria-label="직전 작업 화면으로 뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="history-button" id="workflow-home" aria-label="홈 화면으로 가기">⌂ 홈 화면</button><button class="history-button" id="workflow-forward" aria-label="다음 작업 화면으로 앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button></nav></div>
         </header>
         ${aiResultBanner()}
@@ -2191,14 +2294,26 @@ function directFactsView() {
 function render() {
   // 로그인하기 전에는 작업 화면을 그리지 않는다. 실제 차단은 서버가 하고 화면은 그 결과를 따른다.
   if (auth.status !== 'signedIn') { app.innerHTML = loginView(); bindLogin(); return; }
+  // 승인 전 계정은 가입 절차 화면만 본다. 실제 차단은 서버가 한다.
+  if (pendingAccount()) { app.innerHTML = pendingView(); bindLogin(); return; }
   const views = [noticeImportView, noticeConfirmView, applicantSelectView, businessSelectView, documentView, documentView];
-  const tools = { home: homeView, coaching: coachingView, applicants: applicantsToolView, sample: sampleView, engagement: engagementView };
+  const tools = { home: homeView, coaching: coachingView, applicants: applicantsToolView, sample: sampleView, engagement: engagementView, account: accountView };
   app.innerHTML = shell((tools[state.activeTool] || views[state.step] || views[0])()); bind(); startBusyElapsedTimer(); runPendingAiMove();
 }
 function bindLogin() {
   document.querySelector('#login-email')?.addEventListener('input', event => { auth.emailDraft = event.target.value; });
   document.querySelector('#login-password')?.addEventListener('input', event => { auth.passwordDraft = event.target.value; });
   document.querySelector('#login-form')?.addEventListener('submit', event => { event.preventDefault(); void submitLogin(); });
+  document.querySelectorAll('[data-social]').forEach(el => el.addEventListener('click', () => void beginSocial(el.dataset.social, el.dataset.socialMode)));
+  document.querySelector('#sign-out')?.addEventListener('click', () => void submitLogout());
+  const draft = patch => { auth.profileDraft = { ...auth.profileDraft, ...patch }; };
+  document.querySelector('#profile-name')?.addEventListener('input', event => draft({ name: event.target.value }));
+  document.querySelector('#profile-phone')?.addEventListener('input', event => draft({ phone: event.target.value }));
+  document.querySelector('#profile-org')?.addEventListener('input', event => draft({ orgName: event.target.value }));
+  document.querySelector('#profile-contact')?.addEventListener('change', event => draft({ isContact: event.target.value ? event.target.value === 'yes' : null }));
+  document.querySelector('#agree-terms')?.addEventListener('change', event => draft({ agreeTerms: event.target.checked }));
+  document.querySelector('#agree-privacy')?.addEventListener('change', event => draft({ agreePrivacy: event.target.checked }));
+  document.querySelector('#profile-form')?.addEventListener('submit', event => { event.preventDefault(); void submitProfile(); });
 }
 
 // [샘플] 프로젝트 보기. 별도 화면에서만 열리며 사용자의 실제 작업 상태는 읽지도 바꾸지도 않는다.
@@ -2514,6 +2629,8 @@ function bind() {
   document.querySelector('#business-type')?.addEventListener('change', event => { state.project.type = event.target.value; saveState(); render(); });
   document.querySelectorAll('[data-step]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(Number(el.dataset.step), { notice: '', error: '' }); });
   document.querySelector('#sign-out')?.addEventListener('click', () => void submitLogout());
+  document.querySelector('#open-account')?.addEventListener('click', () => setState({ activeTool: 'account', notice: '', error: '' }));
+  document.querySelectorAll('[data-social]').forEach(el => el.addEventListener('click', () => void beginSocial(el.dataset.social, el.dataset.socialMode)));
   document.querySelector('#open-archive-box')?.addEventListener('click', () => {
     state.activeTool = 'workflow';
     navigateToStep(0, { notice: '공고보관함·계획서보관함을 열었습니다.', error: '' });

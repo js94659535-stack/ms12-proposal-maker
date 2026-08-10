@@ -5,6 +5,8 @@ import { sha256Hex, toHex } from './password.js';
 export const SESSION_COOKIE = '__Host-ms12_session';
 export const SESSION_HOURS = 12;
 const TOKEN_BYTES = 32;
+// 세션을 열어 줄 계정 상태. disabled는 어떤 경우에도 열지 않는다.
+export const SESSION_STATUSES = new Set(['active', 'pending']);
 const STATE_CHANGING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 export function newSessionToken() {
@@ -53,10 +55,11 @@ export async function loadSession(db, token, now = new Date()) {
   const row = await db.prepare(`SELECT s.token_hash, s.expires_at, u.id AS user_id, u.email, u.role, u.org_id, u.name, u.status
     FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?`).bind(tokenHash).first();
   if (!row) return null;
-  if (row.status !== 'active' || !row.expires_at || row.expires_at <= now.toISOString()) return null;
+  // pending은 가입 절차를 마치라고 붙여 둔 상태다. 세션은 열리지만 작업 API는 미들웨어가 막는다.
+  if (!SESSION_STATUSES.has(row.status) || !row.expires_at || row.expires_at <= now.toISOString()) return null;
   return {
     tokenHash, expiresAt: row.expires_at,
-    user: { id: row.user_id, email: row.email, role: row.role, orgId: row.org_id || '', name: row.name || '' }
+    user: { id: row.user_id, email: row.email, role: row.role, orgId: row.org_id || '', name: row.name || '', status: row.status }
   };
 }
 
