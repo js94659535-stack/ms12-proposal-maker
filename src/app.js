@@ -1,8 +1,9 @@
 import { analyzeWithAI, draftPartWithAI, draftWithAI, finalizeWithAI, fullProposalWithAI, masterWithAI, patchSectionsWithAI, preciseReviewWithAI, rewriteWithAI } from './api.js';
 import { extractFile, extractFiles } from './files.js';
 import { localAnalyze } from './fallback.js';
-import { exportDocx, exportPdf, printDocument, submissionFileName } from './export.js';
-import { exportProposalPdf } from './pdf-export.js';
+import { buildDocxBlob, downloadBlob, exportDocx, exportPdf, printDocument, submissionFileName } from './export.js';
+import { buildProposalPdfBlob, exportProposalPdf } from './pdf-export.js';
+import { MANIFEST_NAME, packageStale, planSubmissionZip, zipBytes } from './submission-zip.js';
 import { fetchNoticeDetail, fetchNoticeList, importNoticeUrl, noticeBodyText } from './notices.js';
 import { deleteArchivedApplicant, getArchivedProposal, getArchiveRecoveryKey, listArchivedApplicants, listArchivedProposals, saveArchivedApplicant, saveArchivedProposal, searchArchivedNotices, syncArchivedNotices, useArchiveRecoveryKey } from './archive.js';
 import { ASOF_UNKNOWN, applySafeCandidates, applyUpdateCandidate, buildUpdateCandidates, extractApplicantCandidates } from './applicant-extract.js';
@@ -70,7 +71,7 @@ const initial = {
   applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
   revisionPlan: null, draftReview: null, projectNarrative: '', proposalVersions: [], proposalFlow: { status: '', baselineVersion: 0, reviewTarget: null, rounds: [], requests: [], requestOpen: false, requestText: '', requestScope: [], openVersion: 0, compareVersion: 0, approvedVersion: 0, approvedAt: '' }, coachingSelection: [], applicantSkipped: false, noticeLogic: null, redesignForContract: false,
   // 「사업계획서 의뢰 건」 한 건의 고객 담당자와 공고 요청서. 기관 영구정보와 섞지 않는다.
-  engagement: { client: makeClient(), request: makeNoticeRequest(), design: makeDesignApproval(), view: 'customer', mode: '표준형' }, proposalTables: [], preciseReview: null, submissionIncluded: [], currentVersionId: '',
+  engagement: { client: makeClient(), request: makeNoticeRequest(), design: makeDesignApproval(), view: 'customer', mode: '표준형' }, proposalTables: [], preciseReview: null, submissionIncluded: [], currentVersionId: '', attachmentLinks: {}, submissionZip: null,
   analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveTable: { query: '', sortKey: 'collectedAt', sortDir: 'desc', page: 1, pageSize: 20, selected: [], expandedKey: '', applicantPickerKey: '', filters: { collected: '', institution: '', field: '', status: '', applicant: '', deadline: '' } }, archiveNoticeLinks: {}, archiveHiddenNotices: [], archiveOpenProposal: '', sampleStage: '', sampleReturn: '', aiResult: null, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
@@ -83,6 +84,8 @@ let homeArchiveLoaded = false;
 let coachingPollActive = false;
 // 길게 누르기로 연 메뉴가 같은 동작의 click 때문에 바로 닫히지 않게 한다.
 let archiveMenuOpenedAt = 0;
+// 연결한 첨부 원본. 브라우저 메모리에만 두고 localStorage에 base64로 저장하지 않는다.
+const attachmentFiles = new Map();
 
 function loadState() {
   try {
@@ -92,7 +95,7 @@ function loadState() {
     const stagedGeneration = saved.stagedGeneration && typeof saved.stagedGeneration === 'object'
       ? { ...structuredClone(initial.stagedGeneration), ...saved.stagedGeneration, parts: Array.isArray(saved.stagedGeneration.parts) ? saved.stagedGeneration.parts : [], completedGroupIds: Array.isArray(saved.stagedGeneration.completedGroupIds) ? saved.stagedGeneration.completedGroupIds : [] }
       : structuredClone(initial.stagedGeneration);
-    const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantDocDraft: '', applicantExtraction: null, coachingSelection: [] };
+    const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantDocDraft: '', applicantExtraction: null, coachingSelection: [], attachmentLinks: {}, submissionZip: null };
     // 예전에 저장한 상태에는 의뢰 건 정보가 없다. 빈 값으로 채우기만 하고 기존 데이터는 건드리지 않는다.
     restored.engagement = normalizeEngagement(saved.engagement || {});
     // 예전에 저장한 버전에는 식별자·표가 없다. 빠진 것만 채우고 값은 그대로 둔다.
@@ -121,7 +124,9 @@ function withMigratedApplicants(value) {
   return { ...value, applicants, selectedApplicantId, projectValues: Array.isArray(value.projectValues) ? value.projectValues : [] };
 }
 function saveState() {
-  const safe = { ...state, companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], archiveNotices: [], archiveProposals: [], noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', applicantComparison: null, applicantDocDraft: '', applicantExtraction: null, files: state.files.map(({ text, ...meta }) => meta) };
+  const safe = { ...state, companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], archiveNotices: [], archiveProposals: [], noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', applicantComparison: null, applicantDocDraft: '', applicantExtraction: null, files: state.files.map(({ text, ...meta }) => meta),
+    // 첨부 원본은 브라우저 메모리에만 있다. 새로고침 뒤에 파일이 있다고 잘못 말하지 않도록 연결 기록도 저장하지 않는다.
+    attachmentLinks: {}, submissionZip: null };
   // 참고자료처럼 큰 원문이 들어오면 브라우저 저장 한도를 넘을 수 있다. 저장 실패가 화면을 멈추지 않게 한다.
   try { localStorage.setItem('ms12_project_v3', JSON.stringify(safe)); }
   catch { console.warn('브라우저 자동 저장 용량을 초과해 이번 상태는 저장하지 못했습니다.'); }
@@ -1072,7 +1077,91 @@ function toggleAttachment(name) {
   if (included.has(name)) included.delete(name); else included.add(name);
   setState({ submissionIncluded: [...included], notice: '', error: '' });
 }
+
+// ---------- 제출 ZIP ----------
+// 필수 첨부마다 실제 파일을 연결한다. 원본은 메모리에만 두고 바꾸지 않는다.
+function linkAttachmentFile(name, file) {
+  if (!file) return;
+  attachmentFiles.set(name, file);
+  const links = { ...(state.attachmentLinks || {}), [name]: { fileName: file.name, size: file.size, at: new Date().toISOString() } };
+  setState({ attachmentLinks: links, notice: `${name}에 ${file.name}을 연결했습니다.`, error: '' });
+}
+function unlinkAttachmentFile(name) {
+  attachmentFiles.delete(name);
+  const links = { ...(state.attachmentLinks || {}) };
+  delete links[name];
+  setState({ attachmentLinks: links, notice: `${name}의 연결을 해제했습니다.`, error: '' });
+}
+// 계획서 버전이 바뀌면 앞서 만든 패키지는 만료다.
+function submissionZipStale() {
+  return Boolean(state.submissionZip) && packageStale(state.submissionZip, state.currentVersionId);
+}
+function currentZipPlan(documents = null) {
+  const summary = currentSubmissionPackage();
+  const { version } = selectedSavedVersion();
+  return planSubmissionZip({
+    canExport: Boolean(summary?.canExport) && Boolean(version) && !unsavedChanges(),
+    packageStatus: summary?.status || '',
+    attachments: currentFormSpec()?.attachments || [],
+    links: state.attachmentLinks || {},
+    documents: documents || [{ key: 'docx', name: '최종 사업계획서.docx', bytes: null }, { key: 'pdf', name: '최종 사업계획서.pdf', bytes: null }],
+    projectTitle: state.project.title || '', applicantName: selectedApplicant()?.name || '',
+    version: version?.version || 0, versionId: version?.versionId || '', generatedAt: new Date().toISOString()
+  });
+}
+async function exportSubmissionZip() {
+  const { version, reason } = selectedSavedVersion();
+  if (!version) return setState({ error: reason });
+  if (unsavedChanges()) return setState({ error: `화면 내용이 저장된 V${version.version}과 달라 패키지를 만들지 않았습니다.` });
+  const applicantName = selectedApplicant()?.name || '';
+  const names = { docx: submissionFileName(state.project, { applicantName, version: version.version, kind: 'docx' }), pdf: submissionFileName(state.project, { applicantName, version: version.version, kind: 'pdf' }) };
+  setState({ busy: 'zip', notice: '', error: '' });
+  try {
+    // 제출 문서는 지금 고른 저장 버전으로만 만든다.
+    const options = { forSubmission: true, tables: version.tables || [], applicantName, version: version.version };
+    const [docx, pdf] = await Promise.all([
+      buildDocxBlob(state.project, version.sections, options),
+      buildProposalPdfBlob({ project: state.project, sections: version.sections, tables: version.tables || [] })
+    ]);
+    const blobs = { docx, pdf };
+    const plan = currentZipPlan([{ key: 'docx', name: names.docx, bytes: docx.size }, { key: 'pdf', name: names.pdf, bytes: pdf.size }]);
+    if (!plan.ok) return setState({ busy: '', error: `제출 패키지를 만들지 않았습니다. ${plan.blockers.map(item => `${item.reason} — ${item.detail}`).join(' / ')}` });
+    const files = [];
+    for (const entry of plan.entries) {
+      // 첨부 원본은 변환하지 않고 읽은 바이트를 그대로 담는다.
+      const source = entry.kind === '문서' ? blobs[entry.key] : attachmentFiles.get(entry.slot);
+      if (!source) throw new Error(`${entry.slot || entry.name}의 파일을 읽지 못했습니다.`);
+      const bytes = new Uint8Array(await source.arrayBuffer());
+      if (!bytes.length) throw new Error(`${entry.slot || entry.name}이 0바이트입니다.`);
+      files.push({ name: entry.name, bytes });
+    }
+    files.push({ name: MANIFEST_NAME, bytes: new TextEncoder().encode(plan.manifest) });
+    downloadBlob(new Blob([zipBytes(files, plan.meta.generatedAt)], { type: 'application/zip' }), plan.fileName);
+    setState({
+      busy: '', notice: `제출 패키지 ${files.length}개 파일을 묶었습니다: ${plan.fileName}`,
+      submissionZip: { versionId: version.versionId, at: plan.meta.generatedAt, fileName: plan.fileName, count: files.length }
+    });
+  } catch (error) {
+    setState({ busy: '', error: `제출 패키지를 만들지 못했습니다. ${error.message}` });
+  }
+}
 const PACKAGE_TONE = { '제출 가능': 'success', '보완 필요': 'warning', '제출 차단': 'danger' };
+// 파일을 연결하지 않아도 되는 항목인지 알려준다(생성 문서로 충족·참고자료).
+function zipSkipReason(plan, name) {
+  return plan.skipped.find(item => item.name === name && item.reason !== '선택 첨부이며 연결된 파일이 없습니다.')?.reason || '';
+}
+// 제출 ZIP 구성표. 무엇이 들어가고 무엇이 빠지는지 만들기 전에 보여준다.
+function zipPanelView(plan) {
+  const stale = submissionZipStale();
+  return `<details open><summary>제출 ZIP 구성 · 포함 ${plan.entries.length + 1}건 · 미포함 ${plan.skipped.length}건</summary>
+    ${plan.ok ? '' : `<div class="alert danger"><strong>패키지를 만들 수 없습니다</strong>${plan.blockers.map(item => `<p>✕ <b>${escapeHtml(item.reason)}</b> — ${escapeHtml(item.detail)}</p>`).join('')}</div>`}
+    ${stale ? `<div class="alert warning"><strong>이전 패키지는 만료되었습니다</strong><p>계획서 버전이 바뀌었습니다. ${escapeHtml(state.submissionZip.fileName)}을 그대로 제출하지 말고 다시 묶으세요.</p></div>` : ''}
+    ${!stale && state.submissionZip ? `<div class="alert success"><strong>마지막 패키지</strong><p>${escapeHtml(state.submissionZip.fileName)} · 파일 ${state.submissionZip.count}개 · ${escapeHtml(String(state.submissionZip.at).slice(0, 16).replace('T', ' '))}</p></div>` : ''}
+    <div class="requirement-list">${[...plan.entries, { kind: '제출목록', name: MANIFEST_NAME, slot: '', bytes: null }].map(entry => `<article class="requirement"><div><span class="status 충족">${escapeHtml(entry.kind)}</span><div><strong>${escapeHtml(entry.name)}</strong><small class="muted">${escapeHtml(entry.slot || entry.from || '')}</small></div></div></article>`).join('')}
+      ${plan.skipped.map(item => `<article class="requirement"><div><span class="status ${item.satisfied ? '충족' : '확인-필요'}">미포함</span><div><strong>${escapeHtml(item.name)}</strong><small class="muted">${escapeHtml(item.reason)}</small></div></div></article>`).join('')}</div>
+    <div class="actions"><span class="muted">공고문·참고자료와 내부 검증 자료는 담지 않습니다.</span>
+      <button class="button primary" id="package-zip" ${plan.ok && state.busy !== 'zip' ? '' : 'disabled'}>${state.busy === 'zip' ? '묶는 중…' : '제출 ZIP 내려받기'}</button></div></details>`;
+}
 // 저장된 버전 목록. 어느 버전을 열고 출력할지 여기서 고른다.
 function versionPickerView() {
   const versions = state.proposalVersions || [];
@@ -1090,6 +1179,7 @@ function submissionPackageView() {
   if (!summary) return '';
   const { version: savedVersion, reason: versionReason } = selectedSavedVersion();
   const exportBlock = versionReason || (unsavedChanges() ? `화면 내용이 저장된 V${savedVersion?.version}과 달라 출력할 수 없습니다.` : '');
+  const zipPlan = currentZipPlan();
   return `<div class="card" id="submission-package" tabindex="-1"><div class="card-title"><div><h3>제출 패키지 · ${escapeHtml(summary.status)}</h3><span>지금 버전 기준입니다. 출력은 기존 DOCX·PDF 경로를 그대로 씁니다.</span></div><span class="status ${summary.status === '제출 가능' ? '충족' : summary.status === '보완 필요' ? '부분-충족' : '부족'}">${escapeHtml(summary.status)}</span></div>
     <div class="alert ${PACKAGE_TONE[summary.status]}"><strong>${summary.blockers.length ? `출력을 막는 사유 ${summary.blockers.length}건` : summary.warnings.length ? `확인할 사항 ${summary.warnings.length}건` : '제출 조건을 모두 지켰습니다'}</strong>
       ${summary.blockers.map(item => `<p>✕ <b>${escapeHtml(item.reason)}</b> — ${escapeHtml(item.detail)}</p>`).join('')}
@@ -1102,9 +1192,17 @@ function submissionPackageView() {
     </div>
     <details open><summary>제출 문서 ${summary.documents.length}개 · 필수 표 ${summary.tables.length}개</summary>
       <div class="requirement-list">${[...summary.documents, ...summary.tables.map(table => ({ name: `${table.title} (${table.kind})`, ready: table.ready, via: `${table.rows}행` }))].map(item => `<article class="requirement"><div><span class="status ${item.ready ? '충족' : '확인-필요'}">${item.ready ? '준비됨' : '준비 안 됨'}</span><div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.via || '')}</small></div></div></article>`).join('')}</div></details>
-    ${summary.attachments.length ? `<details open><summary>첨부서류 ${summary.attachments.length}건 · 포함 ${summary.attachments.filter(item => item.included).length}건</summary>
-      <div class="requirement-list">${summary.attachments.map(item => `<article class="requirement"><div><span class="status ${item.included ? '충족' : item.required ? '부족' : '확인-필요'}">${item.required ? '필수' : '선택'}</span><div><strong>${escapeHtml(item.name)}</strong><small class="muted">${escapeHtml(item.location)}</small></div></div>
-        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-attachment="${escapeHtml(item.name)}" ${item.included ? 'checked' : ''}>준비 완료</label></article>`).join('')}</div></details>` : ''}
+    ${summary.attachments.length ? `<details open><summary>첨부서류 ${summary.attachments.length}건 · 파일 연결 ${Object.keys(state.attachmentLinks || {}).length}건</summary>
+      <p class="muted">「준비 완료」 표시만으로는 묶지 않습니다. 필수 첨부는 실제 파일을 연결해야 패키지를 만들 수 있습니다.</p>
+      <div class="requirement-list">${summary.attachments.map(item => {
+    const link = (state.attachmentLinks || {})[item.name];
+    const auto = zipSkipReason(zipPlan, item.name);
+    return `<article class="requirement"><div><span class="status ${link || auto ? '충족' : item.required ? '부족' : '확인-필요'}">${item.required ? '필수' : '선택'}</span><div><strong>${escapeHtml(item.name)}</strong><small class="muted">${escapeHtml(item.location)}</small>
+        ${auto ? `<small>${escapeHtml(auto)}</small>` : link ? `<small>연결됨: ${escapeHtml(link.fileName)} · ${Math.max(1, Math.round(link.size / 1024)).toLocaleString()}KB</small>` : '<small class="muted">연결된 파일 없음</small>'}</div></div>
+      <div style="display:flex;gap:8px;align-items:center">${auto ? '' : `<input type="file" data-attachment-file="${escapeHtml(item.name)}">${link ? `<button class="button secondary" data-attachment-clear="${escapeHtml(item.name)}">연결 해제</button>` : ''}`}
+        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-attachment="${escapeHtml(item.name)}" ${item.included ? 'checked' : ''}>준비 완료</label></div></article>`;
+  }).join('')}</div></details>` : ''}
+    ${zipPanelView(zipPlan)}
     ${summary.checklist.length ? `<details><summary>제출 전 확인 목록 ${summary.checklist.length}건</summary><div class="requirement-list">${summary.checklist.map(item => `<article class="requirement"><div><span class="status 확인-필요">${escapeHtml(item.status)}</span><div><strong>${escapeHtml(item.area)}</strong><small>${escapeHtml(item.item)}</small></div></div></article>`).join('')}</div></details>` : ''}
     ${versionPickerView()}
     <div class="actions"><span class="muted">${escapeHtml(summary.canExport ? (exportBlock || '제출본을 출력할 수 있습니다.') : '위 사유를 해결해야 출력할 수 있습니다.')}</span><div>
@@ -2570,6 +2668,9 @@ function bind() {
   document.querySelector('#package-pdf')?.addEventListener('click', () => exportFinalPackage('pdf'));
   document.querySelectorAll('[data-open-version]').forEach(el => el.addEventListener('click', () => selectProposalVersion(el.dataset.openVersion)));
   document.querySelectorAll('[data-attachment]').forEach(el => el.addEventListener('change', () => toggleAttachment(el.dataset.attachment)));
+  document.querySelectorAll('[data-attachment-file]').forEach(el => el.addEventListener('change', () => linkAttachmentFile(el.dataset.attachmentFile, el.files?.[0])));
+  document.querySelectorAll('[data-attachment-clear]').forEach(el => el.addEventListener('click', () => unlinkAttachmentFile(el.dataset.attachmentClear)));
+  document.querySelector('#package-zip')?.addEventListener('click', () => exportSubmissionZip());
   document.querySelector('#print')?.addEventListener('click', printDocument);
   // 최종 제출본 카드의 출력 버튼. 상단 도구모음과 같은 현재 본문을 출력한다.
   document.querySelector('#final-docx')?.addEventListener('click', () => exportDocx(state.project, state.sections).catch(showError));

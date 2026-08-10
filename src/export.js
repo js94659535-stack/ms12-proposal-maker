@@ -9,7 +9,14 @@ export function submissionFileName(project = {}, { applicantName = '', version =
 }
 
 export async function exportDocx(project, sections, options = {}) {
-  const { forSubmission = false, tables = [], applicantName = '', version = 0 } = options;
+  const { forSubmission = false, applicantName = '', version = 0 } = options;
+  const blob = await buildDocxBlob(project, sections, options);
+  download(blob, forSubmission ? submissionFileName(project, { applicantName, version, kind: 'docx' }) : `${safeName(project.title)}_검토용.docx`);
+}
+
+// 파일로 내려받지 않고 내용만 만든다. 제출 ZIP은 이 결과를 그대로 담는다.
+export async function buildDocxBlob(project, sections, options = {}) {
+  const { forSubmission = false, tables = [] } = options;
   const { Document, Packer, Paragraph, HeadingLevel, TextRun, Table, TableRow, TableCell, WidthType } = await import('docx');
   const children = [new Paragraph({ text: forSubmission ? (project.title || '사업계획서') : `${project.title || '사업계획서'} (검토용)`, heading: HeadingLevel.TITLE })];
   sections.forEach(section => {
@@ -27,8 +34,7 @@ export async function exportDocx(project, sections, options = {}) {
     children.push(new Table({ rows: [header, ...body], width: { size: 100, type: WidthType.PERCENTAGE } }));
     if (table.note) children.push(new Paragraph({ children: [new TextRun({ text: String(table.note), italics: true })] }));
   }
-  const blob = await Packer.toBlob(new Document({ sections: [{ children }] }));
-  download(blob, forSubmission ? submissionFileName(project, { applicantName, version, kind: 'docx' }) : `${safeName(project.title)}_검토용.docx`);
+  return Packer.toBlob(new Document({ sections: [{ children }] }));
 }
 
 export async function exportPdf(project, sections, options = {}) {
@@ -76,6 +82,7 @@ export function printDocument() { window.print(); }
 
 function safeName(value = '사업계획서', max = 80) { return String(value).replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim().slice(0, max); }
 function escapeHtml(value = '') { return String(value).replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c])); }
+export function downloadBlob(blob, name) { download(blob, name); }
 function download(blob, name) {
   const url = URL.createObjectURL(blob); const a = document.createElement('a');
   a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);

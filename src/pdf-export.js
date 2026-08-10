@@ -107,6 +107,17 @@ function drawTable(doc, table, rows, startY, { newPage, bottom }) {
 
 // 브라우저에서 실제 파일을 내려받는다. 글꼴은 눌렀을 때만 가져온다.
 export async function exportProposalPdf({ project, sections, tables = [], fileName }) {
+  const blob = await buildProposalPdfBlob({ project, sections, tables });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// 파일로 내려받지 않고 내용만 만든다. 제출 ZIP은 이 결과를 그대로 담는다.
+export async function buildProposalPdfBlob({ project, sections, tables = [] }) {
   if (!sections.length) throw new Error('PDF로 출력할 내용이 없습니다.');
   const [{ jsPDF }, fontUrl] = await Promise.all([
     import('jspdf'),
@@ -122,12 +133,7 @@ export async function exportProposalPdf({ project, sections, tables = [], fileNa
   const blob = doc.output('blob');
   // 만들어진 결과가 PDF가 아니면 내려받지 않는다(HTML을 PDF처럼 주지 않는다).
   if (!blob || blob.size < 1000) throw new Error('PDF를 만들지 못했습니다. 파일을 내려받지 않았습니다.');
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = fileName;
-  anchor.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return blob;
 }
 
 function toBase64(bytes) {
