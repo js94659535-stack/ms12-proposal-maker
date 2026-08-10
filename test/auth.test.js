@@ -263,6 +263,30 @@ test('기본 비밀번호를 코드·migration에 넣지 않는다', () => {
   assert.match(create, /배포를 진행하지 마세요/);
 });
 
+test('관리자 스크립트는 셸을 거치지 않고 SQL을 통째로 넘긴다', async () => {
+  const cli = read('scripts/admin-cli.mjs');
+  // Windows 셸이 SQL을 공백마다 인자로 쪼개던 원인을 없앤다.
+  assert.match(cli, /shell: false/);
+  assert.doesNotMatch(cli, /shell: true/);
+  assert.doesNotMatch(cli, /spawnSync\('npx'/, 'npx를 셸로 부르지 않는다');
+  assert.match(cli, /spawnSync\(process\.execPath, \[WRANGLER, 'd1', 'execute', DATABASE, \.\.\.args\]/);
+  // 값이 바뀌는 SQL은 임시 .sql 파일로만 넘기고 반드시 지운다.
+  assert.match(cli, /`--file=\$\{file\}`/);
+  assert.match(cli, /fs\.rmSync\(directory, \{ recursive: true, force: true \}\)/);
+  assert.doesNotMatch(cli, /--command=\$\{sql\}[\s\S]{0,40}password/);
+  // 조회에는 비밀값 열을 실을 수 없다.
+  const { queryRows } = await import('../scripts/admin-cli.mjs');
+  assert.equal(typeof queryRows, 'function');
+  assert.match(cli, /const SECRET_COLUMN = .*password_hash/);
+  assert.match(cli, /if \(SECRET_COLUMN\.test\(sql\)\) fail\('조회 SQL에 비밀값 열을 넣을 수 없습니다\.'\);/);
+
+  // wrangler 응답에서 결과 배열만 안전하게 읽는다.
+  const { parseRows } = await import('../scripts/admin-cli.mjs');
+  const output = `├ Checking if file needs uploading\n│\n[\n  { "results": [ { "role": "admin", "status": "active" } ], "success": true }\n]\n`;
+  assert.deepEqual(parseRows(output), [{ role: 'admin', status: 'active' }]);
+  assert.deepEqual(parseRows('[{"results":[],"success":true}]'), []);
+});
+
 test('비밀번호 재설정은 기존 계정만 갱신하고 자료를 지우지 않는다', () => {
   const reset = read('scripts/reset-admin-password.mjs');
   // 같은 해싱 구조를 그대로 쓴다(600,000회는 server/password.js 한 곳에서만 정한다).

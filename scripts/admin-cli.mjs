@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
+import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
 export const DATABASE = 'ms12-proposal-archive';
@@ -35,32 +36,53 @@ export async function readNewPassword(label = '새 비밀번호') {
 export const quote = value => `'${String(value).replace(/'/g, "''")}'`;
 export function fail(message) { console.error(message); process.exit(1); }
 
-function wrangler(args) {
-  return spawnSync('npx', ['wrangler', 'd1', ...args], { encoding: 'utf8', shell: true });
+// wrangler를 셸 없이 직접 부른다. 셸을 거치면 Windows에서 SQL이 공백마다 인자로 쪼개진다.
+const WRANGLER = path.join(fileURLToPath(new URL('../node_modules/wrangler/bin/wrangler.js', import.meta.url)));
+
+// wrangler를 셸 없이 부른다. 인자 배열로 넘기므로 공백이 든 값이 여러 인자로 쪼개지지 않는다.
+function runWrangler(args, { json }) {
+  if (!fs.existsSync(WRANGLER)) fail('wrangler를 찾지 못했습니다. npm install 후 다시 실행해 주세요.');
+  return spawnSync(process.execPath, [WRANGLER, 'd1', 'execute', DATABASE, ...args], { encoding: 'utf8', shell: false, stdio: json ? 'pipe' : 'inherit' });
 }
 
-// 값을 읽기만 하는 조회. 비밀번호·salt·hash 열은 절대 넘기지 않는다.
-export function queryRows(command, { local = false } = {}) {
-  const result = wrangler(['execute', DATABASE, local ? '--local' : '--remote', `--command=${command}`, '--json']);
-  if (result.status !== 0) fail(`D1 조회에 실패했습니다.\n${result.stderr || ''}`);
-  const text = String(result.stdout || '');
+// 값이 바뀌는 SQL은 언제나 임시 .sql 파일로만 넘긴다. 해시가 명령줄에 실리지 않는다.
+function runSqlFile(sql, { local }) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ms12-admin-'));
+  const file = path.join(directory, 'admin.sql');
+  fs.writeFileSync(file, sql, 'utf8');
+  try { return runWrangler([local ? '--local' : '--remote', `--file=${file}`], { json: false }); }
+  finally {
+    // 해시가 담긴 파일은 실행 결과와 상관없이 덮어쓰고 지운다.
+    fs.writeFileSync(file, '-- removed\n', 'utf8');
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+// 비밀값 열은 조회 SQL에 아예 실을 수 없게 막는다.
+const SECRET_COLUMN = /password_hash|password_salt|password_algo|password_iterations|token_hash/i;
+// 값을 읽기만 하는 조회.
+// remote에서 --file은 SQL을 import로 올려 실행 요약만 돌려주고 행을 주지 않는다. 조회는 --command로만 된다.
+// 셸을 거치지 않으므로 공백이 든 SQL도 인자 하나로 그대로 전달된다.
+export function queryRows(sql, { local = false } = {}) {
+  if (SECRET_COLUMN.test(sql)) fail('조회 SQL에 비밀값 열을 넣을 수 없습니다.');
+  const result = runWrangler([local ? '--local' : '--remote', `--command=${sql}`, '--json'], { json: true });
+  if (result.status !== 0) fail(`D1 조회에 실패했습니다.\n${(result.stderr || '').slice(0, 800)}`);
+  return parseRows(String(result.stdout || ''));
+}
+
+// wrangler는 JSON 앞뒤에 안내 문구를 함께 낸다. 배열 부분만 떼어 읽는다.
+export function parseRows(text) {
   const start = text.indexOf('[');
-  if (start < 0) fail('D1 응답을 읽지 못했습니다.');
-  try { return JSON.parse(text.slice(start))[0]?.results || []; }
+  const end = text.lastIndexOf(']');
+  if (start < 0 || end <= start) return fail('D1 응답을 읽지 못했습니다.');
+  let parsed;
+  try { parsed = JSON.parse(text.slice(start, end + 1)); }
   catch { return fail('D1 응답을 읽지 못했습니다.'); }
+  if (!Array.isArray(parsed)) return fail('D1 응답을 읽지 못했습니다.');
+  return parsed.flatMap(item => (Array.isArray(item?.results) ? item.results : []));
 }
 
 // 해시가 담긴 SQL은 임시 폴더에만 두고 실행 뒤 반드시 지운다.
 export function executeSql(sql, { local = false } = {}) {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ms12-admin-'));
-  const file = path.join(directory, 'admin.sql');
-  fs.writeFileSync(file, sql, 'utf8');
-  let result;
-  try {
-    result = spawnSync('npx', ['wrangler', 'd1', 'execute', DATABASE, local ? '--local' : '--remote', `--file=${file}`], { stdio: 'inherit', shell: true });
-  } finally {
-    fs.writeFileSync(file, '-- removed\n', 'utf8');
-    fs.rmSync(directory, { recursive: true, force: true });
-  }
-  return result.status === 0;
+  return runSqlFile(sql, { local }).status === 0;
 }
