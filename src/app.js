@@ -18,6 +18,7 @@ import { OFFICIAL_LOCKED, buildNoticeContract, checkProposalAgainstContract, con
 import { buildFormSpec } from './form-spec.js';
 import { approvedDemandEvidence, buildDemandEvidence } from './demand-evidence.js';
 import { PROPOSAL_MODES, applyPatchedSections, buildReviewBasis, normalizeReviewIssues, reviewSummary, sectionsToPatch, verifyUntouched } from './precise-review.js';
+import { buildSubmissionPackage, sectionsFingerprint } from './submission-package.js';
 import { ENGAGEMENT_STAGES, PROPOSAL_OUTLINE, buildDocumentPlan, buildEngagement, canGenerateProposal, designStatus, makeClient, makeDesignApproval, makeNoticeRequest, normalizeEngagement } from './engagement.js';
 import { EXTERNAL_SOURCE, appendProposalVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, matchSectionsForIssue, proposalTextFromSections, proposalTextFromSnapshot, revisionInstruction, sectionsFromProposalText, verifyLockedValues } from './coaching-handoff.js';
 import { splitApplicantProfile } from './applicants.js';
@@ -68,7 +69,7 @@ const initial = {
   applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
   revisionPlan: null, draftReview: null, projectNarrative: '', proposalVersions: [], proposalFlow: { status: '', baselineVersion: 0, reviewTarget: null, rounds: [], requests: [], requestOpen: false, requestText: '', requestScope: [], openVersion: 0, compareVersion: 0, approvedVersion: 0, approvedAt: '' }, coachingSelection: [], applicantSkipped: false, noticeLogic: null, redesignForContract: false,
   // 「사업계획서 의뢰 건」 한 건의 고객 담당자와 공고 요청서. 기관 영구정보와 섞지 않는다.
-  engagement: { client: makeClient(), request: makeNoticeRequest(), design: makeDesignApproval(), view: 'customer', mode: '표준형' }, proposalTables: [], preciseReview: null,
+  engagement: { client: makeClient(), request: makeNoticeRequest(), design: makeDesignApproval(), view: 'customer', mode: '표준형' }, proposalTables: [], preciseReview: null, submissionIncluded: [],
   analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveTable: { query: '', sortKey: 'collectedAt', sortDir: 'desc', page: 1, pageSize: 20, selected: [], expandedKey: '', applicantPickerKey: '', filters: { collected: '', institution: '', field: '', status: '', applicant: '', deadline: '' } }, archiveNoticeLinks: {}, archiveHiddenNotices: [], archiveOpenProposal: '', sampleStage: '', sampleReturn: '', aiResult: null, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
@@ -848,7 +849,7 @@ async function runPreciseReview(round = 1) {
     const issues = normalizeReviewIssues(result.issues, state.sections);
     // 검증만으로 본문이 바뀌지 않았음을 확인한다.
     if (JSON.stringify(before) !== JSON.stringify(state.sections)) throw new Error('검증 중 계획서 본문이 바뀌었습니다. 반영하지 않았습니다.');
-    state.preciseReview = { round, issues, summary: reviewSummary(issues), note: String(result.summary || '').slice(0, 500), at: new Date().toISOString() };
+    state.preciseReview = { round, issues, summary: reviewSummary(issues), fingerprint: sectionsFingerprint(state.sections), note: String(result.summary || '').slice(0, 500), at: new Date().toISOString() };
     markAiDoneAt('preciseReview', startedAt, { preciseReview: state.preciseReview, notice: `정밀 ${round > 1 ? '재' : ''}검증에서 ${issues.length}건을 확인했습니다. 본문은 바꾸지 않았습니다.`, error: '' });
   } catch (error) { setState({ busy: '', error: error.message }); }
 }
@@ -978,6 +979,55 @@ function formSpecView(brief) {
     ${plan.budgetForm ? `<div class="alert"><strong>예산 양식 · ${escapeHtml(plan.budgetForm.status)}</strong><p>${plan.budgetForm.columns.length ? `열 구성: ${escapeHtml(plan.budgetForm.columns.join(' | '))}` : '열 구성을 서식에서 찾지 못했습니다.'}</p>${plan.budgetForm.rules.map(rule => `<p>· ${escapeHtml(rule.text)}</p>`).join('')}</div>` : ''}
     ${plan.attachments.length ? `<details><summary>첨부서류 ${plan.attachments.length}건</summary>${plan.attachments.map(item => `<p>${item.required ? '필수' : '선택'} · ${escapeHtml(item.name)}<br><small class="muted">[${escapeHtml(item.location)}]</small></p>`).join('')}</details>` : ''}
     ${spec.openPoints.length ? `<div class="alert warning"><strong>서식에서 확인하지 못한 기준 ${spec.openPoints.length}건</strong>${spec.openPoints.map(item => `<p>· ${escapeHtml(item)}</p>`).join('')}<p>확인하지 못한 기준은 만들지 않고 기본값으로 작성합니다.</p></div>` : ''}</details>`;
+}
+
+// 제출 패키지 — 지금 이 버전이 제출 가능한지 판정하고 함께 낼 것을 정리한다.
+function currentSubmissionPackage() {
+  if (!state.sections.length) return null;
+  return buildSubmissionPackage({
+    mode: proposalMode(), sections: state.sections, tables: state.proposalTables || [],
+    versions: state.proposalVersions || [], proposalFlow: proposalFlow(),
+    gate: currentSubmissionGate(), preciseReview: state.preciseReview,
+    formSpec: currentFormSpec(), applicant: selectedApplicant(), included: state.submissionIncluded || []
+  });
+}
+// 판정을 통과하지 못하면 출력하지 않는다. 통과하면 기존 출력 함수를 그대로 부른다.
+function exportFinalPackage(kind) {
+  const summary = currentSubmissionPackage();
+  if (!summary?.canExport) {
+    return setState({ error: `제출 ${summary?.status || '판정'} 상태입니다. ${(summary?.blockers || []).map(item => item.reason).join(' / ') || '먼저 계획서를 작성하세요.'}` });
+  }
+  const run = kind === 'docx' ? exportDocx(state.project, state.sections) : exportPdf(state.project, state.sections);
+  run.catch(showError);
+}
+function toggleAttachment(name) {
+  const included = new Set(state.submissionIncluded || []);
+  if (included.has(name)) included.delete(name); else included.add(name);
+  setState({ submissionIncluded: [...included], notice: '', error: '' });
+}
+const PACKAGE_TONE = { '제출 가능': 'success', '보완 필요': 'warning', '제출 차단': 'danger' };
+function submissionPackageView() {
+  const summary = currentSubmissionPackage();
+  if (!summary) return '';
+  return `<div class="card" id="submission-package" tabindex="-1"><div class="card-title"><div><h3>제출 패키지 · ${escapeHtml(summary.status)}</h3><span>지금 버전 기준입니다. 출력은 기존 DOCX·PDF 경로를 그대로 씁니다.</span></div><span class="status ${summary.status === '제출 가능' ? '충족' : summary.status === '보완 필요' ? '부분-충족' : '부족'}">${escapeHtml(summary.status)}</span></div>
+    <div class="alert ${PACKAGE_TONE[summary.status]}"><strong>${summary.blockers.length ? `출력을 막는 사유 ${summary.blockers.length}건` : summary.warnings.length ? `확인할 사항 ${summary.warnings.length}건` : '제출 조건을 모두 지켰습니다'}</strong>
+      ${summary.blockers.map(item => `<p>✕ <b>${escapeHtml(item.reason)}</b> — ${escapeHtml(item.detail)}</p>`).join('')}
+      ${summary.warnings.map(item => `<p>· ${escapeHtml(item.reason)} — ${escapeHtml(item.detail)}</p>`).join('')}</div>
+    <div class="summary-grid">
+      <div><span>현재 버전</span><strong>${summary.timeline.version ? `V${summary.timeline.version}` : '없음'}</strong><small>${escapeHtml(summary.timeline.versionLabel || '')}</small></div>
+      <div><span>최종본 승인</span><strong>${summary.timeline.approvedVersion ? `V${summary.timeline.approvedVersion}` : '미승인'}</strong><small>${escapeHtml(String(summary.timeline.approvedAt).slice(0, 10))}</small></div>
+      <div><span>공고 적합성</span><strong>${escapeHtml(summary.timeline.gateStatus || '판정 전')}</strong><small>코드 대조</small></div>
+      <div><span>정밀검증</span><strong>${escapeHtml(summary.review.freshness)}</strong><small>${summary.review.round ? `${summary.review.round}차 · 제출 불가 ${summary.review.blocking}건` : '미실행'}</small></div>
+    </div>
+    <details open><summary>제출 문서 ${summary.documents.length}개 · 필수 표 ${summary.tables.length}개</summary>
+      <div class="requirement-list">${[...summary.documents, ...summary.tables.map(table => ({ name: `${table.title} (${table.kind})`, ready: table.ready, via: `${table.rows}행` }))].map(item => `<article class="requirement"><div><span class="status ${item.ready ? '충족' : '확인-필요'}">${item.ready ? '준비됨' : '준비 안 됨'}</span><div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.via || '')}</small></div></div></article>`).join('')}</div></details>
+    ${summary.attachments.length ? `<details open><summary>첨부서류 ${summary.attachments.length}건 · 포함 ${summary.attachments.filter(item => item.included).length}건</summary>
+      <div class="requirement-list">${summary.attachments.map(item => `<article class="requirement"><div><span class="status ${item.included ? '충족' : item.required ? '부족' : '확인-필요'}">${item.required ? '필수' : '선택'}</span><div><strong>${escapeHtml(item.name)}</strong><small class="muted">${escapeHtml(item.location)}</small></div></div>
+        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-attachment="${escapeHtml(item.name)}" ${item.included ? 'checked' : ''}>준비 완료</label></article>`).join('')}</div></details>` : ''}
+    ${summary.checklist.length ? `<details><summary>제출 전 확인 목록 ${summary.checklist.length}건</summary><div class="requirement-list">${summary.checklist.map(item => `<article class="requirement"><div><span class="status 확인-필요">${escapeHtml(item.status)}</span><div><strong>${escapeHtml(item.area)}</strong><small>${escapeHtml(item.item)}</small></div></div></article>`).join('')}</div></details>` : ''}
+    <div class="actions"><span class="muted">${escapeHtml(summary.canExport ? '제출본을 출력할 수 있습니다.' : '위 사유를 해결해야 출력할 수 있습니다.')}</span><div>
+      <button class="button secondary" id="package-pdf" ${summary.canExport ? '' : 'disabled'}>PDF 인쇄·저장</button>
+      <button class="button primary" id="package-docx" ${summary.canExport ? '' : 'disabled'}>최종 DOCX 내려받기</button></div></div></div>`;
 }
 
 // 정밀 검증 — 정밀형에서만 보이고, 운영자가 버튼으로 실행한다. 검증만으로 본문은 바뀌지 않는다.
@@ -1362,7 +1412,7 @@ function documentView() {
   const toolbarActions = completionMode
     ? `${sampleButton('final', '[샘플] 완성본 보기')}<button class="button secondary" id="save-proposal-archive">계획서보관함에 저장</button><button class="button secondary" id="proposal-review">${state.reviewResult ? '명시적으로 재검토' : '심사 검토·고도화'}</button><button class="button secondary" id="print">인쇄</button><button class="button secondary" id="pdf">PDF 인쇄·저장</button><button class="button primary" id="docx">검토용 DOCX</button>`
     : `${sampleButton('draftV1', '[샘플] V1 보기')}<button class="button secondary" id="save-proposal-archive">계획서보관함에 저장</button><button class="button primary" id="go-to-review">검토·완성으로 이동 →</button>`;
-  return `${strategy}${questions}${completionPanelView()}${submissionGateView()}${preciseReviewView()}${proposalTablesView()}${proposalPipelineView()}${decisionCenterView()}${draftBlueprintCheckView()}${assemblyCheckView()}<div class="document-toolbar"><div><h2>${escapeHtml(state.project.title || '사업계획서 검토본')}</h2><p><span class="mode">신청기관 ${escapeHtml(selectedApplicant()?.name || '미선택')}</span> ${(state.proposalVersions || [])[0]?.source === EXTERNAL_SOURCE ? '<span class="mode">외부 계획서 작업본 · 원본 보존</span> ' : ''}<span class="mode">${state.selectedNotice?.officialTextExtracted ? '공고문 반영 초안' : '안내 페이지 기반 임시 초안'}</span> <span class="mode ${state.aiMode === 'ai' ? 'ai' : ''}">${state.aiMode === 'ai' ? 'AI 정밀 사업설계' : '로컬 사실 추출'}</span> ${completionMode ? '심사 검토와 출력 전 최종 편집을 진행하세요. DOCX는 공식 신청서 양식이 아닌 검토본입니다.' : '필요한 질문을 확인하고 초안을 편집하세요.'}</p></div><div>${toolbarActions}</div></div>
+  return `${strategy}${questions}${completionPanelView()}${submissionGateView()}${submissionPackageView()}${preciseReviewView()}${proposalTablesView()}${proposalPipelineView()}${decisionCenterView()}${draftBlueprintCheckView()}${assemblyCheckView()}<div class="document-toolbar"><div><h2>${escapeHtml(state.project.title || '사업계획서 검토본')}</h2><p><span class="mode">신청기관 ${escapeHtml(selectedApplicant()?.name || '미선택')}</span> ${(state.proposalVersions || [])[0]?.source === EXTERNAL_SOURCE ? '<span class="mode">외부 계획서 작업본 · 원본 보존</span> ' : ''}<span class="mode">${state.selectedNotice?.officialTextExtracted ? '공고문 반영 초안' : '안내 페이지 기반 임시 초안'}</span> <span class="mode ${state.aiMode === 'ai' ? 'ai' : ''}">${state.aiMode === 'ai' ? 'AI 정밀 사업설계' : '로컬 사실 추출'}</span> ${completionMode ? '심사 검토와 출력 전 최종 편집을 진행하세요. DOCX는 공식 신청서 양식이 아닌 검토본입니다.' : '필요한 질문을 확인하고 초안을 편집하세요.'}</p></div><div>${toolbarActions}</div></div>
     ${completionMode ? finalSubmissionView() : ''}
     ${completionMode ? proposalReviewView() : ''}
     ${revisionPlanView()}
@@ -2429,6 +2479,10 @@ function bind() {
   document.querySelector('#save-proposal-archive')?.addEventListener('click', () => archiveCurrentProposal(undefined, true).catch(showError));
   document.querySelector('#docx')?.addEventListener('click', () => exportDocx(state.project, state.sections).catch(showError));
   document.querySelector('#pdf')?.addEventListener('click', () => exportPdf(state.project, state.sections).catch(showError));
+  // 제출 패키지에서 내려받는 최종본은 판정을 통과했을 때만 나간다. 출력 방식은 기존과 같다.
+  document.querySelector('#package-docx')?.addEventListener('click', () => exportFinalPackage('docx'));
+  document.querySelector('#package-pdf')?.addEventListener('click', () => exportFinalPackage('pdf'));
+  document.querySelectorAll('[data-attachment]').forEach(el => el.addEventListener('change', () => toggleAttachment(el.dataset.attachment)));
   document.querySelector('#print')?.addEventListener('click', printDocument);
   // 최종 제출본 카드의 출력 버튼. 상단 도구모음과 같은 현재 본문을 출력한다.
   document.querySelector('#final-docx')?.addEventListener('click', () => exportDocx(state.project, state.sections).catch(showError));
@@ -3992,7 +4046,7 @@ async function archiveCurrentProposal(forcedStage, announce = false) {
   state.archiveProposalId = id;
   saveState();
   const stage = forcedStage || (state.reviewResult ? 'review' : state.sections.length ? 'complete' : state.stagedGeneration?.phase === 'parts-ready' ? 'parts' : 'master');
-  const fields = ['project', 'sourceText', 'analysis', 'sponsorIntent', 'projectDesign', 'missingInformation', 'evidenceMap', 'qualityCheck', 'designAnswers', 'designUnavailable', 'stagedGeneration', 'assemblyCheck', 'manualSources', 'matches', 'answers', 'sections', 'reviewResult', 'reviewOriginalDraft', 'reviewFingerprint', 'companyFacts', 'selectedNotice', 'aiMode', 'selectedApplicantId', 'projectValues', 'applicantResolvedQuestions', 'proposalVersions', 'revisionPlan', 'noticeLogic', 'draftReview', 'projectNarrative', 'engagement', 'proposalTables', 'preciseReview'];
+  const fields = ['project', 'sourceText', 'analysis', 'sponsorIntent', 'projectDesign', 'missingInformation', 'evidenceMap', 'qualityCheck', 'designAnswers', 'designUnavailable', 'stagedGeneration', 'assemblyCheck', 'manualSources', 'matches', 'answers', 'sections', 'reviewResult', 'reviewOriginalDraft', 'reviewFingerprint', 'companyFacts', 'selectedNotice', 'aiMode', 'selectedApplicantId', 'projectValues', 'applicantResolvedQuestions', 'proposalVersions', 'revisionPlan', 'noticeLogic', 'draftReview', 'projectNarrative', 'engagement', 'proposalTables', 'preciseReview', 'submissionIncluded'];
   // 계획서에는 사용 시점의 신청기관 사본만 남기고, 신청기관 원본은 별도 보관 항목으로만 수정한다.
   const snapshot = { ...Object.fromEntries(fields.map(key => [key, structuredClone(state[key])])), applicantSnapshot: selectedApplicant() ? structuredClone(selectedApplicant()) : null };
   const result = await saveArchivedProposal({ id, noticeKey: archiveNoticeKey(state.selectedNotice), title: state.project.title || state.selectedNotice?.title, stage, snapshot });

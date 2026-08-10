@@ -153,5 +153,5 @@ test('부분 수정 후 제출 게이트를 다시 본다', () => {
   assert.match(app, /if \(!currentNoticeContract\(\)\?\.rules\?\.length && state\.sections\.length\) ensureNoticeLogic\(\);/);
   assert.match(app, /남은 강제조건 \$\{gate\.blocking\.length\}건/);
   // 보관 스냅샷에 검증 결과가 함께 남는다.
-  assert.match(app, /'engagement', 'proposalTables', 'preciseReview'\]/);
+  assert.match(app, /'engagement', 'proposalTables', 'preciseReview', 'submissionIncluded'\]/);
 });

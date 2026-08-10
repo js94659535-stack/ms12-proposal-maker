@@ -94,5 +94,5 @@ test('생성 결과는 기존 버전·보관·게이트 흐름을 그대로 쓴�
   // 실패하면 기존 계획서를 지우지 않는다.
   assert.match(fullProposalFn, /catch \(error\) \{ setState\(\{ busy: '', error: error\.message \}\); \}/);
   // 표도 보관 스냅샷에 함께 남는다.
-  assert.match(app, /'engagement', 'proposalTables', 'preciseReview'\]/);
+  assert.match(app, /'engagement', 'proposalTables', 'preciseReview', 'submissionIncluded'\]/);
 });

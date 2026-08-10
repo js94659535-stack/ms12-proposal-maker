@@ -154,7 +154,7 @@ test('최종 제출본 출력 버튼과 보관 스냅샷 연결이 끊기지 않
   assert.match(app, /querySelector\('#final-pdf'\)\?\.addEventListener/);
   assert.match(app, /querySelector\('#final-print'\)\?\.addEventListener/);
   // 자료보관함에서 다시 열 때 공고 선정논리와 초안 상태가 함께 복원된다.
-  assert.match(app, /'revisionPlan', 'noticeLogic', 'draftReview', 'projectNarrative', 'engagement', 'proposalTables', 'preciseReview'\]/);
+  assert.match(app, /'revisionPlan', 'noticeLogic', 'draftReview', 'projectNarrative', 'engagement', 'proposalTables', 'preciseReview', 'submissionIncluded'\]/);
 });
 
 test('첫 화면과 상단 표시가 서비스용 한국어로 정리되어 있다', () => {
