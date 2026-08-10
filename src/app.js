@@ -16,6 +16,7 @@ import { buildBlueprint } from './project-blueprint.js';
 import { BLUEPRINT_SECTION_MAP, UNRESOLVED_MARK, annotateDraftSections, checkDraftAgainstBlueprint, officialRequirementConflicts } from './blueprint-draft-check.js';
 import { OFFICIAL_LOCKED, buildNoticeContract, checkProposalAgainstContract, contractCapabilityCheck, contractConflicts, contractFieldLocks } from './notice-contract.js';
 import { buildFormSpec } from './form-spec.js';
+import { approvedDemandEvidence, buildDemandEvidence } from './demand-evidence.js';
 import { ENGAGEMENT_STAGES, PROPOSAL_OUTLINE, buildDocumentPlan, buildEngagement, canGenerateProposal, designStatus, makeClient, makeDesignApproval, makeNoticeRequest, normalizeEngagement } from './engagement.js';
 import { EXTERNAL_SOURCE, appendProposalVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, matchSectionsForIssue, proposalTextFromSections, proposalTextFromSnapshot, revisionInstruction, sectionsFromProposalText, verifyLockedValues } from './coaching-handoff.js';
 import { splitApplicantProfile } from './applicants.js';
@@ -815,6 +816,14 @@ function currentFormSpec() {
   return spec || state.engagement.formSpec || null;
 }
 
+// 사업환경·수요근거표. 공고·기관 확인정보·업로드 자료에서만 모으고 출처를 함께 남긴다(AI 호출 없음).
+function currentDemandEvidence() {
+  return buildDemandEvidence({
+    structure: state.noticeLogic?.structure, applicant: selectedApplicant(),
+    manualSources: state.manualSources, projectType: state.project.type
+  });
+}
+
 // 전체 계획서 작성 권한. 승인 전에는 시작하지 않지만 이미 만든 계획서·버전·보관함 열람은 막지 않는다.
 function generationPermission() {
   return canGenerateProposal({
@@ -904,6 +913,18 @@ function formSpecView(brief) {
     ${spec.openPoints.length ? `<div class="alert warning"><strong>서식에서 확인하지 못한 기준 ${spec.openPoints.length}건</strong>${spec.openPoints.map(item => `<p>· ${escapeHtml(item)}</p>`).join('')}<p>확인하지 못한 기준은 만들지 않고 기본값으로 작성합니다.</p></div>` : ''}</details>`;
 }
 
+// 사업환경·수요근거표 — 필요성을 뒷받침하는 근거를 출처와 함께 보여 준다. 출처 없는 수요는 만들지 않는다.
+const BASIS_TONE = { '공고 근거': '충족', '기관 확인 사실': '충족', '업로드 자료': '부분-충족', '확인 필요': '확인-필요' };
+function demandEvidenceView() {
+  const demand = currentDemandEvidence();
+  if (!demand?.rows?.length) return '';
+  return `<details class="card" id="demand-evidence" open><summary><strong>사업환경·수요근거 · ${escapeHtml(demand.status)}</strong> — 확정 ${demand.confirmed.length}개 · 확인 필요 ${demand.open.length}개</summary>
+    <p class="muted">${escapeHtml(demand.rule)}</p>
+    <div class="requirement-list">${demand.rows.map(row => `<article class="requirement"><div><span class="status ${BASIS_TONE[row.basis]}">${escapeHtml(row.basis)}</span><div><strong>${escapeHtml(row.title)}</strong>
+      ${row.items.length ? row.items.map(item => `<small>${item.hasFigure ? '<b>수치</b> · ' : ''}${escapeHtml(String(item.text).slice(0, 160))}</small><small class="muted">출처 [${escapeHtml(item.location)}]</small>`).join('') : `<small>${escapeHtml(row.question)}</small>`}</div></div></article>`).join('')}</div>
+    ${demand.openPoints.length ? `<div class="alert warning"><strong>근거가 없는 항목 ${demand.openPoints.length}개</strong>${demand.openPoints.map(point => `<p>· ${escapeHtml(point)}</p>`).join('')}<p>근거 없이 지역 문제나 수요 수치를 만들지 않습니다. 확인되면 설계안에 반영합니다.</p></div>` : '<div class="alert success"><strong>모든 근거 항목에 출처가 있습니다</strong></div>'}</details>`;
+}
+
 // 계획서 설계안 — 승인 전에 무엇을 어떻게 쓸지 먼저 합의한다.
 const DESIGN_TONE = { '설계 준비 중': '확인-필요', '확인 요청': '부분-충족', '운영자 검토': '부분-충족', '설계 승인': '충족', '계획서 작성 완료': '충족' };
 function designBriefView(engagement, operator) {
@@ -928,6 +949,7 @@ function designBriefView(engagement, operator) {
     ${brief.requiredModels.length ? `<details open><summary>공고가 요구한 핵심 수행모델 ${brief.requiredModels.length}개</summary>${brief.requiredModels.map(item => `<p>· ${escapeHtml(item.title)}<br><small class="muted">반영 확인 핵심어: ${escapeHtml(item.keyphrases.join(' · '))}</small></p>`).join('')}</details>` : ''}
     ${brief.openFacts.length ? `<div class="alert warning"><strong>확인이 필요한 항목 ${brief.openFacts.length}건</strong>${brief.openFacts.slice(0, 8).map(item => `<p>· ${escapeHtml(item)}</p>`).join('')}</div>` : `<div class="alert success"><strong>확인이 필요한 항목이 없습니다</strong><p>기관 확인 사실 ${brief.confirmedFacts.length}건으로 설계했습니다.</p></div>`}
     ${formSpecView(brief)}
+    ${demandEvidenceView()}
     <details><summary>계획서 목차 ${brief.outline.length}개 · 항목별 작성 방향 · 목표 분량 ${brief.targetTotalChars.toLocaleString()}자 · 기준 ${escapeHtml(brief.documentPlan.limitSource)}</summary><div class="requirement-list">${brief.outline.map((item, index) => `<article class="requirement"><div><span class="tag">${index + 1}</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.direction)}</small>${item.limitSource === '신청서 서식' ? `<small class="muted">서식 항목 「${escapeHtml(item.formItem)}」 · ${item.limitChars ? `${item.limitChars.toLocaleString()}자 이내` : `${item.limitPages}쪽 이내`} · [${escapeHtml(String(item.location || ''))}]</small>` : ''}</div></div><span class="status ${item.limitSource === '신청서 서식' ? '충족' : '부분-충족'}">${item.targetChars.toLocaleString()}자</span></article>`).join('')}</div></details>
     ${operator ? `<details><summary>공고 강제조건 ${brief.blockingRules.length}개 원문 기준</summary><div class="requirement-list">${brief.blockingRules.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(item.ruleType)}</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.official)}</small></div></div></article>`).join('')}</div></details>` : ''}
     <div class="actions"><span class="muted">${escapeHtml(engagement.canGenerate.allowed ? '전체 계획서 작성이 가능합니다.' : engagement.canGenerate.reason)}</span><div>${actions}</div></div></div>`;
@@ -3725,6 +3747,7 @@ function approvedDesignPlan() {
     // 승인 당시 설계안(공고 강제조건·신청유형·핵심값·수행모델·확인할 사항·목차·목표 분량·필요 표)
     ...brief,
     // 설계 단계에서 확정한 선정논리와 기준값. 없으면 넣지 않는다.
+    demandEvidence: approvedDemandEvidence(currentDemandEvidence()),
     selectionLogic: master?.masterLogic || null,
     baselineValues: master?.masterLogic?.baselineValues || [],
     sectionPlan: (master?.sectionPlan || []).map(group => ({ title: group.title, sectionKeys: group.sectionKeys || [] }))
