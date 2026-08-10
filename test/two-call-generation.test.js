@@ -88,11 +88,11 @@ test('고객 화면에 내부 분할 진행률과 Master 용어를 보이지 않
 
 test('생성 결과는 기존 버전·보관·게이트 흐름을 그대로 쓴다', () => {
   // V1 기록과 완성 상태는 기존 함수를 그대로 쓴다.
-  assert.match(fullProposalFn, /appendProposalVersion\(\[\], \{ sections: state\.sections, label: 'V1 완성본'/);
+  assert.match(fullProposalFn, /recordProposalVersion\(\{ sections: state\.sections, label: 'V1 완성본'/);
   assert.match(fullProposalFn, /markProposalAssembled\(\)/);
   assert.match(fullProposalFn, /archiveCurrentProposal\('complete'\)/);
   // 실패하면 기존 계획서를 지우지 않는다.
   assert.match(fullProposalFn, /catch \(error\) \{ setState\(\{ busy: '', error: error\.message \}\); \}/);
   // 표도 보관 스냅샷에 함께 남는다.
-  assert.match(app, /'engagement', 'proposalTables', 'preciseReview', 'submissionIncluded'\]/);
+  assert.match(app, /'engagement', 'proposalTables', 'preciseReview', 'submissionIncluded', 'currentVersionId'\]/);
 });

@@ -137,7 +137,7 @@ test('남은 사용자 결정 6가지를 한 화면에 모으고 확정값만 �
   // 확정값이 없으면 최종본을 만들지 않는다.
   assert.match(app, /function buildFinalVersion\(\)/);
   assert.match(app, /확정된 값이 없습니다/);
-  assert.match(app, /appendProposalVersion\(state\.proposalVersions \|\| \[\], \{ sections, label: '사용자 확정 반영 최종본'/);
+  assert.match(app, /recordProposalVersion\(\{ sections, label: '사용자 확정 반영 최종본'/);
   // 최종 제출본과 출력 흐름
   assert.match(app, /function finalSubmissionView\(\)/);
   assert.match(app, /completionMode \? finalSubmissionView\(\)/);
@@ -154,7 +154,7 @@ test('최종 제출본 출력 버튼과 보관 스냅샷 연결이 끊기지 않
   assert.match(app, /querySelector\('#final-pdf'\)\?\.addEventListener/);
   assert.match(app, /querySelector\('#final-print'\)\?\.addEventListener/);
   // 자료보관함에서 다시 열 때 공고 선정논리와 초안 상태가 함께 복원된다.
-  assert.match(app, /'revisionPlan', 'noticeLogic', 'draftReview', 'projectNarrative', 'engagement', 'proposalTables', 'preciseReview', 'submissionIncluded'\]/);
+  assert.match(app, /'revisionPlan', 'noticeLogic', 'draftReview', 'projectNarrative', 'engagement', 'proposalTables', 'preciseReview', 'submissionIncluded', 'currentVersionId'\]/);
 });
 
 test('첫 화면과 상단 표시가 서비스용 한국어로 정리되어 있다', () => {

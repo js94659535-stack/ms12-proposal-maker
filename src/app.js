@@ -20,7 +20,7 @@ import { approvedDemandEvidence, buildDemandEvidence } from './demand-evidence.j
 import { PROPOSAL_MODES, applyPatchedSections, buildReviewBasis, normalizeReviewIssues, reviewBasisReadiness, reviewSummary, sectionsToPatch, verifyUntouched } from './precise-review.js';
 import { buildSubmissionPackage, sectionsFingerprint } from './submission-package.js';
 import { ENGAGEMENT_STAGES, PROPOSAL_OUTLINE, buildDocumentPlan, buildEngagement, canGenerateProposal, designSnapshotStale, designStatus, makeClient, makeDesignApproval, makeNoticeRequest, normalizeEngagement } from './engagement.js';
-import { EXTERNAL_SOURCE, appendProposalVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, matchSectionsForIssue, proposalTextFromSections, proposalTextFromSnapshot, revisionInstruction, sectionsFromProposalText, verifyLockedValues } from './coaching-handoff.js';
+import { EXTERNAL_SOURCE, appendProposalVersion, findVersionById, normalizeProposalVersions, resolveSavedVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, matchSectionsForIssue, proposalTextFromSections, proposalTextFromSnapshot, revisionInstruction, sectionsFromProposalText, verifyLockedValues } from './coaching-handoff.js';
 import { splitApplicantProfile } from './applicants.js';
 import { ARCHIVE_PAGE_SIZES, ARCHIVE_STATUSES, archiveTableRows, shortDate } from './archive-table.js';
 import { SAMPLE_MARK, SAMPLE_NOTE, SAMPLE_NOTICE, SAMPLE_NOTICE_KEY, SAMPLE_STAGES, SAMPLE_STAGE_BY_STEP, buildSampleProject } from './sample-project.js';
@@ -69,7 +69,7 @@ const initial = {
   applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
   revisionPlan: null, draftReview: null, projectNarrative: '', proposalVersions: [], proposalFlow: { status: '', baselineVersion: 0, reviewTarget: null, rounds: [], requests: [], requestOpen: false, requestText: '', requestScope: [], openVersion: 0, compareVersion: 0, approvedVersion: 0, approvedAt: '' }, coachingSelection: [], applicantSkipped: false, noticeLogic: null, redesignForContract: false,
   // 「사업계획서 의뢰 건」 한 건의 고객 담당자와 공고 요청서. 기관 영구정보와 섞지 않는다.
-  engagement: { client: makeClient(), request: makeNoticeRequest(), design: makeDesignApproval(), view: 'customer', mode: '표준형' }, proposalTables: [], preciseReview: null, submissionIncluded: [],
+  engagement: { client: makeClient(), request: makeNoticeRequest(), design: makeDesignApproval(), view: 'customer', mode: '표준형' }, proposalTables: [], preciseReview: null, submissionIncluded: [], currentVersionId: '',
   analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveTable: { query: '', sortKey: 'collectedAt', sortDir: 'desc', page: 1, pageSize: 20, selected: [], expandedKey: '', applicantPickerKey: '', filters: { collected: '', institution: '', field: '', status: '', applicant: '', deadline: '' } }, archiveNoticeLinks: {}, archiveHiddenNotices: [], archiveOpenProposal: '', sampleStage: '', sampleReturn: '', aiResult: null, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
@@ -94,6 +94,10 @@ function loadState() {
     const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantDocDraft: '', applicantExtraction: null, coachingSelection: [] };
     // 예전에 저장한 상태에는 의뢰 건 정보가 없다. 빈 값으로 채우기만 하고 기존 데이터는 건드리지 않는다.
     restored.engagement = normalizeEngagement(saved.engagement || {});
+    // 예전에 저장한 버전에는 식별자·표가 없다. 빠진 것만 채우고 값은 그대로 둔다.
+    restored.proposalVersions = normalizeProposalVersions(saved.proposalVersions);
+    // 어느 버전을 쓰는지 정해지지 않았으면 가장 최근 버전으로 시작한다(잘못된 식별자는 대체하지 않는다).
+    if (!restored.currentVersionId && restored.proposalVersions.length) restored.currentVersionId = restored.proposalVersions[restored.proposalVersions.length - 1].versionId;
     // 자료보관함 목록의 선택·펼침 상태는 다시 열 때 초기화하고, 기관 매칭·숨김 기록만 유지한다.
     restored.archiveTable = { ...structuredClone(initial.archiveTable), ...(saved.archiveTable || {}), filters: { ...structuredClone(initial.archiveTable.filters), ...((saved.archiveTable || {}).filters || {}) }, selected: [], expandedKey: '', applicantPickerKey: '', page: 1 };
     restored.archiveNoticeLinks = saved.archiveNoticeLinks && typeof saved.archiveNoticeLinks === 'object' ? saved.archiveNoticeLinks : {};
@@ -880,7 +884,7 @@ async function applyPreciseFixes() {
     if (!untouched.ok) throw new Error(`수정 대상이 아닌 항목이 바뀌어 반영하지 않았습니다: ${untouched.broken.join(', ')}`);
     if (!applied.changed.length) throw new Error('수정된 내용이 없습니다. 계획서를 그대로 두었습니다.');
     state.sections = applied.sections;
-    state.proposalVersions = appendProposalVersion(state.proposalVersions, {
+    recordProposalVersion({
       sections: state.sections, label: `정밀 검증 ${review.round}차 부분 수정`, source: '정밀 검증',
       reason: `${applied.changed.length}개 항목 수정 · 문제 ${review.issues.length}건`
     });
@@ -991,6 +995,45 @@ function formSpecView(brief) {
     ${spec.openPoints.length ? `<div class="alert warning"><strong>서식에서 확인하지 못한 기준 ${spec.openPoints.length}건</strong>${spec.openPoints.map(item => `<p>· ${escapeHtml(item)}</p>`).join('')}<p>확인하지 못한 기준은 만들지 않고 기본값으로 작성합니다.</p></div>` : ''}</details>`;
 }
 
+// 버전 하나를 저장한다. 본문·표를 함께 넣고, 무엇을 근거로 만들었고 어떤 판정을 받았는지 붙여 둔다.
+// 저장 직후 현재 버전을 이 버전으로 명시한다(어느 버전을 쓰는지 추측하지 않는다).
+function recordProposalVersion(patch = {}, { reset = false } = {}) {
+  const { reset: _ignored, ...rest } = patch;
+  state.proposalVersions = appendProposalVersion(reset ? [] : (state.proposalVersions || []), {
+    tables: state.proposalTables || [], context: versionContext(), ...rest
+  });
+  state.currentVersionId = state.proposalVersions[state.proposalVersions.length - 1].versionId;
+  return state.proposalVersions;
+}
+function versionContext() {
+  const design = state.engagement?.design || {};
+  const review = state.preciseReview;
+  return {
+    designApproval: design.approvedAt ? { approvedAt: design.approvedAt, approvedBy: design.approvedBy, snapshot: design.snapshot || null } : null,
+    preciseReview: review?.summary ? { round: review.round, summary: review.summary, fingerprint: review.fingerprint || '', at: review.at || '' } : null,
+    gateStatus: currentSubmissionGate()?.status || ''
+  };
+}
+// 저장된 버전만 열고 출력한다. 잘못된 식별자는 다른 버전으로 조용히 바꾸지 않는다.
+function selectedSavedVersion() {
+  return resolveSavedVersion(state.proposalVersions, state.currentVersionId);
+}
+function selectProposalVersion(versionId) {
+  const found = findVersionById(state.proposalVersions, versionId);
+  if (!found) return setState({ error: `저장된 버전을 찾지 못했습니다(${versionId}).` });
+  // 화면 작업본도 고른 버전으로 맞춘다. 저장된 내용과 다른 것을 출력하지 않기 위해서다.
+  setState({
+    currentVersionId: found.versionId, sections: structuredClone(found.sections), proposalTables: structuredClone(found.tables || []),
+    notice: `V${found.version} ${found.label}을 열었습니다. 저장된 내용 그대로입니다.`, error: ''
+  });
+}
+// 화면 작업본이 저장된 버전과 다르면 출력하지 않는다.
+function unsavedChanges() {
+  const { version } = selectedSavedVersion();
+  if (!version) return false;
+  return JSON.stringify(version.sections) !== JSON.stringify(state.sections) || JSON.stringify(version.tables || []) !== JSON.stringify(state.proposalTables || []);
+}
+
 // 제출 패키지 — 지금 이 버전이 제출 가능한지 판정하고 함께 낼 것을 정리한다.
 function currentSubmissionPackage() {
   if (!state.sections.length) return null;
@@ -1008,9 +1051,12 @@ function exportFinalPackage(kind) {
   if (!summary?.canExport) {
     return setState({ error: `제출 ${summary?.status || '판정'} 상태입니다. ${(summary?.blockers || []).map(item => item.reason).join(' / ') || '먼저 계획서를 작성하세요.'}` });
   }
-  // 제출본은 지금 버전의 본문과 표를 함께 내보낸다. 내부 검토 표시는 넣지 않는다.
-  const options = { forSubmission: true, tables: state.proposalTables || [], applicantName: selectedApplicant()?.name || '', version: (state.proposalVersions || []).length };
-  const run = kind === 'docx' ? exportDocx(state.project, state.sections, options) : exportPdf(state.project, state.sections, options);
+  // 출력은 화면 작업본이 아니라 저장된 버전을 쓴다. 저장되지 않았거나 식별자가 잘못되면 내보내지 않는다.
+  const { version, reason } = selectedSavedVersion();
+  if (!version) return setState({ error: reason });
+  if (unsavedChanges()) return setState({ error: `화면 내용이 저장된 V${version.version}과 달라 출력하지 않았습니다. 버전을 다시 열거나 수정본을 저장한 뒤 출력하세요.` });
+  const options = { forSubmission: true, tables: version.tables || [], applicantName: selectedApplicant()?.name || '', version: version.version };
+  const run = kind === 'docx' ? exportDocx(state.project, version.sections, options) : exportPdf(state.project, version.sections, options);
   run.catch(showError);
 }
 function toggleAttachment(name) {
@@ -1019,9 +1065,23 @@ function toggleAttachment(name) {
   setState({ submissionIncluded: [...included], notice: '', error: '' });
 }
 const PACKAGE_TONE = { '제출 가능': 'success', '보완 필요': 'warning', '제출 차단': 'danger' };
+// 저장된 버전 목록. 어느 버전을 열고 출력할지 여기서 고른다.
+function versionPickerView() {
+  const versions = state.proposalVersions || [];
+  if (!versions.length) return '<div class="alert warning"><strong>저장된 버전이 없습니다</strong><p>저장되지 않은 계획서는 출력하지 않습니다.</p></div>';
+  const { version, reason } = selectedSavedVersion();
+  return `<details open><summary>저장된 버전 ${versions.length}개 · 현재 <b>${version ? `V${version.version} ${escapeHtml(version.label)}` : '선택 안 됨'}</b></summary>
+    ${reason ? `<div class="alert danger"><strong>출력 차단</strong><p>${escapeHtml(reason)}</p></div>` : ''}
+    ${unsavedChanges() ? '<div class="alert warning"><strong>화면 내용이 저장된 버전과 다릅니다</strong><p>저장된 내용만 출력합니다. 버전을 다시 열거나 수정본을 저장하세요.</p></div>' : ''}
+    <div class="requirement-list">${versions.map(item => `<article class="requirement"><div><span class="status ${item.versionId === state.currentVersionId ? '충족' : '확인-필요'}">V${item.version}</span><div><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(String(item.savedAt).slice(0, 16).replace('T', ' '))} · 본문 ${(item.sections || []).length}개 · 표 ${(item.tables || []).length}개${item.reason ? ` · ${escapeHtml(item.reason)}` : ''}</small>${item.context?.preciseReview ? `<small class="muted">정밀검증 ${item.context.preciseReview.round}차 · 제출 불가 ${item.context.preciseReview.summary?.blocking ?? 0}건 · 판정 ${escapeHtml(item.context.gateStatus || '-')}</small>` : ''}</div></div>
+      <button class="button secondary" data-open-version="${escapeHtml(item.versionId)}" ${item.versionId === state.currentVersionId ? 'disabled' : ''}>이 버전 열기</button></article>`).join('')}</div></details>`;
+}
+
 function submissionPackageView() {
   const summary = currentSubmissionPackage();
   if (!summary) return '';
+  const { version: savedVersion, reason: versionReason } = selectedSavedVersion();
+  const exportBlock = versionReason || (unsavedChanges() ? `화면 내용이 저장된 V${savedVersion?.version}과 달라 출력할 수 없습니다.` : '');
   return `<div class="card" id="submission-package" tabindex="-1"><div class="card-title"><div><h3>제출 패키지 · ${escapeHtml(summary.status)}</h3><span>지금 버전 기준입니다. 출력은 기존 DOCX·PDF 경로를 그대로 씁니다.</span></div><span class="status ${summary.status === '제출 가능' ? '충족' : summary.status === '보완 필요' ? '부분-충족' : '부족'}">${escapeHtml(summary.status)}</span></div>
     <div class="alert ${PACKAGE_TONE[summary.status]}"><strong>${summary.blockers.length ? `출력을 막는 사유 ${summary.blockers.length}건` : summary.warnings.length ? `확인할 사항 ${summary.warnings.length}건` : '제출 조건을 모두 지켰습니다'}</strong>
       ${summary.blockers.map(item => `<p>✕ <b>${escapeHtml(item.reason)}</b> — ${escapeHtml(item.detail)}</p>`).join('')}
@@ -1038,9 +1098,10 @@ function submissionPackageView() {
       <div class="requirement-list">${summary.attachments.map(item => `<article class="requirement"><div><span class="status ${item.included ? '충족' : item.required ? '부족' : '확인-필요'}">${item.required ? '필수' : '선택'}</span><div><strong>${escapeHtml(item.name)}</strong><small class="muted">${escapeHtml(item.location)}</small></div></div>
         <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-attachment="${escapeHtml(item.name)}" ${item.included ? 'checked' : ''}>준비 완료</label></article>`).join('')}</div></details>` : ''}
     ${summary.checklist.length ? `<details><summary>제출 전 확인 목록 ${summary.checklist.length}건</summary><div class="requirement-list">${summary.checklist.map(item => `<article class="requirement"><div><span class="status 확인-필요">${escapeHtml(item.status)}</span><div><strong>${escapeHtml(item.area)}</strong><small>${escapeHtml(item.item)}</small></div></div></article>`).join('')}</div></details>` : ''}
-    <div class="actions"><span class="muted">${escapeHtml(summary.canExport ? '제출본을 출력할 수 있습니다.' : '위 사유를 해결해야 출력할 수 있습니다.')}</span><div>
-      <button class="button secondary" id="package-pdf" ${summary.canExport ? '' : 'disabled'}>PDF 인쇄·저장</button>
-      <button class="button primary" id="package-docx" ${summary.canExport ? '' : 'disabled'}>최종 DOCX 내려받기</button></div></div></div>`;
+    ${versionPickerView()}
+    <div class="actions"><span class="muted">${escapeHtml(summary.canExport ? (exportBlock || '제출본을 출력할 수 있습니다.') : '위 사유를 해결해야 출력할 수 있습니다.')}</span><div>
+      <button class="button secondary" id="package-pdf" ${summary.canExport && !exportBlock ? '' : 'disabled'}>PDF 인쇄·저장</button>
+      <button class="button primary" id="package-docx" ${summary.canExport && !exportBlock ? '' : 'disabled'}>최종 DOCX 내려받기</button></div></div></div>`;
 }
 
 // 정밀 검증 — 정밀형에서만 보이고, 운영자가 버튼으로 실행한다. 검증만으로 본문은 바뀌지 않는다.
@@ -1579,7 +1640,7 @@ async function buildFinalVersion() {
       ? { ...section, content: String(revised.get(section.id).content || section.content), status: '검토 필요' }
       : section));
     state.sections = sections;
-    state.proposalVersions = appendProposalVersion(state.proposalVersions || [], { sections, label: '사용자 확정 반영 최종본', source: '사용자 확정', reason: confirmed.map(item => item.label).join(' · ').slice(0, 120) });
+    recordProposalVersion({ sections, label: '사용자 확정 반영 최종본', source: '사용자 확정', reason: confirmed.map(item => item.label).join(' · ').slice(0, 120) });
     const version = state.proposalVersions[state.proposalVersions.length - 1].version;
     const notApplied = (result.notApplied || []).map(item => `${item.label}: ${item.reason}`);
     setState({
@@ -1731,7 +1792,7 @@ async function applyRevisionRequest() {
     if (state.sections.every((section, index) => section.content === before[index]?.content)) {
       return setState({ busy: '', error: `요청을 반영하지 못했습니다. ${blocked.join(' / ') || '변경된 내용이 없습니다.'}` });
     }
-    state.proposalVersions = appendProposalVersion(state.proposalVersions, { sections: state.sections, label: `사용자 수정 요청 반영`, source: '수정 요청', reason: instruction.slice(0, 120) });
+    recordProposalVersion({ sections: state.sections, label: `사용자 수정 요청 반영`, source: '수정 요청', reason: instruction.slice(0, 120) });
     const version = state.proposalVersions.length;
     setProposalFlow({ status: '수정중', requestOpen: false, requestText: '', requestScope: [], requests: [...(flow.requests || []), { version, text: instruction.slice(0, 300), scope: scope.length, at: new Date().toISOString() }] },
       { sections: state.sections, proposalVersions: state.proposalVersions, busy: '', notice: `요청한 ${scope.length}개 항목을 수정해 V${version}으로 저장했습니다.${blocked.length ? ` 확정값 보호로 ${blocked.length}건은 그대로 두었습니다.` : ''}` });
@@ -2499,6 +2560,7 @@ function bind() {
   // 제출 패키지에서 내려받는 최종본은 판정을 통과했을 때만 나간다. 출력 방식은 기존과 같다.
   document.querySelector('#package-docx')?.addEventListener('click', () => exportFinalPackage('docx'));
   document.querySelector('#package-pdf')?.addEventListener('click', () => exportFinalPackage('pdf'));
+  document.querySelectorAll('[data-open-version]').forEach(el => el.addEventListener('click', () => selectProposalVersion(el.dataset.openVersion)));
   document.querySelectorAll('[data-attachment]').forEach(el => el.addEventListener('change', () => toggleAttachment(el.dataset.attachment)));
   document.querySelector('#print')?.addEventListener('click', printDocument);
   // 최종 제출본 카드의 출력 버튼. 상단 도구모음과 같은 현재 본문을 출력한다.
@@ -3157,16 +3219,16 @@ function applyStructureRevision() {
   if (!state.sections.length) {
     // 구조 분석이 나눈 문단을 그대로 작업본으로 쓰면 문제별 위치가 맞는다.
     state.sections = structuredClone(analysis.structure.sections);
-    state.proposalVersions = appendProposalVersion([], { sections: state.sections, label: '외부 원본', source: EXTERNAL_SOURCE, originalText: state.coaching.text });
+    recordProposalVersion({ sections: state.sections, label: '외부 원본', source: EXTERNAL_SOURCE, originalText: state.coaching.text }, { reset: true });
     if (!state.project.title) state.project.title = state.coaching.title || '검증 대상 계획서';
   } else if (!(state.proposalVersions || []).length) {
-    state.proposalVersions = appendProposalVersion([], { sections: state.sections, label: '수정 전 원본' });
+    recordProposalVersion({ sections: state.sections, label: '수정 전 원본' });
   }
 
   const revision = buildStructuralRevision(state.sections, findings);
   if (!revision.changedSectionIds.length) return setState({ error: '수정할 위치를 찾지 못했습니다. 대상 항목을 직접 지정해 주세요.' });
   state.sections = revision.sections;
-  state.proposalVersions = appendProposalVersion(state.proposalVersions, { sections: state.sections, label: '구조 분석 반영 수정본', source: '계획서 검증·코칭' });
+  recordProposalVersion({ sections: state.sections, label: '구조 분석 반영 수정본', source: '계획서 검증·코칭' });
   const version = state.proposalVersions[state.proposalVersions.length - 1].version;
   state.revisionPlan = buildCoachingHandoff({ coaching: { ...state.coaching, result: { issues: findings } }, sections: state.sections, selectedIndexes: null });
   state.activeTool = 'workflow';
@@ -3187,10 +3249,10 @@ function applyRepairPlansToProposal() {
     const source = state.coaching.structure?.structure.sections;
     if (!source?.length) return setState({ error: '먼저 「원문 구조 분석」을 실행해 작업본을 준비해 주세요.' });
     state.sections = structuredClone(source);
-    state.proposalVersions = appendProposalVersion([], { sections: state.sections, label: '외부 원본', source: EXTERNAL_SOURCE, originalText: state.coaching.text });
+    recordProposalVersion({ sections: state.sections, label: '외부 원본', source: EXTERNAL_SOURCE, originalText: state.coaching.text }, { reset: true });
     if (!state.project.title) state.project.title = state.coaching.title || '검증 대상 계획서';
   } else if (!(state.proposalVersions || []).length) {
-    state.proposalVersions = appendProposalVersion([], { sections: state.sections, label: '수정 전 원본' });
+    recordProposalVersion({ sections: state.sections, label: '수정 전 원본' });
   }
 
   const answers = Object.fromEntries(Object.entries(state.coaching.repairAnswers || {}).filter(([, value]) => String(value).trim()));
@@ -3199,7 +3261,7 @@ function applyRepairPlansToProposal() {
     return setState({ coaching: state.coaching, error: '', notice: `수정한 문단이 없습니다. 확인 필요 ${run.questions.length}건에 답을 입력하면 해당 문제만 수정합니다.${run.blocked.length ? ` 근거 부족으로 보류한 문제 ${run.blocked.length}건이 있습니다.` : ''}` });
   }
   state.sections = run.sections;
-  state.proposalVersions = appendProposalVersion(state.proposalVersions, { sections: state.sections, label: '수정계획 반영 수정본', source: '계획서 검증·코칭' });
+  recordProposalVersion({ sections: state.sections, label: '수정계획 반영 수정본', source: '계획서 검증·코칭' });
   const version = state.proposalVersions[state.proposalVersions.length - 1].version;
   state.revisionPlan = buildCoachingHandoff({ coaching: { ...state.coaching, result: { issues: state.coaching.result.issues } }, sections: state.sections, selectedIndexes: null });
   state.activeTool = 'workflow';
@@ -3230,7 +3292,7 @@ function sendIssuesToWriter() {
   const plan = buildCoachingHandoff({ coaching: state.coaching, sections: state.sections, selectedIndexes: state.coachingSelection });
   if (!plan.items.length) return setState({ error: '전달할 문제를 선택해 주세요.' });
   // 수정 전 원본을 먼저 버전으로 남긴다.
-  if (!(state.proposalVersions || []).length) state.proposalVersions = appendProposalVersion([], { sections: state.sections, label: '최초 작성', source: '계획서 쓰기', verdict: plan.verdict.verdict });
+  if (!(state.proposalVersions || []).length) recordProposalVersion({ sections: state.sections, label: '최초 작성', source: '계획서 쓰기', verdict: plan.verdict.verdict });
   state.activeTool = 'workflow';
   navigateToStep(4, { revisionPlan: plan, proposalVersions: state.proposalVersions, coachingSelection: [], notice: `검증·코칭 문제 ${plan.items.length}건을 계획서 쓰기로 전달했습니다. 전달된 위치만 수정하세요.`, error: '' });
 }
@@ -3290,7 +3352,7 @@ function saveRevisionVersion(announce = true) {
   const baseline = (state.proposalVersions || [])[0];
   const check = baseline ? verifyLockedValues(baseline.sections.map(section => section.content).join('\n'), state.sections.map(section => section.content).join('\n'), plan?.lockedValues || null) : { ok: true, removed: [], added: [] };
   const label = plan ? `검증·코칭 v${plan.fromVersion} 반영 수정본` : '수정본';
-  state.proposalVersions = appendProposalVersion(state.proposalVersions, { sections: state.sections, label, source: '계획서 쓰기', verdict: plan?.verdict.verdict || '' });
+  recordProposalVersion({ sections: state.sections, label, source: '계획서 쓰기', verdict: plan?.verdict.verdict || '' });
   const version = state.proposalVersions[state.proposalVersions.length - 1].version;
   if (announce) setState({ proposalVersions: state.proposalVersions, notice: `수정본 V${version}을 저장했습니다. 이전 버전은 그대로 보존됩니다.${check.ok ? '' : ` 확인 필요: 확정값 변경 ${[...check.removed, ...check.added].join(' · ')}`}`, error: '' });
   void archiveCurrentProposal(`revision-v${version}`).catch(() => {});
@@ -3303,7 +3365,7 @@ function restoreProposalVersion(version) {
   // 되돌리기 전 현재 본문도 버전으로 남겨 이전 문서를 잃지 않는다.
   const current = JSON.stringify(state.sections);
   if (!(state.proposalVersions || []).some(item => JSON.stringify(item.sections) === current)) {
-    state.proposalVersions = appendProposalVersion(state.proposalVersions, { sections: state.sections, label: '되돌리기 전 작업본', source: '계획서 쓰기' });
+    recordProposalVersion({ sections: state.sections, label: '되돌리기 전 작업본', source: '계획서 쓰기' });
   }
   state.sections = structuredClone(saved.sections);
   setState({ sections: state.sections, proposalVersions: state.proposalVersions, notice: `V${version} ${saved.label} 내용으로 되돌렸습니다. 저장된 버전은 모두 유지됩니다.`, error: '' });
@@ -3945,7 +4007,7 @@ async function generateFullProposal() {
     state.reviewOriginalDraft = null;
     state.reviewFingerprint = '';
     state.stagedGeneration = { ...state.stagedGeneration, phase: 'complete' };
-    if (!(state.proposalVersions || []).length) state.proposalVersions = appendProposalVersion([], { sections: state.sections, label: 'V1 완성본', source: '승인 설계안 기반 작성' });
+    if (!(state.proposalVersions || []).length) recordProposalVersion({ sections: state.sections, label: 'V1 완성본', source: '승인 설계안 기반 작성' });
     markProposalAssembled();
     markAiDoneAt('fullProposal', startedAt, {
       sections: state.sections, proposalTables: state.proposalTables, missingInformation: state.missingInformation,
@@ -4020,10 +4082,10 @@ function assembleProposal(startedAt = Date.now()) {
   state.reviewOriginalDraft = null;
   state.reviewFingerprint = '';
   // 첫 완성본을 V1로 남긴다. 이후 수정·확정값 반영은 새 버전으로만 쌓인다.
-  if (!(state.proposalVersions || []).length) state.proposalVersions = appendProposalVersion([], { sections: state.sections, label: 'V1 완성본', source: '계획서 작성' });
+  if (!(state.proposalVersions || []).length) recordProposalVersion({ sections: state.sections, label: 'V1 완성본', source: '계획서 작성' });
   else if (state.redesignForContract) {
     // 공고 기준 재설계는 기존 버전을 지우지 않고 새 버전으로만 쌓는다.
-    state.proposalVersions = appendProposalVersion(state.proposalVersions, { sections: state.sections, label: '공고 기준 재설계', source: '공고 실행계약', reason: '공고 적합성 게이트 제출 차단 해소' });
+    recordProposalVersion({ sections: state.sections, label: '공고 기준 재설계', source: '공고 실행계약', reason: '공고 적합성 게이트 제출 차단 해소' });
     state.redesignForContract = false;
   }
   markAiDoneAt('assemble', startedAt, { stagedGeneration: state.stagedGeneration, sections: state.sections, proposalVersions: state.proposalVersions, assemblyCheck, notice: assemblyCheck.valid ? '분할 항목을 공식 신청서 순서의 하나의 사업계획서로 완성했습니다.' : '계획서를 조립했지만 확인할 불일치가 있습니다. 사실을 자동 보정하지 않았습니다.', error: '' });
@@ -4063,7 +4125,7 @@ async function archiveCurrentProposal(forcedStage, announce = false) {
   state.archiveProposalId = id;
   saveState();
   const stage = forcedStage || (state.reviewResult ? 'review' : state.sections.length ? 'complete' : state.stagedGeneration?.phase === 'parts-ready' ? 'parts' : 'master');
-  const fields = ['project', 'sourceText', 'analysis', 'sponsorIntent', 'projectDesign', 'missingInformation', 'evidenceMap', 'qualityCheck', 'designAnswers', 'designUnavailable', 'stagedGeneration', 'assemblyCheck', 'manualSources', 'matches', 'answers', 'sections', 'reviewResult', 'reviewOriginalDraft', 'reviewFingerprint', 'companyFacts', 'selectedNotice', 'aiMode', 'selectedApplicantId', 'projectValues', 'applicantResolvedQuestions', 'proposalVersions', 'revisionPlan', 'noticeLogic', 'draftReview', 'projectNarrative', 'engagement', 'proposalTables', 'preciseReview', 'submissionIncluded'];
+  const fields = ['project', 'sourceText', 'analysis', 'sponsorIntent', 'projectDesign', 'missingInformation', 'evidenceMap', 'qualityCheck', 'designAnswers', 'designUnavailable', 'stagedGeneration', 'assemblyCheck', 'manualSources', 'matches', 'answers', 'sections', 'reviewResult', 'reviewOriginalDraft', 'reviewFingerprint', 'companyFacts', 'selectedNotice', 'aiMode', 'selectedApplicantId', 'projectValues', 'applicantResolvedQuestions', 'proposalVersions', 'revisionPlan', 'noticeLogic', 'draftReview', 'projectNarrative', 'engagement', 'proposalTables', 'preciseReview', 'submissionIncluded', 'currentVersionId'];
   // 계획서에는 사용 시점의 신청기관 사본만 남기고, 신청기관 원본은 별도 보관 항목으로만 수정한다.
   const snapshot = { ...Object.fromEntries(fields.map(key => [key, structuredClone(state[key])])), applicantSnapshot: selectedApplicant() ? structuredClone(selectedApplicant()) : null };
   const result = await saveArchivedProposal({ id, noticeKey: archiveNoticeKey(state.selectedNotice), title: state.project.title || state.selectedNotice?.title, stage, snapshot });

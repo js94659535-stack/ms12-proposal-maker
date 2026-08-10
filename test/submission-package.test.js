@@ -163,16 +163,17 @@ test('출력은 판정을 통과할 때만 나가고 기존 DOCX·PDF 경로를 
   assert.match(app, /function exportFinalPackage\(kind\)/);
   assert.match(app, /if \(!summary\?\.canExport\) \{[\s\S]{0,300}return setState\(\{ error:/);
   // 제출본은 본문과 표를 함께, 내부 검토 표시 없이 내보낸다.
-  assert.match(app, /const options = \{ forSubmission: true, tables: state\.proposalTables \|\| \[\], applicantName: selectedApplicant\(\)\?\.name \|\| '', version: \(state\.proposalVersions \|\| \[\]\)\.length \};/);
-  assert.match(app, /const run = kind === 'docx' \? exportDocx\(state\.project, state\.sections, options\) : exportPdf\(state\.project, state\.sections, options\);/);
-  assert.match(app, /id="package-docx" \$\{summary\.canExport \? '' : 'disabled'\}/);
-  assert.match(app, /id="package-pdf" \$\{summary\.canExport \? '' : 'disabled'\}/);
+  assert.match(app, /const options = \{ forSubmission: true, tables: version\.tables \|\| \[\], applicantName: selectedApplicant\(\)\?\.name \|\| '', version: version\.version \};/);
+  assert.match(app, /const run = kind === 'docx' \? exportDocx\(state\.project, version\.sections, options\) : exportPdf\(state\.project, version\.sections, options\);/);
+  // 판정을 통과해도 저장된 버전이 없거나 화면 내용이 다르면 버튼을 열지 않는다.
+  assert.match(app, /id="package-docx" \$\{summary\.canExport && !exportBlock \? '' : 'disabled'\}/);
+  assert.match(app, /id="package-pdf" \$\{summary\.canExport && !exportBlock \? '' : 'disabled'\}/);
   // 기존 개별 출력 버튼은 그대로 둔다.
   assert.match(app, /document\.querySelector\('#docx'\)\?\.addEventListener\('click', \(\) => exportDocx\(state\.project, state\.sections\)\.catch\(showError\)\);/);
   // 검증 결과에 어느 본문을 봤는지 지문을 남긴다.
   assert.match(app, /fingerprint: sectionsFingerprint\(state\.sections\)/);
   // 첨부 체크는 의뢰 건에 저장되고 보관 스냅샷에 함께 남는다.
   assert.match(app, /function toggleAttachment\(name\)/);
-  assert.match(app, /'preciseReview', 'submissionIncluded'\]/);
+  assert.match(app, /'preciseReview', 'submissionIncluded', 'currentVersionId'\]/);
   assert.doesNotMatch(app, /action: 'saveSubmissionPackage'/);
 });

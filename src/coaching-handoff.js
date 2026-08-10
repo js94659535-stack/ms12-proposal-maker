@@ -156,19 +156,56 @@ export function verifyLockedValues(beforeText, afterText, lockedValues = null) {
 }
 
 // 계획서 버전을 누적한다. 이전 버전은 지우지 않고 사본으로 보존한다.
-export function appendProposalVersion(versions, { sections, label, source = '계획서 쓰기', verdict = '', savedAt = '', originalText = '' } = {}) {
+export function appendProposalVersion(versions, { sections, tables = [], label, source = '계획서 쓰기', verdict = '', savedAt = '', originalText = '', reason = '', context = null } = {}) {
   const list = Array.isArray(versions) ? versions : [];
   const version = list.length + 1;
+  const at = savedAt || new Date().toISOString();
   return [...list, {
     version,
+    // 버전마다 바뀌지 않는 식별자. 번호는 목록 안 순서이고, 이 값으로 어느 버전을 여는지 가리킨다.
+    versionId: `v${version}-${at.replace(/[^\dT]/g, '').slice(0, 15)}`,
     label: text(label, 100) || (version === 1 ? '최초 작성' : `수정본 v${version}`),
     source: text(source, 60),
     verdict: text(verdict, 40),
-    savedAt: savedAt || new Date().toISOString(),
+    reason: text(reason, 200),
+    savedAt: at,
     // 외부에서 가져온 계획서는 원문 그대로도 함께 보존한다.
     originalText: String(originalText || '').slice(0, 200_000),
-    sections: structuredClone(Array.isArray(sections) ? sections : [])
+    sections: structuredClone(Array.isArray(sections) ? sections : []),
+    // 표도 본문과 같은 버전에 함께 저장한다. 출력은 이 값만 쓴다.
+    tables: structuredClone(Array.isArray(tables) ? tables : []),
+    // 이 버전이 무엇을 근거로 만들어졌고 어떤 판정을 받았는지 함께 남긴다.
+    context: context && typeof context === 'object' ? structuredClone(context) : null
   }];
+}
+
+// 예전에 저장한 버전에는 식별자·표가 없다. 값을 지우지 않고 빠진 것만 채운다.
+export function normalizeProposalVersions(versions) {
+  return (Array.isArray(versions) ? versions : []).map((item, index) => ({
+    ...item,
+    version: Number(item?.version) || index + 1,
+    versionId: item?.versionId || `v${Number(item?.version) || index + 1}-${String(item?.savedAt || '').replace(/[^\dT]/g, '').slice(0, 15) || 'legacy'}`,
+    sections: Array.isArray(item?.sections) ? item.sections : [],
+    tables: Array.isArray(item?.tables) ? item.tables : [],
+    context: item?.context && typeof item.context === 'object' ? item.context : null
+  }));
+}
+
+// 버전 식별자로 찾는다. 없는 식별자는 조용히 다른 버전으로 대체하지 않는다.
+export function findVersionById(versions, versionId) {
+  const id = String(versionId || '');
+  if (!id) return null;
+  return (Array.isArray(versions) ? versions : []).find(item => item.versionId === id) || null;
+}
+// 저장된 버전만 열고 출력한다. 없거나 본문이 비면 이유를 돌려준다.
+export function resolveSavedVersion(versions, versionId) {
+  const list = Array.isArray(versions) ? versions : [];
+  if (!list.length) return { version: null, reason: '저장된 계획서 버전이 없습니다.' };
+  if (!versionId) return { version: null, reason: '어느 버전을 쓸지 정해지지 않았습니다. 버전을 고른 뒤 다시 시도하세요.' };
+  const found = findVersionById(list, versionId);
+  if (!found) return { version: null, reason: `저장된 버전을 찾지 못했습니다(${versionId}). 목록에서 버전을 다시 고르세요.` };
+  if (!(found.sections || []).length) return { version: null, reason: `V${found.version}에 저장된 본문이 없습니다.` };
+  return { version: found, reason: '' };
 }
 
 export const EXTERNAL_SOURCE = '외부 계획서';

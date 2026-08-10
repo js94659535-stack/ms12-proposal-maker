@@ -162,7 +162,7 @@ test('왕복 흐름은 외부 호출 없이 화면과 저장 단계에 연결된
   assert.match(appSource, /id="save-revision-version"/);
   assert.match(appSource, /data-restore-version/);
   // 보관 스냅샷에는 버전·수정계획과 함께 공고 선정논리·초안 상태도 담아 다시 열 때 흐름이 이어진다.
-  assert.match(appSource, /'proposalVersions', 'revisionPlan', 'noticeLogic', 'draftReview', 'projectNarrative', 'engagement', 'proposalTables', 'preciseReview', 'submissionIncluded'\]/);
+  assert.match(appSource, /'proposalVersions', 'revisionPlan', 'noticeLogic', 'draftReview', 'projectNarrative', 'engagement', 'proposalTables', 'preciseReview', 'submissionIncluded', 'currentVersionId'\]/);
   assert.match(appSource, /revision-v\$\{version\}/);
   for (const label of ['제출 검토 완료', '수정 후 재검토', '작성 단계로 반려']) assert.match(appSource + fs.readFileSync(new URL('../src/coaching-handoff.js', import.meta.url), 'utf8'), new RegExp(label));
 });

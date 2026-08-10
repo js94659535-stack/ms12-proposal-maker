@@ -146,7 +146,7 @@ test('검증은 본문을 바꾸지 않고 수정은 한 번의 호출로 끝난
   // 수정 호출 1회, 지목 외 변경 시 반영하지 않음
   assert.equal((patchFn.match(/await patchSectionsWithAI\(/g) || []).length, 1);
   assert.match(patchFn, /if \(!untouched\.ok\) throw new Error\(/);
-  assert.match(patchFn, /appendProposalVersion\(state\.proposalVersions, \{[\s\S]{0,200}label: `정밀 검증 \$\{review\.round\}차 부분 수정`/);
+  assert.match(patchFn, /recordProposalVersion\(\{[\s\S]{0,200}label: `정밀 검증 \$\{review\.round\}차 부분 수정`/);
   // 자동 재시도가 없다.
   assert.doesNotMatch(reviewFn, /for \(|while \(/);
   assert.doesNotMatch(patchFn, /for \(|while \(/);
@@ -177,5 +177,5 @@ test('부분 수정 후 제출 게이트를 다시 본다', () => {
   assert.match(app, /if \(!currentNoticeContract\(\)\?\.rules\?\.length && state\.sections\.length\) ensureNoticeLogic\(\);/);
   assert.match(app, /남은 강제조건 \$\{gate\.blocking\.length\}건/);
   // 보관 스냅샷에 검증 결과가 함께 남는다.
-  assert.match(app, /'engagement', 'proposalTables', 'preciseReview', 'submissionIncluded'\]/);
+  assert.match(app, /'engagement', 'proposalTables', 'preciseReview', 'submissionIncluded', 'currentVersionId'\]/);
 });

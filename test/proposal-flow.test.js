@@ -12,7 +12,7 @@ test('조립이 끝나면 검증 전 완성본 상태로 보관한다', () => {
   assert.match(app, /setProposalFlow\(\{ status: '완성본·검토전'/);
   assert.match(app, /markAiDoneAt\('assemble', startedAt[\s\S]{0,400}markProposalAssembled\(\)/);
   // 첫 완성본은 V1로 남는다.
-  assert.match(app, /if \(!\(state\.proposalVersions \|\| \[\]\)\.length\) state\.proposalVersions = appendProposalVersion\(\[\], \{ sections: state\.sections, label: 'V1 완성본'/);
+  assert.match(app, /if \(!\(state\.proposalVersions \|\| \[\]\)\.length\) recordProposalVersion\(\{ sections: state\.sections, label: 'V1 완성본'/);
   assert.match(app, /archiveCurrentProposal\('complete'\)/);
   // 완성 화면의 다섯 갈래
   for (const label of ['전체 계획서 보기', 'DOCX 내려받기', 'PDF 내려받기', '수정 요청', '검토·제출로 보내기']) {
@@ -29,7 +29,7 @@ test('수정 요청은 지정한 범위만 다시 쓰고 확정값을 지킨다'
   assert.match(app, /const check = verifyLockedValues\(/);
   assert.match(app, /if \(check\.removed\.length\) \{[\s\S]{0,120}continue; \}/);
   // 새 버전으로만 쌓고 요청 내용을 남긴다.
-  assert.match(app, /appendProposalVersion\(state\.proposalVersions, \{ sections: state\.sections, label: `사용자 수정 요청 반영`, source: '수정 요청', reason: instruction/);
+  assert.match(app, /recordProposalVersion\(\{ sections: state\.sections, label: `사용자 수정 요청 반영`, source: '수정 요청', reason: instruction/);
 });
 
 test('버전 이력은 보기·비교·복원과 생성 이유를 함께 보여 준다', () => {
