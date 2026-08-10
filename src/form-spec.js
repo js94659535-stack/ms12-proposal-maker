@@ -116,12 +116,17 @@ export function extractFormTables(sources) {
 
 // 예산 양식은 열 구성과 편성 규칙을 함께 남긴다.
 const BUDGET_RULE = /이내|이하|이상|초과할 수 없|넘을 수 없|비율|%|자부담|보조율|편성|불가/;
+// 심사기준 문장, 표 칸 이름, 항목 제목은 예산 편성 기준이 아니다.
+const BUDGET_RULE_SKIP = /심사\s*기준|평가\s*기준|심사\s*방법|배점|진행과정/;
+const BUDGET_HEADING = /^[□■○●▶▸※\-\s]*\d{1,2}\s*[.)]\s*\S{0,12}$/;
 export function extractBudgetForm(sources) {
   const table = extractFormTables(sources).find(item => item.kind === '예산표') || null;
   const rules = [];
   for (const source of sources) {
     for (const entry of linesOf(source)) {
       if (!/예산|사업비|인건비|자부담|보조/.test(entry.line) || !BUDGET_RULE.test(entry.line)) continue;
+      // 기준으로 읽을 만한 문장만 남긴다(표 칸 이름·제목 줄 제외).
+      if (entry.line.replace(/\s/g, '').length < 12 || BUDGET_HEADING.test(entry.line) || BUDGET_RULE_SKIP.test(entry.line)) continue;
       if (rules.some(item => item.text === entry.line)) continue;
       rules.push({ text: entry.line, location: entry.location });
       if (rules.length >= 6) break;

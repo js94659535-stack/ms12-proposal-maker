@@ -208,6 +208,12 @@ test('실제 서식의 필수 표·예산 양식·첨부서류를 원문 그대�
   const budget = spec.budgetForm;
   assert.equal(budget.status, '확인됨');
   assert.ok(budget.rules.some(rule => rule.text.includes('별첨3. 예산편성기준표')));
+  assert.ok(budget.rules.some(rule => rule.text.includes('신청금액 세부내역')));
+  // 표 칸 이름·항목 제목·심사기준 문장은 편성 기준이 아니다.
+  for (const noise of ['자부담', '2. 예산 편성', '심사기준']) {
+    assert.ok(!budget.rules.some(rule => rule.text.trim() === noise || rule.text.includes('심사기준 :')), `편성 기준 아님: ${noise}`);
+  }
+  assert.ok(budget.rules.every(rule => rule.text.replace(/\s/g, '').length >= 12));
 
   // 제출서류는 공고문의 ①~⑧ 목록 그대로이고 안내 문장은 섞이지 않는다.
   assert.deepEqual(spec.attachments.map(item => item.name), [
