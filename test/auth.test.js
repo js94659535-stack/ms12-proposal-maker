@@ -243,20 +243,50 @@ test('비밀번호 해시 방식과 반복 횟수를 사용자 행에 기록한�
   assert.doesNotMatch(migration, /token TEXT|password TEXT NOT NULL,/);
 });
 
+const read = name => fs.readFileSync(new URL(`../${name}`, import.meta.url), 'utf8');
+
 test('기본 비밀번호를 코드·migration에 넣지 않는다', () => {
-  const script = fs.readFileSync(new URL('../scripts/create-admin.mjs', import.meta.url), 'utf8');
-  const authSource = fs.readFileSync(new URL('../functions/api/auth.js', import.meta.url), 'utf8');
+  const cli = read('scripts/admin-cli.mjs');
+  const create = read('scripts/create-admin.mjs');
+  const authSource = read('functions/api/auth.js');
   // migration에는 계정 행이 없다.
   assert.doesNotMatch(migration, /INSERT INTO users/i);
-  for (const source of [script, authSource]) {
+  for (const source of [cli, create, authSource]) {
     assert.doesNotMatch(source, /(?:password|비밀번호)\s*[:=]\s*['"][^'"]{4,}['"]/i);
   }
-  // 생성 스크립트는 입력받아 해시하고 임시 파일을 지운다.
-  assert.match(script, /askSecret\('비밀번호/);
-  assert.match(script, /createPasswordRecord\(password\)/);
-  assert.match(script, /fs\.rmSync\(path\.dirname\(file\), \{ recursive: true, force: true \}\)/);
-  assert.match(script, /if \(result\.status !== 0\).*배포를 진행하지 마세요/s);
-  assert.doesNotMatch(script, /console\.log\(.*password|console\.log\(.*hash/i);
+  // 비밀번호는 두 번 숨김 입력으로만 받고, 해시가 담긴 임시 파일은 반드시 지운다.
+  assert.match(cli, /export function askSecret\(question\)/);
+  assert.match(cli, /const again = await askSecret\(`\$\{label\} 확인: `\);/);
+  assert.match(cli, /if \(password !== again\) fail\('두 번 입력한 비밀번호가 다릅니다\.'\);/);
+  assert.match(cli, /fs\.rmSync\(directory, \{ recursive: true, force: true \}\)/);
+  assert.match(create, /createPasswordRecord\(password\)/);
+  assert.match(create, /배포를 진행하지 마세요/);
+});
+
+test('비밀번호 재설정은 기존 계정만 갱신하고 자료를 지우지 않는다', () => {
+  const reset = read('scripts/reset-admin-password.mjs');
+  // 같은 해싱 구조를 그대로 쓴다(600,000회는 server/password.js 한 곳에서만 정한다).
+  assert.match(reset, /import \{ createPasswordRecord \} from '\.\.\/server\/password\.js';/);
+  assert.match(reset, /readNewPassword\('새 비밀번호'\)/);
+  // 반복 횟수를 직접 적지 않고 createPasswordRecord가 준 값을 그대로 넣는다.
+  assert.doesNotMatch(reset, /iterations\s*[:=]\s*\d|\b\d{5,}\b/, '반복 횟수를 스크립트에 따로 적지 않는다');
+  assert.match(reset, /password_iterations = \$\{record\.password_iterations\}/);
+  // 계정을 새로 만들지 않는다.
+  assert.doesNotMatch(reset, /INSERT INTO users/i);
+  assert.match(reset, /이 스크립트는 계정을 새로 만들지 않습니다/);
+  // 조회할 때 비밀값 열을 읽지 않는다.
+  assert.match(reset, /SELECT id, email, role, status FROM users WHERE email/);
+  assert.doesNotMatch(reset, /SELECT[^;]*password_/i);
+  // 갱신 대상은 해시 관련 열뿐이고, 기존 세션·실패 기록만 지운다.
+  assert.match(reset, /UPDATE users SET password_algo = [\s\S]+WHERE id = /);
+  assert.match(reset, /DELETE FROM sessions WHERE user_id = /);
+  assert.match(reset, /DELETE FROM login_attempts;/);
+  assert.doesNotMatch(reset, /DELETE FROM users|DROP |archived_proposals|applicant_organizations|archived_notices/i);
+  // 비밀번호·해시를 출력하지 않는다.
+  for (const source of [reset, read('scripts/admin-cli.mjs'), read('scripts/create-admin.mjs')]) {
+    assert.doesNotMatch(source, /console\.(log|error)\([^)]*\b(password|record\.password_hash|password_salt)\b/i);
+  }
+  assert.match(reset, /새 비밀번호와 해시는 출력하지 않습니다/);
 });
 
 test('앱은 로그인하기 전 작업 화면을 그리지 않고 토큰을 저장하지 않는다', () => {
