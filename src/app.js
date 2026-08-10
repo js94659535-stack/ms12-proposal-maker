@@ -998,7 +998,8 @@ function currentSubmissionPackage() {
     mode: proposalMode(), sections: state.sections, tables: state.proposalTables || [],
     versions: state.proposalVersions || [], proposalFlow: proposalFlow(),
     gate: currentSubmissionGate(), preciseReview: state.preciseReview,
-    formSpec: currentFormSpec(), applicant: selectedApplicant(), included: state.submissionIncluded || []
+    formSpec: currentFormSpec(), applicant: selectedApplicant(), included: state.submissionIncluded || [],
+    outline: buildDocumentPlan(currentNoticeContract(), currentFormSpec()).outline
   });
 }
 // 판정을 통과하지 못하면 출력하지 않는다. 통과하면 기존 출력 함수를 그대로 부른다.
@@ -1007,7 +1008,9 @@ function exportFinalPackage(kind) {
   if (!summary?.canExport) {
     return setState({ error: `제출 ${summary?.status || '판정'} 상태입니다. ${(summary?.blockers || []).map(item => item.reason).join(' / ') || '먼저 계획서를 작성하세요.'}` });
   }
-  const run = kind === 'docx' ? exportDocx(state.project, state.sections) : exportPdf(state.project, state.sections);
+  // 제출본은 지금 버전의 본문과 표를 함께 내보낸다. 내부 검토 표시는 넣지 않는다.
+  const options = { forSubmission: true, tables: state.proposalTables || [], applicantName: selectedApplicant()?.name || '', version: (state.proposalVersions || []).length };
+  const run = kind === 'docx' ? exportDocx(state.project, state.sections, options) : exportPdf(state.project, state.sections, options);
   run.catch(showError);
 }
 function toggleAttachment(name) {

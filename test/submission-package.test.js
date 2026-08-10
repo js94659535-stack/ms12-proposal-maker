@@ -115,6 +115,31 @@ test('서식 openPoints와 기관 확인 필요 사항이 최종 확인 목록�
   assert.equal(summary.canExport, true);
 });
 
+test('미확정 표시·빈 항목·시스템 값이 남으면 제출본으로 내보내지 않는다', () => {
+  const withMark = base({ sections: [SECTIONS[0], { id: 'budget', title: '8. 예산', content: '총사업비 129,500,000원. 세부 산출근거 [확인 필요]' }] });
+  assert.equal(withMark.status, '제출 차단');
+  const reason = withMark.blockers.find(item => item.reason === '확인 필요 표시 남음');
+  assert.match(reason.detail, /1곳/);
+  assert.match(reason.detail, /8\. 예산/);
+
+  assert.ok(base({ sections: [SECTIONS[0], { id: 'budget', title: '8. 예산', content: '   ' }] }).blockers.some(item => item.reason === '빈 항목'));
+  assert.ok(base({ sections: [SECTIONS[0], { id: 'budget', title: '8. 예산', content: '총사업비 undefined원' }] }).blockers.some(item => item.reason === '시스템 값 노출'));
+  // 깨끗한 본문은 막지 않는다.
+  assert.equal(base({}).canExport, true);
+});
+
+test('서식 분량 초과는 알리되 그것만으로 막지는 않는다', () => {
+  const outline = [{ key: 'necessity', title: '사업 필요성', formItem: '사업 필요성', limitChars: 10 }, { key: 'budget', title: '예산', limitChars: 0 }];
+  const summary = base({ outline });
+  assert.equal(summary.overLength.length, 1);
+  assert.equal(summary.overLength[0].limit, 10);
+  assert.ok(summary.overLength[0].chars > 10);
+  assert.ok(summary.warnings.some(item => item.reason === '서식 분량 초과'));
+  assert.equal(summary.canExport, true, '분량 초과만으로 막지 않는다');
+  // 제한이 없으면 초과 판정을 만들지 않는다.
+  assert.deepEqual(base({ outline: [{ key: 'necessity', title: '사업 필요성', limitChars: 0, limitPages: 0 }] }).overLength, []);
+});
+
 test('공고문을 붙여넣기만 해도 제출서류 목록을 읽어 필수 첨부를 잡는다', () => {
   // 목록을 못 읽으면 필수 첨부 누락을 놓친 채 제출 가능으로 보인다.
   assert.match(app, /공고문을 자료로 올리지 않고 붙여넣기만 했어도 제출서류 목록을 읽는다/);
@@ -137,7 +162,9 @@ test('출력은 판정을 통과할 때만 나가고 기존 DOCX·PDF 경로를 
   assert.match(app, /function submissionPackageView\(\)/);
   assert.match(app, /function exportFinalPackage\(kind\)/);
   assert.match(app, /if \(!summary\?\.canExport\) \{[\s\S]{0,300}return setState\(\{ error:/);
-  assert.match(app, /const run = kind === 'docx' \? exportDocx\(state\.project, state\.sections\) : exportPdf\(state\.project, state\.sections\);/);
+  // 제출본은 본문과 표를 함께, 내부 검토 표시 없이 내보낸다.
+  assert.match(app, /const options = \{ forSubmission: true, tables: state\.proposalTables \|\| \[\], applicantName: selectedApplicant\(\)\?\.name \|\| '', version: \(state\.proposalVersions \|\| \[\]\)\.length \};/);
+  assert.match(app, /const run = kind === 'docx' \? exportDocx\(state\.project, state\.sections, options\) : exportPdf\(state\.project, state\.sections, options\);/);
   assert.match(app, /id="package-docx" \$\{summary\.canExport \? '' : 'disabled'\}/);
   assert.match(app, /id="package-pdf" \$\{summary\.canExport \? '' : 'disabled'\}/);
   // 기존 개별 출력 버튼은 그대로 둔다.
