@@ -1,0 +1,10 @@
+noto-sans-kr-korean.ttf
+
+Noto Sans KR (한국어 서브셋) — SIL Open Font License, Version 1.1
+Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'.
+Copyright The Noto Project Authors (https://github.com/notofonts/noto-cjk)
+
+이 파일은 @fontsource/noto-sans-kr 의 한국어 서브셋 WOFF를
+scripts/build-korean-font.mjs 로 TTF 컨테이너로만 되돌린 것입니다.
+글리프·메트릭은 원본 그대로이며 시스템 폰트를 복사하지 않았습니다.
+전문: https://openfontlicense.org/

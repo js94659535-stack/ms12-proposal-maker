@@ -1,7 +1,8 @@
 import { analyzeWithAI, draftPartWithAI, draftWithAI, finalizeWithAI, fullProposalWithAI, masterWithAI, patchSectionsWithAI, preciseReviewWithAI, rewriteWithAI } from './api.js';
 import { extractFile, extractFiles } from './files.js';
 import { localAnalyze } from './fallback.js';
-import { exportDocx, exportPdf, printDocument } from './export.js';
+import { exportDocx, exportPdf, printDocument, submissionFileName } from './export.js';
+import { exportProposalPdf } from './pdf-export.js';
 import { fetchNoticeDetail, fetchNoticeList, importNoticeUrl, noticeBodyText } from './notices.js';
 import { deleteArchivedApplicant, getArchivedProposal, getArchiveRecoveryKey, listArchivedApplicants, listArchivedProposals, saveArchivedApplicant, saveArchivedProposal, searchArchivedNotices, syncArchivedNotices, useArchiveRecoveryKey } from './archive.js';
 import { ASOF_UNKNOWN, applySafeCandidates, applyUpdateCandidate, buildUpdateCandidates, extractApplicantCandidates } from './applicant-extract.js';
@@ -1055,8 +1056,15 @@ function exportFinalPackage(kind) {
   const { version, reason } = selectedSavedVersion();
   if (!version) return setState({ error: reason });
   if (unsavedChanges()) return setState({ error: `화면 내용이 저장된 V${version.version}과 달라 출력하지 않았습니다. 버전을 다시 열거나 수정본을 저장한 뒤 출력하세요.` });
-  const options = { forSubmission: true, tables: version.tables || [], applicantName: selectedApplicant()?.name || '', version: version.version };
-  const run = kind === 'docx' ? exportDocx(state.project, version.sections, options) : exportPdf(state.project, version.sections, options);
+  const applicantName = selectedApplicant()?.name || '';
+  const options = { forSubmission: true, tables: version.tables || [], applicantName, version: version.version };
+  // PDF는 인쇄창을 거치지 않고 실제 파일로 내려받는다. 실패하면 다른 형식으로 대신 주지 않는다.
+  const run = kind === 'docx'
+    ? exportDocx(state.project, version.sections, options)
+    : exportProposalPdf({
+      project: state.project, sections: version.sections, tables: version.tables || [],
+      fileName: submissionFileName(state.project, { applicantName, version: version.version, kind: 'pdf' })
+    });
   run.catch(showError);
 }
 function toggleAttachment(name) {
@@ -1100,7 +1108,7 @@ function submissionPackageView() {
     ${summary.checklist.length ? `<details><summary>제출 전 확인 목록 ${summary.checklist.length}건</summary><div class="requirement-list">${summary.checklist.map(item => `<article class="requirement"><div><span class="status 확인-필요">${escapeHtml(item.status)}</span><div><strong>${escapeHtml(item.area)}</strong><small>${escapeHtml(item.item)}</small></div></div></article>`).join('')}</div></details>` : ''}
     ${versionPickerView()}
     <div class="actions"><span class="muted">${escapeHtml(summary.canExport ? (exportBlock || '제출본을 출력할 수 있습니다.') : '위 사유를 해결해야 출력할 수 있습니다.')}</span><div>
-      <button class="button secondary" id="package-pdf" ${summary.canExport && !exportBlock ? '' : 'disabled'}>PDF 인쇄·저장</button>
+      <button class="button secondary" id="package-pdf" ${summary.canExport && !exportBlock ? '' : 'disabled'}>최종 PDF 내려받기</button>
       <button class="button primary" id="package-docx" ${summary.canExport && !exportBlock ? '' : 'disabled'}>최종 DOCX 내려받기</button></div></div></div>`;
 }
 

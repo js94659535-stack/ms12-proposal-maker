@@ -99,7 +99,7 @@ test('앱은 저장한 버전을 명시하고 그 버전만 출력한다', () =>
   // 출력은 화면 작업본이 아니라 저장된 버전을 쓴다.
   assert.match(app, /const \{ version, reason \} = selectedSavedVersion\(\);\s*\n\s*if \(!version\) return setState\(\{ error: reason \}\);/);
   assert.match(app, /if \(unsavedChanges\(\)\) return setState\(\{ error: `화면 내용이 저장된 V\$\{version\.version\}과 달라 출력하지 않았습니다/);
-  assert.match(app, /exportDocx\(state\.project, version\.sections, options\) : exportPdf\(state\.project, version\.sections, options\)/);
+  assert.match(app, /exportDocx\(state\.project, version\.sections, options\)/);
   assert.match(app, /tables: version\.tables \|\| \[\]/);
   // 버전을 골라 열 수 있고, 열면 화면 작업본도 그 버전으로 맞춘다.
   assert.match(app, /function selectProposalVersion\(versionId\)/);

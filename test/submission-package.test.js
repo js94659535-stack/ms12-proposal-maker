@@ -163,8 +163,8 @@ test('출력은 판정을 통과할 때만 나가고 기존 DOCX·PDF 경로를 
   assert.match(app, /function exportFinalPackage\(kind\)/);
   assert.match(app, /if \(!summary\?\.canExport\) \{[\s\S]{0,300}return setState\(\{ error:/);
   // 제출본은 본문과 표를 함께, 내부 검토 표시 없이 내보낸다.
-  assert.match(app, /const options = \{ forSubmission: true, tables: version\.tables \|\| \[\], applicantName: selectedApplicant\(\)\?\.name \|\| '', version: version\.version \};/);
-  assert.match(app, /const run = kind === 'docx' \? exportDocx\(state\.project, version\.sections, options\) : exportPdf\(state\.project, version\.sections, options\);/);
+  assert.match(app, /const options = \{ forSubmission: true, tables: version\.tables \|\| \[\], applicantName, version: version\.version \};/);
+  assert.match(app, /\? exportDocx\(state\.project, version\.sections, options\)/);
   // 판정을 통과해도 저장된 버전이 없거나 화면 내용이 다르면 버튼을 열지 않는다.
   assert.match(app, /id="package-docx" \$\{summary\.canExport && !exportBlock \? '' : 'disabled'\}/);
   assert.match(app, /id="package-pdf" \$\{summary\.canExport && !exportBlock \? '' : 'disabled'\}/);
