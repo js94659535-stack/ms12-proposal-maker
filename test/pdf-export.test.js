@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { jsPDF } from 'jspdf';
-import { PAGE, PDF_FONT, renderProposalPdf } from '../src/pdf-export.js';
+import { PAGE, PDF_FONT, normalizeForPdf, renderProposalPdf } from '../src/pdf-export.js';
 
 const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
 const source = fs.readFileSync(new URL('../src/pdf-export.js', import.meta.url), 'utf8');
@@ -75,6 +75,70 @@ test('긴 본문과 긴 표는 다음 쪽으로 이어지고 머리행을 다시
   const headerPages = pages.filter(page => page.includes('구분') && page.includes('금액')).length;
   assert.ok(headerPages >= 2, `머리행이 있는 쪽 ${headerPages}개`);
   assert.ok(pages.every(page => page.trim().length > 0), '빈 페이지가 있다');
+});
+
+// 글꼴에 없는 글자는 그려도 빈칸만 남는다(폭은 0이 아니라 검사로 잡히지 않는다).
+// 실제 글꼴이 그릴 수 있는 문자 목록을 cmap에서 직접 읽어 대조한다.
+function fontCoverage() {
+  const buf = fs.readFileSync(new URL('../src/assets/noto-sans-kr-korean.ttf', import.meta.url));
+  let cmap = 0;
+  for (let index = 0; index < buf.readUInt16BE(4); index += 1) {
+    const at = 12 + index * 16;
+    if (buf.toString('latin1', at, at + 4) === 'cmap') cmap = buf.readUInt32BE(at + 8);
+  }
+  let sub = 0;
+  for (let index = 0; index < buf.readUInt16BE(cmap + 2); index += 1) {
+    const at = cmap + 4 + index * 8;
+    const platform = buf.readUInt16BE(at);
+    const encoding = buf.readUInt16BE(at + 2);
+    if (platform === 0 || (platform === 3 && (encoding === 1 || encoding === 10))) sub = cmap + buf.readUInt32BE(at + 4);
+  }
+  assert.equal(buf.readUInt16BE(sub), 4, 'cmap format 4를 기대한다');
+  const segments = buf.readUInt16BE(sub + 6) / 2;
+  const endAt = sub + 14;
+  const startAt = endAt + segments * 2 + 2;
+  const deltaAt = startAt + segments * 2;
+  const rangeAt = deltaAt + segments * 2;
+  const covered = new Set();
+  for (let seg = 0; seg < segments; seg += 1) {
+    const end = buf.readUInt16BE(endAt + seg * 2);
+    const start = buf.readUInt16BE(startAt + seg * 2);
+    const delta = buf.readInt16BE(deltaAt + seg * 2);
+    const rangeOffset = buf.readUInt16BE(rangeAt + seg * 2);
+    if (start === 0xFFFF) continue;
+    for (let code = start; code <= end; code += 1) {
+      let glyph = 0;
+      if (rangeOffset === 0) glyph = (code + delta) & 0xFFFF;
+      else {
+        const at = rangeAt + seg * 2 + rangeOffset + (code - start) * 2;
+        const found = at + 1 < buf.length ? buf.readUInt16BE(at) : 0;
+        glyph = found ? (found + delta) & 0xFFFF : 0;
+      }
+      if (glyph) covered.add(code);
+    }
+  }
+  return covered;
+}
+
+test('글꼴이 못 그리는 기호는 뜻이 같은 글자로 바꿔 그린다', () => {
+  // 실제 공고·계획서에 나오는 전각 기호와 원문자
+  assert.equal(normalizeForPdf('핵심 참여자－피해아동'), '핵심 참여자-피해아동');
+  assert.equal(normalizeForPdf('2027.3.1.～2027.12.31.'), '2027.3.1.~2027.12.31.');
+  assert.equal(normalizeForPdf('제출서류 ①②③⑩'), '제출서류 (1)(2)(3)(10)');
+  assert.equal(normalizeForPdf('공고 Ⅰ. 사업개요 Ⅲ.'), '공고 I. 사업개요 III.');
+  assert.equal(normalizeForPdf('「사업개요」 12％ ＋ 3％ ＝ 15％'), '‘사업개요’ 12% + 3% = 15%');
+  assert.equal(normalizeForPdf('초기면접 → 사후점검'), '초기면접 -> 사후점검');
+  // 원래 그릴 수 있던 글자는 건드리지 않는다.
+  assert.equal(normalizeForPdf('완료자 수÷등록 수×100, 가·나'), '완료자 수÷등록 수×100, 가·나');
+  assert.equal(normalizeForPdf('총사업비 129,500,000원 (98% 이상)'), '총사업비 129,500,000원 (98% 이상)');
+
+  const covered = fontCoverage();
+  const 기호 = '－～×÷·→←↔⇒（）：，％＋＝／￦∼〜①⑩Ⅰⅲ「」『』【】〔〕｜　！？＃＠ＡＺａｚ０９';
+  const 본문 = SECTIONS.map(section => `${section.title}${section.content}`).join('')
+    + TABLES.map(table => `${table.title}${table.columns.join('')}${table.rows.flat().join('')}${table.note}`).join('');
+  const 남은글자 = [...new Set(normalizeForPdf(기호 + 본문))]
+    .filter(char => char.charCodeAt(0) > 31 && !covered.has(char.codePointAt(0)));
+  assert.deepEqual(남은글자, [], `글꼴에 없는 글자가 남았다: ${남은글자.join(' ')}`);
 });
 
 test('A4 여백과 글꼴 이름은 인쇄본과 같은 값을 쓴다', () => {

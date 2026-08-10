@@ -7,7 +7,28 @@ const SIZE = { title: 17, heading: 13, body: 10.5, table: 9, note: 8.5 };
 const LINE = { title: 8.5, heading: 6.4, body: 5.2, table: 4.4 };
 
 const contentWidth = () => PAGE.width - PAGE.left - PAGE.right;
-const clean = value => String(value ?? '').replace(/\r\n?/g, '\n');
+
+// 한국어 서브셋에 없는 글자는 그리면 소리 없이 사라진다(빈칸만 남는다).
+// 뜻이 같은 글자로 바꿔 두어 「①」이나 「－」가 통째로 없어지지 않게 한다.
+const GLYPH_MAP = new Map(Object.entries({
+  '　': ' ', '→': '->', '←': '<-', '↔': '<->', '⇒': '=>',
+  '∼': '~', '〜': '~', '￦': '\\', '￥': '\\',
+  '「': '‘', '」': '’', '『': '“', '』': '”',
+  '【': '[', '】': ']', '〔': '(', '〕': ')'
+}));
+const CIRCLED = '①'; // ① … ⑳
+// 공고문에 흔한 로마 숫자(Ⅰ. 사업개요)도 서브셋에 없다.
+const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
+export function normalizeForPdf(value) {
+  let text = String(value ?? '').replace(/\r\n?/g, '\n');
+  text = text.replace(/[①-⑳]/g, char => `(${char.codePointAt(0) - CIRCLED.codePointAt(0) + 1})`);
+  text = text.replace(/[Ⅰ-Ⅻ]/g, char => ROMAN[char.codePointAt(0) - 'Ⅰ'.codePointAt(0)] || char);
+  text = text.replace(/[ⅰ-ⅻ]/g, char => (ROMAN[char.codePointAt(0) - 'ⅰ'.codePointAt(0)] || char).toLowerCase());
+  // 전각 ASCII(！ ~ ～)는 같은 자리의 반각으로 바꾼다.
+  text = text.replace(/[！-～]/g, char => String.fromCharCode(char.charCodeAt(0) - 0xFEE0));
+  return text.replace(/[　←→↔⇒∼〜￥￦「-』【】〔〕]/g, char => GLYPH_MAP.get(char) ?? char);
+}
+const clean = value => normalizeForPdf(value);
 
 // 본문·표를 한 번에 그린다. 글꼴이 등록된 jsPDF 문서를 받아 쓰므로 브라우저와 검증에서 같은 경로를 탄다.
 export function renderProposalPdf(doc, { project = {}, sections = [], tables = [] } = {}) {
