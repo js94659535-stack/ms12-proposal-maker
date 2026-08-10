@@ -15,7 +15,7 @@ import { buildDesignQuestions, reusableAnswerCandidates } from './design-questio
 import { buildBlueprint } from './project-blueprint.js';
 import { BLUEPRINT_SECTION_MAP, UNRESOLVED_MARK, annotateDraftSections, checkDraftAgainstBlueprint, officialRequirementConflicts } from './blueprint-draft-check.js';
 import { OFFICIAL_LOCKED, buildNoticeContract, checkProposalAgainstContract, contractCapabilityCheck, contractConflicts, contractFieldLocks } from './notice-contract.js';
-import { ENGAGEMENT_STAGES, buildEngagement, makeClient, makeNoticeRequest, normalizeEngagement } from './engagement.js';
+import { ENGAGEMENT_STAGES, PROPOSAL_OUTLINE, buildEngagement, canGenerateProposal, designStatus, makeClient, makeDesignApproval, makeNoticeRequest, normalizeEngagement } from './engagement.js';
 import { EXTERNAL_SOURCE, appendProposalVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, matchSectionsForIssue, proposalTextFromSections, proposalTextFromSnapshot, revisionInstruction, sectionsFromProposalText, verifyLockedValues } from './coaching-handoff.js';
 import { splitApplicantProfile } from './applicants.js';
 import { ARCHIVE_PAGE_SIZES, ARCHIVE_STATUSES, archiveTableRows, shortDate } from './archive-table.js';
@@ -65,7 +65,7 @@ const initial = {
   applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
   revisionPlan: null, draftReview: null, projectNarrative: '', proposalVersions: [], proposalFlow: { status: '', baselineVersion: 0, reviewTarget: null, rounds: [], requests: [], requestOpen: false, requestText: '', requestScope: [], openVersion: 0, compareVersion: 0, approvedVersion: 0, approvedAt: '' }, coachingSelection: [], applicantSkipped: false, noticeLogic: null, redesignForContract: false,
   // 「사업계획서 의뢰 건」 한 건의 고객 담당자와 공고 요청서. 기관 영구정보와 섞지 않는다.
-  engagement: { client: makeClient(), request: makeNoticeRequest(), view: 'customer' },
+  engagement: { client: makeClient(), request: makeNoticeRequest(), design: makeDesignApproval(), view: 'customer' },
   analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveTable: { query: '', sortKey: 'collectedAt', sortDir: 'desc', page: 1, pageSize: 20, selected: [], expandedKey: '', applicantPickerKey: '', filters: { collected: '', institution: '', field: '', status: '', applicant: '', deadline: '' } }, archiveNoticeLinks: {}, archiveHiddenNotices: [], archiveOpenProposal: '', sampleStage: '', sampleReturn: '', aiResult: null, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
@@ -798,13 +798,47 @@ function blueprintView() {
 // 운영자 화면에서만 공고 분석·실행계약서·설계도·버전·게이트 상세를 연다.
 function currentEngagement() {
   return buildEngagement({
-    ...state.engagement, applicant: selectedApplicant(), noticeLogic: state.noticeLogic,
+    ...state.engagement, applicant: selectedApplicant(), noticeLogic: state.noticeLogic, locks: contractFieldLocks(currentNoticeContract() || { rules: [] }),
     manualSources: state.manualSources, projectValues: state.projectValues, sections: state.sections,
     proposalVersions: state.proposalVersions, proposalFlow: proposalFlow(),
     gate: currentSubmissionGate(), blueprint: currentBlueprint()
   });
 }
 const PART_TONE = { 준비됨: '충족', '준비 중': '부분-충족', 없음: '확인-필요' };
+// 전체 계획서 작성 권한. 승인 전에는 시작하지 않지만 이미 만든 계획서·버전·보관함 열람은 막지 않는다.
+function generationPermission() {
+  return canGenerateProposal({
+    approval: state.engagement.design, sections: state.sections,
+    startedParts: (state.stagedGeneration?.parts || []).length
+  });
+}
+// 설계 승인 흐름. 실제 로그인 권한이 없으므로 지금 보고 있는 화면의 역할을 그대로 기록한다.
+function currentRole() { return state.engagement.view === 'operator' ? '운영자' : '고객'; }
+function setDesignApproval(patch, notice) {
+  state.engagement = normalizeEngagement({ ...state.engagement, design: { ...state.engagement.design, ...patch } });
+  setState({ engagement: state.engagement, notice, error: '' });
+  if (state.archiveProposalId) void archiveCurrentProposal().catch(() => {});
+}
+function requestDesignReview() {
+  const engagement = currentEngagement();
+  if (!engagement.brief.blockingRules.length && !engagement.brief.coreValues.some(item => item.value !== '[확인 필요]')) {
+    return setState({ error: '아직 설계안에 담을 내용이 없습니다. 공고를 먼저 분석해 주세요.' });
+  }
+  setDesignApproval({ requestedAt: new Date().toISOString(), requestedBy: currentRole(), reviewStartedAt: '', approvedAt: '', approvedBy: '' }, '설계안 확인을 요청했습니다.');
+}
+function startDesignReview() {
+  setDesignApproval({ reviewStartedAt: new Date().toISOString() }, '운영자 검토를 시작했습니다.');
+}
+// 승인 시점의 설계안을 그대로 남긴다. 이후 설계가 바뀌어도 무엇을 승인했는지 남는다.
+function approveDesign() {
+  const engagement = currentEngagement();
+  if (engagement.brief.openFacts.length && !window.confirm(`확인이 필요한 항목 ${engagement.brief.openFacts.length}건이 남아 있습니다. 그래도 설계를 승인할까요? 확인 전 값은 계획서에 [확인 필요]로 남습니다.`)) return;
+  setDesignApproval({ approvedAt: new Date().toISOString(), approvedBy: currentRole(), snapshot: structuredClone(engagement.brief) }, `${currentRole()} 역할로 사업 설계를 승인했습니다. 이제 전체 계획서를 작성할 수 있습니다.`);
+}
+function reopenDesign() {
+  setDesignApproval({ approvedAt: '', approvedBy: '', reviewStartedAt: '' }, '설계 승인을 해제했습니다. 이미 만든 계획서와 버전은 그대로 있습니다.');
+}
+
 function setEngagementView(view) {
   state.engagement = normalizeEngagement({ ...state.engagement, view });
   setState({ engagement: state.engagement, notice: '', error: '' });
@@ -833,10 +867,43 @@ function engagementView() {
         <div class="field"><label for="engagement-request-manager">담당 운영자</label><input id="engagement-request-manager" data-engagement-request="manager" value="${escapeHtml(state.engagement.request.manager)}"></div></div>
       <div class="two-col"><div class="field"><label for="engagement-request-title">요청 사업명</label><input id="engagement-request-title" data-engagement-request="title" value="${escapeHtml(state.engagement.request.title)}"></div>
         <div class="field"><label for="engagement-request-deadline">마감일</label><input id="engagement-request-deadline" data-engagement-request="deadline" value="${escapeHtml(state.engagement.request.deadline)}" placeholder="YYYY-MM-DD"></div></div>
+      <div class="two-col"><div class="field"><label for="engagement-applicant">신청기관 선택</label><select id="engagement-applicant"><option value="">선택 안 함(아래에 기관명 입력)</option>${state.applicants.map(item => `<option value="${escapeHtml(item.id)}" ${state.selectedApplicantId === item.id ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}</select></div>
+        <div class="field"><label for="engagement-request-applicant">신규 기관명</label><input id="engagement-request-applicant" data-engagement-request="applicantName" value="${escapeHtml(state.engagement.request.applicantName)}" placeholder="아직 등록되지 않은 기관이면 이름만 적어 주세요."></div></div>
+      <div class="alert"><strong>공고문·신청서식·첨부자료</strong><p>공고 원문 ${state.sourceText.trim().length.toLocaleString()}자 · 첨부 ${state.manualSources.filter(item => item.extractionStatus === 'success').length}건 읽음</p>
+        <button class="button secondary" data-step="0">공고문·서식 올리기</button></div>
       <div class="field"><label for="engagement-request-ask">요청 내용</label><textarea id="engagement-request-ask" data-engagement-request="ask" placeholder="어떤 공고에 무엇을 준비해야 하는지 적어 주세요.">${escapeHtml(state.engagement.request.ask)}</textarea></div>
       <div class="actions"><span class="muted">여기 적은 내용은 이 의뢰 건에만 저장됩니다.</span><button class="button primary" id="engagement-save">요청서 저장</button></div></div>
+    ${designBriefView(engagement, operator)}
     ${operator ? engagementOperatorView(engagement) : `<div class="card"><div class="card-title"><div><h3>준비 상태</h3><span>준비된 것과 아직 필요한 것만 보여 드립니다.</span></div></div>
       <div class="requirement-list">${engagement.parts.map(item => `<article class="requirement"><div><span class="status ${PART_TONE[item.state]}">${escapeHtml(item.state)}</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small></div></div></article>`).join('')}</div></div>`}`;
+}
+
+// 계획서 설계안 — 승인 전에 무엇을 어떻게 쓸지 먼저 합의한다.
+const DESIGN_TONE = { '설계 준비 중': '확인-필요', '확인 요청': '부분-충족', '운영자 검토': '부분-충족', '설계 승인': '충족', '계획서 작성 완료': '충족' };
+function designBriefView(engagement, operator) {
+  const brief = engagement.brief;
+  const status = engagement.designState;
+  const approval = engagement.approval;
+  const actions = status === '계획서 작성 완료'
+    ? '<span class="muted">계획서가 작성되어 설계 단계는 끝났습니다.</span>'
+    : status === '설계 승인'
+      ? `<span class="muted">${escapeHtml(approval.approvedBy)} 역할로 ${escapeHtml(String(approval.approvedAt).slice(0, 16).replace('T', ' '))}에 승인</span><button class="button secondary" id="design-reopen">승인 해제</button>`
+      : `${status === '설계 준비 중' ? '<button class="button primary" id="design-request">설계안 확인 요청</button>' : ''}
+         ${status === '확인 요청' ? '<button class="button secondary" id="design-review">운영자 검토 시작</button>' : ''}
+         ${status === '운영자 검토' ? '<button class="button primary" id="design-approve">사업 설계 승인</button>' : ''}`;
+  return `<div class="card" id="design-brief"><div class="card-title"><div><h3>계획서 설계안</h3><span>승인하면 이 내용대로 계획서를 작성합니다. 승인 전에는 작성을 시작하지 않습니다.</span></div><span class="status ${DESIGN_TONE[status]}">${escapeHtml(status)}</span></div>
+    <div class="summary-grid">
+      <div><span>신청유형</span><strong>${escapeHtml(brief.applicationType.selected || '미선택')}</strong><small>${escapeHtml(brief.applicationType.options.join(' / ') || '공고에 유형 구분 없음')}</small></div>
+      <div><span>공고 강제조건</span><strong>${brief.blockingRules.length}개</strong><small>반드시 지켜야 하는 조건</small></div>
+      <div><span>핵심 수행모델</span><strong>${brief.requiredModels.length}개</strong><small>일반 프로그램으로 대체 불가</small></div>
+      <div><span>확인할 사항</span><strong>${brief.openFacts.length}건</strong><small>확인 전에는 [확인 필요]로 남습니다</small></div>
+    </div>
+    <div class="requirement-list">${brief.coreValues.map(item => `<article class="requirement"><div><span class="status ${item.value === '[확인 필요]' ? '확인-필요' : item.basis === '공고 확정' ? '충족' : '부분-충족'}">${escapeHtml(item.basis)}</span><div><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.value)}</small></div></div></article>`).join('')}</div>
+    ${brief.requiredModels.length ? `<details open><summary>공고가 요구한 핵심 수행모델 ${brief.requiredModels.length}개</summary>${brief.requiredModels.map(item => `<p>· ${escapeHtml(item.title)}<br><small class="muted">반영 확인 핵심어: ${escapeHtml(item.keyphrases.join(' · '))}</small></p>`).join('')}</details>` : ''}
+    ${brief.openFacts.length ? `<div class="alert warning"><strong>확인이 필요한 항목 ${brief.openFacts.length}건</strong>${brief.openFacts.slice(0, 8).map(item => `<p>· ${escapeHtml(item)}</p>`).join('')}</div>` : `<div class="alert success"><strong>확인이 필요한 항목이 없습니다</strong><p>기관 확인 사실 ${brief.confirmedFacts.length}건으로 설계했습니다.</p></div>`}
+    <details><summary>계획서 목차 ${brief.outline.length}개 · 항목별 작성 방향 · 목표 분량 ${brief.targetTotalChars.toLocaleString()}자</summary><div class="requirement-list">${brief.outline.map((item, index) => `<article class="requirement"><div><span class="tag">${index + 1}</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.direction)}</small></div></div><span class="status 부분-충족">${item.targetChars.toLocaleString()}자</span></article>`).join('')}</div></details>
+    ${operator ? `<details><summary>공고 강제조건 ${brief.blockingRules.length}개 원문 기준</summary><div class="requirement-list">${brief.blockingRules.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(item.ruleType)}</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.official)}</small></div></div></article>`).join('')}</div></details>` : ''}
+    <div class="actions"><span class="muted">${escapeHtml(engagement.canGenerate.allowed ? '전체 계획서 작성이 가능합니다.' : engagement.canGenerate.reason)}</span><div>${actions}</div></div></div>`;
 }
 
 function engagementOperatorView(engagement) {
@@ -1618,7 +1685,8 @@ function stagedGenerationView() {
     <details open><summary>마스터 논리사슬과 선정 대응</summary><div class="summary-grid"><div><span>문제와 필요성</span><strong>${escapeHtml(logic.problem || '')}</strong></div><div><span>대상 선정 근거</span><strong>${escapeHtml(logic.targetRationale || '')}</strong></div><div><span>핵심 전략</span><strong>${escapeHtml(logic.coreStrategy || '')}</strong></div><div><span>차별성</span><strong>${escapeHtml(logic.differentiation || '')}</strong></div></div><p class="muted">문제 → ${(logic.causes || []).map(escapeHtml).join(' · ')} → 대상 → 전략 → ${(logic.executionMethods || []).map(escapeHtml).join(' · ')} → 산출 → 변화 → 성과측정</p><div class="three-col"><div><h4>기준값</h4>${listOrEmpty((logic.baselineValues || []).map(item => `${item.item}: ${item.value}`))}</div><div><h4>산출·성과·측정 연결</h4>${listOrEmpty((logic.outputOutcomeMeasurementLinks || []).map(item => `${item.output} → ${item.outcomeGoal} → ${item.indicator}`))}</div><div><h4>평가기준 대응</h4>${listOrEmpty((logic.evaluationResponsePlan || []).map(item => `${item.criterion}: ${item.response}`))}</div></div><details><summary>주장별 공식 자료 근거</summary>${(logic.claimEvidencePlan || []).map(item => `<blockquote><strong>${escapeHtml(item.claim)}</strong><br>${escapeHtml(item.evidence)} <small>${escapeHtml(item.location)}</small></blockquote>`).join('')}</details></details>
     <details open><summary>작성 구조 ${groups.length}개 항목</summary><div class="requirement-list">${groups.map((group, index) => `<article class="requirement"><div><span class="tag">${index + 1}</span><div><strong>${escapeHtml(group.title)}</strong><small>${escapeHtml((group.sectionKeys || []).map(sectionTitle).join(' · '))}</small></div></div><span class="status ${completed.has(group.id) ? '충족' : '확인-필요'}">${completed.has(group.id) ? '작성됨' : '대기'}</span></article>`).join('')}</div></details>
     <div class="field"><label>작성 진행 ${completed.size} / ${groups.length}</label><progress value="${completed.size}" max="${Math.max(groups.length, 1)}" style="width:100%">${progress}%</progress></div>
-    <div class="actions"><span>확인되지 않은 값은 만들지 않고 [확인 필요]로 남깁니다. 제출 가능 여부는 마지막 검토 단계에서 판단합니다.</span>${done ? '<button class="button primary" id="assemble-proposal">계획서 완성하기</button>' : `<button class="button primary" id="generate-parts">${resumed ? '남은 내용 이어서 작성' : 'AI와 함께 전체 계획서 작성'}</button>`}</div></div>`;
+    ${(() => { const permission = generationPermission(); return permission.allowed ? '' : `<div class="alert warning"><strong>설계 승인 후에 작성합니다</strong><p>${escapeHtml(permission.reason)}</p><button class="button secondary" id="open-engagement-design">설계안 보러 가기</button></div>`; })()}
+    <div class="actions"><span>확인되지 않은 값은 만들지 않고 [확인 필요]로 남깁니다. 제출 가능 여부는 마지막 검토 단계에서 판단합니다.</span>${done ? '<button class="button primary" id="assemble-proposal">계획서 완성하기</button>' : `<button class="button primary" id="generate-parts" ${generationPermission().allowed ? '' : 'disabled'}>${resumed ? '남은 내용 이어서 작성' : 'AI와 함께 전체 계획서 작성'}</button>`}</div></div>`;
 }
 
 const SECTION_TITLES = { necessity: '사업 필요성', purpose: '목적', goals: '목표', target: '대상', programs: '세부 프로그램', schedule: '추진 일정', roles: '운영 인력·역할', budget: '예산', indicators: '성과지표', outcomes: '기대효과' };
@@ -2118,6 +2186,13 @@ function bind() {
   document.querySelectorAll('[data-engagement-client]').forEach(el => el.addEventListener('input', () => { state.engagement.client = makeClient({ ...state.engagement.client, [el.dataset.engagementClient]: el.value }); saveState(); }));
   document.querySelectorAll('[data-engagement-request]').forEach(el => el.addEventListener('input', () => { state.engagement.request = makeNoticeRequest({ ...state.engagement.request, [el.dataset.engagementRequest]: el.value }); saveState(); }));
   document.querySelector('#engagement-save')?.addEventListener('click', saveEngagementRequest);
+  // 기관 선택은 기존 신청기관 정보를 그대로 쓴다. 여기서 기관을 새로 만들지 않는다.
+  document.querySelector('#engagement-applicant')?.addEventListener('change', event => setState({ selectedApplicantId: event.target.value, notice: event.target.value ? '이 의뢰 건의 신청기관을 연결했습니다.' : '신청기관 연결을 해제했습니다.', error: '' }));
+  document.querySelector('#design-request')?.addEventListener('click', requestDesignReview);
+  document.querySelector('#design-review')?.addEventListener('click', startDesignReview);
+  document.querySelector('#design-approve')?.addEventListener('click', approveDesign);
+  document.querySelector('#design-reopen')?.addEventListener('click', reopenDesign);
+  document.querySelector('#open-engagement-design')?.addEventListener('click', () => setState({ activeTool: 'engagement', notice: '', error: '' }));
   document.querySelector('#open-version-history')?.addEventListener('click', () => document.querySelector('#result-completion')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   document.querySelectorAll('[data-proposal-detail]').forEach(el => el.onclick = () => setState({ archiveOpenProposal: state.archiveOpenProposal === el.dataset.proposalDetail ? '' : el.dataset.proposalDetail }));
   document.querySelectorAll('[data-view-version]').forEach(el => el.onclick = () => setProposalFlow({ openVersion: proposalFlow().openVersion === Number(el.dataset.viewVersion) ? 0 : Number(el.dataset.viewVersion) }));
@@ -3600,6 +3675,9 @@ async function generateProposalParts() {
   const all = staged?.master?.sectionPlan || [];
   const groups = all;
   if (!groups.length) return setState({ error: '작성할 신청서 항목 구조가 없습니다.' });
+  // 설계 승인 전에는 전체 계획서 작성을 시작하지 않는다. 이미 시작한 작성의 이어쓰기와 열람은 막지 않는다.
+  const permission = generationPermission();
+  if (!permission.allowed) return setState({ error: permission.reason });
   const completed = new Set(staged.completedGroupIds || []);
   state.stagedGeneration.phase = 'parts-generating';
   const startedAt = Date.now();

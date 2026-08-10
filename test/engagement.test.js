@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { ENGAGEMENT_PARTS, ENGAGEMENT_STAGES, ITEM_ORIGINS, buildEngagement, makeClient, makeNoticeRequest, normalizeEngagement, organizationBoundary } from '../src/engagement.js';
+import { APPROVAL_ROLES, DESIGN_STATES, ENGAGEMENT_PARTS, ENGAGEMENT_STAGES, ITEM_ORIGINS, PROPOSAL_OUTLINE, buildDesignBrief, buildEngagement, canGenerateProposal, designStatus, makeClient, makeDesignApproval, makeNoticeRequest, normalizeEngagement, organizationBoundary } from '../src/engagement.js';
 import { ITEM_ORIGINS as APPLICANT_ORIGINS, makeApplicantItem, normalizeApplicant } from '../src/applicants.js';
 
 const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
@@ -119,7 +119,7 @@ test('운영자 상세는 공고 분석·계약서·설계도·버전·게이트
 });
 
 test('저장 값은 정규화하고 예전 저장분도 그대로 열린다', () => {
-  assert.deepEqual(normalizeEngagement({}), { client: makeClient(), request: makeNoticeRequest(), view: 'customer' });
+  assert.deepEqual(normalizeEngagement({}), { client: makeClient(), request: makeNoticeRequest(), design: makeDesignApproval(), view: 'customer' });
   assert.equal(normalizeEngagement({ view: '이상한값' }).view, 'customer');
   assert.equal(normalizeEngagement({ view: 'operator' }).view, 'operator');
   // 예전 상태에는 engagement가 없다. 빈 값으로 채우기만 하고 기존 데이터는 건드리지 않는다.
@@ -127,6 +127,83 @@ test('저장 값은 정규화하고 예전 저장분도 그대로 열린다', ()
   // 보관 스냅샷에 의뢰 건을 함께 담되 저장 경로를 새로 만들지 않는다.
   assert.match(app, /'draftReview', 'projectNarrative', 'engagement'\]/);
   assert.doesNotMatch(app, /action: 'saveEngagement'/);
+});
+
+const CONTRACT = {
+  blockingCount: 3,
+  rules: [
+    { title: '사업기간', ruleType: 'EXACT', value: '2027.1~2027.12', severity: 'BLOCKING', category: '사업기간', appliesTo: 'period' },
+    { title: '신청유형 택1', ruleType: 'CHOICE', value: ['재학대예방형', '아동보호형'], severity: 'BLOCKING', category: '신청유형', appliesTo: 'applicationType' },
+    { title: '홈케어플래너 파견을 통한 모니터링', ruleType: 'REQUIRED', value: ['홈케어플래너', '모니터링'], severity: 'BLOCKING', category: '사업모델', appliesTo: 'programs' },
+    { title: '필수 제출서류', ruleType: 'FORMAT', value: '서식 5종', severity: 'REQUIRED', category: '제출양식', appliesTo: '' }
+  ]
+};
+const LOCKS = {
+  period: { mode: 'OFFICIAL_LOCKED', value: '2027.1~2027.12' },
+  headcount: { mode: 'USER_DECIDES', bound: '70명 이상' }
+};
+
+test('설계안은 강제조건·유형·핵심값·수행모델·확인사항·목차를 함께 보여 준다', () => {
+  const brief = buildDesignBrief({
+    contract: CONTRACT, locks: LOCKS, applicant,
+    blueprint: { applicationTypes: { selected: '재학대예방형', options: [{ name: '재학대예방형' }, { name: '아동보호형' }] } },
+    projectValues: [{ blueprintKey: 'headcount', label: '인원', value: '핵심 참여자 72명' }]
+  });
+  assert.equal(brief.blockingRules.length, 3);
+  assert.equal(brief.applicationType.selected, '재학대예방형');
+  assert.deepEqual(brief.applicationType.options, ['재학대예방형', '아동보호형']);
+  // 공고가 정한 값은 「공고 확정」, 범위 안에서 사용자가 정한 값은 「이번 사업 확정」으로 구분한다.
+  assert.equal(brief.coreValues.find(item => item.key === 'period').basis, '공고 확정');
+  assert.equal(brief.coreValues.find(item => item.key === 'period').value, '2027.1~2027.12');
+  assert.match(brief.coreValues.find(item => item.key === 'headcount').basis, /이번 사업 확정 \(공고 허용 70명 이상\)/);
+  assert.equal(brief.coreValues.find(item => item.key === 'sessions').value, '[확인 필요]');
+  assert.equal(brief.requiredModels.length, 1);
+  assert.deepEqual(brief.requiredModels[0].keyphrases, ['홈케어플래너', '모니터링']);
+  // 아직 확인할 사실이 남으면 승인 전에 드러난다.
+  assert.ok(brief.openFacts.some(item => item.includes('상근 인력')));
+  assert.ok(brief.openFacts.some(item => item.includes('회기')));
+  assert.equal(brief.outline.length, 10);
+  assert.deepEqual(brief.outline, PROPOSAL_OUTLINE);
+  assert.ok(brief.targetTotalChars > 0);
+});
+
+test('설계 승인 전에는 전체 계획서 작성을 막고 열람은 막지 않는다', () => {
+  assert.deepEqual(DESIGN_STATES, ['설계 준비 중', '확인 요청', '운영자 검토', '설계 승인', '계획서 작성 완료']);
+  assert.deepEqual(APPROVAL_ROLES, ['고객', '운영자']);
+  assert.equal(designStatus({}), '설계 준비 중');
+  assert.equal(designStatus({ approval: { requestedAt: '2026-08-10T00:00:00.000Z', requestedBy: '고객' } }), '확인 요청');
+  assert.equal(designStatus({ approval: { requestedAt: 'x', reviewStartedAt: 'y' } }), '운영자 검토');
+  assert.equal(designStatus({ approval: { approvedAt: 'z', approvedBy: '운영자' } }), '설계 승인');
+  assert.equal(designStatus({ approval: { approvedAt: 'z' }, sections: [{ id: 'necessity' }] }), '계획서 작성 완료');
+
+  assert.equal(canGenerateProposal({}).allowed, false);
+  assert.match(canGenerateProposal({}).reason, /설계 승인 후에 전체 계획서를 작성합니다/);
+  assert.equal(canGenerateProposal({ approval: { approvedAt: 'z', approvedBy: '고객' } }).allowed, true);
+  // 이미 시작한 작성의 이어쓰기와 기존 계획서 열람은 막지 않는다.
+  assert.equal(canGenerateProposal({ startedParts: 2 }).allowed, true);
+  assert.equal(canGenerateProposal({ sections: [{ id: 'necessity' }] }).allowed, true);
+  // 목록에 없는 역할은 기록하지 않는다.
+  assert.equal(makeDesignApproval({ approvedBy: '관리자' }).approvedBy, '');
+  assert.equal(makeDesignApproval({ approvedBy: '운영자' }).approvedBy, '운영자');
+});
+
+test('승인 흐름과 차단이 화면에 연결된다', () => {
+  assert.match(app, /function generationPermission\(\)/);
+  assert.match(app, /const permission = generationPermission\(\);\s*\n\s*if \(!permission\.allowed\) return setState\(\{ error: permission\.reason \}\);/);
+  assert.match(app, /id="generate-parts" \$\{generationPermission\(\)\.allowed \? '' : 'disabled'\}/);
+  assert.match(app, /function requestDesignReview\(\)/);
+  assert.match(app, /function startDesignReview\(\)/);
+  assert.match(app, /function approveDesign\(\)/);
+  assert.match(app, /function reopenDesign\(\)/);
+  // 승인 시점·역할·설계 snapshot을 함께 남긴다.
+  assert.match(app, /approvedAt: new Date\(\)\.toISOString\(\), approvedBy: currentRole\(\), snapshot: structuredClone\(engagement\.brief\)/);
+  assert.match(app, /function currentRole\(\) \{ return state\.engagement\.view === 'operator' \? '운영자' : '고객'; \}/);
+  // 승인 해제는 이미 만든 계획서를 지우지 않는다.
+  assert.match(app, /이미 만든 계획서와 버전은 그대로 있습니다/);
+  // 고객 요청서에서 기관을 고르고 새 기관은 이름만 받는다.
+  assert.match(app, /id="engagement-applicant"/);
+  assert.match(app, /data-engagement-request="applicantName"/);
+  assert.match(app, /공고 원문 \$\{state\.sourceText\.trim\(\)\.length\.toLocaleString\(\)\}자/);
 });
 
 test('의뢰 건 화면은 기존 화면을 대체하지 않고 덧붙는다', () => {
