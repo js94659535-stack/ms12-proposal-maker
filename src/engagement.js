@@ -64,7 +64,8 @@ export function buildDocumentPlan(contract, formSpec = null) {
     attachments: formSpec?.attachments || [],
     budgetForm: formSpec?.budgetForm || null,
     formSpecStatus: formSpec ? formSpec.status : '서식 없음',
-    limitSource: formSpec?.items?.length ? '신청서 서식' : '기본값'
+    // 서식을 읽었더라도 분량 제한이 실제로 없으면 기본값으로 쓴다고 그대로 알린다.
+    limitSource: outline.some(item => item.limitSource === '신청서 서식') ? '신청서 서식' : '기본값'
   };
 }
 

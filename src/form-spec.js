@@ -21,16 +21,20 @@ function linesOf(source) {
 
 // ---------- 작성 항목과 분량 ----------
 // 「1. 사업 필요성 (1,000자 이내)」 「□ 사업개요 ※ 2쪽 이내」처럼 항목명과 제한이 같은 줄이나 다음 줄에 온다.
-const ITEM_LINE = /^(?:[□■○●▶▸※\-\s]*)?(?:(\d{1,2})\s*[.)]\s*)?([가-힣A-Za-z][^:：(\[]{1,40}?)\s*(?:[:：]|\(|\[|$)/;
+// 실제 서식의 작성 항목은 번호·글머리 기호를 달고 있다(1. / 1) / 가.).
+// 표 안의 칸 이름이나 문장 조각을 항목으로 잘못 올리지 않도록 번호가 붙은 줄만 항목으로 본다.
+const ITEM_LINE = /^(?:[□■○●▶▸※\s]*)?(\d{1,2}|[가-힣])\s*[.)]\s*([가-힣A-Za-z][^:：\[]{1,40}?)\s*(?:[:：]|\(|\[|※|$)/;
 const CHAR_LIMIT = /(\d[\d,]*)\s*자\s*(?:이내|이하|내외|까지)/;
 const PAGE_LIMIT = /(\d[\d,]*)\s*(?:쪽|페이지|p)\s*(?:이내|이하|내외|까지)/i;
 // 서식의 작성 항목으로 볼 만한 이름만 남긴다(안내문·머리말과 구분).
 const ITEM_HINT = /필요성|목적|목표|대상|프로그램|사업\s*내용|추진|일정|인력|조직|수행\s*체계|예산|성과|지표|평가|기대|효과|개요|배경|계획|방법|홍보|협력|사후/;
 const ITEM_SKIP = /제출\s*서류|첨부|유의|안내|문의|접수|신청\s*방법|작성\s*요령|서식\s*\d|붙임/;
 
+// 작성 항목은 신청서·계획서 서식에서만 읽는다. 공고문의 조항·안내 문장을 작성 항목으로 오인하지 않는다.
+const ITEM_SOURCE_TYPES = ['공모신청서', '사업계획서 서식'];
 export function extractFormItems(sources) {
   const items = [];
-  for (const source of sources) {
+  for (const source of sources.filter(item => ITEM_SOURCE_TYPES.includes(item.sourceType))) {
     const lines = linesOf(source);
     for (const entry of lines) {
       const matched = ITEM_LINE.exec(entry.line);
@@ -44,7 +48,7 @@ export function extractFormItems(sources) {
       if (items.some(item => item.name === name)) continue;
       items.push({
         id: `form-item-${items.length + 1}`,
-        order: matched[1] ? Number(matched[1]) : items.length + 1,
+        order: Number(matched[1]) || items.length + 1,
         name,
         limitChars: chars ? number(chars[1]) : 0,
         limitPages: pages ? number(pages[1]) : 0,
@@ -60,17 +64,30 @@ export function extractFormItems(sources) {
 // ---------- 필수 표와 예산 양식 ----------
 const TABLE_HINTS = [
   { kind: '예산표', pattern: /예산\s*(?:산출|내역|편성|계획)|산출\s*내역|사업비\s*내역/ },
-  { kind: '일정표', pattern: /추진\s*일정|월별\s*일정|세부\s*일정/ },
-  { kind: '성과지표표', pattern: /성과\s*지표|측정\s*계획|평가\s*계획/ },
-  { kind: '대상표', pattern: /참여자\s*(?:구성|현황)|대상\s*현황|모집\s*계획/ },
+  { kind: '일정표', pattern: /추진\s*일정|월별\s*일정|세부\s*일정|진행\s*일정|사업\s*일정/ },
+  { kind: '성과지표표', pattern: /성과\s*지표|측정\s*계획|평가\s*계획|목표\s*및\s*평가|성과\s*측정/ },
+  { kind: '대상표', pattern: /참여자\s*(?:구성|현황|선정)|대상\s*현황|모집\s*계획|참여\s*대상|대상\s*및\s*인원/ },
   { kind: '인력표', pattern: /인력\s*(?:구성|현황)|담당\s*인력|수행\s*인력/ }
 ];
 const TABLE_MARK = /\[표|<표|표\s*\d|서식\s*\d|양식|아래\s*표|다음\s*표|표로|기재\s*표/;
 // 표 머리행처럼 보이는 줄에서 열 이름을 읽는다. 서식에 없는 열은 만들지 않는다.
 const COLUMN_SPLIT = /\s*[|｜\t]\s*|\s{2,}/;
 function columnsFrom(line) {
-  const parts = line.replace(/^[□■○●▶▸※\-\s]+/, '').split(COLUMN_SPLIT).map(part => clean(part, 30)).filter(Boolean);
+  const parts = String(line || '').replace(/^[□■○●▶▸※\-\s]+/, '').split(COLUMN_SPLIT).map(part => clean(part, 30)).filter(Boolean);
   return parts.length >= 2 && parts.length <= 8 && parts.every(part => part.length <= 20) ? parts : [];
+}
+// HWP에서 뽑은 표는 칸 하나가 한 줄이 된다. 제목 다음의 짧은 줄들을 열 이름으로 읽는다.
+const CELL_STOP = /^[○●▶▸□■\-]|^\s*[0-9가-힣]+\s*[.)]\s/;
+function columnsFromCells(lines, startIndex) {
+  const picked = [];
+  for (const entry of lines.slice(startIndex + 1, startIndex + 14)) {
+    const line = entry.line.trim();
+    if (/^[(（※]/.test(line)) continue; // 단위 표시·주석 줄은 열 이름이 아니다
+    if (CELL_STOP.test(line) || line.length > 14 || /[.。!?]$/.test(line)) break;
+    picked.push(clean(line, 30));
+    if (picked.length >= 8) break;
+  }
+  return picked.length >= 2 ? picked : [];
 }
 
 export function extractFormTables(sources) {
@@ -80,13 +97,15 @@ export function extractFormTables(sources) {
     for (const entry of lines) {
       const hint = TABLE_HINTS.find(item => item.pattern.test(entry.line));
       if (!hint) continue;
-      if (!TABLE_MARK.test(entry.line) && !columnsFrom(lines[entry.index + 1]?.line || '').length) continue;
+      const columns = columnsFrom(lines[entry.index + 1]?.line || '') || [];
+      const cells = columns.length ? columns : columnsFromCells(lines, entry.index);
+      if (!TABLE_MARK.test(entry.line) && !cells.length) continue;
       if (tables.some(item => item.kind === hint.kind)) continue;
       tables.push({
         id: `form-table-${tables.length + 1}`, kind: hint.kind,
         title: clean(entry.line.replace(/^[□■○●▶▸※\-\s]+/, ''), 60),
-        columns: columnsFrom(lines[entry.index + 1]?.line || ''),
-        required: true, status: '확인됨',
+        columns: cells,
+        required: true, status: cells.length ? '확인됨' : '확인 필요',
         evidence: entry.line, location: entry.location
       });
     }
@@ -116,8 +135,10 @@ export function extractBudgetForm(sources) {
 }
 
 // ---------- 첨부서류 ----------
-const ATTACH_HEADING = /제출\s*서류|첨부\s*서류|구비\s*서류|필수\s*서류|붙임/;
-const ATTACH_ITEM = /^[①-⑮\d]+[.)]?\s*(.+)$|^[-·○●▸]\s*(.+)$/;
+const ATTACH_HEADING = /제출\s*서류|첨부\s*서류|구비\s*서류|필수\s*서류/;
+// 제출서류 목록은 번호를 달고 짧게 적힌다. 안내 문장·규정 설명을 서류명으로 올리지 않는다.
+const ATTACH_ITEM = /^[①-⑮]\s*(.+)$|^\(?\d{1,2}\)?[.)]\s*(.+)$/;
+const ATTACH_SENTENCE = /(?:다|함|음|됨|니다|바랍니다|가능|주의|불가)\.?$|https?:|초과할 수 없|압축/;
 export function extractAttachments(sources) {
   const attachments = [];
   for (const source of sources) {
@@ -127,8 +148,8 @@ export function extractAttachments(sources) {
       for (const next of lines.slice(entry.index + 1, entry.index + 16)) {
         if (ATTACH_HEADING.test(next.line)) break;
         const matched = ATTACH_ITEM.exec(next.line);
-        const name = clean(matched?.[1] || matched?.[2] || '', 80);
-        if (!name || name.length < 3) continue;
+        const name = clean(matched?.[1] || matched?.[2] || '', 60);
+        if (!name || name.length < 3 || name.length > 40 || ATTACH_SENTENCE.test(name)) continue;
         if (attachments.some(item => item.name === name)) continue;
         attachments.push({
           id: `form-attach-${attachments.length + 1}`, name,

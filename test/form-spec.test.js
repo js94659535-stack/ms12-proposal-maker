@@ -145,6 +145,82 @@ test('설계안과 문서 계획이 서식 규격을 함께 들고 간다', () =
   assert.equal(buildDesignBrief({ contract }).formSpec, null);
 });
 
+// GOLD — CASE 1의 실제 신청서 서식 원문. 추출 결과를 서식 원문과 그대로 대조한다.
+const REAL_FORM = fs.readFileSync(new URL('./fixtures/form-chest-2027-application.txt', import.meta.url), 'utf8');
+const REAL_NOTICE = fs.readFileSync(new URL('./fixtures/notice-chest-2027-gold.txt', import.meta.url), 'utf8');
+const REAL_SOURCES = [
+  { id: 'r1', fileName: '2027 배분신청서 서식.hwp', sourceType: '공모신청서', extractionStatus: 'success', extractedText: REAL_FORM },
+  { id: 'r2', fileName: '2027 공고문.hwp', sourceType: '세부 공고문', extractionStatus: 'success', extractedText: REAL_NOTICE }
+];
+
+test('실제 CASE 1 신청서 서식에서 작성 항목을 서식 그대로 읽는다', () => {
+  const spec = buildFormSpec(REAL_SOURCES);
+  const names = spec.items.map(item => item.name);
+  for (const expected of ['사업내용 및 추진 전략', '참여 대상 및 인원', '세부 사업내용', '사업 진행 일정', '사업수행 인력', '예산 편성', '목표 및 평가', '성과목표 및 평가 방법', '사업 결과의 활용 계획']) {
+    assert.ok(names.includes(expected), `서식 항목 누락: ${expected}`);
+  }
+  // 표 안의 칸 이름·문장 조각을 작성 항목으로 올리지 않는다.
+  for (const noise of ['대상 지역', '방문프로그램', '보완 계획', '모금회 지속가능발전목표']) {
+    assert.ok(!names.includes(noise), `표 조각을 항목으로 잘못 읽음: ${noise}`);
+  }
+  // 공고문의 배분제외 조항은 작성 항목이 아니다.
+  assert.ok(!names.some(name => /정치|영리를 주된 목적/.test(name)), '공고 조항을 작성 항목으로 읽음');
+  // 모든 항목의 근거 문장이 실제 서식 원문에 있어야 한다.
+  for (const item of spec.items) {
+    assert.ok(REAL_FORM.replace(/\s+/g, ' ').includes(item.evidence.slice(0, 20)), `서식에 없는 근거: ${item.evidence}`);
+    assert.match(item.location, /배분신청서 서식\.hwp · 공모신청서/);
+  }
+});
+
+test('실제 서식에 분량 제한이 없으면 만들지 않고 확인 필요로 남긴다', () => {
+  const spec = buildFormSpec(REAL_SOURCES);
+  // 이 서식은 온라인 입력 양식이라 글자·쪽수 제한이 없다. 없는 기준을 지어내지 않는다.
+  assert.ok(!/자\s*이내|쪽\s*이내|페이지\s*이내/.test(REAL_FORM), '서식에 분량 제한이 실제로 없다');
+  assert.ok(spec.items.every(item => item.limitChars === 0 && item.limitPages === 0));
+  assert.ok(spec.items.every(item => item.status === '확인 필요'));
+  assert.equal(spec.status, '확인 필요');
+  assert.ok(spec.openPoints.some(point => point.includes('분량 제한')));
+  // 분량 기준이 없으면 목차는 기본값을 그대로 쓴다.
+  const outline = applyFormSpecToOutline(PROPOSAL_OUTLINE, spec);
+  assert.ok(outline.every(item => item.limitSource === '기본값'));
+});
+
+test('실제 서식의 필수 표·예산 양식·첨부서류를 원문 그대로 읽는다', () => {
+  const spec = buildFormSpec(REAL_SOURCES);
+  const table = kind => spec.tables.find(item => item.kind === kind);
+  assert.deepEqual(spec.tables.map(item => item.kind).sort(), ['대상표', '성과지표표', '예산표', '인력표', '일정표']);
+  assert.deepEqual(table('대상표').columns, ['핵심 참여자', '주변 참여자']);
+  assert.deepEqual(table('인력표').columns, ['이름', '소속/직위', '사업 내 역할분장']);
+  assert.deepEqual(table('성과지표표').columns, ['성과목표', '평가 도구 및 방법', '측정 시기']);
+  assert.deepEqual(table('일정표').columns.slice(0, 2), ['기간', '주요내용']);
+  assert.deepEqual(table('예산표').columns.slice(0, 5), ['세목', '세세목', '산출근거', '예산조달 계획', '신청금액']);
+
+  const budget = spec.budgetForm;
+  assert.equal(budget.status, '확인됨');
+  assert.ok(budget.rules.some(rule => rule.text.includes('별첨3. 예산편성기준표')));
+
+  // 제출서류는 공고문의 ①~⑧ 목록 그대로이고 안내 문장은 섞이지 않는다.
+  assert.deepEqual(spec.attachments.map(item => item.name), [
+    '신청기관현황', '신뢰성 점검표', '회계관리 점검표', '개인정보수집ㆍ이용 및 제공동의서',
+    '배분신청서', '사업계획서 1부', '고유번호증(또는 사업자등록증) 1부', '시설신고증 1부'
+  ]);
+  assert.ok(spec.attachments.every(item => item.required));
+});
+
+test('실제 서식 기준이 설계안 문서 계획에 그대로 들어간다', () => {
+  const spec = buildFormSpec(REAL_SOURCES);
+  const contract = { rules: [{ category: '예산', ruleType: 'MAX', value: 140000000, unit: '원' }, { category: '참여규모', ruleType: 'MIN', value: 70, unit: '명' }] };
+  const plan = buildDocumentPlan(contract, spec);
+  // 서식이 요구한 표 5개가 모두 서식 기준으로 들어간다(공고 기준 표는 같은 종류면 대체된다).
+  assert.equal(plan.tables.filter(item => item.source === '신청서 서식').length, 5);
+  assert.ok(!plan.tables.some(item => item.kind === '예산표' && item.source === '공고 실행계약서'));
+  assert.equal(plan.attachments.length, 8);
+  assert.equal(plan.budgetForm.status, '확인됨');
+  assert.equal(plan.formSpecStatus, '확인 필요');
+  // 분량 제한이 없으니 기본값 기준임을 그대로 알린다.
+  assert.equal(plan.limitSource, '기본값');
+});
+
 test('규격표는 의뢰 건에 저장되고 화면에서 생성 전에 확인한다', () => {
   assert.match(app, /function currentFormSpec\(\)/);
   assert.match(app, /if \(spec\) state\.engagement\.formSpec = spec;/);
