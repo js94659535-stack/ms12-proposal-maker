@@ -17,7 +17,7 @@ import { BLUEPRINT_SECTION_MAP, UNRESOLVED_MARK, annotateDraftSections, checkDra
 import { OFFICIAL_LOCKED, buildNoticeContract, checkProposalAgainstContract, contractCapabilityCheck, contractConflicts, contractFieldLocks } from './notice-contract.js';
 import { buildFormSpec } from './form-spec.js';
 import { approvedDemandEvidence, buildDemandEvidence } from './demand-evidence.js';
-import { PROPOSAL_MODES, applyPatchedSections, buildReviewBasis, normalizeReviewIssues, reviewSummary, sectionsToPatch, verifyUntouched } from './precise-review.js';
+import { PROPOSAL_MODES, applyPatchedSections, buildReviewBasis, normalizeReviewIssues, reviewBasisReadiness, reviewSummary, sectionsToPatch, verifyUntouched } from './precise-review.js';
 import { buildSubmissionPackage, sectionsFingerprint } from './submission-package.js';
 import { ENGAGEMENT_STAGES, PROPOSAL_OUTLINE, buildDocumentPlan, buildEngagement, canGenerateProposal, designStatus, makeClient, makeDesignApproval, makeNoticeRequest, normalizeEngagement } from './engagement.js';
 import { EXTERNAL_SOURCE, appendProposalVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, matchSectionsForIssue, proposalTextFromSections, proposalTextFromSnapshot, revisionInstruction, sectionsFromProposalText, verifyLockedValues } from './coaching-handoff.js';
@@ -831,6 +831,8 @@ function setProposalMode(mode) {
   setState({ engagement: state.engagement, notice: `${mode} 계획서로 진행합니다.${mode === '표준형' ? ' 정밀 검증 결과는 그대로 남습니다.' : ''}`, error: '' });
 }
 function preciseBasis() {
+  // 공고 원문만 있고 분석을 아직 돌리지 않았어도 계약서를 만들어 기준에 넣는다.
+  if (!currentNoticeContract()?.rules?.length && state.sections.length) ensureNoticeLogic();
   return buildReviewBasis({
     contract: currentNoticeContract(), formSpec: currentFormSpec(),
     designPlan: state.engagement.design?.snapshot || currentEngagement().brief,
@@ -841,6 +843,9 @@ function preciseBasis() {
 async function runPreciseReview(round = 1) {
   if (proposalMode() !== '정밀형') return setState({ error: '정밀 검증은 정밀형 계획서에서만 실행합니다.' });
   if (!state.sections.length) return setState({ error: '검증할 계획서가 없습니다.' });
+  // 기준이 비어 있으면 검증하지 않는다. 비교할 것이 없으면 「기준에 없다」는 지적만 돌아온다.
+  const readiness = reviewBasisReadiness(preciseBasis());
+  if (!readiness.ready) return setState({ error: readiness.reason });
   const before = structuredClone(state.sections);
   const startedAt = Date.now();
   setAiBusy(round > 1 ? '정밀 재검증 중' : '정밀 검증 중', { error: '', notice: '' }, 'preciseReview');

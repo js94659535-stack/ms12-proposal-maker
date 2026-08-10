@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
   PRECISION_SCOPES, PRECISION_SEVERITIES, PROPOSAL_MODES,
-  applyPatchedSections, buildReviewBasis, normalizeReviewIssues, reviewSummary, sectionsToPatch, verifyUntouched
+  applyPatchedSections, buildReviewBasis, normalizeReviewIssues, reviewBasisReadiness, reviewSummary, sectionsToPatch, verifyUntouched
 } from '../src/precise-review.js';
 import { appendProposalVersion, findProposalVersion } from '../src/coaching-handoff.js';
 
@@ -40,6 +40,30 @@ test('검증 기준은 확정된 네 가지만 담고 본문을 고치지 말라
   assert.match(basis.rule, /본문을 고치지 말고 문제만 지목한다/);
   // 확인 필요 수요근거는 기준에 넣지 않는다.
   assert.equal(buildReviewBasis({ demand: { confirmed: [] } }).demandEvidence.length, 0);
+});
+
+test('기준이 비어 있으면 검증하지 않는다', () => {
+  // 계약서도 승인 설계안도 없으면 「기준에 없다」는 지적만 돌아오므로 아예 묻지 않는다.
+  const empty = reviewBasisReadiness(buildReviewBasis({}));
+  assert.equal(empty.ready, false);
+  assert.deepEqual(empty.missing, ['공고 실행계약서', '승인된 설계안']);
+  assert.match(empty.reason, /공고 분석과 설계 승인을 먼저 끝내면/);
+
+  // 승인 설계안의 값이 전부 [확인 필요]면 기준으로 치지 않는다.
+  const hollow = reviewBasisReadiness(buildReviewBasis({
+    designPlan: { applicationType: { selected: '' }, coreValues: [{ key: 'sessions', value: '[확인 필요]' }], requiredModels: [] }
+  }));
+  assert.equal(hollow.ready, false);
+
+  // 둘 중 하나만 있어도 대조는 가능하다.
+  const withContract = reviewBasisReadiness(buildReviewBasis({ contract: { rules: [{ id: 'c1', category: '참여규모', title: 'x', ruleType: 'MIN', value: 70, unit: '명', severity: 'BLOCKING', evidence: 'y' }] } }));
+  assert.equal(withContract.ready, true);
+  const withDesign = reviewBasisReadiness(buildReviewBasis({ designPlan: { applicationType: { selected: '재학대예방형' }, coreValues: [], requiredModels: [] } }));
+  assert.equal(withDesign.ready, true);
+
+  // 화면에서도 기준이 없으면 호출하지 않는다.
+  assert.match(app, /const readiness = reviewBasisReadiness\(preciseBasis\(\)\);\s*\n\s*if \(!readiness\.ready\) return setState\(\{ error: readiness\.reason \}\);/);
+  assert.match(app, /if \(!currentNoticeContract\(\)\?\.rules\?\.length && state\.sections\.length\) ensureNoticeLogic\(\);\s*\n\s*return buildReviewBasis\(/);
 });
 
 test('문제는 지정한 다섯 항목으로 저장하고 계획서에 없는 구간은 버린다', () => {

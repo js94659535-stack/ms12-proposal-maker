@@ -8,6 +8,22 @@ export const PRECISION_SCOPES = ['공고 강제조건', '승인 설계안', '서
 const clean = (value, max = 600) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 const SECTION_ORDER = ['necessity', 'purpose', 'goals', 'target', 'programs', 'schedule', 'roles', 'budget', 'indicators', 'outcomes'];
 
+// 기준이 비어 있으면 검증하지 않는다. 비교할 것이 없는 채로 물으면 「기준에 없다」는 지적만 돌아온다.
+export function reviewBasisReadiness(basis) {
+  const missing = [];
+  if (!basis?.noticeContract?.length) missing.push('공고 실행계약서');
+  const design = basis?.approvedDesign;
+  const hasDesign = design && (design.applicationType?.selected || (design.coreValues || []).some(item => item.value && item.value !== '[확인 필요]') || (design.requiredModels || []).length);
+  if (!hasDesign) missing.push('승인된 설계안');
+  return {
+    ready: missing.length < 2,
+    missing,
+    reason: missing.length >= 2
+      ? `대조할 기준이 없습니다(${missing.join(' · ')}). 공고 분석과 설계 승인을 먼저 끝내면 실제 어긋난 곳만 짚어 줍니다.`
+      : ''
+  };
+}
+
 // 검증 기준 한 묶음. 확정된 것만 넣고 확인 필요 항목은 기준이 아니라 참고로만 넘긴다.
 export function buildReviewBasis({ contract, formSpec, designPlan, demand } = {}) {
   return {
