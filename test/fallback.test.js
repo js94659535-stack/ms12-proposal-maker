@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { localAnalyze, localDraft } from '../src/fallback.js';
 import { draftReviewState, incompleteFailure, masterReviewState, mixedApplicationType, normalizeManualSources, onRequest, partContext, partReviewState, validateEngineResult, validateMasterResult, validatePartResult } from '../functions/api/proposal.js';
-import { buildOfficialSummary, classifyAttachment, handleNoticeRequest, isBusinessNotice, isOpenDeadline, mergeNoticeCandidates, parseProposalList, splitSubprojects } from '../functions/api/notices.js';
+import { buildOfficialSummary, classifyAttachment, handleNoticeRequest, isBusinessNotice, mergeNoticeCandidates, splitSubprojects } from '../functions/api/notices.js';
+import { boardListResponse, boardPostResponse, noticeRequest, officialFetcher, portalListResponse } from './fixtures/official-board.js';
 import { buildPrintDocument } from '../src/export.js';
 import { onRequest as handleArchiveRequest, syncNotices } from '../functions/api/archive.js';
 // 전체 이용권 세션. 생성 API는 이용권을 서버에서 확인하므로 테스트도 실제와 같은 맥락을 넘긴다.
@@ -396,29 +397,45 @@ test('앱은 공고문 입력에서 시작하고 사용자 확정 회사 정보�
 
 test('공모사업 목록은 중앙회와 광주지회 진행 중 공고만 조회한다', async () => {
   const calls = [];
-  const fetcher = async url => {
-    calls.push(url);
-    if (url.includes('mobileMainBsnsDetail.do')) return new Response(`<table><tr><th>사업명</th><td>진행 공고</td></tr><tr><th>사업수행기간</th><td>2099-09-01 ~ 2099-12-31</td></tr><tr><th>공모기간</th><td>2099-08-01 ~ 2099-08-14</td></tr><tr><th>지원한도금액</th><td>30,000,000원</td></tr><tr><th>개요</th><td>사업목적: 아동 지원<br>신청대상: 사회복지기관<br>지원내용: 상담 프로그램 운영</td></tr></table>`, { status: 200 });
-    const branch = new URL(url).searchParams.get('bhfCode');
-    const item = (code, title, deadline) => `<li><a href="javascript:fn_goDetail('${code}','${branch}','');"><span class="gallery-type">${branch === '001' ? '중앙' : '광주'}</span><p class="gallery-tit">${title}</p><span>${deadline}</span></a></li>`;
-    return new Response(`<ul>${item(branch === '001' ? '20260700100022' : '20260700600081', branch === '001' ? '중앙 공고' : '광주 공고', '2099.08.14')}${item(`${branch}000`, '마감 공고', '2000.01.01')}</ul>`, { status: 200 });
-  };
-  const response = await handleNoticeRequest(new Request('https://example.test/api/notices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'list' }) }), fetcher);
+  // 포털은 진행 중 공고가 없는 정상 상태로 두고 누리집 공지사항 수집만 본다.
+  const fetcher = officialFetcher({
+    onCall: url => calls.push(url),
+    portalList: () => portalListResponse([]),
+    boardList: params => {
+      const branch = params.pBhfCode === '001' ? '중앙' : '광주';
+      return boardListResponse([
+        { listSn: params.pBhfCode === '001' ? '111' : '222', sj: `${branch} 2027년 배분사업 공모`, rgsde: '2099-07-01' },
+        { listSn: '900', sj: `${branch} 직원 채용 공고`, rgsde: '2099-07-02' },
+        { listSn: '901', sj: `${branch} 2026년 공모사업 선정결과 발표`, rgsde: '2099-07-03' }
+      ], 343);
+    },
+    boardPost: () => boardPostResponse({
+      sj: '2027년 배분사업 공모', rgsde: '2099-07-01', files: ['신청서.hwp'],
+      cn: '<p>사업목적: 아동 지원</p><p>신청대상: 사회복지기관</p><p>지원내용: 상담 프로그램 운영</p><p>접수기간 : 2099. 8. 1. ~ 2099. 8. 14.</p>'
+    })
+  });
+  const response = await handleNoticeRequest(noticeRequest({ action: 'list' }), fetcher);
   const result = await response.json();
-  assert.deepEqual(result.notices.map(item => item.sourceLabel), ['중앙회', '광주지회']);
-  assert.deepEqual(result.notices.map(item => item.dstbBsnsCode), ['20260700100022', '20260700600081']);
+  // 채용·선정결과는 공모가 아니므로 상세를 읽지 않는다. 포털 목록 2회 + 게시판 목록 2회 + 상세 2회.
+  assert.equal(calls.length, 6);
+  assert.equal(calls.filter(url => url.includes('/bbs/selectPostList.do')).length, 2);
+  assert.equal(calls.filter(url => url.includes('/bbs/selectPostInfo.do')).length, 2);
+  assert.deepEqual(result.notices.map(item => item.sourceLabel).sort(), ['광주지회', '중앙회']);
   assert.deepEqual(result.notices.map(item => item.deadline), ['2099-08-14', '2099-08-14']);
-  assert.equal(calls.length, 4);
-  assert.match(calls[0], /mobileMainBsnsList\.do\?bhfCode=001&page=1/);
-  assert.match(calls[1], /mobileMainBsnsList\.do\?bhfCode=006&page=1/);
   assert.ok(result.notices.every(item => item.summary.length <= 300));
   assert.ok(result.notices.every(item => item.summarySource === 'official-detail'));
   assert.deepEqual(result.notices.map(item => item.eligibility), ['사회복지기관', '사회복지기관']);
+  // 원문 주소를 채워 둔다. 보관 공고에서 공식 페이지로 되돌아갈 수 있어야 한다.
+  assert.match(result.notices[0].sourceUrl, /\/bbs\/1000\/initPostDetail\.do\?listSn=\d+$/);
+  assert.deepEqual(result.sources.map(source => source.status), ['ok', 'ok', 'ok', 'ok']);
+  assert.equal(result.syncable, true);
 });
 
 test('공고 가져오기가 성공하면 공고 확인 단계로 자동 이동한다', () => {
   const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
-  assert.match(source, /navigateToStep\(1, \{ busy: '', noticeResults: notices/);
+  // 가져온 공고가 있을 때만 확인 단계로 넘어간다. 0건이면 이 화면에 결과만 알린다.
+  assert.match(source, /const patch = \{ busy: '', noticeResults: notices, noticeSources: result\.sources \|\| \[\]/);
+  assert.match(source, /if \(notices\.length\) navigateToStep\(1, patch\); else setState\(patch\);/);
 });
 
 test('모든 AI 작업은 단일 타이머로 경과시간을 표시하고 background 시작시간을 복구한다', () => {
@@ -466,37 +483,35 @@ test('목록 카드는 없는 상세 항목에 확인 필요 문구를 반복하
 });
 
 test('일부 상세 조회 실패에도 목록을 유지하고 상세 확인 안내를 표시한다', async () => {
-  let activeDetails = 0;
+  // 출처별로 동시 요청을 세 개까지만 보낸다. 공식 사이트 한 곳에 몰아치지 않기 위해서다.
+  const activeDetails = new Map();
   let maximumDetails = 0;
-  const fetcher = async url => {
-    if (url.includes('mobileMainBsnsList.do')) {
-      const branch = new URL(url).searchParams.get('bhfCode');
-      return new Response(`<li><a href="javascript:fn_goDetail('${branch}01','${branch}','');"><p class="gallery-tit">${branch} 공고 1</p><span>2099.12.31</span></a></li><li><a href="javascript:fn_goDetail('${branch}02','${branch}','');"><p class="gallery-tit">${branch} 공고 2</p><span>2099.12.31</span></a></li>`);
+  const today = new Date().toISOString().slice(0, 10);
+  const fetcher = officialFetcher({
+    portalList: () => portalListResponse([]),
+    boardList: params => boardListResponse([
+      { listSn: `${params.pBhfCode}01`, sj: `${params.pBhfCode} 배분사업 공모 1`, rgsde: today },
+      { listSn: `${params.pBhfCode}02`, sj: `${params.pBhfCode} 배분사업 공모 2`, rgsde: today }
+    ]),
+    boardPost: async (params, url) => {
+      const host = url.host;
+      activeDetails.set(host, (activeDetails.get(host) || 0) + 1);
+      maximumDetails = Math.max(maximumDetails, activeDetails.get(host));
+      await new Promise(resolve => setTimeout(resolve, 5));
+      activeDetails.set(host, activeDetails.get(host) - 1);
+      if (params.listSn === '00101') throw new Error('detail failed');
+      return boardPostResponse({ sj: '진행 공고', rgsde: today, cn: '<p>지원내용: 공식 지원 내용</p><p>접수기간 : 2099. 12. 31.</p>' });
     }
-    activeDetails += 1;
-    maximumDetails = Math.max(maximumDetails, activeDetails);
-    await new Promise(resolve => setTimeout(resolve, 5));
-    activeDetails -= 1;
-    if (url.includes('00101')) throw new Error('detail failed');
-    return new Response(`<table><tr><th>사업명</th><td>진행 공고</td></tr><tr><th>개요</th><td>지원내용: 공식 지원 내용</td></tr></table>`);
-  };
-  const response = await handleNoticeRequest(new Request('https://example.test/api/notices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'list' }) }), fetcher);
+  });
+  const response = await handleNoticeRequest(noticeRequest({ action: 'list' }), fetcher);
   const result = await response.json();
   assert.equal(result.notices.length, 4);
-  assert.equal(result.notices.find(item => item.dstbBsnsCode === '00101').summary, '상세 공고문 확인 필요');
+  // 상세를 못 읽은 글도 목록에서 사라지지 않는다. 확인 필요로만 남는다.
+  const broken = result.notices.find(item => item.references[0].listSn === '00101');
+  assert.equal(broken.summary, '상세 공고문 확인 필요');
+  assert.equal(broken.deadlineKnown, false);
+  assert.equal(broken.stage, '마감일 확인 필요');
   assert.ok(maximumDetails <= 3);
-});
-
-test('마감일 당일은 포함하고 지난 마감일은 제외한다', () => {
-  const now = new Date('2026-08-06T03:00:00Z');
-  assert.equal(isOpenDeadline('2026-08-06', now), true);
-  assert.equal(isOpenDeadline('2026-08-05', now), false);
-  assert.equal(isOpenDeadline('2026-08-07', now), true);
-});
-
-test('공모사업 목록에서 제목·지회·마감일·사업번호를 추출한다', () => {
-  const html = `<li><a href="javascript:fn_goDetail('20260700600081','006','');"><span class="gallery-type">광주</span><p class="gallery-tit">[광주] 2027년 신청사업</p><span>2026.08.14</span></a></li>`;
-  assert.deepEqual(parseProposalList(html, 'gwangju'), [{ source: 'gwangju', sourceLabel: '광주지회', listSn: '20260700600081', dstbBsnsCode: '20260700600081', appnDocNo: '', title: '[광주] 2027년 신청사업', deadline: '2026-08-14', registeredAt: '2026-08-14' }]);
 });
 
 test('복수 공고의 번호가 붙은 세부사업 3개를 서로 섞지 않고 분리한다', () => {

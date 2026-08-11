@@ -47,12 +47,17 @@ export function archiveDeadline(notice) {
   return archiveDateValue(notice?.deadline || notice?.applicationPeriod?.split('~').pop());
 }
 
+// 마감이 이만큼 남았으면 임박으로 본다. 서버 수집 판정(server/notice-collect.js)과 같은 기준이다.
+export const CLOSING_SOON_DAYS = 7;
+
 export function deadlineInfo(notice, today) {
   const iso = archiveDeadline(notice);
-  if (!iso) return { iso: '', text: '기간 미표기', dday: null, closed: false };
+  // 마감일을 확인하지 못한 공고는 「진행 중」도 「마감」도 아니다. 따로 찾을 수 있게 상태를 따로 둔다.
+  if (!iso) return { iso: '', text: '기간 미표기', dday: null, closed: false, stage: '마감일 확인 필요' };
   const days = Math.round((Date.parse(`${iso}T00:00:00Z`) - Date.parse(`${archiveDateValue(today) || iso}T00:00:00Z`)) / 86_400_000);
-  if (days < 0) return { iso, text: `${shortDate(iso)} · 마감`, dday: days, closed: true };
-  return { iso, text: `${shortDate(iso)} · ${days === 0 ? 'D-day' : `D-${days}`}`, dday: days, closed: false };
+  if (days < 0) return { iso, text: `${shortDate(iso)} · 마감`, dday: days, closed: true, stage: '마감' };
+  const stage = days <= CLOSING_SOON_DAYS ? '마감임박' : '진행중';
+  return { iso, text: `${shortDate(iso)} · ${days === 0 ? 'D-day' : `D-${days}`}`, dday: days, closed: false, stage };
 }
 
 // 계획서 저장 단계에서 상태를 유추한다. 사용자가 지정한 상태가 있으면 그것이 우선이다.
@@ -132,7 +137,10 @@ function matchesFilters(row, filters = {}) {
   if (filters.applicant && filters.applicant !== '미연결' && !row.applicantIds.includes(filters.applicant)) return false;
   if (filters.deadline === '진행중' && (row.deadline.closed || row.deadline.dday === null)) return false;
   if (filters.deadline === '마감' && !row.deadline.closed) return false;
-  if (filters.deadline === '7일이내' && !(row.deadline.dday !== null && !row.deadline.closed && row.deadline.dday <= 7)) return false;
+  // 마감임박은 예전 이름(7일이내)도 그대로 받는다. 저장된 필터가 깨지지 않게 한다.
+  if (['7일이내', '마감임박'].includes(filters.deadline) && row.deadline.stage !== '마감임박') return false;
+  // 마감일을 확인하지 못한 공고만 따로 모아 본다.
+  if (filters.deadline === '마감일 확인 필요' && row.deadline.stage !== '마감일 확인 필요') return false;
   return true;
 }
 

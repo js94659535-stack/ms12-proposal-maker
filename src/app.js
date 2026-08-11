@@ -78,7 +78,7 @@ const initial = {
   revisionPlan: null, draftReview: null, projectNarrative: '', proposalVersions: [], proposalFlow: { status: '', baselineVersion: 0, reviewTarget: null, rounds: [], requests: [], requestOpen: false, requestText: '', requestScope: [], openVersion: 0, compareVersion: 0, approvedVersion: 0, approvedAt: '' }, coachingSelection: [], applicantSkipped: false, noticeLogic: null, redesignForContract: false,
   // 「사업계획서 의뢰 건」 한 건의 고객 담당자와 공고 요청서. 기관 영구정보와 섞지 않는다.
   engagement: { client: makeClient(), request: makeNoticeRequest(), design: makeDesignApproval(), view: 'customer', mode: '표준형' }, proposalTables: [], preciseReview: null, submissionIncluded: [], currentVersionId: '', attachmentLinks: {}, submissionZip: null,
-  analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveTable: { query: '', sortKey: 'collectedAt', sortDir: 'desc', page: 1, pageSize: 20, selected: [], expandedKey: '', applicantPickerKey: '', filters: { collected: '', institution: '', field: '', status: '', applicant: '', deadline: '' } }, archiveNoticeLinks: {}, archiveHiddenNotices: [], archiveOpenProposal: '', sampleStage: '', sampleReturn: '', aiResult: null, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
+  analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveTable: { query: '', sortKey: 'collectedAt', sortDir: 'desc', page: 1, pageSize: 20, selected: [], expandedKey: '', applicantPickerKey: '', filters: { collected: '', institution: '', field: '', status: '', applicant: '', deadline: '' } }, archiveNoticeLinks: {}, archiveHiddenNotices: [], archiveOpenProposal: '', sampleStage: '', sampleReturn: '', aiResult: null, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeSources: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
 let navigationHistory = loadNavigationHistory();
@@ -1048,7 +1048,7 @@ function loadState() {
     const stagedGeneration = saved.stagedGeneration && typeof saved.stagedGeneration === 'object'
       ? { ...structuredClone(initial.stagedGeneration), ...saved.stagedGeneration, parts: Array.isArray(saved.stagedGeneration.parts) ? saved.stagedGeneration.parts : [], completedGroupIds: Array.isArray(saved.stagedGeneration.completedGroupIds) ? saved.stagedGeneration.completedGroupIds : [] }
       : structuredClone(initial.stagedGeneration);
-    const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantDocDraft: '', applicantExtraction: null, coachingSelection: [], attachmentLinks: {}, submissionZip: null };
+    const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantDocDraft: '', applicantExtraction: null, coachingSelection: [], attachmentLinks: {}, submissionZip: null };
     // 알 수 없는 포털 값이 남아 있으면 다시 고르게 한다.
     restored.portal = ['admin', 'proposal'].includes(saved.portal) ? saved.portal : '';
     // 예전에 저장한 상태에는 의뢰 건 정보가 없다. 빈 값으로 채우기만 하고 기존 데이터는 건드리지 않는다.
@@ -1079,7 +1079,7 @@ function withMigratedApplicants(value) {
   return { ...value, applicants, selectedApplicantId, projectValues: Array.isArray(value.projectValues) ? value.projectValues : [] };
 }
 function saveState() {
-  const safe = { ...state, companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], archiveNotices: [], archiveProposals: [], noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', applicantComparison: null, applicantDocDraft: '', applicantExtraction: null, files: state.files.map(({ text, ...meta }) => meta),
+  const safe = { ...state, companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [], archiveNotices: [], archiveProposals: [], noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', applicantComparison: null, applicantDocDraft: '', applicantExtraction: null, files: state.files.map(({ text, ...meta }) => meta),
     // 첨부 원본은 브라우저 메모리에만 있다. 새로고침 뒤에 파일이 있다고 잘못 말하지 않도록 연결 기록도 저장하지 않는다.
     attachmentLinks: {}, submissionZip: null };
   // 참고자료처럼 큰 원문이 들어오면 브라우저 저장 한도를 넘을 수 있다. 저장 실패가 화면을 멈추지 않게 한다.
@@ -1461,15 +1461,16 @@ function noticeListView() {
 }
 
 // 두 번째 화면(공고 준비)의 머리말. 홈에서 넘어온 흐름을 그대로 잇고 진입 경로 세 가지를 먼저 보여 준다.
+// 단계 머리말. 큰 안내 카드를 늘어놓으면 정작 작업 영역이 화면 밖으로 밀린다.
+// 제목·안내는 왼쪽에, 시작 경로는 오른쪽에 작은 단추로 붙여 한 덩어리로 만든다.
 function stageHero({ eyebrow, title, lead, actions = '', routes = [] }) {
   return `<section class="stage-hero">
-    <div class="stage-hero-text"><span class="home-eyebrow">${escapeHtml(eyebrow)}</span><h1>${escapeHtml(title)}</h1><p>${escapeHtml(lead)}</p>${actions ? `<div class="home-actions">${actions}</div>` : ''}</div>
-    ${routes.length ? `<div class="home-deck stage-routes" data-deck><div class="home-deck-track" data-deck-track>${routes.map((route, index) => `<article class="stage-route"><span class="stage-route-no">${String(index + 1).padStart(2, '0')}</span><h3>${escapeHtml(route.title)}</h3><p>${escapeHtml(route.desc)}</p><button class="button ${index === 0 ? 'primary' : 'secondary'}" data-route="${escapeHtml(route.action)}">${escapeHtml(route.label)}</button></article>`).join('')}</div>
-      <div class="home-deck-nav"><button class="home-deck-arrow" data-deck-prev aria-label="이전">←</button><div class="home-deck-dots">${routes.map((route, index) => `<button class="home-deck-dot ${index === 0 ? 'active' : ''}" data-deck-go="${index}" aria-label="${escapeHtml(route.title)}"></button>`).join('')}</div><button class="home-deck-arrow" data-deck-next aria-label="다음">→</button></div></div>` : ''}
+    <div class="stage-hero-text"><span class="home-eyebrow">${escapeHtml(eyebrow)}</span><h1>${escapeHtml(title)}</h1><p>${escapeHtml(lead)}</p></div>
+    ${routes.length || actions ? `<div class="stage-routes">${routes.map((route, index) => `<button class="stage-route ${index === 0 ? 'primary' : ''}" data-route="${escapeHtml(route.action)}" title="${escapeHtml(route.desc)}"><strong>${escapeHtml(route.label)}</strong><small>${escapeHtml(route.title)}</small></button>`).join('')}${actions}</div>` : ''}
   </section>`;
 }
 function noticeImportView() {
-  return `${stageHero({ eyebrow: '1단계 · 공고 준비', title: '어떤 공고로 시작할까요?', lead: '공식 공고를 가져오거나 가지고 있는 공고문을 올리면 다음 단계부터 자동으로 이어집니다. 파일은 분석을 요청할 때만 전송됩니다.', actions: sampleButton('notice', '[샘플] 공고 먼저 보기'), routes: [{ title: '공식 공고 가져오기', desc: '사랑의열매 중앙회·광주지회 진행 중 공고를 조회해 목록으로 가져옵니다.', label: '공고 조회', action: 'fetch' }, { title: '공고문·신청서 업로드', desc: 'PDF·DOCX·TXT·HWPX 파일을 읽어 분석 자료로 씁니다.', label: '파일 선택', action: 'upload' }, { title: '공고보관함에서 다시 열기', desc: '전에 가져온 공고를 다시 열어 이어서 작업합니다.', label: '공고보관함 열기', action: 'archive' }] })}
+  return `${stageHero({ eyebrow: '1단계 · 공고 준비', title: '어떤 공고로 시작할까요?', lead: '공식 공고를 가져오거나 가지고 있는 공고문을 올리면 다음 단계부터 자동으로 이어집니다. 파일은 분석을 요청할 때만 전송됩니다.', actions: sampleButton('notice', '[샘플] 공고 먼저 보기'), routes: [{ title: '중앙회·광주지회 진행 중 공고', desc: '사랑의열매 중앙회·광주지회 진행 중 공고를 조회해 목록으로 가져옵니다.', label: '공고 조회', action: 'fetch' }, { title: 'PDF·DOCX·TXT·HWPX', desc: '공고문·신청서 파일을 읽어 분석 자료로 씁니다.', label: '파일 선택', action: 'upload' }, { title: '전에 가져온 공고 다시 열기', desc: '공고보관함에서 이어서 작업합니다.', label: '공고보관함', action: 'archive' }] })}
     <div class="dense-step">
     <div class="card"><div class="card-title"><div><h3>기관 공고 가져오기</h3><span>사랑의열매 중앙회 · 광주지회</span></div><button class="button primary" id="fetch-notices">공고 가져오기</button></div><p class="muted">${state.noticeResults.length ? `진행 중 공고 ${state.noticeResults.length}건을 가져왔습니다.` : '버튼을 누를 때만 공식 공모사업을 조회합니다.'} 가져온 목록은 <b>이 화면에서만 쓰는 임시 목록</b>이라 새로고침하면 사라지며, 과거 공고는 아래 <b>「공고보관함」</b>에서 다시 열 수 있습니다.</p>${state.noticeResults.length ? '<div class="actions"><span></span><button class="button primary" data-step="1">가져온 공고 확인 →</button></div>' : ''}</div>
     <div class="source-grid"><div class="card"><div class="card-title"><h3>공고문·신청서 업로드</h3><span>PDF · DOCX · TXT · HWPX</span></div><label class="dropzone" for="source-files"><strong>파일 선택 또는 여기에 놓기</strong><small>스캔 PDF는 OCR이 필요할 수 있습니다.</small><input id="source-files" type="file" accept=".pdf,.docx,.txt,.hwpx" multiple></label><div class="file-list">${state.files.length ? state.files.map((f, i) => `<div class="file-item"><span class="file-badge">${escapeHtml(f.type)}</span><div><strong>${escapeHtml(f.name)}</strong><small>${Number(f.characters || 0).toLocaleString()}자</small></div><button data-remove-file="${i}" aria-label="파일 제거">×</button></div>`).join('') : '<p class="empty-inline">업로드한 파일이 없습니다.</p>'}</div></div>
@@ -1626,7 +1627,7 @@ function archiveView() {
       ${archiveSelectField('분야', 'field', table.filters.field, data.fields)}
       ${archiveSelectField('상태', 'status', table.filters.status, ARCHIVE_STATUSES)}
       <label class="archive-filter"><span>신청기관</span><select data-archive-filter="applicant"><option value="">전체</option><option value="미연결" ${table.filters.applicant === '미연결' ? 'selected' : ''}>미연결</option>${(state.applicants || []).map(item => `<option value="${escapeHtml(item.id)}" ${table.filters.applicant === item.id ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}</select></label>
-      ${archiveSelectField('마감일', 'deadline', table.filters.deadline, ['진행중', '7일이내', '마감'])}
+      ${archiveSelectField('마감일', 'deadline', table.filters.deadline, ['진행중', '마감임박', '마감', '마감일 확인 필요'])}
       <button class="button secondary" id="archive-reset-filters">필터 초기화</button></div></details>
     <div class="archive-bulk"><span>${selected.length ? `선택 ${selected.length}건` : '행 선택 후 일괄 삭제할 수 있습니다.'}</span><button class="button secondary" id="archive-delete-selected" ${selected.length ? '' : 'disabled'}>선택 삭제</button></div>
     ${data.total ? `<div class="archive-table-wrap"><table class="archive-table"><thead><tr>
@@ -4763,11 +4764,26 @@ async function loadOfficialNotices() {
   try {
     const result = await fetchNoticeList();
     const notices = result.notices || [];
+    // 목록이 정상으로 확인된 뒤에만 보관함에 반영한다. 실패한 수집으로 보관 자료를 덮어쓰지 않는다.
     let archiveMessage = '';
-    try { const archived = await syncArchivedNotices(notices); archiveMessage = ` 공고보관함 신규 ${archived.inserted}건·변경 ${archived.updated}건·동일 ${archived.unchanged}건입니다.`; }
-    catch { archiveMessage = ' 공고 목록은 표시하지만 공고보관함 저장에는 실패했습니다.'; }
+    if (result.syncable) {
+      try { const archived = await syncArchivedNotices(notices); archiveMessage = ` 공고보관함 신규 ${archived.inserted}건·변경 ${archived.updated}건·동일 ${archived.unchanged}건입니다.`; }
+      catch { archiveMessage = ' 공고 목록은 표시하지만 공고보관함 저장에는 실패했습니다.'; }
+    } else if (notices.length) {
+      archiveMessage = ' 일부 출처를 확인하지 못해 공고보관함에는 반영하지 않았습니다.';
+    }
     const elapsed = elapsedLabel();
-    navigateToStep(1, { busy: '', noticeResults: notices, selectedNoticeIndexes: [], pendingNoticeChoice: null, notice: `공고 ${notices.length}건을 불러왔습니다${elapsed}.${archiveMessage}` });
+    // 「진행 중 공고가 없다」와 「사이트 연결 방식이 바뀌어 못 가져왔다」를 다르게 안내한다.
+    const headline = result.empty
+      ? `현재 진행 중인 공고가 없습니다${elapsed}. 공식 사이트 목록은 정상으로 확인했습니다.`
+      : `공고 ${notices.length}건을 불러왔습니다${elapsed}.${archiveMessage}`;
+    const failedLabels = (result.sources || []).filter(source => source.status !== 'ok');
+    const warning = failedLabels.length
+      ? `${failedLabels.map(source => source.label).join('·')} 공고를 가져오지 못했습니다. ${failedLabels[0].reason}`
+      : '';
+    const patch = { busy: '', noticeResults: notices, noticeSources: result.sources || [], selectedNoticeIndexes: [], pendingNoticeChoice: null, notice: headline, error: warning };
+    // 가져온 공고가 없으면 빈 확인 화면으로 넘기지 않고 이 화면에 결과만 알린다.
+    if (notices.length) navigateToStep(1, patch); else setState(patch);
   } catch (error) { setState({ busy: '', error: `${error.message}${elapsedLabel()}` }); }
 }
 

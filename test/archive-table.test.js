@@ -82,3 +82,26 @@ test('자료보관함 표는 기존 상태 키만 새로 저장하고 보관 원
   assert.match(appSource, /restored\.archiveNoticeLinks = saved\.archiveNoticeLinks/);
   assert.doesNotMatch(appSource, /deleteArchivedNotice|deleteArchivedProposal/);
 });
+
+test('마감 상태를 진행중·마감임박·마감·확인 필요로 갈라 본다', () => {
+  const stage = (deadline, today) => deadlineInfo(deadline ? { deadline } : {}, today).stage;
+  assert.equal(stage('2026-08-20', '2026-08-09'), '진행중');
+  assert.equal(stage('2026-08-16', '2026-08-09'), '마감임박');
+  assert.equal(stage('2026-08-09', '2026-08-09'), '마감임박');
+  assert.equal(stage('2026-08-08', '2026-08-09'), '마감');
+  assert.equal(stage('', '2026-08-09'), '마감일 확인 필요');
+});
+
+test('마감임박과 마감일 확인 필요를 따로 골라 볼 수 있다', () => {
+  const rows = [
+    { source: 'central', listSn: '1', title: '진행 공고', deadline: '2026-09-30', collectedAt: '2026-08-01' },
+    { source: 'central', listSn: '2', title: '임박 공고', deadline: '2026-08-12', collectedAt: '2026-08-01' },
+    { source: 'central', listSn: '3', title: '기간 미표기 공고', collectedAt: '2026-08-01' }
+  ];
+  const pick = deadline => archiveTableRows(rows, { links: {}, applicants: [], today: '2026-08-09', hidden: [], query: '', filters: { deadline }, sortKey: 'title', sortDir: 'asc', page: 1, pageSize: 20 }).rows.map(row => row.title);
+  assert.deepEqual(pick('마감임박'), ['임박 공고']);
+  // 예전 이름으로 저장된 필터도 그대로 동작한다.
+  assert.deepEqual(pick('7일이내'), ['임박 공고']);
+  assert.deepEqual(pick('마감일 확인 필요'), ['기간 미표기 공고']);
+  assert.deepEqual(pick('진행중'), ['임박 공고', '진행 공고']);
+});

@@ -1,9 +1,16 @@
+import {
+  FAILURE, NOTICE_BOARDS, SOURCES, STAGE, detailUrl, extractPeriod, isCollectible, isNoticeCandidate,
+  noticeStage, summarizeCollection, todayInSeoul, validListPayload
+} from '../../server/notice-collect.js';
+
+const STAGE_UNKNOWN = STAGE.unknown;
+
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
-const SOURCES = Object.freeze({
-  central: { label: '중앙회', origin: 'https://chest.or.kr', branchCode: '001' },
-  gwangju: { label: '광주지회', origin: 'https://gwangju.chest.or.kr', branchCode: '006' }
-});
 const PROPOSAL_ORIGIN = 'https://proposal.chest.or.kr';
+// 게시판 한 장에서 훑는 글 수. 공모는 최근 글에 몰려 있어 한 장이면 충분하다.
+const LIST_PAGE_SIZE = 60;
+// 상세를 읽어 볼 후보 상한. 게시판이 통째로 공모로 채워져도 요청이 폭주하지 않게 한다.
+const DETAIL_LIMIT = 25;
 
 export function onRequest(context) {
   return handleNoticeRequest(context.request);
@@ -40,7 +47,20 @@ async function importNoticeUrl(fetcher, rawUrl, existingNotices = []) {
       }
     }
 
-    const notice = toDisplayNotice({ ...detail, source: reference.source, listSn: reference.listSn });
+    // 목록 수집과 같은 방식으로 기간·요약·원문 주소를 채운다. 두 경로의 결과 모양을 맞춘다.
+    const overview = structuredText(detail.bodyHtml);
+    const period = extractPeriod(`${detail.title}\n${overview}`);
+    const { stage, daysLeft } = noticeStage(period.deadline);
+    const notice = {
+      ...toDisplayNotice({ ...detail, source: reference.source, listSn: reference.listSn, deadline: period.deadline }),
+      ...buildOfficialSummary({ overview, applicationPeriod: period.applicationPeriod }),
+      applicationPeriod: period.applicationPeriod,
+      deadline: period.deadline, deadlineKnown: Boolean(period.deadline), deadlineSource: period.deadlineSource,
+      stage, daysLeft,
+      sourceUrl: detailUrl(SOURCES[reference.source].origin, reference.bbsSn || '1000', reference.listSn),
+      attachments: detail.attachments.map(file => ({ name: file.name, fileType: classifyAttachment(file.name) })),
+      officialTextExtracted: overview.length > 0
+    };
     if (reference.source === 'gwangju') {
       notice.supplementalReferences = candidates.flatMap(value => value.item.references.filter(item => item.source === 'central'));
     }
@@ -62,29 +82,177 @@ async function resolveOfficialReference(fetcher, rawUrl) {
   }
   const listSn = url.searchParams.get('listSn');
   if (!url.pathname.endsWith('/bbs/1000/initPostDetail.do') || !/^\d{1,12}$/.test(String(listSn || ''))) throw new Error('invalid official url');
-  return { source, listSn };
+  return { source, listSn, bbsSn: '1000', kind: 'board' };
 }
 
+// 통로마다 따로 수집한다. 한 곳이 화면을 바꿔도 다른 곳 수집은 멈추지 않는다.
+// 1차는 배분신청 포털(공모기간·지원한도까지 정리된 곳), 2차는 각 모금회 누리집 공지사항이다.
+const CHANNELS = Object.freeze([
+  Object.freeze({ id: 'proposal', label: '배분신청 포털', collect: collectPortal }),
+  Object.freeze({ id: 'board', label: '누리집 공지사항', collect: collectBoard })
+]);
+
 async function listNotices(fetcher) {
+  const today = todayInSeoul();
+  const jobs = [];
+  for (const [source, config] of Object.entries(SOURCES)) {
+    for (const channel of CHANNELS) jobs.push(runChannel(fetcher, channel, source, config, today));
+  }
+  const outcomes = await Promise.all(jobs);
+  const sources = outcomes.map(outcome => outcome.status);
+  const notices = dedupeNotices(outcomes.flatMap(outcome => outcome.notices)).sort(byDeadlineThenDate);
+  const summary = summarizeCollection(sources, notices);
+  // 전부 실패한 것을 「공고 0건」으로 넘기지 않는다. 화면이 다른 문구를 쓸 수 있게 오류로 돌려준다.
+  if (summary.allFailed) return json({ error: FAILURE.shape, collectFailed: true, sources }, 502);
+  return json({ notices, sources, collectedAt: new Date().toISOString(), ...summary });
+}
+
+function byDeadlineThenDate(left, right) {
+  const leftKey = left.deadline || '9999-99-99';
+  const rightKey = right.deadline || '9999-99-99';
+  if (leftKey !== rightKey) return leftKey < rightKey ? -1 : 1;
+  return String(right.registeredAt || '').localeCompare(String(left.registeredAt || ''));
+}
+
+// 같은 공고가 두 통로에 걸리면 하나만 남긴다. 공모기간·지원한도까지 정리된 포털 쪽을 우선한다.
+// 글마다 식별자가 달라도 같은 공고일 수 있어, 같은 기관 안에서 제목이 같으면 겹친 것으로 본다.
+function dedupeNotices(notices) {
+  const byIdentity = new Map();
+  for (const notice of notices) {
+    const key = `${notice.references[0].source}:${notice.channel}:${notice.references[0].listSn}`;
+    if (!byIdentity.has(key)) byIdentity.set(key, notice);
+  }
+  const unique = [...byIdentity.values()];
+  const portalTitles = new Set(unique.filter(notice => notice.channel === 'proposal')
+    .map(notice => `${notice.references[0].source}:${normalizeTitle(notice.title)}`));
+  return unique.filter(notice => notice.channel === 'proposal'
+    || !portalTitles.has(`${notice.references[0].source}:${normalizeTitle(notice.title)}`));
+}
+
+async function runChannel(fetcher, channel, source, config, today) {
+  const status = {
+    source, channel: channel.id, label: `${config.label} ${channel.label}`, sourceLabel: config.label,
+    organization: config.organization, status: 'ok', reason: '', listed: 0, candidates: 0, collected: 0
+  };
   try {
-    const groups = await Promise.all(Object.entries(SOURCES).map(async ([source, config]) => {
-      const html = await requestProposalHtml(fetcher, '/mobile/mobileMainBsnsList.do', { bhfCode: config.branchCode, page: '1' });
-      return parseProposalList(html, source).filter(item => isOpenDeadline(item.deadline));
-    }));
-    const detailCache = new Map();
-    const notices = await mapWithConcurrency(groups.flat(), 3, async item => {
-      const reference = { source: item.source, listSn: item.listSn, appnDocNo: item.appnDocNo, kind: 'proposal' };
-      const display = toDisplayNotice(item, [reference]);
-      const key = `${item.source}:${item.listSn}`;
-      try {
-        if (!detailCache.has(key)) detailCache.set(key, loadProposalNotice(fetcher, reference));
-        return { ...display, ...buildOfficialSummary(await detailCache.get(key)) };
-      } catch {
-        return { ...display, ...emptyOfficialSummary() };
-      }
-    });
-    return json({ notices });
-  } catch { return json({ error: '공식 공고 목록을 불러오지 못했습니다.' }, 502); }
+    return await channel.collect(fetcher, { status, source, config, today });
+  } catch (error) {
+    return { status: { ...status, status: 'failed', reason: failureReason(error) }, notices: [] };
+  }
+}
+
+// 배분신청 포털. 사업명·공모기간·지원한도·개요·첨부가 정리되어 있어 1차 출처로 둔다.
+async function collectPortal(fetcher, { status, source, config, today }) {
+  const html = await requestProposalHtml(fetcher, '/mobile/mobileMainBsnsList.do', { bhfCode: config.branchCode, page: '1' });
+  // 목록 화면인지 먼저 본다. 화면 뼈대가 없으면 구조가 바뀐 것이라 0건 성공으로 넘기지 않는다.
+  // 뼈대는 있는데 항목이 없는 것은 「진행 중 공고 없음」이라는 정상 상태다.
+  if (!/mobileMainBsnsList|bhfCode/.test(html)) return { status: { ...status, status: 'failed', reason: FAILURE.shape }, notices: [] };
+  const markers = (html.match(/fn_goDetail\(/g) || []).length;
+  const items = parseProposalList(html, source);
+  // 항목 표시는 있는데 하나도 못 읽으면 파서가 깨진 것이다.
+  if (markers && !items.length) return { status: { ...status, status: 'failed', reason: FAILURE.shape, listed: markers }, notices: [] };
+  status.listed = markers;
+  status.candidates = items.length;
+  const open = items.filter(item => noticeStage(item.deadline, today).stage !== STAGE.closed);
+  const detailCache = new Map();
+  const notices = await mapWithConcurrency(open, 3, async item => {
+    const reference = { source: item.source, listSn: item.listSn, appnDocNo: item.appnDocNo, kind: 'proposal' };
+    const display = toDisplayNotice(item, [reference]);
+    const { stage, daysLeft } = noticeStage(item.deadline, today);
+    const base = {
+      ...display, channel: 'proposal', stage, daysLeft, deadlineKnown: true, deadlineSource: 'official',
+      sourceUrl: portalDetailUrl(item), officialTextExtracted: false
+    };
+    const key = `${item.source}:${item.listSn}`;
+    try {
+      if (!detailCache.has(key)) detailCache.set(key, loadProposalNotice(fetcher, reference));
+      const detail = await detailCache.get(key);
+      return {
+        ...base, ...buildOfficialSummary(detail), officialTextExtracted: Boolean(detail.overview),
+        attachments: detail.attachments.map(file => ({ name: file.name, fileType: file.fileType }))
+      };
+    } catch {
+      // 상세 한 건이 막힌 것은 통로 장애가 아니다. 목록에는 남긴다.
+      return { ...base, ...emptyOfficialSummary(), attachments: [] };
+    }
+  });
+  return { status: { ...status, collected: notices.length }, notices };
+}
+
+function portalDetailUrl(item) {
+  const url = new URL('/mobile/mobileMainBsnsDetail.do', PROPOSAL_ORIGIN);
+  url.searchParams.set('dstbBsnsCode', String(item.listSn));
+  url.searchParams.set('appnDocNo', String(item.appnDocNo || ''));
+  return url.href;
+}
+
+// 각 모금회 누리집 공지사항. 포털에 없는 지회 공고와 안내가 여기에 올라온다.
+async function collectBoard(fetcher, { status, source, config, today }) {
+  const rows = [];
+  for (const bbsSn of NOTICE_BOARDS) {
+    let payload;
+    try {
+      payload = await requestOfficial(fetcher, config, '/bbs/selectPostList.do', {
+        pBbsSn: bbsSn, pBhfCode: config.branchCode, pageCount: String(LIST_PAGE_SIZE), currPageNo: '1'
+      });
+    } catch (error) {
+      return { status: { ...status, status: 'failed', reason: failureReason(error) }, notices: [] };
+    }
+    const checked = validListPayload(payload);
+    // 오류 화면이나 모양이 바뀐 응답은 여기서 걸러 「수집 실패」로 만든다.
+    if (!checked.ok) return { status: { ...status, status: 'failed', reason: checked.reason }, notices: [] };
+    status.listed += checked.rows.length;
+    rows.push(...checked.rows.map(row => ({ ...row, bbsSn })));
+  }
+  const candidates = rows.filter(row => isNoticeCandidate(row.sj, isBusinessNotice)).slice(0, DETAIL_LIMIT);
+  status.candidates = candidates.length;
+  const built = await mapWithConcurrency(candidates, 3, async row => {
+    // 글 하나를 못 읽는 것은 출처 장애가 아니다. 목록에는 남기고 상세만 확인 필요로 둔다.
+    try { return await buildBoardNotice(fetcher, source, config, row, today); } catch { return partialBoardNotice(source, config, row); }
+  });
+  const notices = built.filter(Boolean).filter(notice => isCollectible(notice, today));
+  status.collected = notices.length;
+  return { status, notices };
+}
+
+function failureReason(error) {
+  if (error?.name === 'SyntaxError') return FAILURE.shape;
+  if (String(error?.message || '') === 'proposal error page') return FAILURE.shape;
+  if (/^proposal d+/.test(String(error?.message || ''))) return FAILURE.http;
+  if (/^official \d+/.test(String(error?.message || ''))) return FAILURE.http;
+  return FAILURE.network;
+}
+
+// 상세를 못 읽었을 때. 목록에서 확인한 것만 채우고 나머지는 확인 필요로 둔다.
+function partialBoardNotice(source, config, row) {
+  const reference = { source, listSn: String(row.listSn), bbsSn: String(row.bbsSn), kind: 'board' };
+  const registeredAt = String(row.rgsde || '');
+  return {
+    ...toDisplayNotice({ source, listSn: String(row.listSn), title: String(row.sj || ''), registeredAt, deadline: '' }, [reference]),
+    ...emptyOfficialSummary(), channel: 'board',
+    deadline: '', deadlineKnown: false, deadlineSource: '', stage: STAGE_UNKNOWN, daysLeft: null, registeredAt,
+    sourceUrl: detailUrl(config.origin, row.bbsSn, row.listSn), attachments: [], officialTextExtracted: false
+  };
+}
+
+async function buildBoardNotice(fetcher, source, config, row, today) {
+  const reference = { source, listSn: String(row.listSn), bbsSn: String(row.bbsSn), kind: 'board' };
+  const detail = await loadNotice(fetcher, reference);
+  const overview = structuredText(detail.bodyHtml);
+  const period = extractPeriod(`${detail.title}\n${overview}`);
+  const registeredAt = String(row.rgsde || detail.registeredAt || '');
+  const { stage, daysLeft } = noticeStage(period.deadline, today);
+  const display = toDisplayNotice({ source, listSn: String(row.listSn), title: detail.title, registeredAt, deadline: period.deadline }, [reference]);
+  return {
+    ...display,
+    ...buildOfficialSummary({ overview, applicationPeriod: period.applicationPeriod }),
+    channel: 'board', applicationPeriod: period.applicationPeriod,
+    deadline: period.deadline, deadlineKnown: Boolean(period.deadline), deadlineSource: period.deadlineSource,
+    stage, daysLeft, registeredAt,
+    sourceUrl: detailUrl(config.origin, row.bbsSn, row.listSn),
+    attachments: detail.attachments.map(file => ({ name: file.name, fileType: classifyAttachment(file.name) })),
+    officialTextExtracted: overview.length > 0
+  };
 }
 
 async function mapWithConcurrency(items, limit, mapper) {
@@ -143,13 +311,7 @@ function truncateSummary(value) {
 
 function escapeRegExp(value) { return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
-export function isOpenDeadline(deadline, now = new Date()) {
-  const normalized = String(deadline || '').replace(/\./g, '-');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return false;
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
-  return normalized >= today;
-}
-
+// 배분신청 포털 목록 파서. 이 화면이 공식 공모의 1차 출처다.
 export function parseProposalList(html, source) {
   const config = SOURCES[source];
   if (!config) return [];
@@ -190,8 +352,9 @@ async function noticeDetail(fetcher, references, supplementalReferences = []) {
 async function loadNotice(fetcher, reference) {
   if (reference.kind === 'proposal') return loadProposalNotice(fetcher, reference);
   const config = SOURCES[reference.source];
+  const bbsSn = NOTICE_BOARDS.includes(String(reference.bbsSn)) ? String(reference.bbsSn) : '1000';
   const data = await requestOfficial(fetcher, config, '/bbs/selectPostInfo.do', {
-    pBbsSn: '1000', pBhfCode: config.branchCode, pageCount: '12', currPageNo: '1', listSn: String(reference.listSn), hideFlpth: 'Y'
+    pBbsSn: bbsSn, pBhfCode: config.branchCode, pageCount: '12', currPageNo: '1', listSn: String(reference.listSn), hideFlpth: 'Y'
   });
   const info = data.dataInfo?.postInfo;
   if (!info) throw new Error('notice missing');
@@ -204,6 +367,8 @@ async function loadNotice(fetcher, reference) {
   };
 }
 
+// 예전 배분신청 포털에서 가져온 보관 공고를 다시 열 때만 쓴다.
+// 그 포털은 모든 경로가 오류 화면을 돌려주는 상태라 대개 실패한다. 보관된 내용은 그대로 남는다.
 async function loadProposalNotice(fetcher, reference) {
   const config = SOURCES[reference.source];
   const html = await requestProposalHtml(fetcher, '/mobile/mobileMainBsnsDetail.do', {
@@ -329,7 +494,9 @@ function sameNotice(left, right) {
 
 function normalizeTitle(value) { return String(value || '').normalize('NFKC').toLowerCase().replace(/\[[^\]]*\]|\([^)]*(?:마감|지원한도)[^)]*\)/g, '').replace(/[^가-힣a-z0-9]/g, ''); }
 function plainText(html) { return String(html || '').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ').replace(/\s+/g, ' ').trim().toLowerCase(); }
-function structuredText(html) { return String(html || '').replace(/<br\s*\/?\s*>/gi, '\n').replace(/<\/p\s*>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/&#39;/g, "'").replace(/&amp;/gi, '&').replace(/[ \t]+/g, ' ').replace(/ *\n */g, '\n').replace(/\n{3,}/g, '\n\n').trim(); }
+// 게시판 본문은 한글 문서를 붙여 넣은 것이라 <style>·<script>·<title>이 함께 들어온다.
+// 그 안의 글자를 본문으로 착각하면 기간·대상 추출이 통째로 어긋난다.
+function structuredText(html) { return String(html || '').replace(/<(style|script|title)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, ' ').replace(/<br\s*\/?\s*>/gi, '\n').replace(/<\/p\s*>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/&#39;/g, "'").replace(/&amp;/gi, '&').replace(/[ \t]+/g, ' ').replace(/ *\n */g, '\n').replace(/\n{3,}/g, '\n\n').trim(); }
 function conditionSignature(html) { return plainText(html).split(/[.!?。]|\n/).filter(line => /접수|신청기간|마감|지원대상|신청대상|광주|지역|소재/.test(line)).map(line => line.replace(/\s/g, '')).sort().join('|'); }
 function attachmentSignature(files = []) { return files.map(file => `${file.name}|${file.serverName}|${file.path}`).sort().join('|'); }
 function validReferences(references, emptyAllowed = false) { return Array.isArray(references) && (emptyAllowed || references.length > 0) && references.length <= 2 && references.every(reference => SOURCES[reference?.source] && /^\d{1,20}$/.test(String(reference.listSn || ''))); }
@@ -349,16 +516,33 @@ async function requestOfficial(fetcher, config, path, params) {
   } finally { clearTimeout(timeoutId); }
 }
 
+// 배분신청 포털은 Referer가 없는 요청에 「찾으시는 페이지가 없습니다」 화면을 HTTP 200으로 돌려준다.
+// 2026년 8월에 수집이 조용히 0건이 된 원인이 이것이었다. 자기 사이트 주소를 Referer로 붙여 준다.
+const PROPOSAL_HEADERS = Object.freeze({
+  Referer: `${PROPOSAL_ORIGIN}/`,
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'ko-KR,ko;q=0.9'
+});
+
 async function requestProposalHtml(fetcher, path, params) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10_000);
   try {
     const url = new URL(path, PROPOSAL_ORIGIN);
     Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
-    const response = await fetcher(url.href, { method: 'GET', signal: controller.signal });
+    const response = await fetcher(url.href, { method: 'GET', headers: { ...PROPOSAL_HEADERS }, signal: controller.signal });
     if (!response.ok) throw new Error(`proposal ${response.status}`);
-    return await response.text();
+    const html = await response.text();
+    // 오류 화면을 빈 목록으로 오해하지 않도록 여기서 걸러 낸다.
+    if (isOfficialErrorPage(html)) throw new Error('proposal error page');
+    return html;
   } finally { clearTimeout(timeoutId); }
+}
+
+// 공식 오류 화면. 「찾으시는 <span>페이지가 없습니다</span>」처럼 태그가 끼어 있어 통째로 찾지 못한다.
+export function isOfficialErrorPage(html) {
+  const text = String(html || '').replace(/<[^>]+>/g, '').replace(/\s+/g, '');
+  return /페이지가없습니다|오류페이지/.test(text);
 }
 
 function extractDeadline(value) {

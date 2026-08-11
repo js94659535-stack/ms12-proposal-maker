@@ -416,3 +416,70 @@
 /* 히어로가 화면 위쪽을 다 차지하면 실제 작업 영역이 밀린다. 단계 공통으로 세로 여백만 줄인다. */
 .stage-hero{padding-top:24px;padding-bottom:20px;margin-bottom:16px}
 @media(max-width:760px){.stage-hero{padding-top:18px;padding-bottom:16px;margin-bottom:12px}}
+
+/* 좁은 화면 가로 넘침 바로잡기. 화면을 잘라 감추지 않고 실제 원인인 최소폭과 줄바꿈을 고친다. */
+/* .requirement>div{display:flex} 규칙에 눌려 두 칸 배치가 flex 한 줄이 되던 것을 되돌린다. */
+.requirement>.two-col,.requirement>.three-col{display:grid}
+.requirement>div{flex-wrap:wrap}
+/* 격자·유연 상자의 자식은 기본 최소폭이 내용 크기라 칸보다 넓어진다. 줄어들 수 있게 푼다. */
+.two-col>*,.three-col>*,.source-grid>*,.summary-grid>*,.cap-grid>*,.editor-layout>*,.archive-filters>*{min-width:0}
+.field>*{min-width:0;max-width:100%}
+.field select,.field input,.field textarea{max-width:100%}
+/* 선택칸은 가장 긴 항목 이름만큼 넓어지려 한다. 칸 안에서 줄여 쓴다. */
+select{max-width:100%}
+/* 끊을 곳이 없는 긴 주소·식별자가 문서 폭을 밀어내지 않게 한다. */
+.paper,.requirement,.question{overflow-wrap:anywhere}
+@media(max-width:600px){
+  /* 히어로의 음수 여백이 화면 밖으로 2px 삐져나오던 것을 없앤다. */
+  .stage-hero{margin-left:0;margin-right:0;padding-left:14px;padding-right:14px;border-radius:0 0 16px 16px}
+  /* 갈색 머리띠: 제목이 네 줄로 갈라지며 로고와 겹치던 문제. 한 줄로 줄여 쓴다. */
+  .workflow-brand{gap:8px}
+  .workflow-brand>*{min-width:0}
+  .workflow-brand .brand{flex:1 1 auto;min-width:0;gap:8px}
+  .workflow-brand .brand>div{min-width:0}
+  .workflow-brand .brand strong{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .workflow-brand .brand-mark{flex:0 0 auto}
+  .workflow-brand .mode{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .workflow-brand .history-button{flex:0 0 auto}
+  /* 사업 유형 선택값이 보이지 않던 문제. 글자가 들어갈 만큼은 확보한다. */
+  .type-select-label{flex:1 1 130px;min-width:0}
+  .type-select-label select{min-width:92px;width:auto;flex:1 1 auto}
+}
+/* 「자동 저장 중」이 계정 표시에 가리던 문제. 겹치지 않게 자리 계산에 넣는다. */
+.workflow-brand .save-state{margin-left:auto;flex:0 0 auto;white-space:nowrap}
+.workflow-brand .mode{flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 820px 아래에서 작업 영역 여백은 14px인데 히어로는 22px만큼 당겨져 8px이 화면 밖으로 나갔다. */
+@media(max-width:820px){.stage-hero{margin-left:-14px;margin-right:-14px;padding-left:14px;padding-right:14px}}
+
+/* 1단계 머리말 압축. 제목·안내와 시작 경로를 한 줄로 붙여 작업 영역을 위로 끌어올린다. */
+.stage-hero{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;flex-wrap:wrap;padding-top:18px;padding-bottom:16px;margin-bottom:14px}
+.stage-hero-text{flex:1 1 380px;min-width:0}
+.stage-hero .home-eyebrow{margin-bottom:8px;padding:3px 10px;font-size:11px}
+.stage-hero h1{font-size:clamp(20px,2.2vw,27px);margin:0 0 6px}
+.stage-hero p{font-size:13.5px;line-height:1.6;max-width:560px}
+.stage-routes{display:flex;flex-wrap:wrap;gap:8px;flex:0 1 auto}
+.stage-route{display:flex;flex-direction:column;align-items:flex-start;gap:1px;padding:8px 14px;border:1px solid #ddcbb4;border-radius:10px;background:#fff;color:var(--navy);text-align:left;cursor:pointer}
+.stage-route strong{font-size:13px;font-weight:800}
+.stage-route small{font-size:10.5px;color:#8a7767;font-weight:600}
+.stage-route.primary{background:var(--navy);border-color:var(--navy);color:#fff}
+.stage-route.primary small{color:#e4d6c6}
+.stage-route:hover{border-color:var(--camel)}
+.stage-route:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.stage-hero .button{align-self:flex-end;padding:9px 14px;font-size:12.5px;background:#fff;border:1px solid #ddcbb4;color:var(--navy)}
+@media(max-width:600px){
+  .stage-hero{gap:12px;padding-top:14px;padding-bottom:14px}
+  .stage-hero p{font-size:12.5px}
+  .stage-routes{width:100%}
+  .stage-route{flex:1 1 140px}
+}
+@media(max-width:600px){
+  /* 좁은 화면에서는 시작 경로를 한 줄짜리 단추로 줄인다. 설명은 단추 제목으로 남는다. */
+  .stage-route{flex:0 1 auto;padding:7px 11px;flex-direction:row;align-items:center}
+  .stage-route small{display:none}
+  .stage-route strong{font-size:12.5px}
+  .stage-hero .button{padding:7px 11px;font-size:12px}
+  .stage-hero h1{font-size:20px;margin-bottom:4px}
+  .stage-hero .home-eyebrow{margin-bottom:6px}
+}
+/* 「자동 저장 중」과 계정 표시가 서로 붙어 겹쳐 보이던 문제. 사이를 띄운다. */
+.workflow-brand{gap:12px}
