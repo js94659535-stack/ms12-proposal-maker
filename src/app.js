@@ -764,10 +764,25 @@ function exampleView() {
 const TRIAL_FIELDS = [
   ['projectName', '사업명'], ['noticePurpose', '공고 목적'], ['selectionKeys', '선정 핵심'], ['necessity', '사업 필요성'],
   ['target', '대상'], ['goal', '목표'], ['programs', '핵심 활동'], ['schedule', '추진 일정'],
-  ['organization', '수행 체계'], ['indicators', '성과지표'], ['expectedEffect', '기대효과'], ['checkNeeded', '확인 필요']
+  ['organization', '수행 체계'], ['budgetDirection', '예산 방향'], ['indicators', '성과지표'], ['expectedEffect', '기대효과'],
+  ['checkNeeded', '확인 필요']
 ];
+// 공고에 지원금액·예산 기준이 없을 때 쓰는 표시. 서버가 정하는 값과 같은 문구다.
+const BUDGET_UNKNOWN = '공고문 또는 기관 확인 필요';
+// 예산은 방향만 보여 준다. 상세 산출내역과 제출용 예산표는 전체 이용권 기능이다.
+function trialBudgetCard(budget) {
+  if (!budget) return '';
+  const known = budget.hasBasis && budget.basis && budget.basis !== BUDGET_UNKNOWN;
+  return `<article class="landing-card">
+    <h3>예산 방향 ${known ? '' : `<span class="status 확인-필요">${BUDGET_UNKNOWN}</span>`}</h3>
+    <p><strong>공고 기준</strong> ${escapeHtml(budget.basis || BUDGET_UNKNOWN)}</p>
+    <ul>${(budget.items || []).map(item => `<li><strong>${escapeHtml(item.category)}</strong> ${escapeHtml(item.direction)}</li>`).join('') || '<li>공고에서 예산 기준을 찾지 못했습니다.</li>'}</ul>
+    <p class="muted">${known ? '공고가 정한 기준 안에서의 방향입니다. 상세 산출내역과 제출용 예산표는 전체 이용권 기능입니다.' : '공고에 지원금액·예산 기준이 없어 금액을 만들지 않았습니다. 공고문이나 기관에서 확인한 뒤 채워 주세요.'}</p>
+  </article>`;
+}
 const TRIAL_LOCKED = [
   ['전체 계획서 작성', '10개 항목 본문과 표를 한 번에 만드는 기능'],
+  ['상세 산출내역·제출용 예산표', '인건비 단가 × 수량 × 개월수까지 계산해 제출 서식의 예산표로 만드는 기능'],
   ['반복 재작성·부분 수정', '문제를 지목해 항목만 다시 쓰는 기능'],
   ['검증·코칭', '평가기준으로 문제를 찾고 수정 방향을 받는 기능'],
   ['DOCX·PDF·ZIP 출력', '제출본 파일로 내려받는 기능'],
@@ -788,7 +803,7 @@ function trialView() {
       <div class="landing-hero">
         <p class="landing-eyebrow">무료 회원 · 계정당 1회</p>
         <h1>공고와 우리 기관 메모로 핵심계획서 세 쪽을 만들어 드립니다</h1>
-        <p class="landing-lead">사업명·공고 목적·선정 핵심·사업 필요성·대상·목표·핵심 활동·추진 일정·수행 체계·성과지표·기대효과를 정리합니다. 제출용 전체 계획서와 예산표는 만들지 않습니다.</p>
+        <p class="landing-lead">사업명·공고 목적·선정 핵심·사업 필요성·대상·목표·핵심 활동·추진 일정·수행 체계·예산 방향·성과지표·기대효과 열두 항목을 정리합니다. 예산은 공고 기준 안에서의 방향까지만 잡고, 상세 산출내역과 제출용 예산표는 만들지 않습니다.</p>
         <p class="landing-note">${done ? '무료 생성을 이미 사용했습니다. 아래 결과는 다시 볼 수 있지만 새로 만들 수는 없습니다.' : '한 번만 실행됩니다. 공고문과 기관 메모를 채운 뒤 눌러 주세요.'}</p>
       </div>
       <div class="landing-section">
@@ -801,6 +816,7 @@ function trialView() {
         <div class="landing-head"><h2>핵심계획서</h2><p>확인되지 않은 값은 지어내지 않고 [확인 필요]로 남깁니다. 이 결과는 저장되지 않으니 필요하면 복사해 두세요.</p></div>
         <div class="landing-grid">${TRIAL_FIELDS.map(([key, label]) => {
     const value = result[key];
+    if (key === 'budgetDirection') return trialBudgetCard(value);
     if (Array.isArray(value) && !value.length) return '';
     const body = Array.isArray(value)
       ? `<ul>${value.map(item => `<li>${escapeHtml(item && typeof item === 'object' ? `${item.name}: ${item.how}` : item)}</li>`).join('')}</ul>`

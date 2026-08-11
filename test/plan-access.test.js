@@ -173,7 +173,56 @@ test('무료 체험 실패는 사용 기록을 남기지 않고 분량 상한을
 
   // 여덟 항목만 만들고 출력 토큰도 작게 묶어 둔다.
   assert.match(proposalSource, /trialCorePlan: 5_000/);
-  assert.match(proposalSource, /required: \['noticePurpose', 'selectionKeys', 'projectName', 'necessity', 'target', 'goal', 'programs', 'schedule', 'organization', 'indicators', 'expectedEffect', 'checkNeeded'\]/);
+  assert.match(proposalSource, /required: \['noticePurpose', 'selectionKeys', 'projectName', 'necessity', 'target', 'goal', 'programs', 'schedule', 'organization', 'budgetDirection', 'indicators', 'expectedEffect', 'checkNeeded'\]/);
+});
+
+test('예산 방향은 공고 근거가 있을 때만 제시하고 없으면 금액을 만들지 않는다', async () => {
+  const budgetOf = async result => {
+    const db = fakeDb();
+    await seedUser(db, { id: 'trial-1', email: 'trial@ms12.test', plan: 'trial' });
+    const cookie = await signIn(db, 'trial@ms12.test');
+    const mock = mockOpenAI({ ...SKETCH, ...result });
+    try {
+      const response = await through(db, post('/api/proposal', { action: TRIAL_ACTION, payload: { sourceText: NOTICE } }, { cookie }), 'proposal');
+      assert.equal(response.status, 200);
+      return (await response.json()).budgetDirection;
+    } finally { mock.restore(); }
+  };
+
+  // 공고에 지원금액·예산 기준이 있으면 그 근거 안에서 항목별 방향을 준다.
+  const withBasis = await budgetOf({
+    budgetDirection: {
+      hasBasis: true, basis: '공고 지원한도 프로그램 140,000,000원',
+      items: [
+        { category: '인건비', direction: '집단 진행 인력 2명과 사례관리 1명의 실제 투입 시간 기준' },
+        { category: '프로그램비', direction: '16회기 운영에 가장 큰 비중' },
+        { category: '재료비', direction: '회기별 활동 재료와 사전·사후 검사도구' },
+        { category: '홍보비', direction: '대상자 모집 안내물 중심으로 최소 편성' }
+      ]
+    }
+  });
+  assert.equal(withBasis.hasBasis, true);
+  assert.match(withBasis.basis, /140,000,000/);
+  assert.deepEqual(withBasis.items.map(item => item.category), ['인건비', '프로그램비', '재료비', '홍보비']);
+
+  // 근거가 없다고 하면 근거 문구를 우리가 정한 표시로 고정한다.
+  const noBasis = await budgetOf({ budgetDirection: { hasBasis: false, basis: '총 5천만원 정도로 추정', items: [{ category: '인건비', direction: '공고문에서 인건비 비율 상한을 확인해야 합니다' }] } });
+  assert.equal(noBasis.hasBasis, false);
+  assert.equal(noBasis.basis, '공고문 또는 기관 확인 필요', '근거 없는 추정 금액이 근거처럼 남으면 안 된다');
+
+  // 예산 부분이 아예 빠져 와도 지어내지 않는다.
+  const missing = await budgetOf({ budgetDirection: undefined });
+  assert.deepEqual(missing, { hasBasis: false, basis: '공고문 또는 기관 확인 필요', items: [] });
+
+  // 상세 산출내역·제출용 예산표는 스키마에 자리가 없다.
+  assert.match(proposalSource, /required: \['category', 'direction'\]/);
+  for (const field of ['unitPrice', 'quantity', 'months', 'totalAmount', 'budgetTable']) {
+    assert.ok(!proposalSource.includes(field), field);
+  }
+  assert.match(proposalSource, /const BUDGET_UNKNOWN = '공고문 또는 기관 확인 필요';/);
+  assert.match(proposalSource, /상세 산출내역\(단가 × 수량 × 개월수\)과 제출용 예산표는 만들지 않는다/);
+  // 화면도 서버와 같은 문구를 쓴다.
+  assert.match(app, /const BUDGET_UNKNOWN = '공고문 또는 기관 확인 필요';/);
 });
 
 test('관리자·운영관리자는 이용권 열과 무관하게 전체 기능을 쓴다', async () => {
@@ -265,13 +314,13 @@ test('무료 체험 화면만 열리고 잠긴 기능은 이용권 문의로 표
   assert.match(app, /function trialAccount\(\) \{ return auth\.status === 'signedIn' && auth\.user\?\.status === 'active' && !hasFullAccess\(\); \}/);
   assert.match(app, /if \(trialAccount\(\)\) \{ app\.innerHTML = trialView\(\); bindTrial\(\); return; \}/);
   // 3페이지 핵심계획서의 열한 항목을 보여 준다. 제출용 계획서 본문·예산표는 없다.
-  for (const label of ['사업명', '공고 목적', '선정 핵심', '사업 필요성', '대상', '목표', '핵심 활동', '추진 일정', '수행 체계', '성과지표', '기대효과']) {
+  for (const label of ['사업명', '공고 목적', '선정 핵심', '사업 필요성', '대상', '목표', '핵심 활동', '추진 일정', '수행 체계', '예산 방향', '성과지표', '기대효과']) {
     assert.ok(view.includes(label), label);
   }
   // 개인 맞춤을 위해 기관·사업 메모를 함께 받는다.
   assert.ok(view.includes('id="trial-note"'), 'trial-note');
   // 잠긴 기능을 숨기지 않고 사유와 함께 보여 준다.
-  for (const label of ['전체 계획서 작성', '반복 재작성', '검증·코칭', 'DOCX·PDF·ZIP 출력']) assert.ok(view.includes(label), label);
+  for (const label of ['전체 계획서 작성', '반복 재작성', '검증·코칭', 'DOCX·PDF·ZIP 출력', '상세 산출내역·제출용 예산표']) assert.ok(view.includes(label), label);
   // 문구는 상수 하나에서만 나온다. 서버와 화면이 같은 말을 쓴다.
   assert.match(app, /const CONTACT_LABEL = '이용권 문의';/);
   assert.ok(view.includes('${CONTACT_LABEL}'), '잠긴 기능에 이용권 문의 표시가 없다');
