@@ -104,7 +104,7 @@ test('보관 스냅샷으로 저장했다 열면 master·parts·본문·버전·
 });
 
 test('샘플은 별도 화면에서만 열리고 현재 작업 상태를 덮어쓰지 않는다', () => {
-  assert.match(appSource, /const tools = \{ home: homeView, coaching: coachingView, applicants: applicantsToolView, sample: sampleView, engagement: engagementView, account: accountView, admin: adminView \}/);
+  assert.match(appSource, /const tools = \{ home: homeView, coaching: coachingView, applicants: applicantsToolView, sample: sampleView, engagement: engagementView, account: accountView, admin: adminView, operator: operatorView \}/);
   assert.match(appSource, /function openSample\(stageId, from = state\.activeTool\)/);
   assert.match(appSource, /setState\(\{ activeTool: 'sample', sampleStage: stage/);
   // openSample은 sampleStage·sampleReturn·activeTool 외의 작업 데이터를 건드리지 않는다.

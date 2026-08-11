@@ -14,17 +14,27 @@ export function normalizeEmail(value) {
 
 export function validateSignup(value = {}) {
   const email = normalizeEmail(value.email);
+  const errors = [];
+  if (!EMAIL.test(email) || email.endsWith(RESERVED_DOMAIN)) errors.push('이메일 주소를 정확히 입력해 주세요.');
+  const password = validateNewPassword(value);
+  errors.push(...(password.ok ? [] : password.errors));
+  if (errors.length) return { ok: false, errors };
+  return { ok: true, value: { email, password: password.value.password } };
+}
+
+// 비밀번호 규칙만 본다. 가입과 복구코드로 다시 정할 때가 같은 기준을 쓴다.
+export function validateNewPassword(value = {}) {
+  const email = normalizeEmail(value.email);
   const password = String(value.password ?? '');
   const confirm = String(value.passwordConfirm ?? '');
   const errors = [];
-  if (!EMAIL.test(email) || email.endsWith(RESERVED_DOMAIN)) errors.push('이메일 주소를 정확히 입력해 주세요.');
   if (password.length < PASSWORD_MIN) errors.push(`비밀번호는 ${PASSWORD_MIN}자 이상으로 정해 주세요.`);
   else if (password.length > PASSWORD_MAX) errors.push('비밀번호가 너무 깁니다.');
   else if (/^(.)\1*$/.test(password)) errors.push('같은 문자만 반복한 비밀번호는 쓸 수 없습니다.');
   else if (localPart(email) && password.toLowerCase().includes(localPart(email))) errors.push('비밀번호에 이메일 아이디를 그대로 넣을 수 없습니다.');
   if (confirm !== password) errors.push('비밀번호 확인이 일치하지 않습니다.');
   if (errors.length) return { ok: false, errors };
-  return { ok: true, value: { email, password } };
+  return { ok: true, value: { password } };
 }
 
 function localPart(email) {

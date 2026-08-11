@@ -7,85 +7,13 @@ import { onRequest as middleware } from '../functions/api/_middleware.js';
 import { handleOAuthRequest } from '../functions/api/oauth.js';
 import { createPasswordRecord } from '../server/password.js';
 import { SESSION_COOKIE } from '../server/session.js';
+import { fakeDb } from './fixtures/fake-d1.js';
 
 const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
 const adminSource = fs.readFileSync(new URL('../functions/api/admin.js', import.meta.url), 'utf8');
 const ORIGIN = 'https://pro.ms12.org';
 const PASSWORD = 'test-only-passphrase-9241';
 const KAKAO_PROFILE = { id: 4455667788 };
-
-function fakeDb() {
-  const tables = { users: [], sessions: [], login_attempts: [], user_identities: [], oauth_states: [] };
-  const run = (sql, args) => {
-    const text = sql.replace(/\s+/g, ' ').trim();
-    const rows = results => ({ results });
-    // ---- 세션·로그인(기존 경로와 같은 대역) ----
-    if (/^INSERT INTO sessions/.test(text)) { tables.sessions.push({ token_hash: args[0], user_id: args[1], created_at: args[2], expires_at: args[3], last_seen_at: args[4] }); return rows([]); }
-    if (/^SELECT s\.token_hash/.test(text)) {
-      const session = tables.sessions.find(item => item.token_hash === args[0]);
-      const user = session && tables.users.find(item => item.id === session.user_id);
-      return rows(session && user ? [{ ...session, user_id: user.id, email: user.email, role: user.role, org_id: user.org_id, name: user.name, status: user.status }] : []);
-    }
-    if (/^UPDATE sessions SET/.test(text)) { const s = tables.sessions.find(i => i.token_hash === args[2]); if (s) { s.last_seen_at = args[0]; s.expires_at = args[1]; } return rows([]); }
-    if (/^DELETE FROM sessions WHERE token_hash/.test(text)) { tables.sessions = tables.sessions.filter(i => i.token_hash !== args[0]); return rows([]); }
-    if (/^DELETE FROM sessions WHERE expires_at/.test(text)) { tables.sessions = tables.sessions.filter(i => i.expires_at >= args[0]); return rows([]); }
-    if (/^DELETE FROM sessions WHERE user_id/.test(text)) { tables.sessions = tables.sessions.filter(i => i.user_id !== args[0]); return rows([]); }
-    if (/^SELECT id, email, role, org_id, name, status, password_algo/.test(text)) return rows(tables.users.filter(i => i.email === args[0]));
-    if (/^SELECT id, email, role, org_id, name, status, profile_completed_at FROM users WHERE id/.test(text)) return rows(tables.users.filter(i => i.id === args[0]));
-    if (/^DELETE FROM login_attempts WHERE at </.test(text)) { tables.login_attempts = tables.login_attempts.filter(i => i.at >= args[0]); return rows([]); }
-    if (/^SELECT COUNT\(\*\) AS count FROM login_attempts WHERE email_hash/.test(text)) return rows([{ count: 0 }]);
-    if (/^SELECT COUNT\(\*\) AS count FROM login_attempts WHERE client_hash/.test(text)) return rows([{ count: 0 }]);
-    if (/^INSERT INTO login_attempts/.test(text)) { tables.login_attempts.push({ id: args[0] }); return rows([]); }
-    if (/^DELETE FROM login_attempts WHERE email_hash/.test(text)) { tables.login_attempts = []; return rows([]); }
-    // ---- 소셜(계정 삭제 뒤 다시 연결되는지 보려고 쓴다) ----
-    if (/^DELETE FROM oauth_states WHERE expires_at/.test(text)) { tables.oauth_states = tables.oauth_states.filter(i => i.expires_at >= args[0]); return rows([]); }
-    if (/^INSERT INTO oauth_states/.test(text)) {
-      tables.oauth_states.push({ state_hash: args[0], provider: args[1], code_verifier: args[2], mode: args[3], link_user_id: args[4], redirect_uri: args[5], created_at: args[6], expires_at: args[7] });
-      return rows([]);
-    }
-    if (/^SELECT \* FROM oauth_states/.test(text)) return rows(tables.oauth_states.filter(i => i.state_hash === args[0]));
-    if (/^DELETE FROM oauth_states WHERE state_hash/.test(text)) { tables.oauth_states = tables.oauth_states.filter(i => i.state_hash !== args[0]); return rows([]); }
-    if (/^SELECT id, user_id FROM user_identities/.test(text)) return rows(tables.user_identities.filter(i => i.provider === args[0] && i.provider_subject === args[1]));
-    if (/^INSERT INTO user_identities/.test(text)) {
-      if (tables.user_identities.some(i => i.provider === args[2] && i.provider_subject === args[3])) throw new Error('UNIQUE constraint failed: user_identities.provider, user_identities.provider_subject');
-      tables.user_identities.push({ id: args[0], user_id: args[1], provider: args[2], provider_subject: args[3], email: args[4], linked_at: args[5] });
-      return rows([]);
-    }
-    if (/^INSERT INTO users \(id, email, role, org_id, name, status, created_at, updated_at\)/.test(text)) {
-      if (tables.users.some(i => i.email === args[1])) throw new Error('UNIQUE constraint failed: users.email');
-      tables.users.push({
-        id: args[0], email: args[1], role: args[2], org_id: '', name: args[3], status: args[4], created_at: args[5], updated_at: args[6],
-        phone: '', org_name: '', is_contact: 0, terms_version: '', privacy_version: '', consented_at: '', profile_completed_at: ''
-      });
-      return rows([]);
-    }
-    // ---- 관리자 화면 ----
-    if (/^SELECT id, email, role, status, name, phone, org_name/.test(text)) return rows([...tables.users].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))));
-    if (/^SELECT user_id, provider, email FROM user_identities/.test(text)) return rows(tables.user_identities);
-    if (/^SELECT id, role, status FROM users WHERE id/.test(text)) return rows(tables.users.filter(i => i.id === args[0]));
-    if (/^UPDATE users SET status = \?, updated_at = \? WHERE id/.test(text)) {
-      const user = tables.users.find(i => i.id === args[2]);
-      if (user) { user.status = args[0]; user.updated_at = args[1]; }
-      return rows([]);
-    }
-    if (/^DELETE FROM user_identities WHERE user_id/.test(text)) { tables.user_identities = tables.user_identities.filter(i => i.user_id !== args[0]); return rows([]); }
-    if (/^DELETE FROM users WHERE id/.test(text)) { tables.users = tables.users.filter(i => i.id !== args[0]); return rows([]); }
-    throw new Error(`대역이 모르는 쿼리: ${text.slice(0, 70)}`);
-  };
-  return {
-    tables,
-    prepare(sql) {
-      let args = [];
-      const statement = {
-        bind(...values) { args = values; return statement; },
-        async first() { return run(sql, args).results[0] || null; },
-        async all() { return run(sql, args); },
-        async run() { return run(sql, args); }
-      };
-      return statement;
-    }
-  };
-}
 
 const ENV = { GOOGLE_CLIENT_ID: 'fixture-google-client', KAKAO_REST_API_KEY: 'fixture-kakao-key' };
 function post(path, body, { cookie = '' } = {}) {

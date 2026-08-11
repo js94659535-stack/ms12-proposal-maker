@@ -1,7 +1,12 @@
 // 관리자 전용 계정 관리. 화면에서 숨기는 것이 아니라 여기서 실제로 막는다.
 // 비밀번호 열은 읽지도 내보내지도 않는다.
+import { recordAudit } from '../../server/audit.js';
+import { revokeRecoveryCodes } from '../../server/recovery.js';
+
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 const SOCIAL_KEY_SUFFIX = '@social.ms12.invalid';
+// 관리자가 줄 수 있는 역할. 'admin'은 여기서 줄 수 없다. 관리자 계정은 스크립트로만 만든다.
+const ASSIGNABLE_ROLES = new Set(['customer', 'operator']);
 
 export async function onRequest(context) {
   const { request, env, data } = context;
@@ -21,6 +26,8 @@ export async function onRequest(context) {
   if (body.action === 'approveUser') return mutate(env.ARCHIVE_DB, actor, body.id, approve);
   if (body.action === 'disableUser') return mutate(env.ARCHIVE_DB, actor, body.id, disable);
   if (body.action === 'deleteUser') return mutate(env.ARCHIVE_DB, actor, body.id, remove);
+  // 운영관리자 지정·해제는 관리자만 한다. 운영관리자 경로(/api/operator)에서는 언제나 거절된다.
+  if (body.action === 'setRole') return mutate(env.ARCHIVE_DB, actor, body.id, (db, target) => setRole(db, target, body.role));
   return json({ error: '지원하지 않는 작업입니다.' }, 400);
 }
 
@@ -47,39 +54,56 @@ async function listUsers(db) {
 
 // 바꾸기 전에 공통으로 확인할 것들. 관리자 계정과 자기 자신은 건드리지 못한다.
 async function mutate(db, actor, id, apply) {
-  const target = await db.prepare('SELECT id, role, status FROM users WHERE id = ?').bind(String(id || '')).first();
+  const target = await db.prepare('SELECT id, email, role, status FROM users WHERE id = ?').bind(String(id || '')).first();
   if (!target) return json({ error: '해당 계정을 찾지 못했습니다.' }, 404);
   if (target.id === actor.id) return json({ error: '자기 계정은 이 화면에서 바꿀 수 없습니다.' }, 400);
   // 관리자 계정을 서로 지우거나 잠그지 못하게 한다. 관리자 추가·해제는 별도 절차로만 한다.
   if (target.role === 'admin') return json({ error: '관리자 계정은 이 화면에서 바꿀 수 없습니다.' }, 400);
-  const failed = await apply(db, target);
-  if (failed) return failed;
+  const outcome = await apply(db, target);
+  if (outcome.error) {
+    await recordAudit(db, { actor, action: 'admin.failed', targetId: target.id, targetEmail: target.email, result: 'failed', detail: outcome.error });
+    return json({ error: outcome.error }, outcome.status || 400);
+  }
+  await recordAudit(db, { actor, action: outcome.action, targetId: target.id, targetEmail: target.email, detail: outcome.detail || '' });
   return json({ ok: true, users: await listUsers(db) }, 200);
 }
 
 async function approve(db, target) {
-  if (target.status === 'active') return json({ error: '이미 이용 중인 계정입니다.' }, 400);
+  if (target.status === 'active') return { error: '이미 이용 중인 계정입니다.' };
   // 승인은 status만 바꾼다. 역할은 절대 올리지 않는다.
   await db.prepare('UPDATE users SET status = ?, updated_at = ? WHERE id = ?')
     .bind('active', new Date().toISOString(), target.id).run();
-  return null;
+  return { action: 'admin.approve', detail: `${target.status} → 이용 중` };
 }
 
 async function disable(db, target) {
-  if (target.status === 'disabled') return json({ error: '이미 중지된 계정입니다.' }, 400);
+  if (target.status === 'disabled') return { error: '이미 중지된 계정입니다.' };
   await db.prepare('UPDATE users SET status = ?, updated_at = ? WHERE id = ?')
     .bind('disabled', new Date().toISOString(), target.id).run();
   // 쓰던 세션을 남겨 두면 중지해도 그대로 쓰게 된다.
   await db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(target.id).run();
-  return null;
+  return { action: 'admin.disable', detail: `${target.status} → 중지, 세션 종료` };
+}
+
+// 운영관리자 지정·해제. 'admin'은 여기서 줄 수 없고 관리자 계정은 대상이 되지 않는다.
+async function setRole(db, target, role) {
+  const next = String(role || '');
+  if (!ASSIGNABLE_ROLES.has(next)) return { error: '지정할 수 있는 역할은 고객·운영관리자뿐입니다.' };
+  if (target.role === next) return { error: '이미 같은 역할입니다.' };
+  await db.prepare('UPDATE users SET role = ?, updated_at = ? WHERE id = ?').bind(next, new Date().toISOString(), target.id).run();
+  // 역할이 바뀌면 쓰던 세션을 끊어 새 권한으로 다시 로그인하게 한다.
+  await db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(target.id).run();
+  return { action: next === 'operator' ? 'admin.grantOperator' : 'admin.revokeOperator', detail: `${target.role} → ${next}, 세션 종료` };
 }
 
 async function remove(db, target) {
   await db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(target.id).run();
   // 소셜 연결을 함께 지워야 그 소셜 계정을 다른 계정에 다시 연결할 수 있다.
   await db.prepare('DELETE FROM user_identities WHERE user_id = ?').bind(target.id).run();
+  // 남아 있는 복구코드가 새 계정에 쓰이지 않게 함께 지운다.
+  await revokeRecoveryCodes(db, target.id);
   await db.prepare('DELETE FROM users WHERE id = ?').bind(target.id).run();
-  return null;
+  return { action: 'admin.delete', detail: '계정·소셜 연결·복구코드 삭제' };
 }
 
 function json(body, status = 200, headers = {}) {

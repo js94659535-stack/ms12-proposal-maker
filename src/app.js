@@ -4,8 +4,10 @@ import { localAnalyze } from './fallback.js';
 import { buildDocxBlob, downloadBlob, exportDocx, exportPdf, printDocument, submissionFileName } from './export.js';
 import { buildProposalPdfBlob, exportProposalPdf } from './pdf-export.js';
 import { MANIFEST_NAME, packageStale, planSubmissionZip, zipBytes } from './submission-zip.js';
-import { UNAUTHORIZED, accountProfile, clearOAuthCallback, currentUser, finishSocial, login, logout, readOAuthCallback, saveAccountProfile, signup as signupEmail, startSocial } from './auth.js';
-import { approveAccount, disableAccount, listAccounts, removeAccount } from './admin.js';
+import { UNAUTHORIZED, accountProfile, clearOAuthCallback, currentUser, finishSocial, login, logout, readOAuthCallback, recoverPassword, saveAccountProfile, signup as signupEmail, startSocial } from './auth.js';
+import { approveAccount, disableAccount, listAccounts, removeAccount, setAccountRole } from './admin.js';
+import { operatorApprove, operatorDisable, operatorEndSessions, operatorIssueRecoveryCode, operatorOverview, operatorReactivate, operatorUnlockLogin, operatorUserDetail } from './operator.js';
+import { reportError, reportStep, resetActivityDedupe } from './activity.js';
 import { fetchNoticeDetail, fetchNoticeList, importNoticeUrl, noticeBodyText } from './notices.js';
 import { deleteArchivedApplicant, getArchivedProposal, getArchiveRecoveryKey, listArchivedApplicants, listArchivedProposals, saveArchivedApplicant, saveArchivedProposal, searchArchivedNotices, syncArchivedNotices, useArchiveRecoveryKey } from './archive.js';
 import { ASOF_UNKNOWN, applySafeCandidates, applyUpdateCandidate, buildUpdateCandidates, extractApplicantCandidates } from './applicant-extract.js';
@@ -90,18 +92,27 @@ let archiveMenuOpenedAt = 0;
 const attachmentFiles = new Map();
 // 로그인 상태. 세션 쿠키가 진짜 근거이고 이 값은 화면 표시용이다. localStorage에 저장하지 않는다.
 let auth = {
-  status: 'checking', user: null, mode: 'login', emailDraft: '', passwordDraft: '', confirmDraft: '', error: '', notice: '', busy: false,
+  status: 'checking', user: null, mode: 'login', emailDraft: '', passwordDraft: '', confirmDraft: '', codeDraft: '', error: '', notice: '', busy: false,
   identities: [], profileDraft: { name: '', phone: '', orgName: '', isContact: null, agreeTerms: false, agreePrivacy: false },
   // 관리자 화면 자료. 로그인 상태와 함께만 살아 있고 localStorage에 저장하지 않는다.
-  accounts: [], accountsLoaded: false, confirmDelete: ''
+  accounts: [], accountsLoaded: false, confirmDelete: '',
+  // 운영관리자 화면 자료. 발급한 복구코드는 화면에만 잠시 두고 저장하지 않는다.
+  operator: emptyOperator()
 };
+// 발급된 복구코드(issued)는 이 객체 안에서만 살고 localStorage·sessionStorage에 절대 넣지 않는다.
+function emptyOperator() {
+  return { loaded: false, users: [], audit: [], notIntegrated: [], query: '', queryDraft: '', selected: '', detail: null, issued: null, tab: 'users', confirmEnd: '' };
+}
 
 function setAuth(patch) { auth = { ...auth, ...patch }; render(); }
-function signOutLocally(message = '') { setAuth({ status: 'anonymous', user: null, mode: 'login', passwordDraft: '', confirmDraft: '', identities: [], accounts: [], accountsLoaded: false, error: message, notice: '', busy: false }); }
+function setOperator(patch) { setAuth({ operator: { ...auth.operator, ...patch } }); }
+function signOutLocally(message = '') { resetActivityDedupe(); setAuth({ status: 'anonymous', user: null, mode: 'login', passwordDraft: '', confirmDraft: '', codeDraft: '', identities: [], accounts: [], accountsLoaded: false, operator: emptyOperator(), error: message, notice: '', busy: false }); }
 // 승인 전 계정은 가입 절차 화면만 본다.
 function pendingAccount() { return auth.status === 'signedIn' && auth.user?.status === 'pending'; }
 // 관리자 화면을 열 수 있는 사람. 실제 차단은 서버가 하고 화면은 그 결과를 따른다.
 function isAdmin() { return auth.status === 'signedIn' && auth.user?.role === 'admin' && auth.user?.status === 'active'; }
+// 운영관리자 화면을 열 수 있는 사람. 관리자도 같은 화면을 쓸 수 있다.
+function isOperator() { return auth.status === 'signedIn' && (auth.user?.role === 'operator' || auth.user?.role === 'admin') && auth.user?.status === 'active'; }
 
 async function checkSession() {
   // 공급자가 돌려보낸 주소면 먼저 마무리한다.
@@ -120,7 +131,9 @@ async function checkSession() {
   setAuth({ status: 'anonymous', user: null, passwordDraft: '' });
 }
 function applySignedIn(user, notice = '') {
-  setAuth({ status: 'signedIn', user, error: '', notice, passwordDraft: '', emailDraft: '' });
+  // 계정이 바뀌면 진행 기록의 중복 걸러내기를 처음부터 다시 센다.
+  resetActivityDedupe();
+  setAuth({ status: 'signedIn', user, error: '', notice, passwordDraft: '', emailDraft: '', codeDraft: '' });
   void loadAccount();
 }
 async function loadAccount() {
@@ -205,7 +218,12 @@ function accountLinkPanel() {
 // ---------- 관리자 화면 ----------
 const ROLE_LABELS = { admin: '관리자', operator: '운영자', customer: '고객' };
 const STATUS_LABELS = { active: '이용 중', pending: '승인 대기', disabled: '중지' };
-const ADMIN_DONE = { approve: '계정을 승인했습니다. 이제 작업 화면을 쓸 수 있습니다.', disable: '계정 사용을 중지하고 로그인 상태를 해제했습니다.', delete: '계정과 연결된 소셜 계정을 지웠습니다.' };
+const ADMIN_DONE = {
+  approve: '계정을 승인했습니다. 이제 작업 화면을 쓸 수 있습니다.', disable: '계정 사용을 중지하고 로그인 상태를 해제했습니다.',
+  delete: '계정과 연결된 소셜 계정을 지웠습니다.',
+  operator: '운영관리자로 지정했습니다. 쓰던 세션을 끊었으니 다시 로그인해야 합니다.',
+  customer: '운영관리자 권한을 해제했습니다. 쓰던 세션을 끊었으니 다시 로그인해야 합니다.'
+};
 
 function openAdmin() {
   auth = { ...auth, error: '', notice: '', confirmDelete: '' };
@@ -223,7 +241,9 @@ async function runAdminAction(kind, id) {
   // 삭제는 되돌릴 수 없어 같은 버튼을 한 번 더 눌러야 실행된다.
   if (kind === 'delete' && auth.confirmDelete !== id) return setAuth({ confirmDelete: id, error: '', notice: '' });
   setAuth({ busy: true, error: '', notice: '', confirmDelete: '' });
-  const call = kind === 'approve' ? approveAccount : kind === 'disable' ? disableAccount : removeAccount;
+  // 운영관리자 지정·해제도 여기를 지난다. 서버는 관리자 계정과 'admin' 역할을 받지 않는다.
+  const call = kind === 'operator' || kind === 'customer' ? () => setAccountRole(id, kind)
+    : kind === 'approve' ? approveAccount : kind === 'disable' ? disableAccount : removeAccount;
   const result = await call(id).catch(() => ({ ok: false }));
   if (!result.ok) return setAuth({ busy: false, error: result.error || '요청을 처리하지 못했습니다.' });
   setAuth({ busy: false, accounts: result.users || auth.accounts, notice: ADMIN_DONE[kind] || '' });
@@ -261,8 +281,153 @@ function accountRow(item) {
     <div class="actions">${locked ? '<span class="muted">이 화면에서 바꿀 수 없는 계정입니다.</span>' : `
       ${item.status === 'active' ? `<button class="button secondary" data-admin-disable="${item.id}" ${auth.busy ? 'disabled' : ''}>사용 중지</button>`
     : `<button class="button primary" data-admin-approve="${item.id}" ${auth.busy ? 'disabled' : ''}>승인</button>`}
+      <button class="button secondary" data-admin-role="${item.role === 'operator' ? 'customer' : 'operator'}" data-admin-role-id="${item.id}" ${auth.busy ? 'disabled' : ''}>${item.role === 'operator' ? '운영관리자 해제' : '운영관리자 지정'}</button>
       <button class="button secondary" data-admin-delete="${item.id}" ${auth.busy ? 'disabled' : ''}>${auth.confirmDelete === item.id ? '한 번 더 누르면 삭제' : '삭제'}</button>`}</div>
   </div></article>`;
+}
+
+// ---------- 운영관리자 화면 ----------
+// 여기 있는 버튼은 모두 서버가 다시 확인한다. 요금·환불·역할 변경·영구 삭제는 서버에서 거절한다.
+const OPERATOR_DONE = {
+  approve: '계정을 승인했습니다.', disable: '계정을 중지하고 쓰던 세션을 모두 끊었습니다.',
+  reactivate: '중지된 계정을 다시 열었습니다.', unlock: '로그인 잠금(계정 기준)을 해제했습니다.',
+  endSessions: '이 계정의 모든 세션을 종료했습니다.'
+};
+const OPERATOR_CALLS = {
+  approve: operatorApprove, disable: operatorDisable, reactivate: operatorReactivate,
+  unlock: operatorUnlockLogin, endSessions: operatorEndSessions, recovery: operatorIssueRecoveryCode
+};
+
+function openOperator() {
+  auth = { ...auth, error: '', notice: '', operator: { ...emptyOperator(), query: auth.operator.query, queryDraft: auth.operator.query } };
+  setState({ activeTool: 'operator', notice: '', error: '' });
+  void loadOperator();
+}
+async function loadOperator(query = auth.operator.query) {
+  const result = await operatorOverview(query).catch(() => ({ ok: false }));
+  if (!result.ok) return setAuth({ operator: { ...auth.operator, loaded: true }, error: result.error || '회원 목록을 불러오지 못했습니다.' });
+  setOperator({ loaded: true, users: result.users || [], audit: result.audit || [], notIntegrated: result.notIntegrated || [], query });
+}
+async function runOperatorAction(kind, id) {
+  if (auth.busy) return;
+  // 전체 세션 종료는 쓰던 사람이 바로 튕겨 나가므로 같은 버튼을 한 번 더 눌러야 실행된다.
+  if (kind === 'endSessions' && auth.operator.confirmEnd !== id) return setAuth({ error: '', notice: '', operator: { ...auth.operator, confirmEnd: id } });
+  setAuth({ busy: true, error: '', notice: '', operator: { ...auth.operator, confirmEnd: '', issued: null } });
+  const result = await OPERATOR_CALLS[kind](id, auth.operator.query).catch(() => ({ ok: false }));
+  if (!result.ok) return setAuth({ busy: false, error: result.error || '요청을 처리하지 못했습니다.' });
+  setAuth({
+    busy: false, notice: kind === 'recovery' ? '일회용 복구코드를 발급했습니다. 아래 코드를 본인에게 직접 전달해 주세요.' : (OPERATOR_DONE[kind] || ''),
+    operator: {
+      ...auth.operator, users: result.users || auth.operator.users, audit: result.audit || auth.operator.audit,
+      issued: result.recoveryCode ? { id, code: result.recoveryCode, expiresAt: result.recoveryExpiresAt, minutes: result.recoveryMinutes } : null
+    }
+  });
+  // 자세히를 펼쳐 둔 계정이면 방금 남은 기록까지 다시 읽어 온다.
+  if (auth.operator.selected === id) await openOperatorDetail(id, { toggle: false });
+}
+async function openOperatorDetail(id, { toggle = true } = {}) {
+  if (toggle && auth.operator.selected === id && auth.operator.detail) return setOperator({ selected: '', detail: null });
+  setOperator({ selected: id, detail: null });
+  const result = await operatorUserDetail(id).catch(() => ({ ok: false }));
+  if (!result.ok) return setAuth({ error: result.error || '계정 정보를 불러오지 못했습니다.' });
+  setOperator({ detail: { user: result.user, activity: result.activity || [], audit: result.audit || [] } });
+}
+
+const stamp = value => String(value || '').replace('T', ' ').slice(0, 16);
+const OPERATOR_STATUS_ACTIONS = {
+  pending: [['approve', '승인', 'primary']],
+  active: [['disable', '사용 중지', 'secondary']],
+  disabled: [['reactivate', '재활성화', 'primary']]
+};
+
+function operatorView() {
+  const view = auth.operator;
+  const waiting = view.users.filter(item => item.status === 'pending');
+  const locked = view.users.filter(item => item.login?.locked);
+  return `<div class="card">
+    <div class="card-title"><div><h3>운영관리자</h3><span>회원 상태와 이용 흔적을 확인하고 승인·중지·잠금 해제·복구코드 발급을 처리합니다.</span></div><span class="status ${waiting.length ? '확인-필요' : '충족'}">승인 대기 ${waiting.length}건</span></div>
+    ${auth.error ? `<div class="alert danger"><strong>${escapeHtml(auth.error)}</strong></div>` : ''}
+    ${auth.notice ? `<div class="alert success"><strong>${escapeHtml(auth.notice)}</strong></div>` : ''}
+    <div class="alert"><strong>운영관리자 권한 범위</strong><p>회원 승인·중지·재활성화, 검색, 이용 흔적 확인, 로그인 잠금 해제, 전체 세션 종료, 일회용 복구코드 발급까지 할 수 있습니다. 비밀번호 조회·직접 지정, 역할(운영관리자) 지정·해제, 요금·결제정책 변경, 환불, API 키·모델·시스템 설정, 계정·자료 영구 삭제, 전체 자료 내보내기, 관리자 계정 변경은 서버에서 거절합니다.</p></div>
+    ${operatorNotIntegrated(view.notIntegrated)}
+    <div class="field"><label for="operator-search">회원 검색</label><input id="operator-search" placeholder="이름·이메일·기관명·연락처·계정 식별자" value="${escapeHtml(view.queryDraft)}"></div>
+    <div class="actions"><span class="muted">${view.loaded ? `${view.users.length}건 표시${view.query ? ` · 검색어 「${escapeHtml(view.query)}」` : ''}${locked.length ? ` · 로그인 잠금 ${locked.length}건` : ''}` : '회원 목록을 불러오는 중입니다.'}</span>
+      <div><button class="button secondary" id="operator-search-run" ${auth.busy ? 'disabled' : ''}>검색</button><button class="button secondary" id="operator-reload" ${auth.busy ? 'disabled' : ''}>새로고침</button><button class="button secondary" id="close-operator">작업 화면으로</button></div></div>
+    <div class="actions" style="justify-content:stretch;gap:8px">
+      <button class="button ${view.tab === 'users' ? 'primary' : 'secondary'}" data-operator-tab="users" aria-pressed="${view.tab === 'users'}">회원 ${view.users.length}</button>
+      <button class="button ${view.tab === 'audit' ? 'primary' : 'secondary'}" data-operator-tab="audit" aria-pressed="${view.tab === 'audit'}">감사기록 ${view.audit.length}</button>
+    </div>
+    ${view.tab === 'audit' ? operatorAuditList(view.audit) : `<div class="requirement-list">${view.users.map(operatorRow).join('') || '<p class="muted">조건에 맞는 회원이 없습니다.</p>'}</div>`}
+  </div>`;
+}
+
+// 결제·이용량처럼 실제 자료가 없는 항목은 값을 지어내지 않고 사유와 함께 「미연동」으로만 보여 준다.
+function operatorNotIntegrated(items) {
+  if (!items.length) return '';
+  return `<details><summary>미연동 항목 ${items.length}개 (값을 만들어 보여 주지 않습니다)</summary>
+    <div class="requirement-list">${items.map(item => `<article class="requirement"><div><div><strong>${escapeHtml(item.label)}</strong> <span class="status 확인-필요">미연동</span></div><small class="muted">${escapeHtml(item.reason)}</small></div></article>`).join('')}</div></details>`;
+}
+
+function operatorRow(item) {
+  const view = auth.operator;
+  const self = item.id === auth.user?.id;
+  const guarded = self || item.role === 'admin' || item.role === 'operator';
+  const contact = [item.orgName || '기관명 미입력', item.phone || '연락처 미입력', item.email || '이메일 없음', `가입 ${String(item.createdAt).slice(0, 10)}`].join(' · ');
+  const usage = [
+    `세션 ${item.sessions.count}개`,
+    item.sessions.lastSeenAt ? `최근 활동 ${stamp(item.sessions.lastSeenAt)}` : '최근 활동 기록 없음',
+    item.login.locked ? `로그인 잠금(실패 ${item.login.failures}회)` : `로그인 실패 ${item.login.failures}회`,
+    item.recovery.active ? `복구코드 유효 ~${stamp(item.recovery.expiresAt)}` : item.recovery.issued ? '복구코드 없음(사용·만료됨)' : '복구코드 발급 이력 없음'
+  ].join(' · ');
+  const stuck = item.stuck.stepLabel
+    ? `멈춘 단계 ${item.stuck.step + 1}. ${item.stuck.stepLabel}${item.stuck.lastErrorCode ? ` · 최근 오류 ${item.stuck.lastErrorCode} (${stamp(item.stuck.lastErrorAt)})` : ''}`
+    : '진행 기록 없음';
+  const issued = view.issued?.id === item.id ? view.issued : null;
+  return `<article class="requirement"><div>
+    <div><strong>${escapeHtml(item.name || '이름 미입력')}</strong> <span class="status ${item.status === 'active' ? '충족' : '확인-필요'}">${escapeHtml(STATUS_LABELS[item.status] || item.status)}</span> <span class="muted">${escapeHtml(ROLE_LABELS[item.role] || item.role)}</span>${self ? ' <span class="muted">(내 계정)</span>' : ''}</div>
+    <small class="muted">${escapeHtml(contact)}</small>
+    <small class="muted">${escapeHtml(usage)}</small>
+    <small class="muted">${escapeHtml(stuck)}</small>
+    <small class="muted">결제금액·결제상태·이용기간·이용량: 미연동</small>
+    <div class="actions">${guarded ? '<span class="muted">관리자·운영관리자·내 계정은 이 화면에서 바꿀 수 없습니다.</span>' : `
+      ${(OPERATOR_STATUS_ACTIONS[item.status] || []).map(([kind, label, tone]) => `<button class="button ${tone}" data-operator-action="${kind}" data-operator-id="${item.id}" ${auth.busy ? 'disabled' : ''}>${label}</button>`).join('')}
+      <button class="button secondary" data-operator-action="unlock" data-operator-id="${item.id}" ${auth.busy || !item.login.failures ? 'disabled' : ''}>로그인 잠금 해제</button>
+      <button class="button secondary" data-operator-action="endSessions" data-operator-id="${item.id}" ${auth.busy || !item.sessions.count ? 'disabled' : ''}>${view.confirmEnd === item.id ? '한 번 더 누르면 종료' : '전체 세션 종료'}</button>
+      <button class="button secondary" data-operator-action="recovery" data-operator-id="${item.id}" ${auth.busy || item.status === 'disabled' ? 'disabled' : ''}>복구코드 발급</button>`}
+      <button class="button ghost" data-operator-detail="${item.id}" ${auth.busy ? 'disabled' : ''}>${view.selected === item.id ? '닫기' : '자세히'}</button></div>
+    ${issued ? `<div class="alert success"><strong>일회용 복구코드 ${escapeHtml(issued.code)}</strong><p>${issued.minutes}분 동안 한 번만 쓸 수 있습니다(${escapeHtml(stamp(issued.expiresAt))}까지). 본인 확인 후 직접 전달하고, 이 화면을 벗어나면 다시 볼 수 없습니다. 새 비밀번호는 사용자가 로그인 화면의 「복구코드로 비밀번호 재설정」에서 직접 정합니다.</p></div>` : ''}
+    ${view.selected === item.id ? operatorDetail() : ''}
+  </div></article>`;
+}
+
+// 문제 확인 화면. 계획서 원문과 개인정보는 여기에 싣지 않고 단계 번호·오류 코드·시각만 보여 준다.
+function operatorDetail() {
+  const detail = auth.operator.detail;
+  if (!detail) return '<p class="muted">계정 정보를 불러오는 중입니다.</p>';
+  return `<details open><summary>진행·오류 기록과 감사기록</summary>
+    <h4>최근 진행·오류 ${detail.activity.length}건</h4>
+    <p class="muted">계획서 원문과 입력값은 저장하지 않습니다. 단계 번호와 오류 코드만 남습니다.</p>
+    <div class="requirement-list">${detail.activity.map(event => `<article class="requirement"><div><div><span class="status ${event.kind === 'error' ? '확인-필요' : '충족'}">${event.kind === 'error' ? '오류' : '단계'}</span> <strong>${escapeHtml(event.stepLabel || '단계 정보 없음')}</strong> <span class="muted">${escapeHtml(event.code)}</span></div><small class="muted">${escapeHtml(stamp(event.at))}</small></div></article>`).join('') || '<p class="muted">아직 기록이 없습니다.</p>'}</div>
+    <h4>이 계정 감사기록 ${detail.audit.length}건</h4>
+    ${operatorAuditList(detail.audit)}</details>`;
+}
+
+function operatorAuditList(entries) {
+  return `<div class="requirement-list">${entries.map(entry => `<article class="requirement"><div>
+    <div><strong>${escapeHtml(entry.action)}</strong> <span class="status ${entry.result === 'ok' ? '충족' : '확인-필요'}">${escapeHtml(entry.result)}</span></div>
+    <small class="muted">${escapeHtml(`${stamp(entry.at)} · 실행 ${entry.actorEmail || '알 수 없음'}(${entry.actorRole || '-'}) · 대상 ${entry.targetEmail || entry.targetId || '-'}`)}</small>
+    ${entry.detail ? `<small class="muted">${escapeHtml(entry.detail)}</small>` : ''}
+  </div></article>`).join('') || '<p class="muted">남은 기록이 없습니다.</p>'}</div>`;
+}
+
+async function submitRecovery() {
+  if (auth.busy) return;
+  const email = auth.emailDraft.trim();
+  if (!email || !auth.codeDraft.trim() || !auth.passwordDraft) return setAuth({ error: '이메일·복구코드·새 비밀번호를 모두 입력해 주세요.' });
+  setAuth({ busy: true, error: '', notice: '' });
+  const result = await recoverPassword(email, auth.codeDraft, auth.passwordDraft, auth.confirmDraft).catch(() => ({ ok: false, error: '요청을 보내지 못했습니다.' }));
+  if (!result.ok) return setAuth({ busy: false, error: result.error || '비밀번호를 다시 정하지 못했습니다.', passwordDraft: '', confirmDraft: '' });
+  setAuth({ busy: false, mode: 'login', codeDraft: '', passwordDraft: '', confirmDraft: '', notice: '새 비밀번호를 정했습니다. 기존 로그인 상태와 남은 복구코드는 모두 해제되었습니다. 새 비밀번호로 로그인해 주세요.' });
 }
 
 async function submitLogin() {
@@ -294,14 +459,20 @@ async function submitLogout() {
 function loginView() {
   const checking = auth.status === 'checking';
   const joining = auth.mode === 'signup';
+  const recovering = auth.mode === 'recover';
+  const headline = checking ? '로그인 상태를 확인하는 중입니다.'
+    : recovering ? '운영관리자에게 받은 일회용 복구코드로 새 비밀번호를 정합니다.'
+    : joining ? '처음이시면 여기서 계정을 만드세요.' : '이미 계정이 있으면 로그인하세요.';
   return `<div class="layout home-layout"><main class="main"><div class="card" id="login-card" style="max-width:460px;margin:7vh auto">
-    <div class="card-title"><div><h3>MS12 사업계획서 작성 도우미</h3><span>${checking ? '로그인 상태를 확인하는 중입니다.' : joining ? '처음이시면 여기서 계정을 만드세요.' : '이미 계정이 있으면 로그인하세요.'}</span></div></div>
+    <div class="card-title"><div><h3>MS12 사업계획서 작성 도우미</h3><span>${headline}</span></div></div>
     ${auth.error ? `<div class="alert danger"><strong>${escapeHtml(auth.error)}</strong></div>` : ''}
     ${auth.notice ? `<div class="alert success"><strong>${escapeHtml(auth.notice)}</strong></div>` : ''}
     <div class="actions" style="justify-content:stretch;gap:8px">
-      <button class="button ${joining ? 'secondary' : 'primary'}" id="mode-login" type="button" aria-pressed="${!joining}">로그인</button>
+      <button class="button ${auth.mode === 'login' ? 'primary' : 'secondary'}" id="mode-login" type="button" aria-pressed="${auth.mode === 'login'}">로그인</button>
       <button class="button ${joining ? 'primary' : 'secondary'}" id="mode-signup" type="button" aria-pressed="${joining}">회원가입</button>
+      <button class="button ${recovering ? 'primary' : 'secondary'}" id="mode-recover" type="button" aria-pressed="${recovering}">복구코드</button>
     </div>
+    ${recovering ? recoveryForm(checking) : `
     <div class="actions" style="justify-content:stretch"><div style="display:flex;gap:8px;flex-wrap:wrap">${socialButtons('signup')}</div></div>
     <p class="muted">Google·카카오 계정이 있으면 비밀번호 없이 ${joining ? '가입' : '로그인'}할 수 있습니다. 처음이면 그대로 가입되고, 이미 가입했으면 그 계정으로 들어갑니다.</p>
     <p class="muted">— 또는 이메일로 ${joining ? '가입' : '로그인'} —</p>
@@ -311,8 +482,20 @@ function loginView() {
       ${joining ? `<div class="field"><label for="login-password-confirm">비밀번호 확인</label><input id="login-password-confirm" type="password" autocomplete="new-password" value="${escapeHtml(auth.confirmDraft)}" ${checking ? 'disabled' : ''}></div>` : ''}
       <div class="actions"><span class="muted">${joining ? '네이버·다음 등 어떤 이메일이든 됩니다.' : ''}</span><button class="button primary" id="login-submit" type="submit" ${checking || auth.busy ? 'disabled' : ''}>${auth.busy ? '처리 중…' : joining ? '가입 신청' : '로그인'}</button></div>
     </form>
-    <p class="muted">${joining ? '가입한 뒤 관리자가 승인해야 작업 화면이 열립니다. 가입 직후에는 기관·담당자 정보를 입력하는 화면이 나옵니다.' : '가입 승인을 기다리는 중이라면 로그인해도 가입 정보 입력 화면이 열립니다.'}</p>
+    <p class="muted">${joining ? '가입한 뒤 관리자가 승인해야 작업 화면이 열립니다. 가입 직후에는 기관·담당자 정보를 입력하는 화면이 나옵니다.' : '비밀번호를 잊었으면 운영관리자에게 일회용 복구코드를 요청한 뒤 위의 「복구코드」를 누르세요.'}</p>`}
     </div></main></div>`;
+}
+
+// 복구코드로 본인이 직접 새 비밀번호를 정한다. 운영관리자는 이 값을 보거나 정할 수 없다.
+function recoveryForm(checking) {
+  return `<form id="recovery-form" autocomplete="off">
+    <div class="field"><label for="recovery-email">이메일</label><input id="recovery-email" type="email" autocomplete="username" placeholder="name@example.com" value="${escapeHtml(auth.emailDraft)}" ${checking ? 'disabled' : ''}></div>
+    <div class="field"><label for="recovery-code">복구코드</label><input id="recovery-code" autocomplete="one-time-code" placeholder="ABCD-EFGH-JKMN" value="${escapeHtml(auth.codeDraft)}" ${checking ? 'disabled' : ''}><small class="muted">발급 후 10분 동안 한 번만 쓸 수 있습니다.</small></div>
+    <div class="field"><label for="recovery-password">새 비밀번호</label><input id="recovery-password" type="password" autocomplete="new-password" value="${escapeHtml(auth.passwordDraft)}" ${checking ? 'disabled' : ''}><small class="muted">10자 이상으로 정해 주세요.</small></div>
+    <div class="field"><label for="recovery-password-confirm">새 비밀번호 확인</label><input id="recovery-password-confirm" type="password" autocomplete="new-password" value="${escapeHtml(auth.confirmDraft)}" ${checking ? 'disabled' : ''}></div>
+    <div class="actions"><span class="muted">정하고 나면 기존 로그인 상태와 남은 복구코드가 모두 해제됩니다.</span><button class="button primary" id="recovery-submit" type="submit" ${checking || auth.busy ? 'disabled' : ''}>${auth.busy ? '처리 중…' : '새 비밀번호 정하기'}</button></div>
+  </form>
+  <p class="muted">운영관리자는 비밀번호를 보거나 대신 정할 수 없습니다. 복구코드만 발급하고, 비밀번호는 본인이 이 화면에서 직접 정합니다.</p>`;
 }
 
 function loadState() {
@@ -422,7 +605,15 @@ function setState(patch) {
       busyStartedAt = 0;
     }
   }
+  const previousStep = state.step;
   state = { ...state, ...patch }; saveState(); render();
+  trackActivity(patch, previousStep);
+}
+// 「어느 단계에서 멈췄는지」와 오류 종류만 남긴다. 오류 문구는 보내지 않고 코드로 바꿔 보낸다.
+function trackActivity(patch, previousStep) {
+  if (auth.status !== 'signedIn' || auth.user?.status !== 'active') return;
+  if (Number.isInteger(patch.step) && patch.step !== previousStep) void reportStep(patch.step);
+  if (patch.error) void reportError(state.step, patch.error);
 }
 function setAiBusy(message, patch = {}, taskId = '') {
   busyStartedAt = Date.now();
@@ -542,7 +733,7 @@ function shell(content) {
     <div class="layout">
       <main class="main">
         <header class="workflow-header">
-          <div class="workflow-brand"><div class="brand"><span class="brand-mark">계</span><div><strong>사업계획서 작성 도우미</strong><small>공고 분석부터 제출본까지</small></div></div><span class="save-state">● 자동 저장 중</span><span class="mode">${escapeHtml(accountEmail())}</span><button class="history-button" id="open-account" aria-pressed="${state.activeTool === 'account'}">계정 설정</button>${isAdmin() ? `<button class="history-button" id="open-admin" aria-pressed="${state.activeTool === 'admin'}">관리자</button>` : ''}<button class="history-button" id="sign-out">로그아웃</button></div>
+          <div class="workflow-brand"><div class="brand"><span class="brand-mark">계</span><div><strong>사업계획서 작성 도우미</strong><small>공고 분석부터 제출본까지</small></div></div><span class="save-state">● 자동 저장 중</span><span class="mode">${escapeHtml(accountEmail())}</span><button class="history-button" id="open-account" aria-pressed="${state.activeTool === 'account'}">계정 설정</button>${isOperator() ? `<button class="history-button" id="open-operator" aria-pressed="${state.activeTool === 'operator'}">운영관리자</button>` : ''}${isAdmin() ? `<button class="history-button" id="open-admin" aria-pressed="${state.activeTool === 'admin'}">관리자</button>` : ''}<button class="history-button" id="sign-out">로그아웃</button></div>
           <div class="workflow-row"><label class="type-select-label" for="business-type">사업 유형<select id="business-type">${TYPES.map(([id, name]) => `<option value="${id}" ${state.project.type === id ? 'selected' : ''}>${name}</option>`).join('')}</select></label><nav class="workflow-steps" aria-label="작성 단계">${STEPS.map((name, i) => { const complete = isStepComplete(i); return `<button data-step="${i}" class="workflow-step ${state.activeTool === 'workflow' && state.step === i ? 'active' : ''} ${complete ? 'done' : ''}" ${state.activeTool === 'workflow' && state.step === i ? 'aria-current="step"' : ''}><span>${complete ? '✓' : i + 1}</span>${name}</button>`; }).join('')}</nav><button class="history-button" id="open-archive-box">공고보관함·계획서보관함</button><button class="history-button" id="open-engagement" aria-pressed="${state.activeTool === 'engagement'}">의뢰 건</button><button class="history-button" id="open-applicants" aria-pressed="${state.activeTool === 'applicants'}">신청기관 정보</button><button class="history-button" id="open-coaching" aria-pressed="${state.activeTool === 'coaching'}">계획서 검증·코칭</button><nav class="workflow-history" aria-label="앱 작업 화면 이동"><button class="history-button" id="workflow-back" aria-label="직전 작업 화면으로 뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="history-button" id="workflow-home" aria-label="홈 화면으로 가기">⌂ 홈 화면</button><button class="history-button" id="workflow-forward" aria-label="다음 작업 화면으로 앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button></nav></div>
         </header>
         ${aiResultBanner()}
@@ -583,7 +774,7 @@ function homeView() {
     <div class="home">
       <header class="home-header">
         <div class="home-brand"><strong>사업계획서 작성 도우미</strong><span>공고 분석부터 제출본까지</span></div>
-        <nav class="home-nav"><button class="button ghost" id="workflow-back" aria-label="뒤로 가기">← 뒤로</button><button class="button ghost" disabled aria-current="page">⌂ 홈 화면</button><button class="button ghost" id="workflow-forward" aria-label="앞으로 가기">앞으로 →</button><button class="button ghost" data-home-scroll="home-product">제품소개</button><button class="button ghost" data-home-scroll="home-flow">이용방법</button><button class="button ghost" data-home-scroll="home-features">주요기능</button><button class="button ghost" data-home-archive="1">공고보관함·계획서보관함</button>${isAdmin() ? '<button class="button ghost" id="open-admin-home">관리자</button>' : ''}<button class="button primary" data-home-start="1">무료로 시작하기</button></nav>
+        <nav class="home-nav"><button class="button ghost" id="workflow-back" aria-label="뒤로 가기">← 뒤로</button><button class="button ghost" disabled aria-current="page">⌂ 홈 화면</button><button class="button ghost" id="workflow-forward" aria-label="앞으로 가기">앞으로 →</button><button class="button ghost" data-home-scroll="home-product">제품소개</button><button class="button ghost" data-home-scroll="home-flow">이용방법</button><button class="button ghost" data-home-scroll="home-features">주요기능</button><button class="button ghost" data-home-archive="1">공고보관함·계획서보관함</button>${isOperator() ? '<button class="button ghost" id="open-operator-home">운영관리자</button>' : ''}${isAdmin() ? '<button class="button ghost" id="open-admin-home">관리자</button>' : ''}<button class="button primary" data-home-start="1">무료로 시작하기</button></nav>
       </header>
 
       <section class="home-hero" id="home-product">
@@ -2389,16 +2580,24 @@ function render() {
   const views = [noticeImportView, noticeConfirmView, applicantSelectView, businessSelectView, documentView, documentView];
   // 관리자 화면은 관리자에게만 열린다. 저장된 화면 위치가 남아 있어도 역할이 아니면 되돌린다.
   if (state.activeTool === 'admin' && !isAdmin()) state.activeTool = 'home';
-  const tools = { home: homeView, coaching: coachingView, applicants: applicantsToolView, sample: sampleView, engagement: engagementView, account: accountView, admin: adminView };
+  // 저장된 화면 위치가 남아 있어도 권한이 없으면 열리지 않는다.
+  if (state.activeTool === 'operator' && !isOperator()) state.activeTool = 'home';
+  const tools = { home: homeView, coaching: coachingView, applicants: applicantsToolView, sample: sampleView, engagement: engagementView, account: accountView, admin: adminView, operator: operatorView };
   app.innerHTML = shell((tools[state.activeTool] || views[state.step] || views[0])()); bind(); startBusyElapsedTimer(); runPendingAiMove();
 }
 function bindLogin() {
   document.querySelector('#login-email')?.addEventListener('input', event => { auth.emailDraft = event.target.value; });
   document.querySelector('#login-password')?.addEventListener('input', event => { auth.passwordDraft = event.target.value; });
   document.querySelector('#login-password-confirm')?.addEventListener('input', event => { auth.confirmDraft = event.target.value; });
-  document.querySelector('#mode-login')?.addEventListener('click', () => setAuth({ mode: 'login', error: '', notice: '', confirmDraft: '' }));
-  document.querySelector('#mode-signup')?.addEventListener('click', () => setAuth({ mode: 'signup', error: '', notice: '', confirmDraft: '' }));
+  document.querySelector('#mode-login')?.addEventListener('click', () => setAuth({ mode: 'login', error: '', notice: '', confirmDraft: '', codeDraft: '' }));
+  document.querySelector('#mode-signup')?.addEventListener('click', () => setAuth({ mode: 'signup', error: '', notice: '', confirmDraft: '', codeDraft: '' }));
+  document.querySelector('#mode-recover')?.addEventListener('click', () => setAuth({ mode: 'recover', error: '', notice: '', passwordDraft: '', confirmDraft: '', codeDraft: '' }));
   document.querySelector('#login-form')?.addEventListener('submit', event => { event.preventDefault(); void (auth.mode === 'signup' ? submitSignup() : submitLogin()); });
+  document.querySelector('#recovery-email')?.addEventListener('input', event => { auth.emailDraft = event.target.value; });
+  document.querySelector('#recovery-code')?.addEventListener('input', event => { auth.codeDraft = event.target.value; });
+  document.querySelector('#recovery-password')?.addEventListener('input', event => { auth.passwordDraft = event.target.value; });
+  document.querySelector('#recovery-password-confirm')?.addEventListener('input', event => { auth.confirmDraft = event.target.value; });
+  document.querySelector('#recovery-form')?.addEventListener('submit', event => { event.preventDefault(); void submitRecovery(); });
   document.querySelectorAll('[data-social]').forEach(el => el.addEventListener('click', () => void beginSocial(el.dataset.social, el.dataset.socialMode)));
   document.querySelector('#sign-out')?.addEventListener('click', () => void submitLogout());
   const draft = patch => { auth.profileDraft = { ...auth.profileDraft, ...patch }; };
@@ -2732,6 +2931,16 @@ function bind() {
   document.querySelectorAll('[data-admin-approve]').forEach(el => el.onclick = () => void runAdminAction('approve', el.dataset.adminApprove));
   document.querySelectorAll('[data-admin-disable]').forEach(el => el.onclick = () => void runAdminAction('disable', el.dataset.adminDisable));
   document.querySelectorAll('[data-admin-delete]').forEach(el => el.onclick = () => void runAdminAction('delete', el.dataset.adminDelete));
+  document.querySelectorAll('[data-admin-role]').forEach(el => el.onclick = () => void runAdminAction(el.dataset.adminRole, el.dataset.adminRoleId));
+  document.querySelector('#open-operator')?.addEventListener('click', () => openOperator());
+  document.querySelector('#open-operator-home')?.addEventListener('click', () => openOperator());
+  document.querySelector('#close-operator')?.addEventListener('click', () => setState({ activeTool: 'workflow', notice: '', error: '' }));
+  document.querySelector('#operator-reload')?.addEventListener('click', () => void loadOperator());
+  document.querySelector('#operator-search')?.addEventListener('input', event => { auth.operator.queryDraft = event.target.value; });
+  document.querySelector('#operator-search-run')?.addEventListener('click', () => void loadOperator(auth.operator.queryDraft.trim()));
+  document.querySelectorAll('[data-operator-tab]').forEach(el => el.onclick = () => setOperator({ tab: el.dataset.operatorTab }));
+  document.querySelectorAll('[data-operator-action]').forEach(el => el.onclick = () => void runOperatorAction(el.dataset.operatorAction, el.dataset.operatorId));
+  document.querySelectorAll('[data-operator-detail]').forEach(el => el.onclick = () => void openOperatorDetail(el.dataset.operatorDetail));
   document.querySelectorAll('[data-social]').forEach(el => el.addEventListener('click', () => void beginSocial(el.dataset.social, el.dataset.socialMode)));
   document.querySelector('#open-archive-box')?.addEventListener('click', () => {
     state.activeTool = 'workflow';

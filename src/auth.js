@@ -12,6 +12,8 @@ async function post(path, action, payload = {}) {
 export const signup = (email, password, passwordConfirm) => post('/api/auth', 'signup', { email, password, passwordConfirm });
 export const login = (email, password) => post('/api/auth', 'login', { email, password });
 export const logout = () => post('/api/auth', 'logout');
+// 운영관리자에게 받은 일회용 코드로 본인이 직접 새 비밀번호를 정한다.
+export const recoverPassword = (email, code, password, passwordConfirm) => post('/api/auth', 'recoverPassword', { email, code, password, passwordConfirm });
 export const currentUser = () => post('/api/auth', 'me');
 export const UNAUTHORIZED = '로그인이 필요합니다.';
 
