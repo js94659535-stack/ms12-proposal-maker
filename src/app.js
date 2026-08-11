@@ -1,4 +1,4 @@
-import { analyzeWithAI, draftPartWithAI, draftWithAI, finalizeWithAI, fullProposalWithAI, masterWithAI, patchSectionsWithAI, preciseReviewWithAI, rewriteWithAI, trialCorePlanWithAI } from './api.js';
+import { analyzeWithAI, draftPartWithAI, draftWithAI, finalizeWithAI, fullProposalWithAI, masterWithAI, patchSectionsWithAI, preciseReviewWithAI, rewriteWithAI, setUsageProposalId, trialCorePlanWithAI } from './api.js';
 import { EXAMPLE_NOTE, EXAMPLE_POINTS, EXAMPLE_SECTIONS, EXAMPLE_SUMMARY, EXAMPLE_TITLE } from './example-plan.js';
 import { extractFile, extractFiles } from './files.js';
 import { localAnalyze } from './fallback.js';
@@ -6,9 +6,9 @@ import { buildDocxBlob, downloadBlob, exportDocx, exportPdf, printDocument, subm
 import { buildProposalPdfBlob, exportProposalPdf } from './pdf-export.js';
 import { MANIFEST_NAME, packageStale, planSubmissionZip, zipBytes } from './submission-zip.js';
 import { UNAUTHORIZED, accountProfile, clearOAuthCallback, currentUser, finishSocial, login, logout, readOAuthCallback, recoverPassword, saveAccountProfile, signup as signupEmail, startSocial } from './auth.js';
-import { approveAccount, disableAccount, listAccounts, listCollectedNotices, removeAccount, setAccountPlan, setAccountRole, setNoticePublic } from './admin.js';
+import { adminUsageReport, approveAccount, disableAccount, listAccounts, listCollectedNotices, removeAccount, setAccountPlan, setAccountRole, setNoticePublic } from './admin.js';
 import { publicNoticeDetail, searchPublicNotices } from './notice-search.js';
-import { operatorApprove, operatorDisable, operatorEndSessions, operatorIssueRecoveryCode, operatorOverview, operatorReactivate, operatorUnlockLogin, operatorUserDetail } from './operator.js';
+import { operatorApprove, operatorDisable, operatorEndSessions, operatorIssueRecoveryCode, operatorOverview, operatorReactivate, operatorUnlockLogin, operatorUsageReport, operatorUserDetail } from './operator.js';
 import { reportError, reportStep, resetActivityDedupe } from './activity.js';
 import { fetchNoticeDetail, fetchNoticeList, importNoticeUrl, noticeBodyText } from './notices.js';
 import { deleteArchivedApplicant, getArchivedProposal, getArchiveRecoveryKey, listArchivedApplicants, listArchivedProposals, saveArchivedApplicant, saveArchivedProposal, searchArchivedNotices, syncArchivedNotices, useArchiveRecoveryKey } from './archive.js';
@@ -101,7 +101,7 @@ let auth = {
   emailDraft: '', passwordDraft: '', confirmDraft: '', codeDraft: '', error: '', notice: '', busy: false,
   identities: [], profileDraft: { name: '', phone: '', orgName: '', isContact: null, agreeTerms: false, agreePrivacy: false },
   // 관리자 화면 자료. 로그인 상태와 함께만 살아 있고 localStorage에 저장하지 않는다.
-  accounts: [], accountsLoaded: false, confirmDelete: '', adminTab: 'accounts', notices: emptyAdminNotices(),
+  accounts: [], accountsLoaded: false, confirmDelete: '', adminTab: 'accounts', notices: emptyAdminNotices(), usage: emptyUsage(),
   // 운영관리자 화면 자료. 발급한 복구코드는 화면에만 잠시 두고 저장하지 않는다.
   operator: emptyOperator(),
   // 무료 회원의 3페이지 핵심계획서 화면. 결과는 화면에만 두고 브라우저 저장소에 넣지 않는다.
@@ -279,6 +279,43 @@ async function toggleNoticePublic(key, isPublic) {
   });
 }
 
+// ---------- AI 사용량·비용 ----------
+// 관리자와 운영관리자가 같은 화면을 본다. 두 경로 모두 서버가 집계한 값만 그린다.
+function emptyUsage() { return { loaded: false, days: 30, report: null }; }
+const USAGE_PERIODS = [[7, '7일'], [30, '30일'], [90, '90일']];
+const money = value => `$${Number(value || 0).toFixed(4)}`;
+const tokens = value => Number(value || 0).toLocaleString();
+
+async function loadUsage(days = auth.usage.days) {
+  const fetchReport = isAdmin() ? adminUsageReport : operatorUsageReport;
+  const result = await fetchReport(days).catch(() => ({ ok: false }));
+  if (!result.ok) return setAuth({ error: result.error || '사용량을 불러오지 못했습니다.', usage: { ...auth.usage, loaded: true } });
+  setAuth({ usage: { ...auth.usage, loaded: true, days, report: result } });
+}
+
+function usagePanel() {
+  const view = auth.usage;
+  const report = view.report;
+  const rows = (list, label, key) => `<h4>${label}</h4><div class="requirement-list">${(list || []).slice(0, 12).map(item => `<article class="requirement"><div>
+    <div><strong>${escapeHtml(String(item[key] || '(없음)'))}</strong> <span class="muted">${item.calls}회${item.failedCalls ? ` · 실패 ${item.failedCalls}회` : ''}</span></div>
+    <small class="muted">${escapeHtml(`${money(item.costUsd)} · 토큰 ${tokens(item.tokens)} (입력 ${tokens(item.inputTokens)} · 캐시 ${tokens(item.cachedTokens)} · 출력 ${tokens(item.outputTokens)} · 추론 ${tokens(item.reasoningTokens)}) · 평균 ${(item.averageMs / 1000).toFixed(1)}초`)}</small>
+  </div></article>`).join('') || '<p class="muted">기록이 없습니다.</p>'}</div>`;
+  return `<div class="card-title" style="margin-top:18px"><div><h4>AI 사용량·비용</h4><span>OpenAI 호출마다 모델·토큰·시간·성공 여부만 기록합니다. 공고문·계획서 원문·프롬프트는 저장하지 않습니다.</span></div></div>
+    <div class="actions" style="justify-content:stretch;gap:8px">${USAGE_PERIODS.map(([days, label]) => `<button class="button ${view.days === days ? 'primary' : 'secondary'}" data-usage-days="${days}" ${auth.busy ? 'disabled' : ''}>${label}</button>`).join('')}</div>
+    ${report ? `
+    ${report.priced ? '' : '<div class="alert warning"><strong>단가가 설정되어 있지 않습니다</strong><p>토큰은 기록되지만 비용은 0으로 표시됩니다. Cloudflare 환경변수 <code>OPENAI_PRICE_INPUT_PER_MTOK</code>·<code>OPENAI_PRICE_OUTPUT_PER_MTOK</code>(1M 토큰당 USD)를 넣으면 이후 호출부터 실제 비용이 쌓입니다.</p></div>'}
+    <div class="summary-grid">
+      <div><span>${report.period}일 비용</span><strong>${money(report.totals.costUsd)}</strong></div>
+      <div><span>호출</span><strong>${report.totals.calls}회${report.totals.failedCalls ? ` (실패 ${report.totals.failedCalls})` : ''}</strong></div>
+      <div><span>토큰</span><strong>${tokens(report.totals.tokens)}</strong></div>
+      <div><span>계획서 1건 상한</span><strong>${money(report.caps.proposalCostUsd)} / ${tokens(report.caps.proposalTokens)}토큰</strong></div>
+    </div>
+    ${rows(report.byUser, '회원별', 'userEmail')}
+    ${rows(report.byProposal, '계획서별', 'proposalId')}
+    ${rows(report.byTask, '작업 종류별', 'task')}
+    ${rows(report.byDay, '날짜별', 'day')}` : `<p class="muted">${view.loaded ? '기록이 없습니다.' : '불러오는 중입니다.'}</p>`}`;
+}
+
 // 관리자용 공모정보 목록. 출처 URL·수집일·최종 확인일·중복 여부·공개 여부를 함께 본다.
 function adminNoticesPanel() {
   const view = auth.notices;
@@ -326,8 +363,9 @@ function adminView() {
     <div class="requirement-list">${waiting.map(accountRow).join('') || '<p class="muted">승인을 기다리는 계정이 없습니다.</p>'}</div>
     <h4>이용 중·중지된 계정 ${rest.length}건</h4>
     <div class="requirement-list">${rest.map(accountRow).join('') || '<p class="muted">표시할 계정이 없습니다.</p>'}</div>
-    <div class="actions"><span class="muted">관리자 계정과 내 계정은 이 화면에서 바꿀 수 없습니다.</span><div><button class="button secondary" id="reload-admin" ${auth.busy ? 'disabled' : ''}>목록 새로고침</button><button class="button secondary" id="open-admin-notices" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'notices' ? '공모정보 접기' : '공모정보 관리'}</button><button class="button secondary" id="close-admin">작업 화면으로</button></div></div>
+    <div class="actions"><span class="muted">관리자 계정과 내 계정은 이 화면에서 바꿀 수 없습니다.</span><div><button class="button secondary" id="reload-admin" ${auth.busy ? 'disabled' : ''}>목록 새로고침</button><button class="button secondary" id="open-admin-notices" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'notices' ? '공모정보 접기' : '공모정보 관리'}</button><button class="button secondary" id="open-admin-usage" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'usage' ? '사용량 접기' : 'AI 사용량·비용'}</button><button class="button secondary" id="close-admin">작업 화면으로</button></div></div>
     ${auth.adminTab === 'notices' ? adminNoticesPanel() : ''}
+    ${auth.adminTab === 'usage' ? usagePanel() : ''}
   </div>`;
 }
 
@@ -426,8 +464,9 @@ function operatorView() {
     <div class="actions" style="justify-content:stretch;gap:8px">
       <button class="button ${view.tab === 'users' ? 'primary' : 'secondary'}" data-operator-tab="users" aria-pressed="${view.tab === 'users'}">회원 ${view.users.length}</button>
       <button class="button ${view.tab === 'audit' ? 'primary' : 'secondary'}" data-operator-tab="audit" aria-pressed="${view.tab === 'audit'}">감사기록 ${view.audit.length}</button>
+      <button class="button ${view.tab === 'usage' ? 'primary' : 'secondary'}" data-operator-tab="usage" aria-pressed="${view.tab === 'usage'}">AI 사용량·비용</button>
     </div>
-    ${view.tab === 'audit' ? operatorAuditList(view.audit) : `<div class="requirement-list">${view.users.map(operatorRow).join('') || '<p class="muted">조건에 맞는 회원이 없습니다.</p>'}</div>`}
+    ${view.tab === 'usage' ? usagePanel() : view.tab === 'audit' ? operatorAuditList(view.audit) : `<div class="requirement-list">${view.users.map(operatorRow).join('') || '<p class="muted">조건에 맞는 회원이 없습니다.</p>'}</div>`}
   </div>`;
 }
 
@@ -2970,6 +3009,8 @@ function directFactsView() {
 }
 
 function render() {
+  // 지금 작업 중인 계획서를 사용량 기록에 묶는다. 값이 없으면 계정 기준으로만 남는다.
+  setUsageProposalId(state.archiveProposalId || state.currentVersionId || '');
   // 로그인하기 전에는 작업 화면을 그리지 않는다. 실제 차단은 서버가 하고 화면은 그 결과를 따른다.
   // 우수 계획서 예시는 로그인 여부와 상관없이 열린다. 서버를 부르지 않는 정적 화면이다.
   if (auth.view === 'example') { app.innerHTML = exampleView(); bindLanding(); return; }
@@ -3376,6 +3417,12 @@ function bind() {
     setAuth({ adminTab: opening ? 'notices' : 'accounts', error: '', notice: '' });
     if (opening && !auth.notices.loaded) void loadAdminNotices();
   });
+  document.querySelector('#open-admin-usage')?.addEventListener('click', () => {
+    const opening = auth.adminTab !== 'usage';
+    setAuth({ adminTab: opening ? 'usage' : 'accounts', error: '', notice: '' });
+    if (opening && !auth.usage.loaded) void loadUsage();
+  });
+  document.querySelectorAll('[data-usage-days]').forEach(el => el.onclick = () => void loadUsage(Number(el.dataset.usageDays)));
   document.querySelector('#admin-notice-query')?.addEventListener('input', event => { auth.notices.queryDraft = event.target.value; });
   document.querySelector('#admin-notice-search')?.addEventListener('click', () => void loadAdminNotices(auth.notices.queryDraft.trim()));
   document.querySelector('#admin-notice-reload')?.addEventListener('click', () => void loadAdminNotices());
@@ -3386,7 +3433,10 @@ function bind() {
   document.querySelector('#operator-reload')?.addEventListener('click', () => void loadOperator());
   document.querySelector('#operator-search')?.addEventListener('input', event => { auth.operator.queryDraft = event.target.value; });
   document.querySelector('#operator-search-run')?.addEventListener('click', () => void loadOperator(auth.operator.queryDraft.trim()));
-  document.querySelectorAll('[data-operator-tab]').forEach(el => el.onclick = () => setOperator({ tab: el.dataset.operatorTab }));
+  document.querySelectorAll('[data-operator-tab]').forEach(el => el.onclick = () => {
+    setOperator({ tab: el.dataset.operatorTab });
+    if (el.dataset.operatorTab === 'usage' && !auth.usage.loaded) void loadUsage();
+  });
   document.querySelectorAll('[data-operator-action]').forEach(el => el.onclick = () => void runOperatorAction(el.dataset.operatorAction, el.dataset.operatorId));
   document.querySelectorAll('[data-operator-detail]').forEach(el => el.onclick = () => void openOperatorDetail(el.dataset.operatorDetail));
   document.querySelectorAll('[data-social]').forEach(el => el.addEventListener('click', () => void beginSocial(el.dataset.social, el.dataset.socialMode)));

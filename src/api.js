@@ -1,7 +1,11 @@
+// 어느 계획서에 쓴 비용인지 묶으려고 식별자를 함께 보낸다. 화면이 정해 주고 없으면 빈 값이다.
+let currentProposalId = '';
+export function setUsageProposalId(value) { currentProposalId = String(value || '').slice(0, 80); }
+
 async function request(action, payload) {
   const response = await fetch('/api/proposal', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, payload })
+    body: JSON.stringify({ action, payload: { ...payload, proposalId: currentProposalId } })
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || `서버 요청 실패 (${response.status})`);

@@ -1,6 +1,7 @@
 // 관리자 전용 계정 관리. 화면에서 숨기는 것이 아니라 여기서 실제로 막는다.
 // 비밀번호 열은 읽지도 내보내지도 않는다.
 import { recordAudit } from '../../server/audit.js';
+import { usageReport } from '../../server/ai-usage.js';
 import { RANK, adminNotice, findDuplicates, parseQuery, rankNotice, withDerived } from '../../server/notice-search.js';
 import { DEFAULT_PLAN, PLANS, effectivePlan } from '../../server/plan.js';
 import { revokeRecoveryCodes } from '../../server/recovery.js';
@@ -35,6 +36,8 @@ export async function onRequest(context) {
   // 공모정보 관리. 공개 여부와 상관없이 모아 둔 자료 전체를 본다.
   if (body.action === 'listNotices') return json(await listNotices(env.ARCHIVE_DB, body.query), 200);
   if (body.action === 'setNoticePublic') return setNoticePublic(env.ARCHIVE_DB, actor, body);
+  // AI 사용량·비용. 회원별·계획서별·기간별로 본다.
+  if (body.action === 'usageReport') return json(await usageReport(env.ARCHIVE_DB, env, { days: body.days, userId: body.userId, proposalId: body.proposalId }), 200);
   return json({ error: '지원하지 않는 작업입니다.' }, 400);
 }
 

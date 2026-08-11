@@ -10,7 +10,8 @@ export const OPERATOR_ACTIONS = new Set([
   'reactivateUser',// 재활성화(중지 → 이용 중)
   'unlockLogin',   // 로그인 잠금 해제
   'endSessions',   // 전체 세션 종료
-  'issueRecoveryCode' // 일회용 계정 복구코드 발급
+  'issueRecoveryCode', // 일회용 계정 복구코드 발급
+  'usageReport'    // AI 사용량·비용 조회(읽기 전용)
 ]);
 
 // 운영관리자 권한으로는 서버에서 거절하는 동작. 화면에 버튼이 없더라도 여기서 다시 막는다.
@@ -19,6 +20,7 @@ export const BLOCKED_ACTIONS = new Map([
   ['grantOperator', '운영관리자 지정'],
   ['revokeOperator', '운영관리자 해제'],
   ['setPlan', '이용권 변경'],
+  ['setUsageCap', 'AI 사용량 상한 변경'],
   ['grantFullPlan', '전체 이용권 부여'],
   ['revokeFullPlan', '전체 이용권 회수'],
   ['resetTrial', '무료 체험 사용 기록 초기화'],

@@ -3,7 +3,7 @@
 export function fakeDb() {
   const tables = {
     users: [], sessions: [], login_attempts: [], user_identities: [], oauth_states: [],
-    admin_audit_log: [], account_recovery_codes: [], user_activity_events: [], archived_notices: []
+    admin_audit_log: [], account_recovery_codes: [], user_activity_events: [], archived_notices: [], ai_usage_events: []
   };
   let seq = 0;
   // D1은 바꾼 행 수를 meta.changes로 알려 준다. 무료 체험 1회 제한이 이 값을 본다.
@@ -208,6 +208,50 @@ export function fakeDb() {
       const found = tables.archived_notices.find(item => item.source_key === args[1]);
       if (found) found.is_public = args[0];
       return rows([], found ? 1 : 0);
+    }
+
+    // ---- AI 사용량·비용 ----
+    if (/^INSERT INTO ai_usage_events/.test(text)) {
+      tables.ai_usage_events.push({
+        id: args[0], at: args[1], user_id: args[2], user_email: args[3], proposal_id: args[4], task: args[5], model: args[6],
+        input_tokens: args[7], cached_input_tokens: args[8], output_tokens: args[9], reasoning_tokens: args[10],
+        total_tokens: args[11], cost_micro: args[12], priced: args[13], duration_ms: args[14], ok: args[15], failure_stage: args[16]
+      });
+      return rows([], 1);
+    }
+    if (/FROM ai_usage_events/.test(text)) {
+      // WHERE 조건을 순서대로 맞춰 본다. 실제 SQL이 쓰는 조합만 지원한다.
+      let list = [...tables.ai_usage_events];
+      // WHERE 조건이 적힌 순서대로 값이 묶인다. 호출마다 순서가 달라 글에 나온 위치로 맞춘다.
+      const conditions = [
+        ['at >= ?', (rows, value) => rows.filter(item => item.at >= value)],
+        ['user_id = ?', (rows, value) => rows.filter(item => item.user_id === value)],
+        ['proposal_id = ?', (rows, value) => rows.filter(item => item.proposal_id === value)]
+      ].map(([needle, apply]) => [text.indexOf(needle), apply]).filter(([position]) => position >= 0).sort((a, b) => a[0] - b[0]);
+      conditions.forEach(([, apply], index) => { list = apply(list, args[index]); });
+      if (/proposal_id != ''/.test(text)) list = list.filter(item => item.proposal_id);
+      const sum = (items, key) => items.reduce((total, item) => total + Number(item[key] || 0), 0);
+      const shape = items => ({
+        calls: items.length, tokens: sum(items, 'total_tokens'), input_tokens: sum(items, 'input_tokens'),
+        cached_tokens: sum(items, 'cached_input_tokens'), output_tokens: sum(items, 'output_tokens'),
+        reasoning_tokens: sum(items, 'reasoning_tokens'), cost: sum(items, 'cost_micro'),
+        duration: sum(items, 'duration_ms'), ok_calls: sum(items, 'ok')
+      });
+      const grouped = pick => {
+        const map = new Map();
+        for (const item of list) {
+          const key = JSON.stringify(pick(item));
+          if (!map.has(key)) map.set(key, []);
+          map.get(key).push(item);
+        }
+        return [...map.entries()].map(([key, items]) => ({ ...JSON.parse(key), ...shape(items) }))
+          .sort((a, b) => b.cost - a.cost || b.tokens - a.tokens);
+      };
+      if (/GROUP BY user_id, user_email/.test(text)) return rows(grouped(item => ({ user_id: item.user_id, user_email: item.user_email })));
+      if (/GROUP BY proposal_id/.test(text)) return rows(grouped(item => ({ proposal_id: item.proposal_id })));
+      if (/GROUP BY day/.test(text)) return rows(grouped(item => ({ day: String(item.at).slice(0, 10) })).sort((a, b) => String(b.day).localeCompare(String(a.day))));
+      if (/GROUP BY task, model/.test(text)) return rows(grouped(item => ({ task: item.task, model: item.model })));
+      return rows([shape(list)]);
     }
 
     throw new Error(`대역이 모르는 쿼리: ${text.slice(0, 80)}`);

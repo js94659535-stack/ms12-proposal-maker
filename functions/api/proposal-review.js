@@ -1,3 +1,4 @@
+import { budgetRefusal, extractUsage, recordAiUsage } from '../../server/ai-usage.js';
 import { NEED_FULL, hasFullAccess } from '../../server/plan.js';
 
 const HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
@@ -19,8 +20,20 @@ export async function onRequest(context) {
   if (!hasFullAccess(context.data?.session?.user)) return json({ error: NEED_FULL, needsPlan: true }, 403);
   if (!Array.isArray(payload.sections) || payload.sections.length !== 10) return json({ error: '현재 계획서 10개 항목이 필요합니다.' }, 400);
 
+  // 계획서 한 건과 계정 하루에 걸어 둔 사용량 상한을 부르기 전에 본다.
+  const user = context.data?.session?.user || {};
+  const proposalId = String(payload.proposalId || '').trim().slice(0, 80);
+  const guard = await budgetRefusal(context.env.ARCHIVE_DB, context.env, { proposalId, userId: user.id });
+  if (guard.refusal) return json({ error: guard.refusal.error, capReached: true, budget: guard.refusal.budget }, guard.refusal.status);
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 90_000);
+  const startedAt = Date.now();
+  // 사용량은 성공·실패를 가리지 않고 남긴다. 계획서 원문과 프롬프트는 담지 않는다.
+  const noteUsage = (data, ok, failureStage) => recordAiUsage(context.env.ARCHIVE_DB, context.env, {
+    userId: user.id, userEmail: user.email, proposalId, task: 'review', model: context.env.OPENAI_MODEL,
+    usage: extractUsage(data), durationMs: Date.now() - startedAt, ok, failureStage
+  });
   try {
     const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST', signal: controller.signal,
@@ -35,6 +48,7 @@ export async function onRequest(context) {
       })
     });
     const data = await response.json();
+    await noteUsage(data, response.ok, response.ok ? '' : 'openai-upstream');
     if (!response.ok) return json({ error: '심사 검토 API 요청에 실패했습니다.' }, response.status === 429 ? 429 : 502);
     const output = typeof data.output_text === 'string' ? data.output_text : (data.output || []).flatMap(item => item.content || []).filter(item => item.type === 'output_text').map(item => item.text).join('');
     let result;
@@ -42,6 +56,7 @@ export async function onRequest(context) {
     const error = validateReviewResult(result, payload.sections.map(section => section.id));
     return error ? json({ error }, 502) : json(result);
   } catch (error) {
+    await noteUsage({}, false, error?.name === 'AbortError' ? 'timeout' : 'transport');
     return json({ error: error?.name === 'AbortError' ? '심사 검토 요청 시간이 초과되었습니다.' : '심사 검토 서비스에 연결하지 못했습니다.' }, 502);
   } finally { clearTimeout(timeout); }
 }

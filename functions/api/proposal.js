@@ -1,3 +1,4 @@
+import { budgetRefusal, extractUsage, recordAiUsage } from '../../server/ai-usage.js';
 import { TRIAL_ACTION, TRIAL_SPENT, consumeTrial, hasFullAccess, planRefusal, releaseTrial } from '../../server/plan.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
@@ -40,6 +41,10 @@ export async function onRequest(context) {
     if (refusal) return json({ error: refusal.error, needsPlan: true }, refusal.status);
     const validation = validate(body.action, body.payload);
     if (validation) return json({ error: validation }, 400);
+    // 계획서 한 건과 계정 하루에 걸어 둔 사용량 상한을 부르기 전에 본다.
+    const proposalId = String(body.payload?.proposalId || '').trim().slice(0, 80);
+    const guard = await budgetRefusal(context.env.ARCHIVE_DB, context.env, { proposalId, userId: user.id });
+    if (guard.refusal) return json({ error: guard.refusal.error, capReached: true, budget: guard.refusal.budget }, guard.refusal.status);
     // 무료 체험은 OpenAI를 부르기 전에 D1에서 한 번만 통과시킨다. 같은 계정이 동시에 눌러도 한 번만 열린다.
     const trialRun = body.action === TRIAL_ACTION && !hasFullAccess(user);
     if (trialRun && !(await consumeTrial(context.env.ARCHIVE_DB, user.id))) return json({ error: TRIAL_SPENT, trialUsed: true }, 403);
@@ -51,6 +56,12 @@ export async function onRequest(context) {
     const specification = taskSpecification(body.action, body.payload);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), LIMITS.timeoutMs);
+    const startedAt = Date.now();
+    // 사용량은 성공·실패를 가리지 않고 남긴다. 실패한 호출에도 토큰이 청구될 수 있다.
+    const noteUsage = (data, ok, failureStage) => recordAiUsage(context.env.ARCHIVE_DB, context.env, {
+      userId: user.id, userEmail: user.email, proposalId, task: body.action, model: context.env.OPENAI_MODEL,
+      usage: extractUsage(data), durationMs: Date.now() - startedAt, ok, failureStage
+    });
     let response;
     let raw;
     try {
@@ -73,6 +84,7 @@ export async function onRequest(context) {
       });
       raw = await response.json();
     } catch (error) {
+      await noteUsage({}, false, error?.name === 'AbortError' ? 'timeout' : 'transport');
       if (error?.name === 'AbortError') return refund(json({ error: 'OpenAI 요청 시간이 초과되었습니다. 자동 재시도하지 않았습니다.' }, 504));
       return refund(json({ error: 'OpenAI 서비스에 연결하지 못했습니다. 자동 재시도하지 않았습니다.' }, 502));
     } finally {
@@ -81,9 +93,11 @@ export async function onRequest(context) {
     if (!response.ok) {
       // 429는 원인이 서로 다르다. 안전한 필드만 진단으로 함께 돌려준다.
       const diagnostic = openAIDiagnostic(raw, response.status, response.headers);
+      await noteUsage(raw, false, 'openai-upstream');
       return refund(json({ error: normalizeOpenAIError(raw, response.status, response.headers), ...(response.status === 429 ? { rateLimitDiagnostic: diagnostic } : {}) }, response.status === 429 ? 429 : 502));
     }
     // 응답이 끝까지 생성되지 않은 경우와 형식 오류를 구분한다. 자동 재시도는 하지 않는다.
+    await noteUsage(raw, true, '');
     const incomplete = incompleteFailure(raw);
     if (incomplete) return refund(json(incomplete, 502));
     const outputText = extractOutputText(raw);

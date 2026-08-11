@@ -1,3 +1,4 @@
+import { budgetRefusal, extractUsage, recordAiUsage } from '../../server/ai-usage.js';
 import { NEED_FULL, hasFullAccess } from '../../server/plan.js';
 
 const HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
@@ -19,20 +20,25 @@ export async function onRequest(context) {
   }
   // 검증·코칭은 전체 이용권 기능이다. 무료 체험 계정은 여기서 막힌다.
   if (!hasFullAccess(context.data?.session?.user)) return json({ error: NEED_FULL, needsPlan: true }, 403);
-  if (payload.action === 'pollCoaching') return pollCoaching(context.env, context.request, payload);
+  const user = context.data?.session?.user || {};
+  const usageMeta = { db: context.env.ARCHIVE_DB, userId: user.id, userEmail: user.email, proposalId: String(payload.proposalId || payload.sourceProposalId || '').trim().slice(0, 80) };
+  if (payload.action === 'pollCoaching') return pollCoaching(context.env, context.request, payload, usageMeta);
   if (typeof payload.proposalText !== 'string' || payload.proposalText.trim().length < 30) return failure('application-validation', '검증할 계획서 원문이 필요합니다.', 400, safeDiagnostic(context.env.OPENAI_MODEL, 0, '', '', '', 0));
+  // 계획서 한 건과 계정 하루에 걸어 둔 사용량 상한을 부르기 전에 본다.
+  const guard = await budgetRefusal(context.env.ARCHIVE_DB, context.env, { proposalId: usageMeta.proposalId, userId: user.id });
+  if (guard.refusal) return json({ error: guard.refusal.error, capReached: true, budget: guard.refusal.budget, failureStage: 'application-validation', diagnostic: baseDiagnostic }, guard.refusal.status);
   if (payload.action === 'reviseIssue') {
     const limited = await enforceIssueRevisionLimit(context.request);
     if (limited) return limited;
-    return runIssueRevision(context.env, payload);
+    return runIssueRevision(context.env, payload, usageMeta);
   }
-  return startCoaching(context.env, context.request, payload);
+  return startCoaching(context.env, context.request, payload, usageMeta);
 }
 
-async function startCoaching(env, request, payload) {
+async function startCoaching(env, request, payload, usageMeta) {
   const access = await coachingJobAccess(env, request);
   if (access.response) return access.response;
-  const upstream = await requestOpenAI(env, { policy: COACHING_POLICY, input: `<COACHING_INPUT>${JSON.stringify(payload)}</COACHING_INPUT>`, schema: COACHING_SCHEMA, schemaName: 'proposal_validation_coaching', maxOutputTokens: 12_000, reasoningEffort: 'medium', background: true });
+  const upstream = await requestOpenAI(env, { usageMeta: { ...usageMeta, task: 'coaching:start' }, policy: COACHING_POLICY, input: `<COACHING_INPUT>${JSON.stringify(payload)}</COACHING_INPUT>`, schema: COACHING_SCHEMA, schemaName: 'proposal_validation_coaching', maxOutputTokens: 12_000, reasoningEffort: 'medium', background: true });
   if (!upstream.ok) return diagnosticErrorResponse(upstream, '계획서 검증·코칭 시작');
   const jobId = String(upstream.data?.id || '');
   if (!/^resp_[a-zA-Z0-9_-]+$/.test(jobId)) return failure('application-validation', 'OpenAI background 작업 ID를 받지 못했습니다.', 502, upstream.diagnostic);
@@ -40,12 +46,12 @@ async function startCoaching(env, request, payload) {
   return json({ jobId, status: upstream.data.status || 'queued', failureStage: '', diagnostic: upstream.diagnostic });
 }
 
-async function pollCoaching(env, request, payload) {
+async function pollCoaching(env, request, payload, usageMeta) {
   const completedStartedAt = Date.now();
   const access = await coachingJobAccess(env, request, payload.jobId);
   if (access.response) return access.response;
   const accessMs = Date.now() - completedStartedAt;
-  const upstream = await retrieveOpenAI(env, payload.jobId);
+  const upstream = await retrieveOpenAI(env, payload.jobId, { ...usageMeta, task: 'coaching:complete' });
   if (!upstream.ok) return diagnosticErrorResponse(upstream, '계획서 검증·코칭 상태 조회');
   const status = String(upstream.data?.status || '');
   if (!['queued', 'in_progress', 'completed', 'failed', 'cancelled', 'incomplete'].includes(status)) return failure('application-validation', '알 수 없는 background 작업 상태입니다.', 502, upstream.diagnostic);
@@ -87,10 +93,10 @@ async function enforceIssueRevisionLimit(request) {
   return null;
 }
 
-async function runIssueRevision(env, payload) {
+async function runIssueRevision(env, payload, usageMeta) {
   if (!payload.issue || typeof payload.issue !== 'object') return json({ error: '수정할 문제 항목이 필요합니다.' }, 400);
   try {
-    const upstream = await requestOpenAI(env, { policy: ISSUE_REVISION_POLICY, input: `<ISSUE_REVISION_INPUT>${JSON.stringify({ title: payload.title || '', proposalText: payload.proposalText, criteriaText: payload.criteriaText || '', issue: payload.issue })}</ISSUE_REVISION_INPUT>`, schema: ISSUE_REVISION_SCHEMA, schemaName: 'proposal_issue_revision', maxOutputTokens: 2_500, reasoningEffort: 'medium' });
+    const upstream = await requestOpenAI(env, { usageMeta: { ...usageMeta, task: 'coaching:reviseIssue' }, policy: ISSUE_REVISION_POLICY, input: `<ISSUE_REVISION_INPUT>${JSON.stringify({ title: payload.title || '', proposalText: payload.proposalText, criteriaText: payload.criteriaText || '', issue: payload.issue })}</ISSUE_REVISION_INPUT>`, schema: ISSUE_REVISION_SCHEMA, schemaName: 'proposal_issue_revision', maxOutputTokens: 2_500, reasoningEffort: 'medium' });
     if (!upstream.ok) return diagnosticErrorResponse(upstream, '문제별 AI 수정안');
     const output = typeof upstream.data.output_text === 'string' ? upstream.data.output_text : (upstream.data.output || []).flatMap(item => item.content || []).filter(item => item.type === 'output_text').map(item => item.text).join('');
     let result;
@@ -106,7 +112,7 @@ async function runIssueRevision(env, payload) {
 
 async function runProbe(env) {
   const probeSchema = { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean' }, message: { type: 'string' } }, required: ['ok', 'message'] };
-  const upstream = await requestOpenAI(env, { policy: 'Return only the requested strict JSON. Do not include sensitive data.', input: 'Return ok=true and message="probe-ok".', schema: probeSchema, schemaName: 'openai_live_probe', maxOutputTokens: 200, reasoningEffort: 'low' });
+  const upstream = await requestOpenAI(env, { usageMeta: { db: env.ARCHIVE_DB, task: 'probe', userId: '', userEmail: '', proposalId: '' }, policy: 'Return only the requested strict JSON. Do not include sensitive data.', input: 'Return ok=true and message="probe-ok".', schema: probeSchema, schemaName: 'openai_live_probe', maxOutputTokens: 200, reasoningEffort: 'low' });
   if (!upstream.ok) return diagnosticErrorResponse(upstream, 'OpenAI 라이브 프로브');
   const output = typeof upstream.data.output_text === 'string' ? upstream.data.output_text : (upstream.data.output || []).flatMap(item => item.content || []).filter(item => item.type === 'output_text').map(item => item.text).join('');
   let result;
@@ -116,7 +122,7 @@ async function runProbe(env) {
   return json({ ok: true, strictJsonSchema: true, diagnostic: upstream.diagnostic });
 }
 
-async function requestOpenAI(env, { policy, input, schema, schemaName, maxOutputTokens, reasoningEffort, background = false }) {
+async function requestOpenAI(env, { policy, input, schema, schemaName, maxOutputTokens, reasoningEffort, background = false, usageMeta = null }) {
   const startedAt = Date.now();
   const controller = new AbortController();
   // background 시작 요청만 조금 더 길게 둔다. 호출 측 대기 한도(420초)보다 반드시 짧아야 서버가 통제된 오류를 돌려준다.
@@ -127,15 +133,17 @@ async function requestOpenAI(env, { policy, input, schema, schemaName, maxOutput
     const data = await response.json().catch(() => ({}));
     const diagnostic = safeDiagnostic(env.OPENAI_MODEL, response.status, data?.error?.type || '', data?.error?.code || '', response.headers.get('x-request-id') || '', Date.now() - startedAt, response.status === 429 ? rateLimitInfo(response.headers) : {});
     if (!response.ok) console.error('openai_upstream_failure', diagnostic);
+    await noteCoachingUsage(env, usageMeta, data, response.ok, response.ok ? '' : 'openai-upstream', Date.now() - startedAt);
     return { ok: response.ok, status: response.status, data, diagnostic, failureStage: response.ok ? '' : 'openai-upstream' };
   } catch (error) {
     const diagnostic = safeDiagnostic(env.OPENAI_MODEL, 0, error?.name || 'network_error', error?.code || '', '', Date.now() - startedAt);
     console.error('openai_transport_failure', diagnostic);
+    await noteCoachingUsage(env, usageMeta, {}, false, error?.name === 'AbortError' ? 'timeout' : 'transport', Date.now() - startedAt);
     return { ok: false, status: error?.name === 'AbortError' ? 504 : 502, data: {}, diagnostic, failureStage: error?.name === 'AbortError' ? 'proxy/timeout' : 'transport' };
   } finally { clearTimeout(timeout); }
 }
 
-async function retrieveOpenAI(env, jobId) {
+async function retrieveOpenAI(env, jobId, usageMeta = null) {
   const startedAt = Date.now();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 25_000);
@@ -143,6 +151,8 @@ async function retrieveOpenAI(env, jobId) {
     const response = await fetch(`https://api.openai.com/v1/responses/${encodeURIComponent(jobId)}`, { method: 'GET', signal: controller.signal, headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` } });
     const data = await response.json().catch(() => ({}));
     const diagnostic = safeDiagnostic(env.OPENAI_MODEL, response.status, data?.error?.type || '', data?.error?.code || '', response.headers.get('x-request-id') || '', Date.now() - startedAt, response.status === 429 ? rateLimitInfo(response.headers) : {});
+    // background 작업은 완료된 조회에만 usage가 실린다. 진행 중 조회는 토큰이 0이라 기록하지 않는다.
+    if (data?.usage) await noteCoachingUsage(env, usageMeta, data, response.ok, response.ok ? '' : 'openai-upstream', Date.now() - startedAt);
     return { ok: response.ok, status: response.status, data, diagnostic, failureStage: response.ok ? '' : 'openai-upstream' };
   } catch (error) {
     const diagnostic = safeDiagnostic(env.OPENAI_MODEL, 0, error?.name || 'network_error', error?.code || '', '', Date.now() - startedAt);
@@ -366,3 +376,13 @@ export function validateCoachingResultDetailed(result, officialEvaluationProvide
 }
 
 function json(body, status = 200, extra = {}) { return new Response(JSON.stringify(body), { status, headers: { ...HEADERS, ...extra } }); }
+
+// 코칭 계열 호출의 사용량 기록. 계획서 원문·프롬프트·응답 본문은 담지 않고 토큰과 시간만 남긴다.
+async function noteCoachingUsage(env, meta, data, ok, failureStage, durationMs) {
+  if (!meta?.db) return;
+  await recordAiUsage(meta.db, env, {
+    userId: meta.userId, userEmail: meta.userEmail, proposalId: meta.proposalId,
+    task: meta.task || 'coaching', model: env.OPENAI_MODEL,
+    usage: extractUsage(data), durationMs, ok, failureStage
+  });
+}

@@ -4,6 +4,7 @@ import { recentActivity, stuckSummary } from '../../server/activity.js';
 import { listAudit, listAuditForTarget, recordAudit } from '../../server/audit.js';
 import { emailAttemptHash, loginLockState, unlockEmailAttempts } from '../../server/login-attempts.js';
 import { BLOCKED_ACTIONS, NOT_INTEGRATED, OPERATOR_ACTIONS, OPERATOR_ROLES, targetRefusal } from '../../server/operator-scope.js';
+import { usageReport } from '../../server/ai-usage.js';
 import { CONTACT_LABEL, DEFAULT_PLAN, effectivePlan } from '../../server/plan.js';
 import { issueRecoveryCode } from '../../server/recovery.js';
 
@@ -37,6 +38,8 @@ export async function onRequest(context) {
   const db = env.ARCHIVE_DB;
   if (action === 'overview') return json(await overview(db, body), 200);
   if (action === 'userDetail') return userDetail(db, body.id);
+  // 사용량·비용은 읽기만 한다. 단가·상한을 바꾸는 동작은 이 경로에 없다.
+  if (action === 'usageReport') return json(await usageReport(db, env, { days: body.days, userId: body.userId, proposalId: body.proposalId }), 200);
   if (action === 'approveUser') return mutate(db, actor, body, approve);
   if (action === 'disableUser') return mutate(db, actor, body, disable);
   if (action === 'reactivateUser') return mutate(db, actor, body, reactivate);

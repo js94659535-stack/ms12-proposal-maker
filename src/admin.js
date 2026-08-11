@@ -20,3 +20,5 @@ export const setAccountPlan = (id, plan) => post('setPlan', { id, plan });
 // 공모정보 관리. 공개 여부와 상관없이 모아 둔 자료 전체를 본다.
 export const listCollectedNotices = (query = '') => post('listNotices', { query });
 export const setNoticePublic = (key, isPublic, query = '') => post('setNoticePublic', { key, isPublic, query });
+// AI 사용량·비용. 회원별·계획서별·기간별로 본다.
+export const adminUsageReport = (days = 30) => post('usageReport', { days });
