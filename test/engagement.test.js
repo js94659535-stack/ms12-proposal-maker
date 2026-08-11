@@ -208,7 +208,8 @@ test('승인 흐름과 차단이 화면에 연결된다', () => {
 
 test('의뢰 건 화면은 기존 화면을 대체하지 않고 덧붙는다', () => {
   assert.match(app, /tools = \{ home: homeView, coaching: coachingView, applicants: applicantsToolView, sample: sampleView, engagement: engagementView, account: accountView, admin: adminView, operator: operatorView \}/);
-  assert.match(app, /id="open-engagement"/);
+  assert.ok(app.includes("['open-engagement', '의뢰 건'"), '작업 메뉴에 의뢰 건 항목이 있다');
+  assert.ok(app.includes("querySelector('#open-engagement')"), '의뢰 건 처리기가 그대로 있다');
   assert.match(app, /function engagementView\(\)/);
   assert.match(app, /function engagementOperatorView\(engagement\)/);
   // 고객 화면과 운영자 화면이 갈린다.

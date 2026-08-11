@@ -223,7 +223,8 @@ test('문제별 수정안은 원문 단일 위치와 수치·근거 안전장치
 
 test('상단 독립 코칭 화면은 외부 파일·붙여넣기·보관함·재검증·버전 저장을 지원한다', () => {
   const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
-  assert.match(source, /id="open-coaching"/);
+  assert.ok(source.includes("['open-coaching', '계획서 검증·코칭'"), '작업 메뉴에 검증·코칭 항목이 있다');
+  assert.ok(source.includes("querySelector('#open-coaching')"), '검증·코칭 처리기가 그대로 있다');
   assert.match(source, /계획서 검증·코칭/);
   assert.match(source, /accept="\.pdf,\.docx,\.txt,\.hwpx"/);
   assert.match(source, /id="coaching-text"/);

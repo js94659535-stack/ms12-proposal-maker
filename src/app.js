@@ -1270,6 +1270,48 @@ function organizationForGeneration() {
   return buildApplicantOrganization(selectedApplicant(), state.projectValues);
 }
 
+// ---------- 상단 드롭다운 ----------
+// 6단계와 작업 화면 목록을 세로로 늘어놓지 않고 접어 둔다. 작업 내용이 화면 위쪽부터 보이게 하려는 것이다.
+// <details>를 쓰므로 열고 닫기와 키보드 조작은 브라우저가 해 준다. 바깥 클릭·ESC·서로 닫기만 따로 붙인다.
+function topMenu(id, label, body) {
+  return `<details class="topmenu" data-topmenu="${id}"><summary class="history-button topmenu-summary"><span class="topmenu-label">${escapeHtml(label)}</span><span aria-hidden="true">▾</span></summary><div class="topmenu-panel" role="menu">${body}</div></details>`;
+}
+
+// 작성 단계. 닫혀 있을 때 지금 어느 단계인지 그대로 보여 준다.
+function stepMenu() {
+  const onStep = state.activeTool === 'workflow';
+  const label = onStep ? `현재 단계: ${state.step + 1}. ${STEPS[state.step]}` : '작업 단계';
+  const items = STEPS.map((name, index) => {
+    const complete = isStepComplete(index);
+    const current = onStep && state.step === index;
+    return `<button class="topmenu-item workflow-step ${current ? 'active' : ''} ${complete ? 'done' : ''}" role="menuitem" data-step="${index}" ${current ? 'aria-current="step"' : ''}><span>${complete ? '✓' : index + 1}</span>${name}</button>`;
+  }).join('');
+  return topMenu('steps', label, items);
+}
+
+// 작업 화면 목록. 단추의 식별자와 처리기는 그대로 두어 권한·동작이 바뀌지 않는다.
+function toolMenu() {
+  const items = [
+    ['open-archive-box', '공고보관함·계획서보관함', ''],
+    ['open-engagement', '의뢰 건', 'engagement'],
+    ['open-applicants', '신청기관 정보', 'applicants'],
+    ['open-coaching', '계획서 검증·코칭', 'coaching']
+  ].map(([id, label, tool]) => `<button class="topmenu-item" role="menuitem" id="${id}" ${tool ? `aria-pressed="${state.activeTool === tool}"` : ''}>${label}</button>`).join('');
+  return topMenu('tools', '작업 메뉴', items);
+}
+
+// 열려 있는 상단 드롭다운을 닫는다. 하나를 열면 나머지는 닫힌다.
+function closeTopMenus(except = null) {
+  for (const menu of document.querySelectorAll('details.topmenu[open]')) {
+    if (menu !== except) menu.open = false;
+  }
+}
+function bindTopMenus() {
+  for (const menu of document.querySelectorAll('details.topmenu')) {
+    menu.addEventListener('toggle', () => { if (menu.open) closeTopMenus(menu); });
+  }
+}
+
 function shell(content) {
   // 홈은 작업용 단계 내비게이션 없이 자체 화면으로만 보여 준다.
   if (state.activeTool === 'home') return `<div class="layout home-layout"><main class="main">${aiResultBanner()}${state.notice ? `<div class="alert success">${escapeHtml(state.notice)}</div>` : ''}${state.error ? `<div class="alert danger">${escapeHtml(state.error)}</div>` : ''}${content}${state.busy ? `<div class="busy"><div class="loader"></div><strong>${escapeHtml(state.busy)}</strong></div>` : ''}</main></div>`;
@@ -1278,7 +1320,7 @@ function shell(content) {
       <main class="main">
         <header class="workflow-header">
           <div class="workflow-brand"><div class="brand"><span class="brand-mark">계</span><div><strong>사업계획서 작성 도우미</strong><small>공고 분석부터 제출본까지</small></div></div><span class="save-state">● 자동 저장 중</span><span class="mode">${escapeHtml(accountEmail())}</span><button class="history-button" id="open-account" aria-pressed="${state.activeTool === 'account'}">계정 설정</button>${portalLinks()}<button class="history-button" id="sign-out">로그아웃</button></div>
-          <div class="workflow-row"><label class="type-select-label" for="business-type">사업 유형<select id="business-type">${TYPES.map(([id, name]) => `<option value="${id}" ${state.project.type === id ? 'selected' : ''}>${name}</option>`).join('')}</select></label><nav class="workflow-steps" aria-label="작성 단계">${STEPS.map((name, i) => { const complete = isStepComplete(i); return `<button data-step="${i}" class="workflow-step ${state.activeTool === 'workflow' && state.step === i ? 'active' : ''} ${complete ? 'done' : ''}" ${state.activeTool === 'workflow' && state.step === i ? 'aria-current="step"' : ''}><span>${complete ? '✓' : i + 1}</span>${name}</button>`; }).join('')}</nav><button class="history-button" id="open-archive-box">공고보관함·계획서보관함</button><button class="history-button" id="open-engagement" aria-pressed="${state.activeTool === 'engagement'}">의뢰 건</button><button class="history-button" id="open-applicants" aria-pressed="${state.activeTool === 'applicants'}">신청기관 정보</button><button class="history-button" id="open-coaching" aria-pressed="${state.activeTool === 'coaching'}">계획서 검증·코칭</button><nav class="workflow-history" aria-label="앱 작업 화면 이동"><button class="history-button" id="workflow-back" aria-label="직전 작업 화면으로 뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="history-button" id="workflow-home" aria-label="홈 화면으로 가기">⌂ 홈 화면</button><button class="history-button" id="workflow-forward" aria-label="다음 작업 화면으로 앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button></nav></div>
+          <div class="workflow-row"><label class="type-select-label" for="business-type">사업 유형<select id="business-type">${TYPES.map(([id, name]) => `<option value="${id}" ${state.project.type === id ? 'selected' : ''}>${name}</option>`).join('')}</select></label>${stepMenu()}${toolMenu()}<nav class="workflow-history" aria-label="앱 작업 화면 이동"><button class="history-button" id="workflow-back" aria-label="직전 작업 화면으로 뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="history-button" id="workflow-home" aria-label="홈 화면으로 가기">⌂ 홈</button><button class="history-button" id="workflow-forward" aria-label="다음 작업 화면으로 앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button></nav></div>
         </header>
         ${aiResultBanner()}
         ${state.notice ? `<div class="alert success">${escapeHtml(state.notice)}</div>` : ''}
@@ -3517,6 +3559,7 @@ function updateInputs() {
 
 function bind() {
   updateInputs();
+  bindTopMenus();
   if (state.step === 0 && !archiveLoaded) void loadRecentArchive();
   if (state.activeTool === 'home' && !homeArchiveLoaded) void loadHomeRecent();
   document.querySelectorAll('[data-type]').forEach(el => el.onclick = () => { state.project.type = el.dataset.type; saveState(); render(); });
@@ -5390,7 +5433,13 @@ function applicantAreaForTitle(title) {
 }
 // 보관 목록 우클릭 메뉴는 다른 곳을 누르거나 화면이 움직이면 닫는다.
 document.addEventListener('click', event => { if (Date.now() - archiveMenuOpenedAt < 400) return; if (!(event.target instanceof Element) || !event.target.closest('#archive-context-menu')) closeArchiveMenu(); });
-document.addEventListener('keydown', event => { if (event.key === 'Escape') closeArchiveMenu(); });
+// 상단 드롭다운 바깥을 누르면 닫는다. 안쪽 항목을 누르면 화면이 다시 그려지면서 함께 닫힌다.
+document.addEventListener('click', event => {
+  if (!(event.target instanceof Element)) return closeTopMenus();
+  const inside = event.target.closest('details.topmenu');
+  closeTopMenus(inside);
+});
+document.addEventListener('keydown', event => { if (event.key === 'Escape') { closeArchiveMenu(); closeTopMenus(); } });
 window.addEventListener('scroll', closeArchiveMenu, true);
 window.addEventListener('resize', closeArchiveMenu);
 render();
