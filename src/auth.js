@@ -9,6 +9,7 @@ async function post(path, action, payload = {}) {
   return { ok: response.ok, status: response.status, ...data };
 }
 
+export const signup = (email, password, passwordConfirm) => post('/api/auth', 'signup', { email, password, passwordConfirm });
 export const login = (email, password) => post('/api/auth', 'login', { email, password });
 export const logout = () => post('/api/auth', 'logout');
 export const currentUser = () => post('/api/auth', 'me');
