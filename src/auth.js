@@ -36,3 +36,5 @@ export function readOAuthCallback(search = globalThis.location?.search || '') {
 export function clearOAuthCallback() {
   globalThis.history?.replaceState?.({}, '', globalThis.location?.pathname || '/');
 }
+// 본인정보 수정. 역할·승인·이용권·프리미엄 상태는 서버가 받지 않는다.
+export const saveMemberInfo = value => post('/api/account', 'saveProfile', value);

@@ -6,6 +6,7 @@ import { emailAttemptHash, loginLockState, unlockEmailAttempts } from '../../ser
 import { BLOCKED_ACTIONS, NOT_INTEGRATED, OPERATOR_ACTIONS, OPERATOR_ROLES, targetRefusal } from '../../server/operator-scope.js';
 import { usageReport } from '../../server/ai-usage.js';
 import { CONTACT_LABEL, DEFAULT_PLAN, effectivePlan } from '../../server/plan.js';
+import { PREMIUM_ADMIN_LABEL, PROGRESS_STEPS, contractState } from '../../server/premium.js';
 import { issueRecoveryCode } from '../../server/recovery.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
@@ -45,6 +46,8 @@ export async function onRequest(context) {
   if (action === 'reactivateUser') return mutate(db, actor, body, reactivate);
   if (action === 'unlockLogin') return mutate(db, actor, body, unlock);
   if (action === 'endSessions') return mutate(db, actor, body, endSessions);
+  // 수주 작업 진행상태만 바꾼다. 프리미엄 권한 자체는 BLOCKED_ACTIONS가 막는다.
+  if (action === 'setContractProgress') return mutate(db, actor, body, (database, target) => setContractProgress(database, target, body));
   return mutate(db, actor, body, recovery);
 }
 
@@ -70,7 +73,12 @@ async function userDetail(db, id) {
 // 회원 목록. 비밀번호 열은 아예 SELECT에 넣지 않는다.
 async function directory(db, query) {
   const users = (await db.prepare(`SELECT id, email, role, status, name, phone, org_name, is_contact,
-    terms_version, privacy_version, consented_at, profile_completed_at, created_at, updated_at, plan, trial_used_at FROM users ORDER BY created_at`).all())?.results || [];
+    terms_version, privacy_version, consented_at, profile_completed_at, created_at, updated_at, plan, trial_used_at,
+    profile_updated_at, profile_review_needed FROM users ORDER BY created_at`).all())?.results || [];
+  const contracts = new Map();
+  for (const row of (await db.prepare('SELECT user_id, status, started_on, ends_on, progress, progress_note, contract_name, updated_at FROM premium_contracts').all())?.results || []) contracts.set(row.user_id, row);
+  const memberProfiles = new Map();
+  for (const row of (await db.prepare('SELECT user_id, org_type, org_address, org_intro, staff, facilities, programs, achievements, partners, reuse_note, updated_at FROM member_profiles').all())?.results || []) memberProfiles.set(row.user_id, row);
   const identities = (await db.prepare('SELECT user_id, provider, email FROM user_identities ORDER BY linked_at').all())?.results || [];
   const sessions = (await db.prepare(`SELECT user_id, COUNT(*) AS session_count, MAX(last_seen_at) AS last_seen_at, MAX(expires_at) AS expires_at
     FROM sessions GROUP BY user_id`).all())?.results || [];
@@ -104,6 +112,11 @@ async function directory(db, query) {
       sessions: { count: Number(session?.session_count || 0), lastSeenAt: session?.last_seen_at || '', expiresAt: session?.expires_at || '' },
       login: locks.get(row.id) || { failures: 0, lastFailureAt: '', locked: false },
       stuck: stuckSummary(own),
+      // 정식 수주회원 여부와 계약·진행상태. 권한을 바꾸는 동작은 이 경로에 없다.
+      ...premiumSummary(contracts.get(row.id)),
+      memberProfile: memberProfileOf(memberProfiles.get(row.id)),
+      profileUpdatedAt: row.profile_updated_at || '',
+      profileReviewNeeded: Number(row.profile_review_needed || 0) === 1,
       recovery: code
         ? { issued: true, active: !code.used_at && String(code.expires_at) > nowIso, issuedAt: code.created_at, expiresAt: code.expires_at, usedAt: code.used_at || '' }
         : { issued: false, active: false, issuedAt: '', expiresAt: '', usedAt: '' }
@@ -180,6 +193,41 @@ async function unlock(db, target) {
 async function endSessions(db, target) {
   await db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(target.id).run();
   return { action: 'user.endSessions', detail: '전체 세션 종료' };
+}
+
+// 수주 작업 진행상태 변경. 계약 기간·상태(권한)는 손대지 않고 진행 단계와 메모만 바꾼다.
+async function setContractProgress(db, target, body) {
+  const progress = String(body.progress || '');
+  if (!PROGRESS_STEPS.includes(progress)) return { error: `진행상태는 ${PROGRESS_STEPS.join('·')} 중에서 고를 수 있습니다.` };
+  const contract = await db.prepare('SELECT status, progress FROM premium_contracts WHERE user_id = ?').bind(target.id).first();
+  if (!contract) return { error: `${PREMIUM_ADMIN_LABEL} 계약이 없는 계정입니다.` };
+  const note = String(body.progressNote || '').trim().slice(0, 300);
+  await db.prepare('UPDATE premium_contracts SET progress = ?, progress_note = ?, updated_at = ? WHERE user_id = ?')
+    .bind(progress, note, new Date().toISOString(), target.id).run();
+  return { action: 'operator.setContractProgress', detail: `${contract.progress || '접수'} → ${progress}` };
+}
+
+// 정식 수주회원 요약. 운영관리자는 읽고 진행상태만 바꾼다.
+function premiumSummary(contract) {
+  if (!contract) return { premium: false, premiumLabel: '', contract: null };
+  const state = contractState({ status: contract.status, startedOn: contract.started_on || '', endsOn: contract.ends_on || '' });
+  return {
+    premium: state.premium, premiumLabel: PREMIUM_ADMIN_LABEL,
+    contract: {
+      status: state.status, statusLabel: state.label, startedOn: contract.started_on || '', endsOn: contract.ends_on || '',
+      progress: contract.progress || '접수', progressNote: contract.progress_note || '',
+      contractName: contract.contract_name || '', canStartWork: state.canStartWork, updatedAt: contract.updated_at || ''
+    }
+  };
+}
+
+function memberProfileOf(row) {
+  return {
+    orgType: row?.org_type || '', orgAddress: row?.org_address || '', orgIntro: row?.org_intro || '',
+    staff: row?.staff || '', facilities: row?.facilities || '', programs: row?.programs || '',
+    achievements: row?.achievements || '', partners: row?.partners || '', reuseNote: row?.reuse_note || '',
+    updatedAt: row?.updated_at || ''
+  };
 }
 
 async function recovery(db, target, actor) {

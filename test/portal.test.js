@@ -16,7 +16,7 @@ test('로그인한 관리자·운영관리자는 어느 포털로 갈지 먼저 
   assert.match(app, /step: 0, activeTool: 'home', homeSeen: false, portal: ''/);
   assert.match(app, /restored\.portal = \['admin', 'proposal'\]\.includes\(saved\.portal\) \? saved\.portal : '';/);
   // 회원은 이 화면을 보지 않는다. 포털은 관리자·운영관리자에게만 있다.
-  assert.match(block, /if \(!isStaff\(\)\) return '';/);
+  assert.match(block, /if \(!isStaff\(\)\) return premiumLink\(cls\);/);
 });
 
 test('두 포털이 각각 무엇을 하는지 고르는 화면에 적혀 있다', () => {

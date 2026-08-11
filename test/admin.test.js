@@ -192,7 +192,7 @@ test('관리자에게만 관리자 화면 진입점이 보인다', () => {
   assert.match(app, /function isAdmin\(\) \{ return auth\.status === 'signedIn' && auth\.user\?\.role === 'admin' && auth\.user\?\.status === 'active'; \}/);
   // 진입점은 포털 단추 하나로 모였다. 관리자·운영관리자가 아니면 아무것도 나오지 않는다.
   assert.match(app, /function portalLinks\(cls = 'history-button'\) \{/);
-  assert.match(app, /if \(!isStaff\(\)\) return '';/);
+  assert.match(app, /if \(!isStaff\(\)\) return premiumLink\(cls\);/);
   assert.match(app, /data-portal-open="admin"[^`]*>관리자</);
   assert.match(app, /\$\{portalLinks\(\)\}/);
   assert.match(app, /\$\{portalLinks\('button ghost'\)\}/);

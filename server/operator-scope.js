@@ -11,7 +11,8 @@ export const OPERATOR_ACTIONS = new Set([
   'unlockLogin',   // 로그인 잠금 해제
   'endSessions',   // 전체 세션 종료
   'issueRecoveryCode', // 일회용 계정 복구코드 발급
-  'usageReport'    // AI 사용량·비용 조회(읽기 전용)
+  'usageReport',   // AI 사용량·비용 조회(읽기 전용)
+  'setContractProgress' // 수주 작업 진행상태 변경. 권한 자체는 건드리지 않는다
 ]);
 
 // 운영관리자 권한으로는 서버에서 거절하는 동작. 화면에 버튼이 없더라도 여기서 다시 막는다.
@@ -20,6 +21,11 @@ export const BLOCKED_ACTIONS = new Map([
   ['grantOperator', '운영관리자 지정'],
   ['revokeOperator', '운영관리자 해제'],
   ['setPlan', '이용권 변경'],
+  ['setPremium', '정식 수주회원 지정·해제'],
+  ['grantPremium', '정식 수주회원 부여'],
+  ['revokePremium', '정식 수주회원 중지'],
+  ['saveShowcase', '공개용 우수 제안서 편집'],
+  ['setShowcasePublic', '공개용 우수 제안서 공개·비공개'],
   ['setUsageCap', 'AI 사용량 상한 변경'],
   ['grantFullPlan', '전체 이용권 부여'],
   ['revokeFullPlan', '전체 이용권 회수'],

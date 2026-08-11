@@ -5,10 +5,11 @@ import { localAnalyze } from './fallback.js';
 import { buildDocxBlob, downloadBlob, exportDocx, exportPdf, printDocument, submissionFileName } from './export.js';
 import { buildProposalPdfBlob, exportProposalPdf } from './pdf-export.js';
 import { MANIFEST_NAME, packageStale, planSubmissionZip, zipBytes } from './submission-zip.js';
-import { UNAUTHORIZED, accountProfile, clearOAuthCallback, currentUser, finishSocial, login, logout, readOAuthCallback, recoverPassword, saveAccountProfile, signup as signupEmail, startSocial } from './auth.js';
-import { adminUsageReport, approveAccount, disableAccount, listAccounts, listCollectedNotices, removeAccount, setAccountPlan, setAccountRole, setNoticePublic } from './admin.js';
+import { UNAUTHORIZED, accountProfile, clearOAuthCallback, currentUser, finishSocial, login, logout, readOAuthCallback, recoverPassword, saveAccountProfile, saveMemberInfo, signup as signupEmail, startSocial } from './auth.js';
+import { premiumNoticeHistory, premiumShowcase, premiumStatus } from './premium.js';
+import { adminUsageReport, approveAccount, deleteShowcase, disableAccount, listAccounts, listCollectedNotices, listShowcase, removeAccount, saveShowcase, setAccountPlan, setAccountPremium, setAccountRole, setNoticePublic, setShowcaseOrder, setShowcasePublic } from './admin.js';
 import { publicNoticeDetail, searchPublicNotices } from './notice-search.js';
-import { operatorApprove, operatorDisable, operatorEndSessions, operatorIssueRecoveryCode, operatorOverview, operatorReactivate, operatorUnlockLogin, operatorUsageReport, operatorUserDetail } from './operator.js';
+import { operatorApprove, operatorDisable, operatorEndSessions, operatorIssueRecoveryCode, operatorOverview, operatorReactivate, operatorSetContractProgress, operatorUnlockLogin, operatorUsageReport, operatorUserDetail } from './operator.js';
 import { reportError, reportStep, resetActivityDedupe } from './activity.js';
 import { fetchNoticeDetail, fetchNoticeList, importNoticeUrl, noticeBodyText } from './notices.js';
 import { deleteArchivedApplicant, getArchivedProposal, getArchiveRecoveryKey, listArchivedApplicants, listArchivedProposals, saveArchivedApplicant, saveArchivedProposal, searchArchivedNotices, syncArchivedNotices, useArchiveRecoveryKey } from './archive.js';
@@ -102,12 +103,18 @@ let auth = {
   identities: [], profileDraft: { name: '', phone: '', orgName: '', isContact: null, agreeTerms: false, agreePrivacy: false },
   // 관리자 화면 자료. 로그인 상태와 함께만 살아 있고 localStorage에 저장하지 않는다.
   accounts: [], accountsLoaded: false, confirmDelete: '', adminTab: 'accounts', notices: emptyAdminNotices(), usage: emptyUsage(),
+  // 정식 수주계약 편집과 공개용 우수 제안서. 화면에만 두고 저장하지 않는다.
+  premiumDraft: {}, showcase: null, showcaseDraft: {}, showcaseEditing: '', progressDraft: {},
   // 운영관리자 화면 자료. 발급한 복구코드는 화면에만 잠시 두고 저장하지 않는다.
   operator: emptyOperator(),
   // 핵심제안서 화면. 입력과 결과는 화면에만 두고 브라우저 저장소에 넣지 않는다.
   core: { draft: emptyCoreDraft(), result: null },
   // 공모정보 검색 화면. 로그인 없이도 쓰며 이미 모아 둔 자료만 읽는다.
-  search: emptySearch()
+  search: emptySearch(),
+  // 내 정보 수정. 저장 전 입력은 memberDraft에만 두고 저장 후 서버 값으로 다시 읽는다.
+  memberProfile: {}, memberDraft: {}, memberOpen: false, profileUpdatedAt: '', profileReviewNeeded: false,
+  // 프리미엄회원 화면 자료. 로그인 상태와 함께만 살아 있고 저장하지 않는다.
+  premium: null
 };
 // 검색 기본값은 결과 정확도가 높은 맞춤검색이다.
 function emptySearch() {
@@ -122,6 +129,8 @@ function hasFullAccess() {
   if (!user) return false;
   return user.role === 'admin' || user.role === 'operator' || user.plan === 'full';
 }
+// 프리미엄회원(정식 수주회원). 화면 표시용이고 실제 차단은 /api/premium이 다시 확인한다.
+ function isPremium() { return auth.status === 'signedIn' && (Boolean(auth.user?.premium) || isStaff()); }
 // 승인은 받았지만 전체 이용권이 없는 회원. 핵심제안서 화면만 쓴다.
 function trialAccount() { return auth.status === 'signedIn' && auth.user?.status === 'active' && !hasFullAccess(); }
 // 발급된 복구코드(issued)는 이 객체 안에서만 살고 localStorage·sessionStorage에 절대 넣지 않는다.
@@ -149,9 +158,14 @@ function isStaff() { return isAdmin() || isOperator(); }
 function inAdminPortal() { return isStaff() && state.portal === 'admin'; }
 // 계획서 포털에서는 관리 진입점을 숨기고 되돌아가는 단추 하나만 남긴다. 회원이 보는 화면과 같게 하려는 것이다.
 function portalLinks(cls = 'history-button') {
-  if (!isStaff()) return '';
+  if (!isStaff()) return premiumLink(cls);
   if (!inAdminPortal()) return `<button class="${cls}" data-portal="admin">관리자 포털</button>`;
   return `${isOperator() ? `<button class="${cls}" data-portal-open="operator" aria-pressed="${state.activeTool === 'operator'}">운영관리자</button>` : ''}${isAdmin() ? `<button class="${cls}" data-portal-open="admin" aria-pressed="${state.activeTool === 'admin'}">관리자</button>` : ''}<button class="${cls}" data-portal="proposal">계획서 포털</button>`;
+}
+// 프리미엄회원 전용 진입점. 계약이 있는 사람에게만 보인다.
+function premiumLink(cls = 'history-button') {
+  if (!isPremium()) return '';
+  return `<button class="${cls}" id="open-premium" aria-pressed="${state.activeTool === 'premium'}">프리미엄회원</button>`;
 }
 function openPortal(portal) {
   if (!PORTALS.includes(portal)) return;
@@ -223,6 +237,9 @@ async function loadAccount() {
   setAuth({
     identities: result.identities || [],
     user: { ...auth.user, ...result.user },
+    memberProfile: result.memberProfile || {},
+    profileUpdatedAt: result.profileUpdatedAt || '',
+    profileReviewNeeded: Boolean(result.profileReviewNeeded),
     profileDraft: {
       name: auth.profileDraft.name || result.user?.name || '', phone: auth.profileDraft.phone || saved.phone || '',
       orgName: auth.profileDraft.orgName || saved.orgName || '', isContact: auth.profileDraft.isContact ?? (saved.consentedAt ? saved.isContact : null),
@@ -277,15 +294,17 @@ function pendingView() {
       <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="agree-privacy" ${draft.agreePrivacy ? 'checked' : ''}>개인정보 수집·이용에 동의합니다 (${CONSENT_PRIVACY})</label>
       <div class="actions"><button class="button secondary" id="sign-out" type="button">로그아웃</button><button class="button primary" id="profile-submit" type="submit" ${auth.busy ? 'disabled' : ''}>${auth.busy ? '저장 중…' : '제출'}</button></div>
     </form>
+    ${memberProfileForm()}
     ${accountLinkPanel()}</div></main></div>`;
 }
 const CONSENT_TERMS = '2026-08-10';
 const CONSENT_PRIVACY = '2026-08-10';
 // 로그인한 사람의 계정 설정 화면.
 function accountView() {
-  return `<div class="card"><div class="card-title"><div><h3>계정 설정</h3><span>${escapeHtml(accountEmail())} · ${escapeHtml(auth.user?.role || '')}</span></div><span class="status 충족">${escapeHtml(auth.user?.status || '')}</span></div>
+  return `<div class="card"><div class="card-title"><div><h3>계정 설정</h3><span>${escapeHtml(accountEmail())} · ${escapeHtml(auth.user?.role || '')}${auth.user?.premium ? ` · ${escapeHtml(auth.user.premiumLabel || '프리미엄회원')}(${escapeHtml(auth.user.premiumStatusLabel || '')})` : ''}</span></div><span class="status 충족">${escapeHtml(auth.user?.status || '')}</span></div>
     ${auth.error ? `<div class="alert danger"><strong>${escapeHtml(auth.error)}</strong></div>` : ''}
     ${auth.notice ? `<div class="alert success"><strong>${escapeHtml(auth.notice)}</strong></div>` : ''}
+    ${memberProfileForm()}
     ${accountLinkPanel()}</div>`;
 }
 // 로그인한 사람이 두 번째 소셜 계정을 연결하는 곳.
@@ -295,6 +314,181 @@ function accountLinkPanel() {
     <div class="requirement-list">${auth.identities.map(item => `<article class="requirement"><div><span class="status 충족">${escapeHtml(item.label)}</span><div><strong>${escapeHtml(item.email || '이메일 없음')}</strong><small class="muted">${escapeHtml(String(item.linkedAt).slice(0, 10))} 연결</small></div></div></article>`).join('') || '<p class="muted">아직 연결된 소셜 계정이 없습니다.</p>'}</div>
     <div class="actions"><span class="muted">같은 계정에 Google과 카카오를 함께 연결할 수 있습니다.</span><div>${SOCIAL_BUTTONS.filter(([provider]) => !linked.has(provider)).map(([provider, label]) => `<button class="button secondary" data-social="${provider}" data-social-mode="link" ${auth.busy ? 'disabled' : ''}>${label} 계정 연결</button>`).join('') || '<span class="muted">두 공급자가 모두 연결되어 있습니다.</span>'}</div></div></details>`;
 }
+// ---------- 내 정보 수정 (모든 회원) ----------
+// 승인 대기·정식·프리미엄 회원 모두 자기 정보를 직접 고친다.
+// 역할·승인·이용권·프리미엄 상태·사용량은 이 폼에 없다. 서버도 그 항목은 받지 않는다.
+const MEMBER_FIELDS = [
+  ['name', '담당자 이름', 'input'], ['phone', '연락처', 'input'], ['orgName', '기관명', 'input'],
+  ['orgType', '기관 유형', 'input'], ['orgAddress', '기관 주소', 'input'], ['orgIntro', '기관 소개', 'area'],
+  ['staff', '보유 인력', 'area'], ['facilities', '시설과 장비', 'area'], ['programs', '주요 프로그램', 'area'],
+  ['achievements', '사업 실적', 'area'], ['partners', '협력기관', 'area'],
+  ['reuseNote', '계획서 작성에 재사용할 기관정보', 'area']
+];
+const LOCKED_NOTE = '역할·승인 상태·이용권·프리미엄 상태·사용량·감사기록은 본인이 바꿀 수 없습니다. 로그인 이메일도 확인 절차가 준비되기 전까지는 바꿀 수 없습니다.';
+
+function memberProfileValue(key) {
+  const draft = auth.memberDraft || {};
+  if (draft[key] !== undefined) return draft[key];
+  return (auth.memberProfile || {})[key] || '';
+}
+
+function memberProfileForm() {
+  const changed = MEMBER_FIELDS.some(([key]) => memberProfileValue(key) !== ((auth.memberProfile || {})[key] || ''));
+  return `<details class="card org-details" id="member-profile" ${auth.memberOpen ? 'open' : ''}>
+    <summary><b>내 정보 수정</b> <small>담당자·기관정보를 직접 고칩니다. 계획서 작성에 다시 씁니다.</small></summary>
+    ${auth.profileUpdatedAt ? `<p class="muted">마지막 변경 ${escapeHtml(String(auth.profileUpdatedAt).slice(0, 16).replace('T', ' '))}${auth.profileReviewNeeded ? ' · 관리자 확인 요청 중' : ''}</p>` : ''}
+    <div class="two-col">${MEMBER_FIELDS.map(([key, label, kind]) => `<div class="field"><label for="member-${key}">${escapeHtml(label)}</label>${
+      kind === 'area'
+        ? `<textarea id="member-${key}" class="source-text" data-member-field="${key}" rows="3">${escapeHtml(memberProfileValue(key))}</textarea>`
+        : `<input id="member-${key}" data-member-field="${key}" value="${escapeHtml(memberProfileValue(key))}">`
+    }</div>`).join('')}</div>
+    <p class="muted">${escapeHtml(LOCKED_NOTE)}</p>
+    <div class="actions"><span class="muted">${changed ? '저장하지 않은 변경이 있습니다.' : '변경 내용이 없습니다.'}</span>
+      <div><button class="button secondary" id="member-reset" ${auth.busy ? 'disabled' : ''}>되돌리기</button>
+      <button class="button primary" id="member-save" ${auth.busy || !changed ? 'disabled' : ''}>내 정보 저장</button></div></div>
+    <p class="muted">저장하면 이후 만드는 진단서·핵심제안서·전체 계획서가 이 정보를 씁니다. <b>이미 저장된 계획서는 자동으로 바뀌지 않습니다.</b> 기존 계획서에 반영하려면 그 계획서에서 다시 반영해 주세요.</p>
+  </details>`;
+}
+
+function bindMemberProfile() {
+  document.querySelectorAll('[data-member-field]').forEach(el => el.oninput = () => {
+    auth.memberDraft = { ...(auth.memberDraft || {}), [el.dataset.memberField]: el.value };
+  });
+  document.querySelector('#member-reset')?.addEventListener('click', () => setAuth({ memberDraft: {}, memberOpen: true, notice: '', error: '' }));
+  document.querySelector('#member-save')?.addEventListener('click', saveMemberProfile);
+  document.querySelector('#member-profile')?.addEventListener('toggle', event => { auth.memberOpen = event.target.open; });
+}
+
+async function saveMemberProfile() {
+  const value = Object.fromEntries(MEMBER_FIELDS.map(([key]) => [key, memberProfileValue(key)]));
+  setAuth({ busy: true, error: '', notice: '' });
+  const result = await saveMemberInfo(value).catch(error => ({ ok: false, error: error.message }));
+  if (!result.ok) return setAuth({ busy: false, error: result.error || '내 정보를 저장하지 못했습니다.', memberOpen: true });
+  await loadAccount();
+  setAuth({
+    busy: false, memberDraft: {}, memberOpen: true,
+    notice: result.changed?.length ? `내 정보를 저장했습니다. 변경 항목: ${result.changed.join('·')}` : '바뀐 항목이 없습니다.'
+  });
+}
+
+// ---------- 프리미엄회원 화면 ----------
+const PREMIUM_TABS = [['showcase', '우수 사업제안서'], ['history', '공고 수집 이력'], ['contract', '내 계약·진행상태']];
+const HISTORY_STATES = [['', '전체'], ['open', '모집 중'], ['closing', '마감 임박'], ['closed', '마감'], ['unknown', '마감일 확인 필요']];
+
+function emptyPremium() {
+  return { loaded: false, status: null, showcase: [], openShowcase: '', history: null, tab: 'showcase', query: '', mode: 'focused', filters: {} };
+}
+
+function premiumState() { return auth.premium || emptyPremium(); }
+function setPremium(patch, extra = {}) { setAuth({ premium: { ...premiumState(), ...patch }, ...extra }); }
+
+function premiumView() {
+  const view = premiumState();
+  const contract = view.status?.contract || null;
+  return `<div class="card">
+    <div class="card-title"><div><h3>프리미엄회원</h3><span>계약한 전체 공모사업계획서 작업공간과 전용 자료</span></div>
+      <span class="status ${contract?.canStartWork ? '충족' : '확인-필요'}">${escapeHtml(contract?.statusLabel || (view.status?.premium ? '계약 확인 중' : '계약 없음'))}</span></div>
+    ${auth.error ? `<div class="alert danger"><strong>${escapeHtml(auth.error)}</strong></div>` : ''}
+    ${auth.notice ? `<div class="alert success"><strong>${escapeHtml(auth.notice)}</strong></div>` : ''}
+    ${contract && !contract.canStartWork ? '<div class="alert warning"><strong>계약이 진행 중이 아닙니다.</strong><p>이미 전달된 결과물은 그대로 보실 수 있지만 새로운 전문 작업은 시작할 수 없습니다.</p></div>' : ''}
+    <div class="actions"><div>${PREMIUM_TABS.map(([id, label]) => `<button class="button ${view.tab === id ? 'primary' : 'secondary'}" data-premium-tab="${id}">${escapeHtml(label)}</button>`).join('')}</div>
+      <button class="button secondary" id="close-premium">계획서 포털로</button></div>
+    ${view.tab === 'showcase' ? premiumShowcasePanel(view) : ''}
+    ${view.tab === 'history' ? premiumHistoryPanel(view) : ''}
+    ${view.tab === 'contract' ? premiumContractPanel(contract) : ''}
+  </div>`;
+}
+
+function premiumShowcasePanel(view) {
+  if (!view.showcase.length) return '<p class="muted">공개된 우수 사업제안서가 아직 없습니다. 관리자가 공개로 승인한 제안서만 여기에 올라옵니다.</p>';
+  return `<p class="muted">관리자가 공개용으로 승인한 사본 ${view.showcase.length}편입니다. 실제 고객의 계획서 원본과 개인정보는 담겨 있지 않으며 화면에서만 볼 수 있습니다.</p>
+    <div class="requirement-list">${view.showcase.map(item => `<article class="requirement"><div>
+      <div><strong>${escapeHtml(item.title)}</strong> <span class="status 충족">${escapeHtml(item.field)}</span></div>
+      <small class="muted">${escapeHtml([item.purpose, item.audience].filter(Boolean).join(' · ')) || '요약 없음'}</small>
+      ${view.openShowcase === item.id ? `<div class="showcase-body">
+        ${[['제안 목적', item.purpose], ['대상', item.audience], ['핵심 사업구조', item.structure], ['성과설계 방식', item.outcomeDesign], ['공개 가능한 범위의 본문', item.body]]
+          .filter(([, value]) => value).map(([label, value]) => `<h4>${escapeHtml(label)}</h4><p>${escapeHtml(value).replace(/\n/g, '<br>')}</p>`).join('')}
+        <p class="muted">원본 파일 내려받기는 제공하지 않습니다.</p></div>` : ''}
+      </div><button class="button secondary" data-showcase-open="${escapeHtml(item.id)}">${view.openShowcase === item.id ? '접기' : '열람'}</button></article>`).join('')}</div>`;
+}
+
+function premiumHistoryPanel(view) {
+  const history = view.history;
+  return `<div class="archive-toolbar">
+      <input id="premium-history-query" value="${escapeHtml(view.query)}" placeholder="사업명·기관명·키워드 검색 후 Enter">
+      <button class="button ${view.mode === 'focused' ? 'primary' : 'secondary'}" data-premium-mode="focused">맞춤검색</button>
+      <button class="button ${view.mode === 'broad' ? 'primary' : 'secondary'}" data-premium-mode="broad">광역검색</button>
+      <button class="button secondary" id="premium-history-search" ${auth.busy ? 'disabled' : ''}>이력 검색</button></div>
+    <div class="archive-filters">
+      <label class="archive-filter"><span>진행 상태</span><select data-premium-filter="state">${HISTORY_STATES.map(([value, label]) => `<option value="${value}" ${view.filters.state === value ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('')}</select></label>
+      ${['region', 'audience', 'field'].map(key => `<label class="archive-filter"><span>${escapeHtml({ region: '지역', audience: '대상', field: '분야' }[key])}</span><select data-premium-filter="${key}"><option value="">전체</option>${(history?.facets?.[key] || []).map(item => `<option value="${escapeHtml(item.value)}" ${view.filters[key] === item.value ? 'selected' : ''}>${escapeHtml(item.value)} (${item.count})</option>`).join('')}</select></label>`).join('')}
+      <label class="archive-filter"><span>수집 출처</span><input data-premium-filter="organizer" value="${escapeHtml(view.filters.organizer || '')}" placeholder="예: 광주지회"></label>
+    </div>
+    ${history ? `<p class="muted">${escapeHtml(history.modeLabel)} · ${history.total}건${history.total > history.notices.length ? ` (앞 ${history.notices.length}건 표시)` : ''}. 읽기 전용이며 공개 여부나 수집 설정은 바꿀 수 없습니다.</p>
+      <div class="requirement-list">${history.notices.map(item => `<article class="requirement"><div>
+        <div><strong>${escapeHtml(item.title)}</strong> <span class="status ${item.state === 'closed' ? '확인-필요' : '충족'}">${escapeHtml(item.stateLabel)}</span></div>
+        <small class="muted">${escapeHtml([item.organizer, item.applicationPeriod || item.deadline, item.supportAmount].filter(Boolean).join(' · '))}</small>
+        <small class="muted">수집 출처 ${escapeHtml(item.sourceLabel || item.source)} · 최초 수집 ${escapeHtml(String(item.collectedAt).slice(0, 10))} · 마지막 확인 ${escapeHtml(String(item.lastCheckedAt).slice(0, 10))}${item.matchedBy ? ` · ${escapeHtml(item.matchedBy)}` : ''}</small>
+        <p class="muted">${escapeHtml(item.summary || '요약 없음')}</p>
+        ${item.sourceUrl ? `<small><a href="${escapeHtml(item.sourceUrl)}" target="_blank" rel="noopener noreferrer">원문 출처</a></small>` : ''}
+      </div></article>`).join('') || '<p class="muted">조건에 맞는 공고가 없습니다.</p>'}</div>`
+    : '<p class="muted">검색어 없이 「이력 검색」을 누르면 최근 수집분부터 보여 줍니다.</p>'}`;
+}
+
+function premiumContractPanel(contract) {
+  if (!contract) return '<p class="muted">등록된 계약이 없습니다. 계약 문의로 연락해 주세요.</p>';
+  const rows = [
+    ['계약명', contract.contractName || '미입력'], ['계약 상태', contract.statusLabel],
+    ['시작일', contract.startedOn || '미입력'], ['종료일', contract.endsOn || '미입력'],
+    ['작업 진행상태', contract.progress], ['진행 메모', contract.progressNote || '없음'],
+    ['새 전문 작업', contract.canStartWork ? '시작할 수 있습니다' : '계약 기간이 아니어서 시작할 수 없습니다']
+  ];
+  return `<div class="stat-badges">${rows.slice(0, 4).map(([label, value]) => `<span class="stat-badge"><strong>·</strong><span>${escapeHtml(label)}</span><small>${escapeHtml(value)}</small></span>`).join('')}</div>
+    <div class="requirement-list">${rows.map(([label, value]) => `<article class="requirement"><div><strong>${escapeHtml(label)}</strong><small class="muted">${escapeHtml(value)}</small></div></article>`).join('')}</div>
+    <p class="muted">진행상태는 마인드스토리 담당자가 갱신합니다. 계약이 끝나도 이미 전달된 결과물은 계속 보실 수 있습니다.</p>`;
+}
+
+function bindPremium() {
+  document.querySelectorAll('[data-premium-tab]').forEach(el => el.onclick = () => {
+    const tab = el.dataset.premiumTab;
+    setPremium({ tab });
+    if (tab === 'history' && !premiumState().history) void runPremiumHistory();
+  });
+  document.querySelectorAll('[data-showcase-open]').forEach(el => el.onclick = () => {
+    setPremium({ openShowcase: premiumState().openShowcase === el.dataset.showcaseOpen ? '' : el.dataset.showcaseOpen });
+  });
+  document.querySelectorAll('[data-premium-mode]').forEach(el => el.onclick = () => { setPremium({ mode: el.dataset.premiumMode }); void runPremiumHistory(); });
+  document.querySelectorAll('[data-premium-filter]').forEach(el => {
+    const apply = () => { setPremium({ filters: { ...premiumState().filters, [el.dataset.premiumFilter]: el.value } }); void runPremiumHistory(); };
+    if (el.tagName === 'SELECT') el.onchange = apply; else el.onchange = apply;
+  });
+  const query = document.querySelector('#premium-history-query');
+  if (query) {
+    query.oninput = () => { auth.premium = { ...premiumState(), query: query.value }; };
+    query.onkeydown = event => { if (event.key === 'Enter') void runPremiumHistory(); };
+  }
+  document.querySelector('#premium-history-search')?.addEventListener('click', () => void runPremiumHistory());
+  document.querySelector('#close-premium')?.addEventListener('click', () => setState({ activeTool: 'home', notice: '', error: '' }));
+}
+
+async function loadPremium() {
+  const view = premiumState();
+  if (view.loaded) return;
+  setPremium({ loaded: true });
+  const status = await premiumStatus().catch(() => null);
+  const showcase = await premiumShowcase().catch(() => ({ proposals: [] }));
+  setPremium({ status, showcase: showcase.proposals || [] });
+}
+
+async function runPremiumHistory() {
+  const view = premiumState();
+  setAuth({ busy: true, error: '' });
+  try {
+    const history = await premiumNoticeHistory(view.query, view.mode, view.filters);
+    setPremium({ history }, { busy: false });
+  } catch (error) { setAuth({ busy: false, error: error.message }); }
+}
+
 // ---------- 관리자 화면 ----------
 const ROLE_LABELS = { admin: '관리자', operator: '운영자', customer: '고객' };
 const STATUS_LABELS = { active: '이용 중', pending: '승인 대기', disabled: '중지' };
@@ -415,9 +609,10 @@ function adminView() {
     <div class="requirement-list">${waiting.map(accountRow).join('') || '<p class="muted">승인을 기다리는 계정이 없습니다.</p>'}</div>
     <h4>이용 중·중지된 계정 ${rest.length}건</h4>
     <div class="requirement-list">${rest.map(accountRow).join('') || '<p class="muted">표시할 계정이 없습니다.</p>'}</div>
-    <div class="actions"><span class="muted">관리자 계정과 내 계정은 이 화면에서 바꿀 수 없습니다.</span><div><button class="button secondary" id="reload-admin" ${auth.busy ? 'disabled' : ''}>목록 새로고침</button><button class="button secondary" id="open-admin-notices" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'notices' ? '공모정보 접기' : '공모정보 관리'}</button><button class="button secondary" id="open-admin-usage" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'usage' ? '사용량 접기' : 'AI 사용량·비용'}</button><button class="button secondary" id="close-admin">계획서 포털로</button></div></div>
+    <div class="actions"><span class="muted">관리자 계정과 내 계정은 이 화면에서 바꿀 수 없습니다.</span><div><button class="button secondary" id="reload-admin" ${auth.busy ? 'disabled' : ''}>목록 새로고침</button><button class="button secondary" id="open-admin-notices" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'notices' ? '공모정보 접기' : '공모정보 관리'}</button><button class="button secondary" id="open-admin-usage" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'usage' ? '사용량 접기' : 'AI 사용량·비용'}</button><button class="button secondary" id="open-admin-showcase" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'showcase' ? '우수 제안서 접기' : '우수 제안서 관리'}</button><button class="button secondary" id="close-admin">계획서 포털로</button></div></div>
     ${auth.adminTab === 'notices' ? adminNoticesPanel() : ''}
     ${auth.adminTab === 'usage' ? usagePanel() : ''}
+    ${auth.adminTab === 'showcase' ? showcasePanel() : ''}
   </div>`;
 }
 
@@ -437,6 +632,8 @@ function accountRow(item) {
   return `<article class="requirement"><div>
     <div><strong>${escapeHtml(item.name || '이름 미입력')}</strong> <span class="status ${item.status === 'active' ? '충족' : '확인-필요'}">${escapeHtml(STATUS_LABELS[item.status] || item.status)}</span> <span class="muted">${escapeHtml(ROLE_LABELS[item.role] || item.role)}</span>${self ? ' <span class="muted">(내 계정)</span>' : ''}</div>
     <small class="muted">${escapeHtml(detail)}</small>
+    <div>${premiumBadge(item)}${item.profileReviewNeeded ? ' <span class="status 확인-필요">기관정보 변경 확인 필요</span>' : ''}${item.profileUpdatedAt ? ` <span class="muted">정보 변경 ${escapeHtml(String(item.profileUpdatedAt).slice(0, 10))}</span>` : ''}</div>
+    ${locked ? '' : premiumRow(item)}
     <div class="actions">${locked ? '<span class="muted">이 화면에서 바꿀 수 없는 계정입니다.</span>' : `
       ${item.status === 'active' ? `<button class="button secondary" data-admin-disable="${item.id}" ${auth.busy ? 'disabled' : ''}>사용 중지</button>`
     : `<button class="button primary" data-admin-approve="${item.id}" ${auth.busy ? 'disabled' : ''}>승인</button>`}
@@ -444,6 +641,121 @@ function accountRow(item) {
       <button class="button secondary" data-admin-plan="${item.plan === 'full' ? 'trial' : 'full'}" data-admin-plan-id="${item.id}" ${auth.busy ? 'disabled' : ''}>${item.plan === 'full' ? '전체 이용권 회수' : '전체 이용권 부여'}</button>
       <button class="button secondary" data-admin-delete="${item.id}" ${auth.busy ? 'disabled' : ''}>${auth.confirmDelete === item.id ? '한 번 더 누르면 삭제' : '삭제'}</button>`}</div>
   </div></article>`;
+}
+
+// ---------- 정식 수주회원(프리미엄) 관리 ----------
+// 부여·중지는 관리자만 한다. 운영관리자 경로에서는 서버가 언제나 거절한다.
+function premiumBadge(item) {
+  if (!item.contract) return '<span class="muted">일반 회원</span>';
+  const ok = item.contract.canStartWork;
+  return `<span class="status ${ok ? '충족' : '확인-필요'}">정식 수주회원 · ${escapeHtml(item.contract.statusLabel)}</span>`;
+}
+
+function premiumRow(item) {
+  const contract = item.contract || { status: 'active', startedOn: '', endsOn: '', progress: '접수', progressNote: '', contractName: '' };
+  const draft = (auth.premiumDraft || {})[item.id] || {};
+  const value = key => (draft[key] !== undefined ? draft[key] : contract[key] || '');
+  return `<details class="premium-edit"><summary>정식 수주계약 ${item.contract ? '수정' : '등록'}</summary>
+    <div class="two-col">
+      <div class="field"><label for="premium-name-${item.id}">계약명</label><input id="premium-name-${item.id}" data-premium-field="contractName" data-premium-id="${item.id}" value="${escapeHtml(value('contractName'))}"></div>
+      <div class="field"><label for="premium-status-${item.id}">계약 상태</label><select id="premium-status-${item.id}" data-premium-field="status" data-premium-id="${item.id}">${[['active', '계약 진행 중'], ['suspended', '중지'], ['ended', '계약 종료']].map(([id, label]) => `<option value="${id}" ${value('status') === id ? 'selected' : ''}>${label}</option>`).join('')}</select></div>
+      <div class="field"><label for="premium-start-${item.id}">시작일</label><input id="premium-start-${item.id}" type="date" data-premium-field="startedOn" data-premium-id="${item.id}" value="${escapeHtml(value('startedOn'))}"></div>
+      <div class="field"><label for="premium-end-${item.id}">종료일</label><input id="premium-end-${item.id}" type="date" data-premium-field="endsOn" data-premium-id="${item.id}" value="${escapeHtml(value('endsOn'))}"></div>
+    </div>
+    <div class="actions"><span class="muted">계약이 끝나도 이미 전달한 결과물은 회원이 계속 볼 수 있습니다. 새 전문 작업만 막힙니다.</span>
+      <button class="button primary" data-premium-save="${item.id}" ${auth.busy ? 'disabled' : ''}>계약 저장</button></div>
+  </details>`;
+}
+
+function showcasePanel() {
+  const view = auth.showcase || { proposals: [], publicCount: 0, limit: 5 };
+  const draft = auth.showcaseDraft || {};
+  const field = (key, label, kind = 'input') => `<div class="field"><label for="showcase-${key}">${escapeHtml(label)}</label>${
+    kind === 'area' ? `<textarea id="showcase-${key}" class="source-text" data-showcase-field="${key}" rows="3">${escapeHtml(draft[key] || '')}</textarea>`
+      : `<input id="showcase-${key}" data-showcase-field="${key}" value="${escapeHtml(draft[key] || '')}">`}</div>`;
+  return `<div class="card" id="showcase-panel"><div class="card-title"><div><h3>공개용 우수 사업제안서</h3>
+      <span>관리자가 만든 사본만 공개합니다. 회원 계획서를 자동으로 옮겨 오지 않습니다.</span></div>
+      <span class="status ${view.publicCount >= view.limit ? '확인-필요' : '충족'}">공개 ${view.publicCount}/${view.limit}편</span></div>
+    <p class="muted">기관명·담당자·전화번호·이메일·주소·고유번호가 남아 있으면 저장되지 않습니다. 지우고 저장해 주세요. 회원 화면에서는 열람만 되고 원본 파일 내려받기는 제공하지 않습니다.</p>
+    <div class="two-col">${field('title', '제목')}${field('field', '제안 분야')}</div>
+    ${field('purpose', '제안 목적', 'area')}${field('audience', '대상', 'area')}
+    ${field('structure', '핵심 사업구조', 'area')}${field('outcomeDesign', '성과설계 방식', 'area')}
+    ${field('body', '공개 가능한 범위의 본문', 'area')}
+    <div class="actions"><span class="muted">${auth.showcaseEditing ? '선택한 제안서를 고치는 중입니다.' : '새 사본을 만듭니다.'}</span>
+      <div>${auth.showcaseEditing ? '<button class="button secondary" id="showcase-new">새로 만들기</button>' : ''}
+      <button class="button primary" id="showcase-save" ${auth.busy ? 'disabled' : ''}>사본 저장</button></div></div>
+    <div class="requirement-list">${(view.proposals || []).map(item => `<article class="requirement"><div>
+      <div><strong>${escapeHtml(item.title)}</strong> <span class="status ${item.isPublic ? '충족' : '확인-필요'}">${item.isPublic ? '공개' : '비공개'}</span> <span class="muted">${escapeHtml(item.field)}</span></div>
+      <small class="muted">순서 ${item.order} · 수정 ${escapeHtml(String(item.updatedAt).slice(0, 10))}${item.identifiers?.length ? ` · 식별정보 확인 필요(${escapeHtml(item.identifiers.join('·'))})` : ''}</small>
+      <div class="actions"><div>
+        <button class="button secondary" data-showcase-edit="${escapeHtml(item.id)}">고치기</button>
+        <button class="button secondary" data-showcase-public="${escapeHtml(item.id)}" data-showcase-next="${item.isPublic ? 'off' : 'on'}" ${auth.busy ? 'disabled' : ''}>${item.isPublic ? '비공개로' : '공개로'}</button>
+        <button class="button secondary" data-showcase-up="${escapeHtml(item.id)}" ${auth.busy ? 'disabled' : ''}>위로</button>
+        <button class="button secondary" data-showcase-delete="${escapeHtml(item.id)}" ${auth.busy ? 'disabled' : ''}>삭제</button>
+      </div></div></div></article>`).join('') || '<p class="muted">등록된 사본이 없습니다.</p>'}</div>
+  </div>`;
+}
+
+function bindShowcase() {
+  document.querySelectorAll('[data-showcase-field]').forEach(el => el.oninput = () => {
+    auth.showcaseDraft = { ...(auth.showcaseDraft || {}), [el.dataset.showcaseField]: el.value };
+  });
+  document.querySelector('#showcase-new')?.addEventListener('click', () => setAuth({ showcaseDraft: {}, showcaseEditing: '' }));
+  document.querySelector('#showcase-save')?.addEventListener('click', () => void runShowcase('save'));
+  document.querySelectorAll('[data-showcase-edit]').forEach(el => el.onclick = () => {
+    const found = (auth.showcase?.proposals || []).find(item => item.id === el.dataset.showcaseEdit);
+    if (found) setAuth({ showcaseDraft: { ...found }, showcaseEditing: found.id });
+  });
+  document.querySelectorAll('[data-showcase-public]').forEach(el => el.onclick = () => void runShowcase('public', el.dataset.showcasePublic, el.dataset.showcaseNext === 'on'));
+  document.querySelectorAll('[data-showcase-up]').forEach(el => el.onclick = () => void runShowcase('up', el.dataset.showcaseUp));
+  document.querySelectorAll('[data-showcase-delete]').forEach(el => el.onclick = () => void runShowcase('delete', el.dataset.showcaseDelete));
+  document.querySelectorAll('[data-premium-field]').forEach(el => {
+    const apply = () => {
+      const id = el.dataset.premiumId;
+      const current = (auth.premiumDraft || {})[id] || {};
+      auth.premiumDraft = { ...(auth.premiumDraft || {}), [id]: { ...current, [el.dataset.premiumField]: el.value } };
+    };
+    el.oninput = apply; el.onchange = apply;
+  });
+  document.querySelectorAll('[data-premium-save]').forEach(el => el.onclick = () => void runPremiumContract(el.dataset.premiumSave));
+}
+
+async function runShowcase(kind, id = '', next = false) {
+  setAuth({ busy: true, error: '', notice: '' });
+  const order = (auth.showcase?.proposals || []).map(item => item.id);
+  const index = order.indexOf(id);
+  const calls = {
+    save: () => saveShowcase(auth.showcaseDraft || {}, auth.showcaseEditing || ''),
+    public: () => setShowcasePublic(id, next),
+    delete: () => deleteShowcase(id),
+    up: () => {
+      if (index <= 0) return Promise.resolve({ ok: true, ...(auth.showcase || {}) });
+      const moved = [...order];
+      [moved[index - 1], moved[index]] = [moved[index], moved[index - 1]];
+      return setShowcaseOrder(moved);
+    }
+  };
+  const result = await calls[kind]().catch(() => ({ ok: false, error: '요청을 처리하지 못했습니다.' }));
+  if (!result.ok) return setAuth({ busy: false, error: result.error || '요청을 처리하지 못했습니다.' });
+  setAuth({
+    busy: false, showcase: { proposals: result.proposals || [], publicCount: result.publicCount || 0, limit: result.limit || 5 },
+    showcaseDraft: kind === 'save' ? {} : auth.showcaseDraft, showcaseEditing: kind === 'save' ? '' : auth.showcaseEditing,
+    notice: { save: '사본을 저장했습니다.', public: '공개 여부를 바꿨습니다.', delete: '사본을 지웠습니다.', up: '노출 순서를 바꿨습니다.' }[kind]
+  });
+}
+
+async function runPremiumContract(id) {
+  const contract = (auth.premiumDraft || {})[id] || {};
+  setAuth({ busy: true, error: '', notice: '' });
+  const result = await setAccountPremium(id, contract).catch(() => ({ ok: false }));
+  if (!result.ok) return setAuth({ busy: false, error: result.error || '계약을 저장하지 못했습니다.' });
+  setAuth({ busy: false, accounts: result.users || auth.accounts, premiumDraft: {}, notice: '정식 수주계약을 저장했습니다.' });
+}
+
+async function loadShowcase() {
+  if (auth.showcase) return;
+  const result = await listShowcase().catch(() => null);
+  if (result?.ok !== false) setAuth({ showcase: { proposals: result?.proposals || [], publicCount: result?.publicCount || 0, limit: result?.limit || 5 } });
 }
 
 // ---------- 운영관리자 화면 ----------
@@ -551,6 +863,9 @@ function operatorRow(item) {
     <small class="muted">${escapeHtml(stuck)}</small>
     <small class="muted">${escapeHtml(`이용권 ${PLAN_LABELS[item.plan] || item.plan || '무료 체험'}${item.plan === 'full' ? '' : `(${CONTACT_LABEL})`} · ${item.trialUsed ? `무료 체험 사용 ${stamp(item.trialUsedAt)}` : '무료 체험 미사용'} · 이용권 변경은 관리자만 할 수 있습니다`)}</small>
     <small class="muted">결제금액·결제상태·이용기간·이용량: 미연동</small>
+    ${item.profileReviewNeeded ? '<div><span class="status 확인-필요">기관정보 변경 확인 필요</span></div>' : ''}
+    ${item.profileUpdatedAt ? `<small class="muted">본인정보 변경 ${escapeHtml(stamp(item.profileUpdatedAt))}</small>` : ''}
+    ${guarded ? '' : operatorContractRow(item)}
     <div class="actions">${guarded ? '<span class="muted">관리자·운영관리자·내 계정은 이 화면에서 바꿀 수 없습니다.</span>' : `
       ${(OPERATOR_STATUS_ACTIONS[item.status] || []).map(([kind, label, tone]) => `<button class="button ${tone}" data-operator-action="${kind}" data-operator-id="${item.id}" ${auth.busy ? 'disabled' : ''}>${label}</button>`).join('')}
       <button class="button secondary" data-operator-action="unlock" data-operator-id="${item.id}" ${auth.busy || !item.login.failures ? 'disabled' : ''}>로그인 잠금 해제</button>
@@ -560,6 +875,32 @@ function operatorRow(item) {
     ${issued ? `<div class="alert success"><strong>일회용 복구코드 ${escapeHtml(issued.code)}</strong><p>${issued.minutes}분 동안 한 번만 쓸 수 있습니다(${escapeHtml(stamp(issued.expiresAt))}까지). 본인 확인 후 직접 전달하고, 이 화면을 벗어나면 다시 볼 수 없습니다. 새 비밀번호는 사용자가 로그인 화면의 「복구코드로 비밀번호 재설정」에서 직접 정합니다.</p></div>` : ''}
     ${view.selected === item.id ? operatorDetail() : ''}
   </div></article>`;
+}
+
+// 운영관리자는 수주 작업 진행상태만 바꾼다. 프리미엄 권한 부여·해제는 서버가 거절한다.
+const PROGRESS_OPTIONS = ['접수', '자료확인', '작성중', '검토중', '수정중', '전달완료', '보류'];
+function operatorContractRow(item) {
+  if (!item.contract) return '<small class="muted">정식 수주계약 없음 · 계약 등록은 관리자만 할 수 있습니다.</small>';
+  const draft = (auth.progressDraft || {})[item.id] || {};
+  const progress = draft.progress ?? item.contract.progress;
+  const note = draft.progressNote ?? item.contract.progressNote;
+  return `<div class="inline-row">
+    <span class="status ${item.contract.canStartWork ? '충족' : '확인-필요'}">정식 수주회원 · ${escapeHtml(item.contract.statusLabel)}</span>
+    <small class="muted">${escapeHtml([item.contract.contractName || '계약명 미입력', `${item.contract.startedOn || '시작일 미입력'} ~ ${item.contract.endsOn || '종료일 미입력'}`].join(' · '))}</small>
+    <label for="progress-${item.id}">작업 진행상태</label>
+    <select id="progress-${item.id}" data-progress-field="progress" data-progress-id="${item.id}">${PROGRESS_OPTIONS.map(step => `<option value="${step}" ${progress === step ? 'selected' : ''}>${step}</option>`).join('')}</select>
+    <input data-progress-field="progressNote" data-progress-id="${item.id}" value="${escapeHtml(note)}" placeholder="진행 메모(선택)">
+    <button class="button secondary" data-progress-save="${item.id}" ${auth.busy ? 'disabled' : ''}>진행상태 저장</button>
+  </div>`;
+}
+
+async function runContractProgress(id) {
+  const draft = (auth.progressDraft || {})[id] || {};
+  const found = (auth.operator.users || []).find(item => item.id === id);
+  setAuth({ busy: true, error: '', notice: '' });
+  const result = await operatorSetContractProgress(id, draft.progress ?? found?.contract?.progress ?? '접수', draft.progressNote ?? found?.contract?.progressNote ?? '', auth.operator.query);
+  if (!result.ok) return setAuth({ busy: false, error: result.error || '진행상태를 바꾸지 못했습니다.' });
+  setAuth({ busy: false, progressDraft: {}, notice: '수주 작업 진행상태를 바꿨습니다.', operator: { ...auth.operator, users: result.users || auth.operator.users, audit: result.audit || auth.operator.audit } });
 }
 
 // 문제 확인 화면. 계획서 원문과 개인정보는 여기에 싣지 않고 단계 번호·오류 코드·시각만 보여 준다.
@@ -871,6 +1212,16 @@ const CORE_LOCKED = [
   ['검증·코칭', '평가기준으로 문제를 찾고 수정 방향을 받는 기능'],
   ['공고보관함·계획서보관함', '공고와 계획서를 계정에 보관하고 이어서 작업하는 기능']
 ];
+// 저장해 둔 내 기관정보를 한 덩어리 글로 만든다. 새로 만드는 문서부터 이 값을 쓴다.
+// 이미 저장된 계획서는 이 값으로 다시 쓰지 않는다.
+function memberFactsText() {
+  const profile = auth.memberProfile || {};
+  const rows = [['기관명', profile.orgName], ['기관 유형', profile.orgType], ['기관 주소', profile.orgAddress],
+    ['기관 소개', profile.orgIntro], ['보유 인력', profile.staff], ['시설과 장비', profile.facilities],
+    ['주요 프로그램', profile.programs], ['사업 실적', profile.achievements], ['협력기관', profile.partners],
+    ['추가 참고', profile.reuseNote]].filter(([, value]) => String(value || '').trim());
+  return rows.map(([label, value]) => `${label}: ${String(value).trim()}`).join('\n');
+}
 function emptyCoreDraft() {
   return { proposer: '', coreIdea: '', purpose: '', audienceType: 'public', recipient: '', targetPages: '3', sourceText: '' };
 }
@@ -924,7 +1275,7 @@ function coreProposalView() {
       </div>
       <div class="landing-section">
         <div class="landing-head"><h2>1단계 · 제안 조건</h2><p>적으신 내용만 근거로 씁니다. 적지 않은 실적·인력·예산은 만들어 넣지 않습니다.</p></div>
-        <div class="field"><label for="core-proposer">제안자·기관 기본정보</label><textarea id="core-proposer" placeholder="예: ○○지역아동센터. 초등 돌봄 12년, 상담 자격 인력 3명." ${done || busy ? 'disabled' : ''}>${escapeHtml(draft.proposer)}</textarea></div>
+        <div class="field"><label for="core-proposer">제안자·기관 기본정보</label><textarea id="core-proposer" placeholder="예: ○○지역아동센터. 초등 돌봄 12년, 상담 자격 인력 3명." ${done || busy ? 'disabled' : ''}>${escapeHtml(draft.proposer || memberFactsText())}</textarea>${memberFactsText() ? '<small class="muted">저장해 둔 내 기관정보를 불러왔습니다. 「계정 설정 → 내 정보 수정」에서 고치면 다음 문서부터 반영됩니다.</small>' : ''}</div>
         <div class="field"><label for="core-idea">핵심 아이디어 <span class="status 확인-필요">필수</span></label><textarea id="core-idea" class="source-text" placeholder="무엇을 하려는지 적어 주세요. 예: 초등 고학년 정서지원 집단 프로그램을 주 1회 16회기로 운영하려 합니다." ${done || busy ? 'disabled' : ''}>${escapeHtml(draft.coreIdea)}</textarea><small class="muted">${CORE_MIN_IDEA}자 이상 · 지금 ${draft.coreIdea.trim().length}자</small></div>
         <div class="field"><label for="core-purpose">제안 목적</label><textarea id="core-purpose" placeholder="예: 내년도 예산 지원을 받기 위한 제안" ${done || busy ? 'disabled' : ''}>${escapeHtml(draft.purpose)}</textarea></div>
         <div class="field"><label for="core-audience">제출처 유형</label><select id="core-audience" ${done || busy ? 'disabled' : ''}>${AUDIENCE_OPTIONS.map(([key, label]) => `<option value="${key}" ${draft.audienceType === key ? 'selected' : ''}>${label}</option>`).join('')}</select><small class="muted">강조점: ${escapeHtml(audience[2])}</small></div>
@@ -3190,7 +3541,8 @@ function render() {
   if (state.activeTool === 'admin' && !isAdmin()) state.activeTool = 'home';
   // 저장된 화면 위치가 남아 있어도 권한이 없으면 열리지 않는다.
   if (state.activeTool === 'operator' && !isOperator()) state.activeTool = 'home';
-  const tools = { home: homeView, coaching: coachingView, applicants: applicantsToolView, sample: sampleView, engagement: engagementView, account: accountView, admin: adminView, operator: operatorView };
+  if (state.activeTool === 'premium' && !isPremium()) state.activeTool = 'home';
+  const tools = { home: homeView, coaching: coachingView, applicants: applicantsToolView, sample: sampleView, engagement: engagementView, account: accountView, admin: adminView, operator: operatorView, premium: premiumView };
   app.innerHTML = shell((tools[state.activeTool] || views[state.step] || views[0])()); bind(); startBusyElapsedTimer(); runPendingAiMove();
 }
 // 소개 화면에는 폼이 없다. 로그인 화면으로 넘기는 버튼과 구역 이동만 연결하고 서버는 부르지 않는다.
@@ -3568,6 +3920,11 @@ function updateInputs() {
 function bind() {
   updateInputs();
   bindTopMenus();
+  bindMemberProfile();
+  bindPremium();
+  bindShowcase();
+  if (auth.adminTab === 'showcase' && isAdmin()) void loadShowcase();
+  if (state.activeTool === 'premium') void loadPremium();
   if (state.step === 0 && !archiveLoaded) void loadRecentArchive();
   if (state.activeTool === 'home' && !homeArchiveLoaded) void loadHomeRecent();
   document.querySelectorAll('[data-type]').forEach(el => el.onclick = () => { state.project.type = el.dataset.type; saveState(); render(); });
@@ -3575,6 +3932,7 @@ function bind() {
   document.querySelectorAll('[data-step]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(Number(el.dataset.step), { notice: '', error: '' }); });
   document.querySelector('#sign-out')?.addEventListener('click', () => void submitLogout());
   document.querySelector('#open-account')?.addEventListener('click', () => setState({ activeTool: 'account', notice: '', error: '' }));
+  document.querySelector('#open-premium')?.addEventListener('click', () => setState({ activeTool: 'premium', notice: '', error: '' }));
   document.querySelectorAll('[data-portal]').forEach(el => el.onclick = () => openPortal(el.dataset.portal));
   document.querySelectorAll('[data-portal-open]').forEach(el => el.onclick = () => (el.dataset.portalOpen === 'admin' ? openAdmin() : openOperator()));
   document.querySelector('#reload-admin')?.addEventListener('click', () => void loadAccounts());
@@ -3589,6 +3947,7 @@ function bind() {
     setAuth({ adminTab: opening ? 'notices' : 'accounts', error: '', notice: '' });
     if (opening && !auth.notices.loaded) void loadAdminNotices();
   });
+  document.querySelector('#open-admin-showcase')?.addEventListener('click', () => setAuth({ adminTab: auth.adminTab === 'showcase' ? 'accounts' : 'showcase', error: '', notice: '' }));
   document.querySelector('#open-admin-usage')?.addEventListener('click', () => {
     const opening = auth.adminTab !== 'usage';
     setAuth({ adminTab: opening ? 'usage' : 'accounts', error: '', notice: '' });
@@ -3609,6 +3968,14 @@ function bind() {
   });
   document.querySelectorAll('[data-operator-action]').forEach(el => el.onclick = () => void runOperatorAction(el.dataset.operatorAction, el.dataset.operatorId));
   document.querySelectorAll('[data-operator-detail]').forEach(el => el.onclick = () => void openOperatorDetail(el.dataset.operatorDetail));
+  document.querySelectorAll('[data-progress-field]').forEach(el => {
+    const apply = () => {
+      const id = el.dataset.progressId;
+      auth.progressDraft = { ...(auth.progressDraft || {}), [id]: { ...((auth.progressDraft || {})[id] || {}), [el.dataset.progressField]: el.value } };
+    };
+    el.oninput = apply; el.onchange = apply;
+  });
+  document.querySelectorAll('[data-progress-save]').forEach(el => el.onclick = () => void runContractProgress(el.dataset.progressSave));
   document.querySelectorAll('[data-social]').forEach(el => el.addEventListener('click', () => void beginSocial(el.dataset.social, el.dataset.socialMode)));
   document.querySelector('#open-archive-box')?.addEventListener('click', () => {
     state.activeTool = 'workflow';

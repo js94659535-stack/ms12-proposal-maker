@@ -5,6 +5,9 @@ import { usageReport } from '../../server/ai-usage.js';
 import { RANK, adminNotice, findDuplicates, parseQuery, rankNotice, withDerived } from '../../server/notice-search.js';
 import { DEFAULT_PLAN, PLANS, effectivePlan } from '../../server/plan.js';
 import { revokeRecoveryCodes } from '../../server/recovery.js';
+import {
+  PREMIUM_ADMIN_LABEL, SHOWCASE_LIMIT, contractState, findIdentifiers, publicShowcase, validateContract, validateShowcase
+} from '../../server/premium.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 const SOCIAL_KEY_SUFFIX = '@social.ms12.invalid';
@@ -38,19 +41,128 @@ export async function onRequest(context) {
   if (body.action === 'setNoticePublic') return setNoticePublic(env.ARCHIVE_DB, actor, body);
   // AI 사용량·비용. 회원별·계획서별·기간별로 본다.
   if (body.action === 'usageReport') return json(await usageReport(env.ARCHIVE_DB, env, { days: body.days, userId: body.userId, proposalId: body.proposalId }), 200);
+  // 정식 수주회원(프리미엄) 부여·중지. 관리자만 한다. 운영관리자 경로에서는 언제나 거절된다.
+  if (body.action === 'setPremium') return mutate(env.ARCHIVE_DB, actor, body.id, (db, target) => setPremium(db, target, body, actor));
+  // 공개용 우수 제안서. 관리자가 만든 사본만 다룬다. 회원 계획서를 옮겨 오지 않는다.
+  if (body.action === 'listShowcase') return json(await listShowcase(env.ARCHIVE_DB), 200);
+  if (body.action === 'saveShowcase') return saveShowcase(env.ARCHIVE_DB, actor, body);
+  if (body.action === 'setShowcasePublic') return setShowcasePublic(env.ARCHIVE_DB, actor, body);
+  if (body.action === 'setShowcaseOrder') return setShowcaseOrder(env.ARCHIVE_DB, actor, body);
+  if (body.action === 'deleteShowcase') return deleteShowcase(env.ARCHIVE_DB, actor, body);
   return json({ error: '지원하지 않는 작업입니다.' }, 400);
+}
+
+// ---------- 정식 수주회원(프리미엄) ----------
+
+// 계약을 넣거나 고친다. 계약이 끝나도 행은 남긴다. 이미 전달한 결과물을 계속 읽어야 하기 때문이다.
+async function setPremium(db, target, body, actor) {
+  const checked = validateContract(body.contract || body);
+  if (!checked.ok) return { error: checked.errors.join(' ') };
+  const now = new Date().toISOString();
+  const before = await db.prepare('SELECT status FROM premium_contracts WHERE user_id = ?').bind(target.id).first();
+  const next = checked.value;
+  await db.prepare(`INSERT INTO premium_contracts (user_id, status, started_on, ends_on, progress, progress_note, contract_name, granted_by, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET status=excluded.status, started_on=excluded.started_on, ends_on=excluded.ends_on,
+      progress=excluded.progress, progress_note=excluded.progress_note, contract_name=excluded.contract_name, updated_at=excluded.updated_at`)
+    .bind(target.id, next.status, next.startedOn, next.endsOn, next.progress, next.progressNote, next.contractName,
+      String(actor?.id || ''), now, now).run();
+  const action = next.status === 'active' ? 'admin.grantPremium' : 'admin.revokePremium';
+  return { action, detail: `${PREMIUM_ADMIN_LABEL} ${before?.status || '없음'} → ${next.status}${next.endsOn ? ` (~${next.endsOn})` : ''}` };
+}
+
+// ---------- 공개용 우수 제안서 ----------
+
+async function listShowcase(db) {
+  const rows = (await db.prepare(`SELECT id, title, field, purpose, audience, structure, outcome_design, body,
+    is_public, sort_order, created_at, updated_at FROM showcase_proposals ORDER BY sort_order, created_at`).all())?.results || [];
+  const publicCount = rows.filter(row => Number(row.is_public) === 1).length;
+  return {
+    limit: SHOWCASE_LIMIT, publicCount,
+    proposals: rows.map(row => ({
+      ...publicShowcase(row), isPublic: Number(row.is_public) === 1,
+      createdAt: row.created_at, updatedAt: row.updated_at,
+      // 저장된 사본에 식별정보가 남았는지 다시 알려 준다.
+      identifiers: findIdentifiers([row.title, row.field, row.purpose, row.audience, row.structure, row.outcome_design, row.body].join('\n'))
+    }))
+  };
+}
+
+async function saveShowcase(db, actor, body) {
+  const checked = validateShowcase(body.proposal || body);
+  if (!checked.ok) return json({ error: checked.errors.join(' '), identifiers: checked.identifiers }, 400);
+  const now = new Date().toISOString();
+  const id = String(body.id || '').trim();
+  const value = checked.value;
+  if (id) {
+    const existing = await db.prepare('SELECT id FROM showcase_proposals WHERE id = ?').bind(id).first();
+    if (!existing) return json({ error: '해당 제안서를 찾지 못했습니다.' }, 404);
+    await db.prepare(`UPDATE showcase_proposals SET title=?, field=?, purpose=?, audience=?, structure=?, outcome_design=?, body=?, updated_at=? WHERE id=?`)
+      .bind(value.title, value.field, value.purpose, value.audience, value.structure, value.outcomeDesign, value.body, now, id).run();
+    await recordAudit(db, { actor, action: 'admin.updateShowcase', targetId: id, detail: value.title.slice(0, 80) });
+  } else {
+    await db.prepare(`INSERT INTO showcase_proposals (id, title, field, purpose, audience, structure, outcome_design, body, is_public, sort_order, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`)
+      .bind(crypto.randomUUID(), value.title, value.field, value.purpose, value.audience, value.structure, value.outcomeDesign, value.body,
+        Number(body.order) || 0, String(actor?.id || ''), now, now).run();
+    await recordAudit(db, { actor, action: 'admin.createShowcase', detail: value.title.slice(0, 80) });
+  }
+  return json({ ok: true, ...(await listShowcase(db)) }, 200);
+}
+
+async function setShowcasePublic(db, actor, body) {
+  const id = String(body.id || '').trim();
+  const wanted = body.isPublic === true || body.isPublic === 1;
+  const row = await db.prepare('SELECT id, title, is_public FROM showcase_proposals WHERE id = ?').bind(id).first();
+  if (!row) return json({ error: '해당 제안서를 찾지 못했습니다.' }, 404);
+  if (wanted) {
+    const publicCount = Number((await db.prepare('SELECT COUNT(*) AS n FROM showcase_proposals WHERE is_public = 1 AND id <> ?').bind(id).first())?.n || 0);
+    // 공개는 다섯 편까지만. 넘기려 하면 무엇을 내려야 하는지 알려 준다.
+    if (publicCount >= SHOWCASE_LIMIT) return json({ error: `공개는 ${SHOWCASE_LIMIT}편까지만 할 수 있습니다. 다른 제안서를 비공개로 바꾼 뒤 다시 시도해 주세요.` }, 400);
+  }
+  await db.prepare('UPDATE showcase_proposals SET is_public = ?, updated_at = ? WHERE id = ?').bind(wanted ? 1 : 0, new Date().toISOString(), id).run();
+  await recordAudit(db, { actor, action: wanted ? 'admin.publishShowcase' : 'admin.unpublishShowcase', targetId: id, detail: String(row.title || '').slice(0, 80) });
+  return json({ ok: true, ...(await listShowcase(db)) }, 200);
+}
+
+async function setShowcaseOrder(db, actor, body) {
+  const order = Array.isArray(body.order) ? body.order.slice(0, 50).map(String) : [];
+  if (!order.length) return json({ error: '순서를 정할 제안서가 없습니다.' }, 400);
+  const now = new Date().toISOString();
+  for (const [index, id] of order.entries()) {
+    await db.prepare('UPDATE showcase_proposals SET sort_order = ?, updated_at = ? WHERE id = ?').bind(index, now, id).run();
+  }
+  await recordAudit(db, { actor, action: 'admin.reorderShowcase', detail: `${order.length}편 순서 변경` });
+  return json({ ok: true, ...(await listShowcase(db)) }, 200);
+}
+
+async function deleteShowcase(db, actor, body) {
+  const id = String(body.id || '').trim();
+  const row = await db.prepare('SELECT id, title FROM showcase_proposals WHERE id = ?').bind(id).first();
+  if (!row) return json({ error: '해당 제안서를 찾지 못했습니다.' }, 404);
+  await db.prepare('DELETE FROM showcase_proposals WHERE id = ?').bind(id).run();
+  await recordAudit(db, { actor, action: 'admin.deleteShowcase', targetId: id, detail: String(row.title || '').slice(0, 80) });
+  return json({ ok: true, ...(await listShowcase(db)) }, 200);
 }
 
 // 목록. 비밀번호 열은 아예 SELECT에 넣지 않는다.
 async function listUsers(db) {
   const users = await db.prepare(`SELECT id, email, role, status, name, phone, org_name, is_contact,
-    terms_version, privacy_version, consented_at, profile_completed_at, created_at, plan, trial_used_at FROM users ORDER BY created_at`).all();
+    terms_version, privacy_version, consented_at, profile_completed_at, created_at, plan, trial_used_at,
+    profile_updated_at, profile_review_needed FROM users ORDER BY created_at`).all();
   const identities = await db.prepare('SELECT user_id, provider, email FROM user_identities ORDER BY linked_at').all();
   const byUser = new Map();
   for (const row of identities?.results || []) {
     if (!byUser.has(row.user_id)) byUser.set(row.user_id, []);
     byUser.get(row.user_id).push({ provider: row.provider, email: row.email || '' });
   }
+  // 정식 수주계약과 회원이 직접 고친 기관정보를 함께 붙인다.
+  const contracts = new Map();
+  for (const row of (await db.prepare(`SELECT user_id, status, started_on, ends_on, progress, progress_note, contract_name, updated_at
+    FROM premium_contracts`).all())?.results || []) contracts.set(row.user_id, row);
+  const profiles = new Map();
+  for (const row of (await db.prepare(`SELECT user_id, org_type, org_address, org_intro, staff, facilities, programs,
+    achievements, partners, reuse_note, updated_at FROM member_profiles`).all())?.results || []) profiles.set(row.user_id, row);
   return (users?.results || []).map(row => ({
     id: row.id,
     // 소셜 계정 행의 email은 내부 식별용이라 사람에게 보여 주지 않는다.
@@ -60,8 +172,38 @@ async function listUsers(db) {
     consentedAt: row.consented_at || '', profileCompleted: Boolean(row.profile_completed_at), createdAt: row.created_at,
     // 이용권과 무료 체험 사용 여부. plan은 저장된 값, effectivePlan은 역할까지 반영한 실제 권한이다.
     plan: row.plan || DEFAULT_PLAN, effectivePlan: effectivePlan(row), trialUsed: Boolean(row.trial_used_at), trialUsedAt: row.trial_used_at || '',
-    identities: byUser.get(row.id) || []
+    identities: byUser.get(row.id) || [],
+    ...premiumSummary(contracts.get(row.id)),
+    // 회원이 직접 고친 기관정보. 언제 바뀌었는지와 다시 확인할 항목이 있는지 함께 본다.
+    memberProfile: memberProfileOf(profiles.get(row.id)),
+    profileUpdatedAt: row.profile_updated_at || '',
+    profileReviewNeeded: Number(row.profile_review_needed || 0) === 1
   }));
+}
+
+// 관리자·운영관리자 화면에서는 「정식 수주회원」임을 함께 확인한다.
+function premiumSummary(contract) {
+  if (!contract) return { premium: false, premiumLabel: '', contract: null };
+  const state = contractState({
+    status: contract.status, startedOn: contract.started_on || '', endsOn: contract.ends_on || ''
+  });
+  return {
+    premium: state.premium, premiumLabel: PREMIUM_ADMIN_LABEL,
+    contract: {
+      status: state.status, statusLabel: state.label, startedOn: contract.started_on || '', endsOn: contract.ends_on || '',
+      progress: contract.progress || '접수', progressNote: contract.progress_note || '',
+      contractName: contract.contract_name || '', canStartWork: state.canStartWork, updatedAt: contract.updated_at || ''
+    }
+  };
+}
+
+function memberProfileOf(row) {
+  return {
+    orgType: row?.org_type || '', orgAddress: row?.org_address || '', orgIntro: row?.org_intro || '',
+    staff: row?.staff || '', facilities: row?.facilities || '', programs: row?.programs || '',
+    achievements: row?.achievements || '', partners: row?.partners || '', reuseNote: row?.reuse_note || '',
+    updatedAt: row?.updated_at || ''
+  };
 }
 
 // 바꾸기 전에 공통으로 확인할 것들. 관리자 계정과 자기 자신은 건드리지 못한다.

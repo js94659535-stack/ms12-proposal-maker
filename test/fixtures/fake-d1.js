@@ -3,7 +3,8 @@
 export function fakeDb() {
   const tables = {
     users: [], sessions: [], login_attempts: [], user_identities: [], oauth_states: [],
-    admin_audit_log: [], account_recovery_codes: [], user_activity_events: [], archived_notices: [], ai_usage_events: []
+    admin_audit_log: [], account_recovery_codes: [], user_activity_events: [], archived_notices: [], ai_usage_events: [],
+    premium_contracts: [], showcase_proposals: [], member_profiles: []
   };
   let seq = 0;
   // D1은 바꾼 행 수를 meta.changes로 알려 준다. 무료 체험 1회 제한이 이 값을 본다.
@@ -41,7 +42,7 @@ export function fakeDb() {
     if (/^SELECT id, email, role, org_id, name, status, plan, trial_used_at, password_algo/.test(text)) return rows(tables.users.filter(item => item.email === args[0]));
     if (/^SELECT id, email, role, org_id, name, status FROM users WHERE email/.test(text)) return rows(tables.users.filter(item => item.email === args[0]));
     if (/^SELECT id, email, role, org_id, name, status, profile_completed_at FROM users WHERE id/.test(text)) return rows(tables.users.filter(item => item.id === args[0]));
-    if (/^SELECT phone, org_name, is_contact/.test(text)) return rows(tables.users.filter(item => item.id === args[0]));
+    if (/^SELECT (name, )?phone, org_name, is_contact/.test(text)) return rows(tables.users.filter(item => item.id === args[0]));
     if (/^SELECT id, email, role, status, name, phone, org_name/.test(text)) return rows([...tables.users].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))));
     // 운영 화면은 상태만, 관리자 화면은 이용권까지 읽는다. 두 형태를 함께 받는다.
     if (/^SELECT id, email, role, status(, plan)? FROM users WHERE id/.test(text)) return rows(tables.users.filter(item => item.id === args[0]));
@@ -96,7 +97,8 @@ export function fakeDb() {
       if (user) { user.password_algo = args[0]; user.password_iterations = args[1]; user.password_salt = args[2]; user.password_hash = args[3]; user.updated_at = args[4]; }
       return rows([]);
     }
-    if (/^UPDATE users SET name = \?, phone = \?/.test(text)) {
+    // 가입 정보 입력(completeProfile). 본인정보 수정(saveProfile)과 열 목록이 달라 구분해 받는다.
+    if (/^UPDATE users SET name = \?, phone = \?, org_name = \?, is_contact/.test(text)) {
       const user = tables.users.find(item => item.id === args[9]);
       if (user) {
         user.name = args[0]; user.phone = args[1]; user.org_name = args[2]; user.is_contact = args[3];
@@ -252,6 +254,103 @@ export function fakeDb() {
       if (/GROUP BY day/.test(text)) return rows(grouped(item => ({ day: String(item.at).slice(0, 10) })).sort((a, b) => String(b.day).localeCompare(String(a.day))));
       if (/GROUP BY task, model/.test(text)) return rows(grouped(item => ({ task: item.task, model: item.model })));
       return rows([shape(list)]);
+    }
+
+    // ---- 정식 수주계약(프리미엄) ----
+    if (/^SELECT user_id, status, started_on, ends_on, progress, progress_note, contract_name, updated_at FROM premium_contracts WHERE user_id/.test(text)) {
+      return rows(tables.premium_contracts.filter(item => item.user_id === args[0]));
+    }
+    if (/^SELECT user_id, status, started_on, ends_on, progress, progress_note, contract_name, updated_at\s+FROM premium_contracts$/.test(text)
+      || /^SELECT user_id, status, started_on, ends_on, progress, progress_note, contract_name, updated_at FROM premium_contracts$/.test(text)) {
+      return rows(tables.premium_contracts);
+    }
+    if (/^SELECT status, started_on, ends_on, progress FROM premium_contracts WHERE user_id/.test(text)) {
+      return rows(tables.premium_contracts.filter(item => item.user_id === args[0]));
+    }
+    if (/^SELECT status FROM premium_contracts WHERE user_id/.test(text)) {
+      return rows(tables.premium_contracts.filter(item => item.user_id === args[0]).map(item => ({ status: item.status })));
+    }
+    if (/^SELECT status, progress FROM premium_contracts WHERE user_id/.test(text)) {
+      return rows(tables.premium_contracts.filter(item => item.user_id === args[0]).map(item => ({ status: item.status, progress: item.progress })));
+    }
+    if (/^INSERT INTO premium_contracts/.test(text)) {
+      const [user_id, status, started_on, ends_on, progress, progress_note, contract_name, granted_by, created_at, updated_at] = args;
+      const found = tables.premium_contracts.find(item => item.user_id === user_id);
+      if (found) Object.assign(found, { status, started_on, ends_on, progress, progress_note, contract_name, updated_at });
+      else tables.premium_contracts.push({ user_id, status, started_on, ends_on, progress, progress_note, contract_name, granted_by, created_at, updated_at });
+      return rows([], 1);
+    }
+    if (/^UPDATE premium_contracts SET progress/.test(text)) {
+      const found = tables.premium_contracts.find(item => item.user_id === args[3]);
+      if (found) Object.assign(found, { progress: args[0], progress_note: args[1], updated_at: args[2] });
+      return rows([], found ? 1 : 0);
+    }
+
+    // ---- 공개용 우수 제안서 ----
+    if (/FROM showcase_proposals WHERE is_public = 1 ORDER BY sort_order/.test(text)) {
+      return rows(tables.showcase_proposals.filter(item => Number(item.is_public) === 1)
+        .sort((a, b) => a.sort_order - b.sort_order || String(a.created_at).localeCompare(String(b.created_at)))
+        .slice(0, Number(args[0]) || 5));
+    }
+    if (/FROM showcase_proposals ORDER BY sort_order/.test(text)) {
+      return rows([...tables.showcase_proposals].sort((a, b) => a.sort_order - b.sort_order || String(a.created_at).localeCompare(String(b.created_at))));
+    }
+    if (/^SELECT COUNT\(\*\) AS n FROM showcase_proposals WHERE is_public = 1 AND id <>/.test(text)) {
+      return rows([{ n: tables.showcase_proposals.filter(item => Number(item.is_public) === 1 && item.id !== args[0]).length }]);
+    }
+    if (/^SELECT id, title, is_public FROM showcase_proposals WHERE id/.test(text)) {
+      return rows(tables.showcase_proposals.filter(item => item.id === args[0]).map(item => ({ id: item.id, title: item.title, is_public: item.is_public })));
+    }
+    if (/^SELECT id, title FROM showcase_proposals WHERE id/.test(text)) {
+      return rows(tables.showcase_proposals.filter(item => item.id === args[0]).map(item => ({ id: item.id, title: item.title })));
+    }
+    if (/^SELECT id FROM showcase_proposals WHERE id/.test(text)) {
+      return rows(tables.showcase_proposals.filter(item => item.id === args[0]).map(item => ({ id: item.id })));
+    }
+    if (/^INSERT INTO showcase_proposals/.test(text)) {
+      const [id, title, field, purpose, audience, structure, outcome_design, body, sort_order, created_by, created_at, updated_at] = args;
+      tables.showcase_proposals.push({ id, title, field, purpose, audience, structure, outcome_design, body, is_public: 0, sort_order: Number(sort_order) || 0, created_by, created_at, updated_at });
+      return rows([], 1);
+    }
+    if (/^UPDATE showcase_proposals SET title/.test(text)) {
+      const found = tables.showcase_proposals.find(item => item.id === args[8]);
+      if (found) Object.assign(found, { title: args[0], field: args[1], purpose: args[2], audience: args[3], structure: args[4], outcome_design: args[5], body: args[6], updated_at: args[7] });
+      return rows([], found ? 1 : 0);
+    }
+    if (/^UPDATE showcase_proposals SET is_public/.test(text)) {
+      const found = tables.showcase_proposals.find(item => item.id === args[2]);
+      if (found) Object.assign(found, { is_public: args[0], updated_at: args[1] });
+      return rows([], found ? 1 : 0);
+    }
+    if (/^UPDATE showcase_proposals SET sort_order/.test(text)) {
+      const found = tables.showcase_proposals.find(item => item.id === args[2]);
+      if (found) Object.assign(found, { sort_order: args[0], updated_at: args[1] });
+      return rows([], found ? 1 : 0);
+    }
+    if (/^DELETE FROM showcase_proposals WHERE id/.test(text)) {
+      tables.showcase_proposals = tables.showcase_proposals.filter(item => item.id !== args[0]);
+      return rows([], 1);
+    }
+
+    // ---- 회원 본인정보 ----
+    if (/FROM member_profiles WHERE user_id/.test(text)) {
+      return rows(tables.member_profiles.filter(item => item.user_id === args[0]));
+    }
+    if (/FROM member_profiles$/.test(text)) return rows(tables.member_profiles);
+    if (/^INSERT INTO member_profiles/.test(text)) {
+      const [user_id, org_type, org_address, org_intro, staff, facilities, programs, achievements, partners, reuse_note, updated_at] = args;
+      const next = { user_id, org_type, org_address, org_intro, staff, facilities, programs, achievements, partners, reuse_note, updated_at };
+      const found = tables.member_profiles.find(item => item.user_id === user_id);
+      if (found) Object.assign(found, next); else tables.member_profiles.push(next);
+      return rows([], 1);
+    }
+    if (/^UPDATE users SET name = \?, phone = \?, org_name = \?, profile_updated_at/.test(text)) {
+      const found = tables.users.find(item => item.id === args[6]);
+      if (found) Object.assign(found, { name: args[0], phone: args[1], org_name: args[2], profile_updated_at: args[3], profile_review_needed: args[4], updated_at: args[5] });
+      return rows([], found ? 1 : 0);
+    }
+    if (/^SELECT name, phone, org_name FROM users WHERE id/.test(text)) {
+      return rows(tables.users.filter(item => item.id === args[0]).map(item => ({ name: item.name || '', phone: item.phone || '', org_name: item.org_name || '' })));
     }
 
     throw new Error(`대역이 모르는 쿼리: ${text.slice(0, 80)}`);
