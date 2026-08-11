@@ -35,7 +35,7 @@ test('공고 불러오기는 기존 경과시간 표시를 사용하고 완료·
 });
 
 test('과거 공고는 공고보관함에서 찾고 임시 목록과 구분해 표시한다', () => {
-  assert.match(appSource, /<summary><b>공고보관함·계획서보관함<\/b> · 보관 공고와 저장한 계획서<\/summary>/);
+  assert.match(appSource, /<summary><b>공고보관함·계획서보관함<\/b> <small>가져온 공고는 자동 보관됩니다\./);
   // 보관량이 많아도 빠르게 찾도록 표·검색·필터·페이지 구조로 보여 준다.
   assert.match(appSource, /class="archive-table"/);
   assert.match(appSource, /id="archive-query"/);
@@ -44,7 +44,7 @@ test('과거 공고는 공고보관함에서 찾고 임시 목록과 구분해 �
   assert.match(appSource, /data-archive-filter="\$\{name\}"/);
   assert.match(appSource, /id="archive-page-size"/);
   assert.match(appSource, /이번에 가져온 공고 \$\{state\.noticeResults\.length\}건 · 임시 목록/);
-  assert.match(appSource, /지금 가져온 목록은 이 화면에서만 쓰는 임시 목록/);
+  assert.match(appSource, /<b>이 화면에서만 쓰는 임시 목록<\/b>이라 새로고침하면 사라지며/);
   // 기존 검색·열기 경로를 그대로 사용하고 새 API를 만들지 않는다.
   assert.match(appSource, /id="search-archive"/);
   assert.match(appSource, /data-archive-use/);

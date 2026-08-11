@@ -1470,12 +1470,13 @@ function stageHero({ eyebrow, title, lead, actions = '', routes = [] }) {
 }
 function noticeImportView() {
   return `${stageHero({ eyebrow: '1단계 · 공고 준비', title: '어떤 공고로 시작할까요?', lead: '공식 공고를 가져오거나 가지고 있는 공고문을 올리면 다음 단계부터 자동으로 이어집니다. 파일은 분석을 요청할 때만 전송됩니다.', actions: sampleButton('notice', '[샘플] 공고 먼저 보기'), routes: [{ title: '공식 공고 가져오기', desc: '사랑의열매 중앙회·광주지회 진행 중 공고를 조회해 목록으로 가져옵니다.', label: '공고 조회', action: 'fetch' }, { title: '공고문·신청서 업로드', desc: 'PDF·DOCX·TXT·HWPX 파일을 읽어 분석 자료로 씁니다.', label: '파일 선택', action: 'upload' }, { title: '공고보관함에서 다시 열기', desc: '전에 가져온 공고를 다시 열어 이어서 작업합니다.', label: '공고보관함 열기', action: 'archive' }] })}
-    <div class="card"><div class="card-title"><div><h3>기관 공고 가져오기</h3><span>사랑의열매 중앙회 · 광주지회</span></div><button class="button primary" id="fetch-notices">공고 가져오기</button></div><p class="muted">${state.noticeResults.length ? `진행 중 공고 ${state.noticeResults.length}건을 가져왔습니다.` : '버튼을 누를 때만 공식 공모사업을 조회합니다.'}<br><b>지금 가져온 목록은 이 화면에서만 쓰는 임시 목록</b>이며 새로고침하면 사라집니다. 과거에 가져온 공고는 아래 <b>「공고보관함」</b>에서 검색해 다시 열 수 있습니다.</p>${state.noticeResults.length ? '<div class="actions"><span></span><button class="button primary" data-step="1">가져온 공고 확인 →</button></div>' : ''}</div>
-    <div class="source-grid"><div class="card"><div class="card-title"><h3>공고문·신청서 업로드</h3><span>PDF · DOCX · TXT · HWPX</span></div><label class="dropzone" for="source-files"><strong>파일을 선택하거나 여기에 놓으세요</strong><small>스캔 PDF는 OCR이 필요할 수 있습니다.</small><input id="source-files" type="file" accept=".pdf,.docx,.txt,.hwpx" multiple></label><div class="file-list">${state.files.length ? state.files.map((f, i) => `<div class="file-item"><span class="file-badge">${escapeHtml(f.type)}</span><div><strong>${escapeHtml(f.name)}</strong><small>${Number(f.characters || 0).toLocaleString()}자</small></div><button data-remove-file="${i}" aria-label="파일 제거">×</button></div>`).join('') : '<p class="empty-inline">업로드한 파일이 없습니다.</p>'}</div></div>
+    <div class="dense-step">
+    <div class="card"><div class="card-title"><div><h3>기관 공고 가져오기</h3><span>사랑의열매 중앙회 · 광주지회</span></div><button class="button primary" id="fetch-notices">공고 가져오기</button></div><p class="muted">${state.noticeResults.length ? `진행 중 공고 ${state.noticeResults.length}건을 가져왔습니다.` : '버튼을 누를 때만 공식 공모사업을 조회합니다.'} 가져온 목록은 <b>이 화면에서만 쓰는 임시 목록</b>이라 새로고침하면 사라지며, 과거 공고는 아래 <b>「공고보관함」</b>에서 다시 열 수 있습니다.</p>${state.noticeResults.length ? '<div class="actions"><span></span><button class="button primary" data-step="1">가져온 공고 확인 →</button></div>' : ''}</div>
+    <div class="source-grid"><div class="card"><div class="card-title"><h3>공고문·신청서 업로드</h3><span>PDF · DOCX · TXT · HWPX</span></div><label class="dropzone" for="source-files"><strong>파일 선택 또는 여기에 놓기</strong><small>스캔 PDF는 OCR이 필요할 수 있습니다.</small><input id="source-files" type="file" accept=".pdf,.docx,.txt,.hwpx" multiple></label><div class="file-list">${state.files.length ? state.files.map((f, i) => `<div class="file-item"><span class="file-badge">${escapeHtml(f.type)}</span><div><strong>${escapeHtml(f.name)}</strong><small>${Number(f.characters || 0).toLocaleString()}자</small></div><button data-remove-file="${i}" aria-label="파일 제거">×</button></div>`).join('') : '<p class="empty-inline">업로드한 파일이 없습니다.</p>'}</div></div>
     <div class="card"><div class="card-title"><h3>공고문 직접 붙여넣기</h3><span id="char-count">${state.sourceText.length.toLocaleString()}자</span></div><textarea id="source-text" class="source-text" placeholder="기관 공고문 또는 신청서 원문을 붙여넣으세요.">${escapeHtml(state.sourceText)}</textarea></div></div>
     ${manualSourcesView()}
-    <details class="card org-details"><summary>누락 공고 URL과 공식 사이트</summary><div class="actions"><a class="button secondary" href="https://chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">중앙회 공식 사이트</a><a class="button secondary" href="https://gwangju.chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">광주지회 공식 사이트</a></div><div class="field"><label for="missing-notice-url">누락 공고 가져오기</label><input id="missing-notice-url" type="url" value="${escapeHtml(state.noticeUrlDraft)}"><button class="button secondary" id="import-notice-url">목록에 추가</button></div></details>
-    ${archiveView()}
+    <details class="card org-details"><summary>누락 공고 URL과 공식 사이트</summary><div class="inline-row"><label for="missing-notice-url">누락 공고 가져오기</label><input id="missing-notice-url" type="url" value="${escapeHtml(state.noticeUrlDraft)}" placeholder="공식 공고 상세 주소"><button class="button secondary" id="import-notice-url">목록에 추가</button></div><div class="inline-row"><a class="button secondary" href="https://chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">중앙회 공식 사이트</a><a class="button secondary" href="https://gwangju.chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">광주지회 공식 사이트</a></div></details>
+    ${archiveView()}</div>
     ${footer({ back: false, nextLabel: state.noticeResults.length ? '공고 확인' : '직접 자료로 계획서 작성', nextId: state.noticeResults.length ? 'next' : 'analyze' })}`;
 }
 
@@ -1602,19 +1603,23 @@ function archiveView() {
   const proposals = state.archiveProposals || [];
   const selected = (table.selected || []).filter(key => data.rows.some(row => row.key === key) || (state.archiveNotices || []).some(item => item.archiveNoticeKey === key));
   const linkedCount = Object.values(archiveLinks()).filter(link => (link.applicantIds || []).length).length;
+  // 필터를 쓰고 있으면 접어 두지 않는다. 조건이 숨어 있어 결과를 오해하는 일을 막는다.
+  const activeFilters = Object.values(table.filters || {}).filter(value => value).length;
   const pageKeys = data.rows.map(row => row.key);
   const allChecked = pageKeys.length > 0 && pageKeys.every(key => selected.includes(key));
-  return `<details class="card org-details" id="archive-box" open><summary><b>공고보관함·계획서보관함</b> · 보관 공고와 저장한 계획서</summary>
-    <p class="muted">한 번 가져온 공고는 자동으로 보관됩니다. 검색·필터로 찾고 「작업하기」에서 원하는 단계로 바로 이동하세요.</p>
-    <div class="summary-grid"><div><span>보관 공고</span><strong>${data.total}건</strong><small>기관 ${data.institutions.length}곳</small></div>
-      <div><span>검색 결과</span><strong>${data.matched}건</strong><small>${data.matched ? `${data.from}–${data.to}번 표시` : '조건에 맞는 공고 없음'}</small></div>
-      <div><span>신청기관 연결</span><strong>${linkedCount}건</strong><small>공고당 여러 기관 연결 가능</small></div>
-      <div><span>저장한 계획서</span><strong>${proposals.length}건</strong><small>작업하기에서 이어서 작성</small></div></div>
+  return `<details class="card org-details" id="archive-box" open><summary><b>공고보관함·계획서보관함</b> <small>가져온 공고는 자동 보관됩니다. 검색·필터로 찾아 「작업하기」에서 원하는 단계로 이동하세요.</small></summary>
+    <div class="stat-badges">${[
+      ['보관 공고', data.total, `기관 ${data.institutions.length}곳`],
+      ['검색 결과', data.matched, data.matched ? `${data.from}–${data.to}번 표시` : '조건에 맞는 공고 없음'],
+      ['신청기관 연결', linkedCount, '공고당 여러 기관 연결 가능'],
+      ['저장한 계획서', proposals.length, '작업하기에서 이어서 작성']
+    ].map(([label, value, detail]) => `<span class="stat-badge" title="${escapeHtml(`${label} ${value}건 · ${detail}`)}"><strong>${value}</strong><span>${escapeHtml(label)}</span><small>${escapeHtml(detail)}</small></span>`).join('')}</div>
     <div class="archive-toolbar"><input id="archive-query" value="${escapeHtml(table.query)}" placeholder="사업명·기관명·키워드 검색 후 Enter">
       <button class="button secondary" id="archive-apply-query">목록 검색</button>
       <button class="button secondary" id="search-archive">공고보관함 다시 불러오기</button>
       <button class="button primary" id="find-matching-notices">맞춤 공고 찾기</button>
       <button class="button secondary" id="list-archived-proposals">계획서보관함</button></div>
+    <details class="filter-details" ${activeFilters ? 'open' : ''}><summary>상세 필터${activeFilters ? ` · ${activeFilters}개 적용 중` : ''}</summary>
     <div class="archive-filters">
       ${archiveSelectField('수집일', 'collected', table.filters.collected, data.collectedDates, shortDate)}
       ${archiveSelectField('공모기관', 'institution', table.filters.institution, data.institutions)}
@@ -1622,7 +1627,7 @@ function archiveView() {
       ${archiveSelectField('상태', 'status', table.filters.status, ARCHIVE_STATUSES)}
       <label class="archive-filter"><span>신청기관</span><select data-archive-filter="applicant"><option value="">전체</option><option value="미연결" ${table.filters.applicant === '미연결' ? 'selected' : ''}>미연결</option>${(state.applicants || []).map(item => `<option value="${escapeHtml(item.id)}" ${table.filters.applicant === item.id ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}</select></label>
       ${archiveSelectField('마감일', 'deadline', table.filters.deadline, ['진행중', '7일이내', '마감'])}
-      <button class="button secondary" id="archive-reset-filters">필터 초기화</button></div>
+      <button class="button secondary" id="archive-reset-filters">필터 초기화</button></div></details>
     <div class="archive-bulk"><span>${selected.length ? `선택 ${selected.length}건` : '행 선택 후 일괄 삭제할 수 있습니다.'}</span><button class="button secondary" id="archive-delete-selected" ${selected.length ? '' : 'disabled'}>선택 삭제</button></div>
     ${data.total ? `<div class="archive-table-wrap"><table class="archive-table"><thead><tr>
       <th class="archive-check"><input type="checkbox" id="archive-select-page" ${allChecked ? 'checked' : ''} aria-label="현재 페이지 전체 선택"></th>
@@ -2535,10 +2540,12 @@ function selectedNoticeDetailView() {
 function sourceTypeOptions(selected) { return SOURCE_TYPES.map(value => `<option value="${escapeHtml(value)}" ${value === selected ? 'selected' : ''}>${escapeHtml(value)}</option>`).join(''); }
 
 function manualSourcesView() {
-  return `<div class="card"><div class="card-title"><div><h3>직접 자료 추가</h3><span>PDF · DOCX · TXT / HWP·HWPX는 PDF 변환 안내</span></div></div>
-    <div class="two-col"><div class="field"><label for="manual-source-type">기본 자료 유형</label><select id="manual-source-type">${sourceTypeOptions(state.manualSourceType)}</select><label class="dropzone" for="manual-source-files"><strong>여러 파일을 선택하세요</strong><small>자료별 유형은 추가 후 변경할 수 있습니다.</small><input id="manual-source-files" type="file" accept=".pdf,.docx,.txt,.hwp,.hwpx" multiple></label></div>
+  // 보조 자료라서 기본은 접어 둔다. 이미 추가한 자료가 있으면 펼친 채로 보여 준다.
+  const count = state.manualSources.length;
+  return `<details class="card org-details" id="manual-sources" ${count ? 'open' : ''}><summary><b>직접 자료 추가</b>${count ? ` · ${count}건` : ''} <small>PDF · DOCX · TXT / HWP·HWPX는 PDF 변환 안내</small></summary>
+    <div class="two-col"><div class="field"><label for="manual-source-type">기본 자료 유형</label><select id="manual-source-type">${sourceTypeOptions(state.manualSourceType)}</select><label class="dropzone" for="manual-source-files"><strong>여러 파일 선택</strong><small>자료별 유형은 추가 후 변경할 수 있습니다.</small><input id="manual-source-files" type="file" accept=".pdf,.docx,.txt,.hwp,.hwpx" multiple></label></div>
     <div><div class="field"><label for="manual-source-name">붙여넣기 자료명</label><input id="manual-source-name" value="${escapeHtml(state.manualSourceName)}" placeholder="예: 2027년 신청서 작성항목"><label for="manual-source-text">원문 직접 붙여넣기</label><textarea id="manual-source-text" class="source-text" placeholder="공문·신청서·예산기준·심사기준 원문을 붙여넣으세요.">${escapeHtml(state.manualSourceText)}</textarea></div><button class="button secondary" id="add-manual-text">붙여넣기 자료 추가</button></div></div>
-    ${state.manualSources.length ? `<div class="requirement-list">${state.manualSources.map((item, index) => `<article class="requirement"><div><span class="tag ${item.extractionStatus === 'success' ? '' : 'mandatory'}">${item.extractionStatus === 'success' ? '추출 성공' : '추출 불가'}</span><div><strong>${escapeHtml(item.fileName)}</strong><select data-manual-source-type="${index}">${sourceTypeOptions(item.sourceType)}</select><small>${Number(item.extractedText?.length || 0).toLocaleString()}자${item.extractionError ? ` · ${escapeHtml(item.extractionError)}` : ''}</small><p class="muted">${escapeHtml((item.extractedText || '').slice(0, 180) || '텍스트 미리보기 없음')}</p></div></div><button class="button secondary" data-remove-manual-source="${index}">삭제</button></article>`).join('')}</div>` : '<p class="muted">직접 추가한 자료가 없습니다.</p>'}</div>`;
+    ${count ? `<div class="requirement-list">${state.manualSources.map((item, index) => `<article class="requirement"><div><span class="tag ${item.extractionStatus === 'success' ? '' : 'mandatory'}">${item.extractionStatus === 'success' ? '추출 성공' : '추출 불가'}</span><div><strong>${escapeHtml(item.fileName)}</strong><select data-manual-source-type="${index}">${sourceTypeOptions(item.sourceType)}</select><small>${Number(item.extractedText?.length || 0).toLocaleString()}자${item.extractionError ? ` · ${escapeHtml(item.extractionError)}` : ''}</small><p class="muted">${escapeHtml((item.extractedText || '').slice(0, 180) || '텍스트 미리보기 없음')}</p></div></div><button class="button secondary" data-remove-manual-source="${index}">삭제</button></article>`).join('')}</div>` : '<p class="empty-inline">직접 추가한 자료가 없습니다.</p>'}</details>`;
 }
 
 function attachmentView() {
