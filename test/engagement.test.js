@@ -207,7 +207,7 @@ test('승인 흐름과 차단이 화면에 연결된다', () => {
 });
 
 test('의뢰 건 화면은 기존 화면을 대체하지 않고 덧붙는다', () => {
-  assert.match(app, /tools = \{ home: homeView, coaching: coachingView, applicants: applicantsToolView, sample: sampleView, engagement: engagementView, account: accountView \}/);
+  assert.match(app, /tools = \{ home: homeView, coaching: coachingView, applicants: applicantsToolView, sample: sampleView, engagement: engagementView, account: accountView, admin: adminView \}/);
   assert.match(app, /id="open-engagement"/);
   assert.match(app, /function engagementView\(\)/);
   assert.match(app, /function engagementOperatorView\(engagement\)/);

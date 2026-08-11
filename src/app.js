@@ -5,6 +5,7 @@ import { buildDocxBlob, downloadBlob, exportDocx, exportPdf, printDocument, subm
 import { buildProposalPdfBlob, exportProposalPdf } from './pdf-export.js';
 import { MANIFEST_NAME, packageStale, planSubmissionZip, zipBytes } from './submission-zip.js';
 import { UNAUTHORIZED, accountProfile, clearOAuthCallback, currentUser, finishSocial, login, logout, readOAuthCallback, saveAccountProfile, startSocial } from './auth.js';
+import { approveAccount, disableAccount, listAccounts, removeAccount } from './admin.js';
 import { fetchNoticeDetail, fetchNoticeList, importNoticeUrl, noticeBodyText } from './notices.js';
 import { deleteArchivedApplicant, getArchivedProposal, getArchiveRecoveryKey, listArchivedApplicants, listArchivedProposals, saveArchivedApplicant, saveArchivedProposal, searchArchivedNotices, syncArchivedNotices, useArchiveRecoveryKey } from './archive.js';
 import { ASOF_UNKNOWN, applySafeCandidates, applyUpdateCandidate, buildUpdateCandidates, extractApplicantCandidates } from './applicant-extract.js';
@@ -90,13 +91,17 @@ const attachmentFiles = new Map();
 // 로그인 상태. 세션 쿠키가 진짜 근거이고 이 값은 화면 표시용이다. localStorage에 저장하지 않는다.
 let auth = {
   status: 'checking', user: null, emailDraft: '', passwordDraft: '', error: '', notice: '', busy: false,
-  identities: [], profileDraft: { name: '', phone: '', orgName: '', isContact: null, agreeTerms: false, agreePrivacy: false }
+  identities: [], profileDraft: { name: '', phone: '', orgName: '', isContact: null, agreeTerms: false, agreePrivacy: false },
+  // 관리자 화면 자료. 로그인 상태와 함께만 살아 있고 localStorage에 저장하지 않는다.
+  accounts: [], accountsLoaded: false, confirmDelete: ''
 };
 
 function setAuth(patch) { auth = { ...auth, ...patch }; render(); }
-function signOutLocally(message = '') { setAuth({ status: 'anonymous', user: null, passwordDraft: '', identities: [], error: message, notice: '', busy: false }); }
+function signOutLocally(message = '') { setAuth({ status: 'anonymous', user: null, passwordDraft: '', identities: [], accounts: [], accountsLoaded: false, error: message, notice: '', busy: false }); }
 // 승인 전 계정은 가입 절차 화면만 본다.
 function pendingAccount() { return auth.status === 'signedIn' && auth.user?.status === 'pending'; }
+// 관리자 화면을 열 수 있는 사람. 실제 차단은 서버가 하고 화면은 그 결과를 따른다.
+function isAdmin() { return auth.status === 'signedIn' && auth.user?.role === 'admin' && auth.user?.status === 'active'; }
 
 async function checkSession() {
   // 공급자가 돌려보낸 주소면 먼저 마무리한다.
@@ -197,6 +202,69 @@ function accountLinkPanel() {
     <div class="requirement-list">${auth.identities.map(item => `<article class="requirement"><div><span class="status 충족">${escapeHtml(item.label)}</span><div><strong>${escapeHtml(item.email || '이메일 없음')}</strong><small class="muted">${escapeHtml(String(item.linkedAt).slice(0, 10))} 연결</small></div></div></article>`).join('') || '<p class="muted">아직 연결된 소셜 계정이 없습니다.</p>'}</div>
     <div class="actions"><span class="muted">같은 계정에 Google과 카카오를 함께 연결할 수 있습니다.</span><div>${SOCIAL_BUTTONS.filter(([provider]) => !linked.has(provider)).map(([provider, label]) => `<button class="button secondary" data-social="${provider}" data-social-mode="link" ${auth.busy ? 'disabled' : ''}>${label} 계정 연결</button>`).join('') || '<span class="muted">두 공급자가 모두 연결되어 있습니다.</span>'}</div></div></details>`;
 }
+// ---------- 관리자 화면 ----------
+const ROLE_LABELS = { admin: '관리자', operator: '운영자', customer: '고객' };
+const STATUS_LABELS = { active: '이용 중', pending: '승인 대기', disabled: '중지' };
+const ADMIN_DONE = { approve: '계정을 승인했습니다. 이제 작업 화면을 쓸 수 있습니다.', disable: '계정 사용을 중지하고 로그인 상태를 해제했습니다.', delete: '계정과 연결된 소셜 계정을 지웠습니다.' };
+
+function openAdmin() {
+  auth = { ...auth, error: '', notice: '', confirmDelete: '' };
+  setState({ activeTool: 'admin', notice: '', error: '' });
+  void loadAccounts();
+}
+async function loadAccounts() {
+  const result = await listAccounts().catch(() => ({ ok: false }));
+  if (!result.ok) return setAuth({ accountsLoaded: true, error: result.error || '계정 목록을 불러오지 못했습니다.' });
+  setAuth({ accounts: result.users || [], accountsLoaded: true });
+}
+// 승인·중지·삭제. 서버가 다시 확인하므로 화면은 결과만 반영한다.
+async function runAdminAction(kind, id) {
+  if (auth.busy) return;
+  // 삭제는 되돌릴 수 없어 같은 버튼을 한 번 더 눌러야 실행된다.
+  if (kind === 'delete' && auth.confirmDelete !== id) return setAuth({ confirmDelete: id, error: '', notice: '' });
+  setAuth({ busy: true, error: '', notice: '', confirmDelete: '' });
+  const call = kind === 'approve' ? approveAccount : kind === 'disable' ? disableAccount : removeAccount;
+  const result = await call(id).catch(() => ({ ok: false }));
+  if (!result.ok) return setAuth({ busy: false, error: result.error || '요청을 처리하지 못했습니다.' });
+  setAuth({ busy: false, accounts: result.users || auth.accounts, notice: ADMIN_DONE[kind] || '' });
+}
+
+function adminView() {
+  const waiting = auth.accounts.filter(item => item.status === 'pending');
+  const rest = auth.accounts.filter(item => item.status !== 'pending');
+  return `<div class="card">
+    <div class="card-title"><div><h3>관리자</h3><span>가입 승인과 계정 상태를 여기서 처리합니다.</span></div><span class="status ${waiting.length ? '확인-필요' : '충족'}">승인 대기 ${waiting.length}건</span></div>
+    ${auth.error ? `<div class="alert danger"><strong>${escapeHtml(auth.error)}</strong></div>` : ''}
+    ${auth.notice ? `<div class="alert success"><strong>${escapeHtml(auth.notice)}</strong></div>` : ''}
+    ${auth.accountsLoaded ? '' : '<p class="muted">계정 목록을 불러오는 중입니다.</p>'}
+    <h4>승인 대기 ${waiting.length}건</h4>
+    <div class="requirement-list">${waiting.map(accountRow).join('') || '<p class="muted">승인을 기다리는 계정이 없습니다.</p>'}</div>
+    <h4>이용 중·중지된 계정 ${rest.length}건</h4>
+    <div class="requirement-list">${rest.map(accountRow).join('') || '<p class="muted">표시할 계정이 없습니다.</p>'}</div>
+    <div class="actions"><span class="muted">관리자 계정과 내 계정은 이 화면에서 바꿀 수 없습니다.</span><div><button class="button secondary" id="reload-admin" ${auth.busy ? 'disabled' : ''}>목록 새로고침</button><button class="button secondary" id="close-admin">작업 화면으로</button></div></div>
+  </div>`;
+}
+
+function accountRow(item) {
+  const self = item.id === auth.user?.id;
+  const locked = self || item.role === 'admin';
+  const social = (item.identities || []).map(link => `${SOCIAL_BUTTONS.find(([provider]) => provider === link.provider)?.[1] || link.provider}${link.email ? ` (${link.email})` : ''}`).join(', ');
+  const detail = [
+    item.orgName || '기관명 미입력', item.phone || '연락처 미입력',
+    item.email || (social ? `소셜: ${social}` : '이메일 없음'),
+    `가입 ${String(item.createdAt).slice(0, 10)}`,
+    item.consentedAt ? `동의 ${item.termsVersion}` : '동의 기록 없음'
+  ].join(' · ');
+  return `<article class="requirement"><div>
+    <div><strong>${escapeHtml(item.name || '이름 미입력')}</strong> <span class="status ${item.status === 'active' ? '충족' : '확인-필요'}">${escapeHtml(STATUS_LABELS[item.status] || item.status)}</span> <span class="muted">${escapeHtml(ROLE_LABELS[item.role] || item.role)}</span>${self ? ' <span class="muted">(내 계정)</span>' : ''}</div>
+    <small class="muted">${escapeHtml(detail)}</small>
+    <div class="actions">${locked ? '<span class="muted">이 화면에서 바꿀 수 없는 계정입니다.</span>' : `
+      ${item.status === 'active' ? `<button class="button secondary" data-admin-disable="${item.id}" ${auth.busy ? 'disabled' : ''}>사용 중지</button>`
+    : `<button class="button primary" data-admin-approve="${item.id}" ${auth.busy ? 'disabled' : ''}>승인</button>`}
+      <button class="button secondary" data-admin-delete="${item.id}" ${auth.busy ? 'disabled' : ''}>${auth.confirmDelete === item.id ? '한 번 더 누르면 삭제' : '삭제'}</button>`}</div>
+  </div></article>`;
+}
+
 async function submitLogin() {
   if (auth.busy) return;
   const email = auth.emailDraft.trim();
@@ -452,7 +520,7 @@ function shell(content) {
     <div class="layout">
       <main class="main">
         <header class="workflow-header">
-          <div class="workflow-brand"><div class="brand"><span class="brand-mark">계</span><div><strong>사업계획서 작성 도우미</strong><small>공고 분석부터 제출본까지</small></div></div><span class="save-state">● 자동 저장 중</span><span class="mode">${escapeHtml(accountEmail())}</span><button class="history-button" id="open-account" aria-pressed="${state.activeTool === 'account'}">계정 설정</button><button class="history-button" id="sign-out">로그아웃</button></div>
+          <div class="workflow-brand"><div class="brand"><span class="brand-mark">계</span><div><strong>사업계획서 작성 도우미</strong><small>공고 분석부터 제출본까지</small></div></div><span class="save-state">● 자동 저장 중</span><span class="mode">${escapeHtml(accountEmail())}</span><button class="history-button" id="open-account" aria-pressed="${state.activeTool === 'account'}">계정 설정</button>${isAdmin() ? `<button class="history-button" id="open-admin" aria-pressed="${state.activeTool === 'admin'}">관리자</button>` : ''}<button class="history-button" id="sign-out">로그아웃</button></div>
           <div class="workflow-row"><label class="type-select-label" for="business-type">사업 유형<select id="business-type">${TYPES.map(([id, name]) => `<option value="${id}" ${state.project.type === id ? 'selected' : ''}>${name}</option>`).join('')}</select></label><nav class="workflow-steps" aria-label="작성 단계">${STEPS.map((name, i) => { const complete = isStepComplete(i); return `<button data-step="${i}" class="workflow-step ${state.activeTool === 'workflow' && state.step === i ? 'active' : ''} ${complete ? 'done' : ''}" ${state.activeTool === 'workflow' && state.step === i ? 'aria-current="step"' : ''}><span>${complete ? '✓' : i + 1}</span>${name}</button>`; }).join('')}</nav><button class="history-button" id="open-archive-box">공고보관함·계획서보관함</button><button class="history-button" id="open-engagement" aria-pressed="${state.activeTool === 'engagement'}">의뢰 건</button><button class="history-button" id="open-applicants" aria-pressed="${state.activeTool === 'applicants'}">신청기관 정보</button><button class="history-button" id="open-coaching" aria-pressed="${state.activeTool === 'coaching'}">계획서 검증·코칭</button><nav class="workflow-history" aria-label="앱 작업 화면 이동"><button class="history-button" id="workflow-back" aria-label="직전 작업 화면으로 뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="history-button" id="workflow-home" aria-label="홈 화면으로 가기">⌂ 홈 화면</button><button class="history-button" id="workflow-forward" aria-label="다음 작업 화면으로 앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button></nav></div>
         </header>
         ${aiResultBanner()}
@@ -493,7 +561,7 @@ function homeView() {
     <div class="home">
       <header class="home-header">
         <div class="home-brand"><strong>사업계획서 작성 도우미</strong><span>공고 분석부터 제출본까지</span></div>
-        <nav class="home-nav"><button class="button ghost" id="workflow-back" aria-label="뒤로 가기">← 뒤로</button><button class="button ghost" disabled aria-current="page">⌂ 홈 화면</button><button class="button ghost" id="workflow-forward" aria-label="앞으로 가기">앞으로 →</button><button class="button ghost" data-home-scroll="home-product">제품소개</button><button class="button ghost" data-home-scroll="home-flow">이용방법</button><button class="button ghost" data-home-scroll="home-features">주요기능</button><button class="button ghost" data-home-archive="1">공고보관함·계획서보관함</button><button class="button primary" data-home-start="1">무료로 시작하기</button></nav>
+        <nav class="home-nav"><button class="button ghost" id="workflow-back" aria-label="뒤로 가기">← 뒤로</button><button class="button ghost" disabled aria-current="page">⌂ 홈 화면</button><button class="button ghost" id="workflow-forward" aria-label="앞으로 가기">앞으로 →</button><button class="button ghost" data-home-scroll="home-product">제품소개</button><button class="button ghost" data-home-scroll="home-flow">이용방법</button><button class="button ghost" data-home-scroll="home-features">주요기능</button><button class="button ghost" data-home-archive="1">공고보관함·계획서보관함</button>${isAdmin() ? '<button class="button ghost" id="open-admin-home">관리자</button>' : ''}<button class="button primary" data-home-start="1">무료로 시작하기</button></nav>
       </header>
 
       <section class="home-hero" id="home-product">
@@ -2297,7 +2365,9 @@ function render() {
   // 승인 전 계정은 가입 절차 화면만 본다. 실제 차단은 서버가 한다.
   if (pendingAccount()) { app.innerHTML = pendingView(); bindLogin(); return; }
   const views = [noticeImportView, noticeConfirmView, applicantSelectView, businessSelectView, documentView, documentView];
-  const tools = { home: homeView, coaching: coachingView, applicants: applicantsToolView, sample: sampleView, engagement: engagementView, account: accountView };
+  // 관리자 화면은 관리자에게만 열린다. 저장된 화면 위치가 남아 있어도 역할이 아니면 되돌린다.
+  if (state.activeTool === 'admin' && !isAdmin()) state.activeTool = 'home';
+  const tools = { home: homeView, coaching: coachingView, applicants: applicantsToolView, sample: sampleView, engagement: engagementView, account: accountView, admin: adminView };
   app.innerHTML = shell((tools[state.activeTool] || views[state.step] || views[0])()); bind(); startBusyElapsedTimer(); runPendingAiMove();
 }
 function bindLogin() {
@@ -2630,6 +2700,13 @@ function bind() {
   document.querySelectorAll('[data-step]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(Number(el.dataset.step), { notice: '', error: '' }); });
   document.querySelector('#sign-out')?.addEventListener('click', () => void submitLogout());
   document.querySelector('#open-account')?.addEventListener('click', () => setState({ activeTool: 'account', notice: '', error: '' }));
+  document.querySelector('#open-admin')?.addEventListener('click', () => openAdmin());
+  document.querySelector('#open-admin-home')?.addEventListener('click', () => openAdmin());
+  document.querySelector('#reload-admin')?.addEventListener('click', () => void loadAccounts());
+  document.querySelector('#close-admin')?.addEventListener('click', () => setState({ activeTool: 'workflow', notice: '', error: '' }));
+  document.querySelectorAll('[data-admin-approve]').forEach(el => el.onclick = () => void runAdminAction('approve', el.dataset.adminApprove));
+  document.querySelectorAll('[data-admin-disable]').forEach(el => el.onclick = () => void runAdminAction('disable', el.dataset.adminDisable));
+  document.querySelectorAll('[data-admin-delete]').forEach(el => el.onclick = () => void runAdminAction('delete', el.dataset.adminDelete));
   document.querySelectorAll('[data-social]').forEach(el => el.addEventListener('click', () => void beginSocial(el.dataset.social, el.dataset.socialMode)));
   document.querySelector('#open-archive-box')?.addEventListener('click', () => {
     state.activeTool = 'workflow';
