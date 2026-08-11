@@ -753,7 +753,7 @@ function noticeSearchView() {
       <div class="home-brand"><strong>공모정보 검색</strong><span>이미 모아 둔 공모정보를 찾아봅니다</span></div>
       <nav class="home-nav">${signedIn
     ? '<button class="button primary" data-landing-back="1">← 내 화면으로</button>'
-    : '<button class="button ghost" data-landing-back="1">← 서비스 소개</button><button class="button ghost" data-landing-example="1">계획서 예시</button><button class="button ghost" data-landing="login">로그인</button><button class="button primary" data-landing="signup">무료로 시작하기</button>'}</nav>
+    : '<button class="button ghost" data-landing-back="1">← 서비스 소개</button><button class="button ghost" data-landing-example="1">계획서 예시</button><button class="button primary" data-landing="login">로그인</button>'}</nav>
     </header>
     <section class="landing">
       ${auth.error ? `<div class="alert danger"><strong>${escapeHtml(auth.error)}</strong></div>` : ''}
