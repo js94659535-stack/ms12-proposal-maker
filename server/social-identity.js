@@ -15,7 +15,9 @@ const AUTHORIZE = {
   google: 'https://accounts.google.com/o/oauth2/v2/auth',
   kakao: 'https://kauth.kakao.com/oauth/authorize'
 };
-const SCOPES = { google: 'openid email profile', kakao: 'account_email profile_nickname' };
+// 카카오는 동의항목을 모두 '사용 안 함'으로 둔다. 설정하지 않은 scope를 요청하면 승인 화면이 열리지 않으므로
+// 아무 scope도 요청하지 않고 회원번호(id)만 받는다. 회원번호는 동의항목과 무관하게 언제나 내려온다.
+const SCOPES = { google: 'openid email profile', kakao: '' };
 
 export function isProvider(value) { return PROVIDERS.includes(String(value)); }
 
@@ -36,7 +38,7 @@ export function authorizeUrl({ provider, clientId, redirectUri, state, challenge
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('client_id', clientId);
   url.searchParams.set('redirect_uri', redirectUri);
-  url.searchParams.set('scope', SCOPES[provider]);
+  if (SCOPES[provider]) url.searchParams.set('scope', SCOPES[provider]);
   url.searchParams.set('state', state);
   url.searchParams.set('code_challenge', challenge);
   url.searchParams.set('code_challenge_method', 'S256');
