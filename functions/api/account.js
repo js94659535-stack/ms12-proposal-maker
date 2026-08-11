@@ -3,6 +3,8 @@ import { CONSENT_VERSIONS, PROVIDER_LABELS, validateProfileForm } from '../../se
 import { CONTACT_LABEL, effectivePlan } from '../../server/plan.js';
 import { recordAudit } from '../../server/audit.js';
 import { PREMIUM_LABEL, contractState } from '../../server/premium.js';
+import { MEMBER_FREE_PAGES, QUOTAS, membershipOf, membershipPlans } from '../../server/membership.js';
+import { SUBSCRIPTION_LABELS, loadSubscription, remaining } from '../../server/subscription.js';
 import { EDITABLE_FIELDS, LOCKED_FIELDS, PROFILE_FIELDS, auditDetail, changedFields, needsReview, validateMemberProfile } from '../../server/member-profile.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
@@ -32,6 +34,8 @@ async function profile(db, user) {
   const member = await memberProfile(db, user.id);
   const contract = await ownContract(db, user.id);
   const state = contractState(contract);
+  const subscription = await loadSubscription(db, user.id);
+  const membership = membershipOf({ user: { ...user, plan: row?.plan }, subscription, contract: state.premium ? state : null });
   return json({
     // 이용권과 무료 체험 사용 여부는 화면 안내용이다. 실제 차단은 생성 API가 다시 확인한다.
     user: {
@@ -53,6 +57,24 @@ async function profile(db, user) {
     profileUpdatedAt: row?.profile_updated_at || '',
     profileReviewNeeded: Number(row?.profile_review_needed || 0) === 1,
     contract: contract ? { status: state.status, statusLabel: state.label, progress: contract.progress, startedOn: contract.startedOn, endsOn: contract.endsOn } : null,
+    // 계정 설정에 보여 줄 이용현황. 랜딩·관리자 화면과 같은 설정값을 쓴다.
+    membership: {
+      tier: membership.tier, label: membership.label,
+      approval: membership.approval, approvalLabel: membership.approvalLabel,
+      locked: membership.locked, legacyFull: membership.legacyFull,
+      canCoreProposal: membership.canCoreProposal, coreMaxPages: membership.coreMaxPages, coreReadOnly: membership.coreReadOnly,
+      canDiagnosis: membership.canDiagnosis, canEdit: membership.canEdit, canExport: membership.canExport, canExpertWork: membership.canExpertWork,
+      freePages: MEMBER_FREE_PAGES, freeUsed: Boolean(row?.trial_used_at),
+      subscription: subscription
+        ? {
+          status: subscription.status, statusLabel: SUBSCRIPTION_LABELS[subscription.status] || subscription.status,
+          startedOn: subscription.startedOn, endsOn: subscription.endsOn, renewsOn: subscription.renewsOn,
+          remaining: { coreProposal: remaining(subscription, 'coreProposal'), diagnosis: remaining(subscription, 'diagnosis') },
+          quota: QUOTAS.subscriber
+        }
+        : { status: 'none', statusLabel: SUBSCRIPTION_LABELS.none, remaining: { coreProposal: 0, diagnosis: 0 }, quota: QUOTAS.subscriber }
+    },
+    plans: membershipPlans(),
     identities: await linkedIdentities(db, user.id),
     consent: CONSENT_VERSIONS
   }, 200);

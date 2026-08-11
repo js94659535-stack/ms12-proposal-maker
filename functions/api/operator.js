@@ -7,6 +7,8 @@ import { BLOCKED_ACTIONS, NOT_INTEGRATED, OPERATOR_ACTIONS, OPERATOR_ROLES, targ
 import { usageReport } from '../../server/ai-usage.js';
 import { CONTACT_LABEL, DEFAULT_PLAN, effectivePlan } from '../../server/plan.js';
 import { PREMIUM_ADMIN_LABEL, PROGRESS_STEPS, contractState } from '../../server/premium.js';
+import { membershipOf } from '../../server/membership.js';
+import { SUBSCRIPTION_LABELS, remaining } from '../../server/subscription.js';
 import { issueRecoveryCode } from '../../server/recovery.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
@@ -77,6 +79,8 @@ async function directory(db, query) {
     profile_updated_at, profile_review_needed FROM users ORDER BY created_at`).all())?.results || [];
   const contracts = new Map();
   for (const row of (await db.prepare('SELECT user_id, status, started_on, ends_on, progress, progress_note, contract_name, updated_at FROM premium_contracts').all())?.results || []) contracts.set(row.user_id, row);
+  const subscriptions = new Map();
+  for (const row of (await db.prepare('SELECT user_id, status, started_on, ends_on, cycle_start, renews_on, core_used, diagnosis_used, note, updated_at FROM subscriptions').all())?.results || []) subscriptions.set(row.user_id, row);
   const memberProfiles = new Map();
   for (const row of (await db.prepare('SELECT user_id, org_type, org_address, org_intro, staff, facilities, programs, achievements, partners, reuse_note, updated_at FROM member_profiles').all())?.results || []) memberProfiles.set(row.user_id, row);
   const identities = (await db.prepare('SELECT user_id, provider, email FROM user_identities ORDER BY linked_at').all())?.results || [];
@@ -114,6 +118,8 @@ async function directory(db, query) {
       stuck: stuckSummary(own),
       // 정식 수주회원 여부와 계약·진행상태. 권한을 바꾸는 동작은 이 경로에 없다.
       ...premiumSummary(contracts.get(row.id)),
+      // 구독과 이용량은 읽기만 한다. 바꾸는 동작은 BLOCKED_ACTIONS가 거절한다.
+      ...subscriptionView(subscriptions.get(row.id), row, contracts.get(row.id)),
       memberProfile: memberProfileOf(memberProfiles.get(row.id)),
       profileUpdatedAt: row.profile_updated_at || '',
       profileReviewNeeded: Number(row.profile_review_needed || 0) === 1,
@@ -205,6 +211,29 @@ async function setContractProgress(db, target, body) {
   await db.prepare('UPDATE premium_contracts SET progress = ?, progress_note = ?, updated_at = ? WHERE user_id = ?')
     .bind(progress, note, new Date().toISOString(), target.id).run();
   return { action: 'operator.setContractProgress', detail: `${contract.progress || '접수'} → ${progress}` };
+}
+
+// 월간 구독과 고객등급. 운영관리자는 조회만 한다.
+function subscriptionView(row, user, contract) {
+  const subscription = row
+    ? {
+      status: row.status, startedOn: row.started_on || '', endsOn: row.ends_on || '', renewsOn: row.renews_on || '',
+      cycleStart: row.cycle_start || '', coreUsed: Number(row.core_used || 0), diagnosisUsed: Number(row.diagnosis_used || 0), note: row.note || ''
+    }
+    : null;
+  const membership = membershipOf({
+    user, subscription,
+    contract: contract ? contractState({ status: contract.status, startedOn: contract.started_on || '', endsOn: contract.ends_on || '' }) : null
+  });
+  return {
+    tier: membership.tier, tierLabel: membership.label, approval: membership.approval, approvalLabel: membership.approvalLabel,
+    subscription: subscription
+      ? {
+        ...subscription, statusLabel: SUBSCRIPTION_LABELS[subscription.status] || subscription.status,
+        remaining: { coreProposal: remaining(subscription, 'coreProposal'), diagnosis: remaining(subscription, 'diagnosis') }
+      }
+      : { status: 'none', statusLabel: SUBSCRIPTION_LABELS.none, remaining: { coreProposal: 0, diagnosis: 0 } }
+  };
 }
 
 // 정식 수주회원 요약. 운영관리자는 읽고 진행상태만 바꾼다.

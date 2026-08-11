@@ -30,3 +30,5 @@ export const saveShowcase = (proposal, id = '') => post('saveShowcase', { propos
 export const setShowcasePublic = (id, isPublic) => post('setShowcasePublic', { id, isPublic });
 export const setShowcaseOrder = order => post('setShowcaseOrder', { order });
 export const deleteShowcase = id => post('deleteShowcase', { id });
+// 시험용 월간 구독 부여·중지. 관리자만 할 수 있고 서버가 다시 확인한다.
+export const setAccountSubscription = (id, subscription) => post('setSubscription', { id, subscription });

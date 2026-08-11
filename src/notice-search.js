@@ -12,3 +12,5 @@ async function post(action, payload = {}) {
 // mode: 'focused'(맞춤검색·기본) | 'broad'(광역검색)
 export const searchPublicNotices = (query, mode, filters) => post('searchNotices', { query, mode, filters });
 export const publicNoticeDetail = key => post('noticeDetail', { key });
+// 회원 안내 상품표. 로그인 없이도 랜딩·로그인 화면에서 읽는다.
+export const fetchMembershipPlans = () => post('membershipPlans', {});

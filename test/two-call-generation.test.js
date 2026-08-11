@@ -13,7 +13,7 @@ test('계획서 생성은 설계안 1회 + 전체 작성 1회 구조를 쓴다',
   // 첫 호출(master)은 본문이 아니라 설계안을 만든다.
   assert.match(api, /아직 계획서 본문을 작성하지 말고/);
   // 두 번째 호출은 승인된 설계안으로 본문과 표를 한 번에 만든다.
-  assert.match(api, /const ACTIONS = \['analyze', 'master', 'draftPart', 'draft', 'fullProposal', 'preciseReview', 'patchSections', 'rewrite', 'finalize', CORE_PROPOSAL_ACTION];/);
+  assert.match(api, /const ACTIONS = \['analyze', 'master', 'draftPart', 'draft', 'fullProposal', 'preciseReview', 'patchSections', 'rewrite', 'finalize', CORE_PROPOSAL_ACTION, DIAGNOSIS_ACTION];/);
   assert.match(api, /fullProposal: 20_000/);
   assert.match(api, /if \(action === 'fullProposal'\) return \{/);
   assert.match(api, /name: 'proposal_full_document', schema: FULL_PROPOSAL_SCHEMA/);

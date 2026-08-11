@@ -14,6 +14,8 @@ async function request(action, payload) {
 
 // MS12 핵심제안서. 제출처와 희망 쪽수에 맞춰 만들며, 계정당 한 번만 열리는지는 서버가 D1에서 확인한다.
 export const coreProposalWithAI = payload => request('coreProposal', payload);
+// 선정 가능성 진단서. 구독회원 기능이며 서버가 남은 편수를 확인한다.
+export const diagnoseWithAI = payload => request('diagnosis', payload);
 export const analyzeWithAI = payload => request('analyze', payload);
 export const draftWithAI = payload => request('draft', payload);
 export const masterWithAI = payload => request('master', payload);

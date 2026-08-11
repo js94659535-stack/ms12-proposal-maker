@@ -1,6 +1,10 @@
 import { budgetRefusal, extractUsage, recordAiUsage } from '../../server/ai-usage.js';
 import { outputTokensFor, planPages, validateCoreProposalInput } from '../../server/core-proposal.js';
 import { CORE_PROPOSAL_ACTION, TRIAL_ACTION, TRIAL_SPENT, consumeTrial, hasFullAccess, planRefusal, releaseTrial } from '../../server/plan.js';
+import { DIAGNOSIS_ACTION, QUOTA_SPENT, corePagesFor, membershipOf, membershipRefusal } from '../../server/membership.js';
+import { consumeQuota, loadSubscription, releaseQuota } from '../../server/subscription.js';
+import { DIAGNOSIS_SCHEMA, OUTPUT_TOKENS as DIAGNOSIS_TOKENS, diagnosisPrompt, normalizeDiagnosis, validateDiagnosisInput } from '../../server/diagnosis.js';
+import { contractState } from '../../server/premium.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 // 무료 생성은 공고 원문과 메모를 짧게만 받는다. 비용을 계정 단위로 묶어 두기 위해서다.
@@ -19,7 +23,17 @@ const LIMITS = Object.freeze({
   timeoutMs: 300_000,
   outputTokens: Object.freeze({ analyze: 6_000, master: 12_000, draftPart: 7_000, draft: 12_000, fullProposal: 20_000, preciseReview: 8_000, patchSections: 10_000, rewrite: 4_000, finalize: 9_000, coreProposal: 5_000 })
 });
-const ACTIONS = ['analyze', 'master', 'draftPart', 'draft', 'fullProposal', 'preciseReview', 'patchSections', 'rewrite', 'finalize', CORE_PROPOSAL_ACTION];
+const ACTIONS = ['analyze', 'master', 'draftPart', 'draft', 'fullProposal', 'preciseReview', 'patchSections', 'rewrite', 'finalize', CORE_PROPOSAL_ACTION, DIAGNOSIS_ACTION];
+
+// 프리미엄 계약을 읽어 전문 작업 가능 여부만 본다. users.plan = 'full' 하나로 판정하지 않는다.
+async function loadPremiumContract(db, userId) {
+  if (!db?.prepare) return null;
+  const row = await db.prepare('SELECT status, started_on, ends_on, progress FROM premium_contracts WHERE user_id = ?')
+    .bind(String(userId || '')).first();
+  if (!row) return null;
+  const state = contractState({ status: row.status, startedOn: row.started_on || '', endsOn: row.ends_on || '' });
+  return { status: state.status, canStartWork: state.canStartWork, progress: row.progress || '접수' };
+}
 
 export async function onRequest(context) {
   try {
@@ -38,19 +52,49 @@ export async function onRequest(context) {
     // 미들웨어가 로그인을 확인했지만 이용권은 여기서 본다. 이 경로만 따로 불려도 막힌다.
     const user = context.data?.session?.user;
     if (!user?.id) return json({ error: '로그인이 필요합니다.' }, 401);
-    const refusal = planRefusal(user, body.action);
-    if (refusal) return json({ error: refusal.error, needsPlan: true }, refusal.status);
+    // 예전 이용권 규칙은 계약 전문 작업에만 쓴다. 핵심제안서·진단서는 회원등급이 판정한다.
+    const legacyGate = ![CORE_PROPOSAL_ACTION, DIAGNOSIS_ACTION].includes(body.action) ? planRefusal(user, body.action) : null;
+    // 회원등급으로 한 번 더 본다. 승인 상태·구독·프리미엄 계약은 서로 별개라 따로 읽는다.
+    // 권한을 입력 검사보다 먼저 본다. OpenAI 호출보다 언제나 앞이다.
+    const subscription = await loadSubscription(context.env.ARCHIVE_DB, user.id);
+    const contractRow = await loadPremiumContract(context.env.ARCHIVE_DB, user.id);
+    const membership = membershipOf({ user, subscription, contract: contractRow });
+    const gated = membershipRefusal(membership, body.action);
+    if (gated) return json({ error: gated.error, locked: gated.locked, needsSubscription: gated.needsSubscription, needsPremium: gated.needsPremium }, gated.status);
+    // 회원등급이 열어 주지 않은 작업은 예전 이용권 규칙으로 한 번 더 본다.
+    if (legacyGate && !membership.canExpertWork) return json({ error: legacyGate.error, needsPlan: true }, legacyGate.status);
     const validation = validate(body.action, body.payload);
     if (validation) return json({ error: validation }, 400);
+    // 쪽수는 등급이 정한다. 정식회원은 5쪽 고정, 구독·프리미엄은 편당 최대 20쪽이다.
+    if (body.action === CORE_PROPOSAL_ACTION) {
+      const pages = corePagesFor(membership, body.payload.core.targetPages);
+      if (pages !== body.payload.plan.pages) body.payload.plan = planPages({ pages, audienceType: body.payload.core.audienceType });
+    }
     // 계획서 한 건과 계정 하루에 걸어 둔 사용량 상한을 부르기 전에 본다.
     const proposalId = String(body.payload?.proposalId || '').trim().slice(0, 80);
     const guard = await budgetRefusal(context.env.ARCHIVE_DB, context.env, { proposalId, userId: user.id });
     if (guard.refusal) return json({ error: guard.refusal.error, capReached: true, budget: guard.refusal.budget }, guard.refusal.status);
     // 무료 체험은 OpenAI를 부르기 전에 D1에서 한 번만 통과시킨다. 같은 계정이 동시에 눌러도 한 번만 열린다.
-    const trialRun = body.action === TRIAL_ACTION && !hasFullAccess(user);
+    const trialRun = body.action === TRIAL_ACTION && !hasFullAccess(user) && membership.tier === 'member';
     if (trialRun && !(await consumeTrial(context.env.ARCHIVE_DB, user.id))) return json({ error: TRIAL_SPENT, trialUsed: true }, 403);
-    // 우리 쪽 실패로 결과가 없으면 체험 기회를 돌려준다. 사용자 잘못이 아니다.
-    const refund = async response => { if (trialRun) await releaseTrial(context.env.ARCHIVE_DB, user.id); return response; };
+    // 구독 이용량도 부르기 전에 차감한다. 네 번째 제안서와 여섯 번째 진단서는 여기서 막힌다.
+    const quotaKind = membership.tier === 'subscriber' || membership.tier === 'premium'
+      ? (body.action === CORE_PROPOSAL_ACTION ? 'coreProposal' : body.action === DIAGNOSIS_ACTION ? 'diagnosis' : '')
+      : (body.action === DIAGNOSIS_ACTION && !membership.canDiagnosis ? 'diagnosis' : '');
+    const countsQuota = Boolean(quotaKind) && membership.subscription?.status === 'active';
+    if (countsQuota && !(await consumeQuota(context.env.ARCHIVE_DB, user.id, quotaKind))) {
+      return json({ error: QUOTA_SPENT[quotaKind], quotaSpent: true, kind: quotaKind }, 403);
+    }
+    // 구독이 없는데 진단서를 요구하면 여기서 끝난다(위 membershipRefusal이 이미 막지만 순서를 남겨 둔다).
+    if (body.action === DIAGNOSIS_ACTION && !countsQuota && !membership.staff && !membership.legacyFull) {
+      return json({ error: QUOTA_SPENT.diagnosis, quotaSpent: true, kind: 'diagnosis' }, 403);
+    }
+    // 우리 쪽 실패로 결과가 없으면 체험 기회와 편수를 돌려준다. 사용자 잘못이 아니다.
+    const refund = async response => {
+      if (trialRun) await releaseTrial(context.env.ARCHIVE_DB, user.id);
+      if (countsQuota) await releaseQuota(context.env.ARCHIVE_DB, user.id, quotaKind);
+      return response;
+    };
 
     const clientAddress = context.request.headers.get('CF-Connecting-IP') || 'anonymous';
     const safetyIdentifier = await sha256(`ms12:${clientAddress}`);
@@ -80,7 +124,8 @@ export async function onRequest(context) {
             { role: 'user', content: [{ type: 'input_text', text: specification.prompt }] }
           ],
           text: { verbosity: 'medium', format: { type: 'json_schema', name: specification.name, strict: true, schema: specification.schema } },
-          max_output_tokens: body.action === CORE_PROPOSAL_ACTION ? outputTokensFor(body.payload.plan.pages) : LIMITS.outputTokens[body.action]
+          max_output_tokens: body.action === CORE_PROPOSAL_ACTION ? outputTokensFor(body.payload.plan.pages)
+            : body.action === DIAGNOSIS_ACTION ? DIAGNOSIS_TOKENS : LIMITS.outputTokens[body.action]
         })
       });
       raw = await response.json();
@@ -109,7 +154,19 @@ export async function onRequest(context) {
     if (body.action === CORE_PROPOSAL_ACTION) {
       // 화면과 출력이 목표 쪽수를 알아야 쪽 나눔을 맞출 수 있다.
       const plan = body.payload.plan;
-      return json({ ...result, targetPages: plan.pages, audience: plan.audience.label, sections: alignSections(result.sections, plan), trialUsed: true, oneTime: true });
+      const after = countsQuota ? await loadSubscription(context.env.ARCHIVE_DB, user.id) : membership.subscription;
+      return json({
+        ...result, targetPages: plan.pages, audience: plan.audience.label, sections: alignSections(result.sections, plan),
+        trialUsed: trialRun, oneTime: trialRun, tier: membership.tier, readOnly: membership.coreReadOnly,
+        remaining: after ? { coreProposal: Math.max(0, 3 - Number(after.coreUsed || 0)), diagnosis: Math.max(0, 5 - Number(after.diagnosisUsed || 0)) } : null
+      });
+    }
+    if (body.action === DIAGNOSIS_ACTION) {
+      const after = countsQuota ? await loadSubscription(context.env.ARCHIVE_DB, user.id) : membership.subscription;
+      return json({
+        diagnosis: normalizeDiagnosis(result), tier: membership.tier,
+        remaining: after ? { coreProposal: Math.max(0, 3 - Number(after.coreUsed || 0)), diagnosis: Math.max(0, 5 - Number(after.diagnosisUsed || 0)) } : null
+      });
     }
     if (body.action === 'analyze') result.analysis.mode = 'ai';
     if (body.action === 'draft' && typeof body.payload.sourceText === 'string') {
@@ -166,6 +223,12 @@ const SYSTEM_POLICY = `당신은 대한민국 기관 제출용 사업계획서 �
 function validate(action, payload) {
   if (!payload || typeof payload !== 'object') return '요청 내용이 없습니다.';
   // 핵심제안서는 첫 단계 입력만 받는다. 검사에 통과하면 구성안을 만들어 payload에 붙인다.
+  if (action === DIAGNOSIS_ACTION) {
+    const checked = validateDiagnosisInput(payload);
+    if (checked.error) return checked.error;
+    payload.diagnosis = checked.value;
+    return '';
+  }
   if (action === CORE_PROPOSAL_ACTION) {
     const checked = validateCoreProposalInput(payload);
     if (checked.error) return checked.error;
@@ -312,6 +375,10 @@ officialConflicts에 공고 기준과 사용자 확정값의 충돌이 있으면
 설계도의 문제 → 대상 → 목적 → 프로그램 → 회기·인력 → 예산 → 성과목표 → 성과지표 흐름을 계획서 각 항목에 같은 대상·같은 용어로 일관되게 반영한다.`;
 
 function taskSpecification(action, payload) {
+  // 선정 가능성 진단서. 계획서를 쓰지 않고 지원 판단에 필요한 것만 정리한다.
+  if (action === DIAGNOSIS_ACTION) {
+    return { name: 'ms12_diagnosis', schema: DIAGNOSIS_SCHEMA, prompt: diagnosisPrompt(payload.diagnosis) };
+  }
   // 핵심제안서. 제출처와 희망 페이지 수에 맞춰 구성안을 먼저 만들고 그 구성대로 본문을 쓴다.
   if (action === CORE_PROPOSAL_ACTION) {
     const input = payload.core;

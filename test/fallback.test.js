@@ -69,8 +69,9 @@ test('서버 함수에는 OpenAI 외부 호출이 한 곳뿐이고 재시도 루
   assert.doesNotMatch(source.replaceAll('retry-after', 'rate-limit-reset-hint'), /\bretry\b|while\s*\(/i);
   assert.match(source, /new AbortController\(\)/);
   assert.match(source, /timeoutMs:\s*300_000/);
-  // 핵심제안서만 쪽수에 따라 상한이 달라지고 나머지 작업은 고정값을 그대로 쓴다.
-  assert.match(source, /max_output_tokens: body\.action === CORE_PROPOSAL_ACTION \? outputTokensFor\(body\.payload\.plan\.pages\) : LIMITS\.outputTokens\[body\.action\]/);
+  // 핵심제안서만 쪽수에 따라 상한이 달라지고, 진단서는 고정 상한, 나머지 작업은 작업별 고정값을 그대로 쓴다.
+  assert.match(source, /max_output_tokens: body\.action === CORE_PROPOSAL_ACTION \? outputTokensFor\(body\.payload\.plan\.pages\)/);
+  assert.match(source, /: body\.action === DIAGNOSIS_ACTION \? DIAGNOSIS_TOKENS : LIMITS\.outputTokens\[body\.action\]/);
   // master 설계는 한 번에 전체 구조를 반환하므로 draft와 같은 출력 상한을 쓴다.
   assert.match(source, /master:\s*12_000/);
   assert.match(source, /draftPart:\s*7_000/);
@@ -913,7 +914,7 @@ test('확정값 반영은 한 번의 finalize 호출로 관련 문단만 고친�
   const apiSource = fs.readFileSync(new URL('../functions/api/proposal.js', import.meta.url), 'utf8');
   const appSource = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   // 새 작업은 허용 목록과 출력 상한에 함께 등록한다.
-  assert.match(apiSource, /const ACTIONS = \['analyze', 'master', 'draftPart', 'draft', 'fullProposal', 'preciseReview', 'patchSections', 'rewrite', 'finalize', CORE_PROPOSAL_ACTION];/);
+  assert.match(apiSource, /const ACTIONS = \['analyze', 'master', 'draftPart', 'draft', 'fullProposal', 'preciseReview', 'patchSections', 'rewrite', 'finalize', CORE_PROPOSAL_ACTION, DIAGNOSIS_ACTION];/);
   assert.match(apiSource, /rewrite: 4_000, finalize: 9_000/);
   assert.match(apiSource, /name: 'proposal_finalize', schema: FINALIZE_SCHEMA/);
   // 계획서를 새로 쓰지 않고 값이 필요한 문단만 돌려준다.

@@ -8,6 +8,8 @@ import { revokeRecoveryCodes } from '../../server/recovery.js';
 import {
   PREMIUM_ADMIN_LABEL, SHOWCASE_LIMIT, contractState, findIdentifiers, publicShowcase, validateContract, validateShowcase
 } from '../../server/premium.js';
+import { membershipOf, membershipPlans } from '../../server/membership.js';
+import { SUBSCRIPTION_LABELS, addMonth, remaining, validateSubscription } from '../../server/subscription.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 const SOCIAL_KEY_SUFFIX = '@social.ms12.invalid';
@@ -42,6 +44,9 @@ export async function onRequest(context) {
   // AI 사용량·비용. 회원별·계획서별·기간별로 본다.
   if (body.action === 'usageReport') return json(await usageReport(env.ARCHIVE_DB, env, { days: body.days, userId: body.userId, proposalId: body.proposalId }), 200);
   // 정식 수주회원(프리미엄) 부여·중지. 관리자만 한다. 운영관리자 경로에서는 언제나 거절된다.
+  // 월간 구독은 관리자만 넣고 끈다. 운영관리자 경로에서는 언제나 거절된다.
+  if (body.action === 'setSubscription') return mutate(env.ARCHIVE_DB, actor, body.id, (db, target) => setSubscription(db, target, body, actor));
+  if (body.action === 'membershipPlans') return json(membershipPlans(), 200);
   if (body.action === 'setPremium') return mutate(env.ARCHIVE_DB, actor, body.id, (db, target) => setPremium(db, target, body, actor));
   // 공개용 우수 제안서. 관리자가 만든 사본만 다룬다. 회원 계획서를 옮겨 오지 않는다.
   if (body.action === 'listShowcase') return json(await listShowcase(env.ARCHIVE_DB), 200);
@@ -50,6 +55,26 @@ export async function onRequest(context) {
   if (body.action === 'setShowcaseOrder') return setShowcaseOrder(env.ARCHIVE_DB, actor, body);
   if (body.action === 'deleteShowcase') return deleteShowcase(env.ARCHIVE_DB, actor, body);
   return json({ error: '지원하지 않는 작업입니다.' }, 400);
+}
+
+// ---------- 월간 구독(시험용) ----------
+// 실제 결제 연동이 없으므로 결제 완료를 가장하지 않는다. 관리자가 확인한 건만 손으로 연다.
+async function setSubscription(db, target, body, actor) {
+  const checked = validateSubscription(body.subscription || body);
+  if (!checked.ok) return { error: checked.errors.join(' ') };
+  const next = checked.value;
+  const now = new Date().toISOString();
+  const before = await db.prepare('SELECT status FROM subscriptions WHERE user_id = ?').bind(target.id).first();
+  // 새 주기는 시작일부터 센다. 이용량은 주기가 바뀔 때만 0으로 돌아간다.
+  const cycleStart = next.startedOn;
+  const renewsOn = addMonth(cycleStart);
+  await db.prepare(`INSERT INTO subscriptions (user_id, status, started_on, ends_on, cycle_start, renews_on, note, granted_by, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET status=excluded.status, started_on=excluded.started_on, ends_on=excluded.ends_on,
+      cycle_start=excluded.cycle_start, renews_on=excluded.renews_on, note=excluded.note, updated_at=excluded.updated_at`)
+    .bind(target.id, next.status, next.startedOn, next.endsOn, cycleStart, renewsOn, next.note, String(actor?.id || ''), now, now).run();
+  const action = next.status === 'active' ? 'admin.grantSubscription' : 'admin.revokeSubscription';
+  return { action, detail: `월간 구독 ${before?.status || '없음'} → ${next.status}${next.endsOn ? ` (~${next.endsOn})` : ''}` };
 }
 
 // ---------- 정식 수주회원(프리미엄) ----------
@@ -160,6 +185,9 @@ async function listUsers(db) {
   const contracts = new Map();
   for (const row of (await db.prepare(`SELECT user_id, status, started_on, ends_on, progress, progress_note, contract_name, updated_at
     FROM premium_contracts`).all())?.results || []) contracts.set(row.user_id, row);
+  const subscriptions = new Map();
+  for (const row of (await db.prepare(`SELECT user_id, status, started_on, ends_on, cycle_start, renews_on, core_used, diagnosis_used, note, updated_at
+    FROM subscriptions`).all())?.results || []) subscriptions.set(row.user_id, row);
   const profiles = new Map();
   for (const row of (await db.prepare(`SELECT user_id, org_type, org_address, org_intro, staff, facilities, programs,
     achievements, partners, reuse_note, updated_at FROM member_profiles`).all())?.results || []) profiles.set(row.user_id, row);
@@ -174,11 +202,35 @@ async function listUsers(db) {
     plan: row.plan || DEFAULT_PLAN, effectivePlan: effectivePlan(row), trialUsed: Boolean(row.trial_used_at), trialUsedAt: row.trial_used_at || '',
     identities: byUser.get(row.id) || [],
     ...premiumSummary(contracts.get(row.id)),
+    ...subscriptionSummary(subscriptions.get(row.id), row, contracts.get(row.id)),
     // 회원이 직접 고친 기관정보. 언제 바뀌었는지와 다시 확인할 항목이 있는지 함께 본다.
     memberProfile: memberProfileOf(profiles.get(row.id)),
     profileUpdatedAt: row.profile_updated_at || '',
     profileReviewNeeded: Number(row.profile_review_needed || 0) === 1
   }));
+}
+
+// 월간 구독과 고객등급. 승인 상태·이용권과 섞지 않는다.
+function subscriptionSummary(row, user, contract) {
+  const subscription = row
+    ? {
+      status: row.status, startedOn: row.started_on || '', endsOn: row.ends_on || '', renewsOn: row.renews_on || '',
+      cycleStart: row.cycle_start || '', coreUsed: Number(row.core_used || 0), diagnosisUsed: Number(row.diagnosis_used || 0), note: row.note || ''
+    }
+    : null;
+  const membership = membershipOf({
+    user, subscription,
+    contract: contract ? contractState({ status: contract.status, startedOn: contract.started_on || '', endsOn: contract.ends_on || '' }) : null
+  });
+  return {
+    tier: membership.tier, tierLabel: membership.label, approval: membership.approval, approvalLabel: membership.approvalLabel,
+    subscription: subscription
+      ? {
+        ...subscription, statusLabel: SUBSCRIPTION_LABELS[subscription.status] || subscription.status,
+        remaining: { coreProposal: remaining(subscription, 'coreProposal'), diagnosis: remaining(subscription, 'diagnosis') }
+      }
+      : { status: 'none', statusLabel: SUBSCRIPTION_LABELS.none, remaining: { coreProposal: 0, diagnosis: 0 } }
+  };
 }
 
 // 관리자·운영관리자 화면에서는 「정식 수주회원」임을 함께 확인한다.

@@ -1,4 +1,4 @@
-import { analyzeWithAI, coreProposalWithAI, draftPartWithAI, draftWithAI, finalizeWithAI, fullProposalWithAI, masterWithAI, patchSectionsWithAI, preciseReviewWithAI, rewriteWithAI, setUsageProposalId } from './api.js';
+import { analyzeWithAI, coreProposalWithAI, diagnoseWithAI, draftPartWithAI, draftWithAI, finalizeWithAI, fullProposalWithAI, masterWithAI, patchSectionsWithAI, preciseReviewWithAI, rewriteWithAI, setUsageProposalId } from './api.js';
 import { EXAMPLE_NOTE, EXAMPLE_POINTS, EXAMPLE_SECTIONS, EXAMPLE_SUMMARY, EXAMPLE_TITLE } from './example-plan.js';
 import { extractFile, extractFiles } from './files.js';
 import { localAnalyze } from './fallback.js';
@@ -7,8 +7,8 @@ import { buildProposalPdfBlob, exportProposalPdf } from './pdf-export.js';
 import { MANIFEST_NAME, packageStale, planSubmissionZip, zipBytes } from './submission-zip.js';
 import { UNAUTHORIZED, accountProfile, clearOAuthCallback, currentUser, finishSocial, login, logout, readOAuthCallback, recoverPassword, saveAccountProfile, saveMemberInfo, signup as signupEmail, startSocial } from './auth.js';
 import { premiumNoticeHistory, premiumShowcase, premiumStatus } from './premium.js';
-import { adminUsageReport, approveAccount, deleteShowcase, disableAccount, listAccounts, listCollectedNotices, listShowcase, removeAccount, saveShowcase, setAccountPlan, setAccountPremium, setAccountRole, setNoticePublic, setShowcaseOrder, setShowcasePublic } from './admin.js';
-import { publicNoticeDetail, searchPublicNotices } from './notice-search.js';
+import { adminUsageReport, approveAccount, deleteShowcase, setAccountSubscription, disableAccount, listAccounts, listCollectedNotices, listShowcase, removeAccount, saveShowcase, setAccountPlan, setAccountPremium, setAccountRole, setNoticePublic, setShowcaseOrder, setShowcasePublic } from './admin.js';
+import { fetchMembershipPlans, publicNoticeDetail, searchPublicNotices } from './notice-search.js';
 import { operatorApprove, operatorDisable, operatorEndSessions, operatorIssueRecoveryCode, operatorOverview, operatorReactivate, operatorSetContractProgress, operatorUnlockLogin, operatorUsageReport, operatorUserDetail } from './operator.js';
 import { reportError, reportStep, resetActivityDedupe } from './activity.js';
 import { fetchNoticeDetail, fetchNoticeList, importNoticeUrl, noticeBodyText } from './notices.js';
@@ -104,7 +104,7 @@ let auth = {
   // 관리자 화면 자료. 로그인 상태와 함께만 살아 있고 localStorage에 저장하지 않는다.
   accounts: [], accountsLoaded: false, confirmDelete: '', adminTab: 'accounts', notices: emptyAdminNotices(), usage: emptyUsage(),
   // 정식 수주계약 편집과 공개용 우수 제안서. 화면에만 두고 저장하지 않는다.
-  premiumDraft: {}, showcase: null, showcaseDraft: {}, showcaseEditing: '', progressDraft: {},
+  premiumDraft: {}, showcase: null, showcaseDraft: {}, showcaseEditing: '', progressDraft: {}, subscriptionDraft: {},
   // 운영관리자 화면 자료. 발급한 복구코드는 화면에만 잠시 두고 저장하지 않는다.
   operator: emptyOperator(),
   // 핵심제안서 화면. 입력과 결과는 화면에만 두고 브라우저 저장소에 넣지 않는다.
@@ -113,6 +113,10 @@ let auth = {
   search: emptySearch(),
   // 내 정보 수정. 저장 전 입력은 memberDraft에만 두고 저장 후 서버 값으로 다시 읽는다.
   memberProfile: {}, memberDraft: {}, memberOpen: false, profileUpdatedAt: '', profileReviewNeeded: false,
+  // 회원등급·이용현황과 공개 상품표. 서버가 준 값만 쓴다.
+  membership: null, plans: null, contract: null, lockedNotice: '',
+  // 선정 가능성 진단서 화면. 입력과 결과는 화면에만 두고 저장하지 않는다.
+  diagnosis: null,
   // 프리미엄회원 화면 자료. 로그인 상태와 함께만 살아 있고 저장하지 않는다.
   premium: null
 };
@@ -164,8 +168,9 @@ function portalLinks(cls = 'history-button') {
 }
 // 프리미엄회원 전용 진입점. 계약이 있는 사람에게만 보인다.
 function premiumLink(cls = 'history-button') {
-  if (!isPremium()) return '';
-  return `<button class="${cls}" id="open-premium" aria-pressed="${state.activeTool === 'premium'}">프리미엄회원</button>`;
+  const diagnosis = auth.membership?.canDiagnosis ? `<button class="${cls}" id="open-diagnosis" aria-pressed="${state.activeTool === 'diagnosis'}">선정 가능성 진단서</button>` : '';
+  if (!isPremium()) return diagnosis;
+  return diagnosis + `<button class="${cls}" id="open-premium" aria-pressed="${state.activeTool === 'premium'}">프리미엄회원</button>`;
 }
 function openPortal(portal) {
   if (!PORTALS.includes(portal)) return;
@@ -238,6 +243,9 @@ async function loadAccount() {
     identities: result.identities || [],
     user: { ...auth.user, ...result.user },
     memberProfile: result.memberProfile || {},
+    membership: result.membership || null,
+    plans: result.plans || auth.plans,
+    contract: result.contract || null,
     profileUpdatedAt: result.profileUpdatedAt || '',
     profileReviewNeeded: Boolean(result.profileReviewNeeded),
     profileDraft: {
@@ -294,6 +302,7 @@ function pendingView() {
       <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="agree-privacy" ${draft.agreePrivacy ? 'checked' : ''}>개인정보 수집·이용에 동의합니다 (${CONSENT_PRIVACY})</label>
       <div class="actions"><button class="button secondary" id="sign-out" type="button">로그아웃</button><button class="button primary" id="profile-submit" type="submit" ${auth.busy ? 'disabled' : ''}>${auth.busy ? '저장 중…' : '제출'}</button></div>
     </form>
+    ${lockedFeatureList()}
     ${memberProfileForm()}
     ${accountLinkPanel()}</div></main></div>`;
 }
@@ -304,6 +313,7 @@ function accountView() {
   return `<div class="card"><div class="card-title"><div><h3>계정 설정</h3><span>${escapeHtml(accountEmail())} · ${escapeHtml(auth.user?.role || '')}${auth.user?.premium ? ` · ${escapeHtml(auth.user.premiumLabel || '프리미엄회원')}(${escapeHtml(auth.user.premiumStatusLabel || '')})` : ''}</span></div><span class="status 충족">${escapeHtml(auth.user?.status || '')}</span></div>
     ${auth.error ? `<div class="alert danger"><strong>${escapeHtml(auth.error)}</strong></div>` : ''}
     ${auth.notice ? `<div class="alert success"><strong>${escapeHtml(auth.notice)}</strong></div>` : ''}
+    ${membershipStatusPanel()}
     ${memberProfileForm()}
     ${accountLinkPanel()}</div>`;
 }
@@ -314,6 +324,190 @@ function accountLinkPanel() {
     <div class="requirement-list">${auth.identities.map(item => `<article class="requirement"><div><span class="status 충족">${escapeHtml(item.label)}</span><div><strong>${escapeHtml(item.email || '이메일 없음')}</strong><small class="muted">${escapeHtml(String(item.linkedAt).slice(0, 10))} 연결</small></div></div></article>`).join('') || '<p class="muted">아직 연결된 소셜 계정이 없습니다.</p>'}</div>
     <div class="actions"><span class="muted">같은 계정에 Google과 카카오를 함께 연결할 수 있습니다.</span><div>${SOCIAL_BUTTONS.filter(([provider]) => !linked.has(provider)).map(([provider, label]) => `<button class="button secondary" data-social="${provider}" data-social-mode="link" ${auth.busy ? 'disabled' : ''}>${label} 계정 연결</button>`).join('') || '<span class="muted">두 공급자가 모두 연결되어 있습니다.</span>'}</div></div></details>`;
 }
+// ---------- 선정 가능성 진단서 ----------
+// 구독회원 기능. 계획서를 쓰지 않고 지원 여부 판단에 필요한 것만 정리한다.
+function emptyDiagnosis() {
+  return { noticeTitle: '', noticeText: '', organizationText: '', result: null, busy: false, error: '', remaining: null };
+}
+function diagnosisState() { return auth.diagnosis || emptyDiagnosis(); }
+function setDiagnosis(patch, extra = {}) { setAuth({ diagnosis: { ...diagnosisState(), ...patch }, ...extra }); }
+
+const JUDGEMENT_TONE = { '지원 권장': '충족', '조건부 지원': '확인-필요', '지원 보류': '확인-필요', '지원 비권장': '미충족' };
+const REQUIREMENT_TONE = { 충족: '충족', '부분 충족': '확인-필요', 미충족: '미충족', '확인 필요': '확인-필요' };
+
+function diagnosisView() {
+  const view = diagnosisState();
+  const info = auth.membership;
+  const left = info?.subscription?.remaining?.diagnosis ?? 0;
+  const allowed = Boolean(info?.canDiagnosis);
+  return `<div class="card">
+    <div class="card-title"><div><h3>선정 가능성 진단서</h3><span>공고 요구와 우리 기관 사실을 맞대어 지원 여부를 판단합니다.</span></div>
+      <span class="status ${allowed ? '충족' : '확인-필요'}">${allowed ? `남은 ${left}편` : '구독 필요'}</span></div>
+    ${auth.error ? `<div class="alert danger"><strong>${escapeHtml(auth.error)}</strong></div>` : ''}
+    ${!allowed ? `<div class="alert warning"><strong>${escapeHtml(membershipPlansState()?.pricing?.applyLabel || '월간 구독 신청')} 후에 열립니다.</strong><p>${escapeHtml(membershipPlansState()?.pricing?.billingNote || '')}</p></div>` : ''}
+    <div class="field"><label for="diagnosis-title">공고명(선택)</label><input id="diagnosis-title" value="${escapeHtml(view.noticeTitle)}" ${allowed ? '' : 'disabled'}></div>
+    <div class="two-col">
+      <div class="field"><label for="diagnosis-notice">공고 내용</label><textarea id="diagnosis-notice" class="source-text" placeholder="공고문에서 지원 대상·요건·평가기준 부분을 붙여넣으세요." ${allowed ? '' : 'disabled'}>${escapeHtml(view.noticeText)}</textarea></div>
+      <div class="field"><label for="diagnosis-org">신청기관 정보</label><textarea id="diagnosis-org" class="source-text" placeholder="기관 소개·인력·실적·시설을 붙여넣으세요. 「내 정보 수정」에 저장한 값이 있으면 자동으로 채워집니다." ${allowed ? '' : 'disabled'}>${escapeHtml(view.organizationText || memberFactsText())}</textarea></div>
+    </div>
+    <div class="actions"><span class="muted">확인되지 않은 내용은 지어내지 않고 「확인 필요」로 남깁니다. 성공한 진단서만 1편 차감됩니다.</span>
+      <div><button class="button secondary" id="close-diagnosis">계획서 포털로</button>
+      <button class="button primary" id="run-diagnosis" ${allowed && !view.busy ? '' : 'disabled'}>${view.busy ? '진단하는 중…' : '진단서 만들기'}</button></div></div>
+    ${view.result ? diagnosisResultView(view.result) : ''}
+  </div>`;
+}
+
+function diagnosisResultView(result) {
+  const block = (title, body) => `<h4>${escapeHtml(title)}</h4>${body}`;
+  const list = items => `<div class="requirement-list">${items}</div>`;
+  return `<div class="card" id="diagnosis-result">
+    <div class="card-title"><div><h3>진단 결과</h3><span>적합도 ${result.fitScore}점</span></div>
+      <span class="status ${JUDGEMENT_TONE[result.judgement] || '확인-필요'}">${escapeHtml(result.judgement)}</span></div>
+    <p class="muted">${escapeHtml(result.fitSummary)}</p>
+    ${block('공모기관 요구', list(result.requirements.map(item => `<article class="requirement"><div>
+      <div><strong>${escapeHtml(item.requirement)}</strong> <span class="status ${REQUIREMENT_TONE[item.status] || '확인-필요'}">${escapeHtml(item.status)}</span></div>
+      <small class="muted">${escapeHtml(item.evidence)}</small></div></article>`).join('')))}
+    ${result.strengths.length ? block('기관 강점', list(result.strengths.map(item => `<article class="requirement"><div>
+      <div><strong>${escapeHtml(item.point)}</strong></div><small class="muted">연결 요구: ${escapeHtml(item.linkedRequirement)}</small></div></article>`).join(''))) : ''}
+    ${result.risks.length ? block('탈락 위험', list(result.risks.map(item => `<article class="requirement"><div>
+      <div><strong>${escapeHtml(item.risk)}</strong> <span class="status ${item.severity === '높음' ? '미충족' : '확인-필요'}">${escapeHtml(item.severity)}</span></div>
+      <small class="muted">대응: ${escapeHtml(item.mitigation)}</small></div></article>`).join(''))) : ''}
+    ${result.missingEvidence.length ? block('부족 증빙', list(result.missingEvidence.map(item => `<article class="requirement"><div>
+      <div><strong>${escapeHtml(item.item)}</strong></div><small class="muted">${escapeHtml(item.why)}</small></div></article>`).join(''))) : ''}
+    ${result.questions.length ? block('확인 질문', `<ul>${result.questions.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`) : ''}
+    ${block('지원 판단', `<p>${escapeHtml(result.judgementReason)}</p>`)}
+  </div>`;
+}
+
+function bindDiagnosis() {
+  const field = (selector, key) => {
+    const el = document.querySelector(selector);
+    if (el) el.oninput = () => { auth.diagnosis = { ...diagnosisState(), [key]: el.value }; };
+  };
+  field('#diagnosis-title', 'noticeTitle');
+  field('#diagnosis-notice', 'noticeText');
+  field('#diagnosis-org', 'organizationText');
+  document.querySelector('#close-diagnosis')?.addEventListener('click', () => setState({ activeTool: 'home', notice: '', error: '' }));
+  document.querySelector('#run-diagnosis')?.addEventListener('click', runDiagnosis);
+}
+
+async function runDiagnosis() {
+  const view = diagnosisState();
+  const organizationText = view.organizationText || memberFactsText();
+  setDiagnosis({ busy: true }, { error: '', notice: '' });
+  try {
+    const result = await diagnoseWithAI({ noticeTitle: view.noticeTitle, noticeText: view.noticeText, organizationText });
+    setDiagnosis({ busy: false, result: result.diagnosis, remaining: result.remaining, organizationText });
+    // 남은 편수는 서버가 준 값으로 다시 맞춘다.
+    if (result.remaining && auth.membership?.subscription) {
+      setAuth({ membership: { ...auth.membership, subscription: { ...auth.membership.subscription, remaining: result.remaining } } });
+    }
+  } catch (error) {
+    setDiagnosis({ busy: false }, { error: error.message });
+  }
+}
+
+// ---------- 회원 안내 ----------
+// 랜딩·로그인·계정 설정이 같은 상품표를 쓴다. 가격과 편수가 화면마다 달라지지 않게 서버에서 한 번만 읽는다.
+let membershipPlansLoaded = false;
+// 상품표 모양을 갖춘 응답만 쓴다. 다른 응답이 섞여 들어와도 화면이 깨지지 않게 한다.
+function membershipPlansState() {
+  const plans = auth.plans;
+  return plans?.pricing && Array.isArray(plans.tiers) ? plans : null;
+}
+
+async function loadMembershipPlans() {
+  if (membershipPlansLoaded) return;
+  membershipPlansLoaded = true;
+  const plans = await fetchMembershipPlans().catch(() => null);
+  if (plans?.pricing && Array.isArray(plans.tiers)) setAuth({ plans });
+}
+
+function membershipGuideView({ compact = false } = {}) {
+  const plans = membershipPlansState();
+  if (!plans) return '';
+  return `<section class="home-section" id="membership-guide">
+    <div class="home-head"><h2>회원 안내</h2><p>${escapeHtml(plans.pricing.billingNote)}</p></div>
+    <div class="home-grid four">${plans.tiers.map(tier => `<article class="home-card membership-card">
+      <h3>${escapeHtml(tier.label)}</h3>
+      <strong class="membership-price">${escapeHtml(tier.price || '')}</strong>
+      <p>${escapeHtml(tier.summary)}</p>
+      <ul>${tier.features.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>
+      ${compact ? '' : `<ul class="membership-limits">${tier.limits.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`}
+    </article>`).join('')}</div>
+    <p class="muted">운영관리자·관리자는 고객등급이 아니라 내부 역할이므로 이 표에 넣지 않습니다.</p>
+  </section>`;
+}
+
+// ---------- 계정 설정 이용현황 ----------
+function membershipStatusPanel() {
+  const info = auth.membership;
+  if (!info) return '';
+  const subscription = info.subscription || { status: 'none', statusLabel: '구독 없음', remaining: { coreProposal: 0, diagnosis: 0 } };
+  const badges = [
+    ['승인 상태', info.approvalLabel],
+    ['회원등급', info.legacyFull ? `${info.label}(기존 전체 이용권)` : info.label],
+    [`무료 ${info.freePages}쪽 제안서`, info.freeUsed ? '사용함' : '사용 전'],
+    ['남은 핵심제안서', `${subscription.remaining.coreProposal}편`],
+    ['남은 진단서', `${subscription.remaining.diagnosis}편`],
+    ['다음 갱신일', subscription.renewsOn || '해당 없음'],
+    ['월간 구독', subscription.statusLabel],
+    ['프리미엄 계약', auth.user?.premium ? `${auth.user.premiumStatusLabel || ''}${auth.contract?.progress ? ` · ${auth.contract.progress}` : ''}` : '없음']
+  ];
+  const can = [
+    ['핵심제안서 생성', info.canCoreProposal],
+    ['선정 가능성 진단서', info.canDiagnosis],
+    ['편집·재작성', info.canEdit],
+    ['저장·DOCX·PDF 출력', info.canExport],
+    ['계약 전문 전체 계획서', info.canExpertWork]
+  ];
+  return `<details class="card org-details" id="membership-status" open><summary><b>내 이용현황</b> <small>회원등급과 남은 이용량</small></summary>
+    <div class="stat-badges">${badges.map(([label, value]) => `<span class="stat-badge" title="${escapeHtml(`${label} ${value}`)}"><strong>·</strong><span>${escapeHtml(label)}</span><small>${escapeHtml(String(value))}</small></span>`).join('')}</div>
+    <div class="stat-badges">${can.map(([label, ok]) => `<span class="stat-badge"><strong>${ok ? '○' : '×'}</strong><span>${escapeHtml(label)}</span></span>`).join('')}</div>
+    ${info.tier === 'member' ? `<p class="muted">${escapeHtml(MEMBER_READ_ONLY_NOTE)}</p>` : ''}
+    ${info.tier === 'member' || info.tier === 'pending' ? `<div class="actions"><span class="muted">${escapeHtml(membershipPlansState()?.pricing?.billingNote || '')}</span><button class="button primary" id="apply-subscription">${escapeHtml(membershipPlansState()?.pricing?.applyLabel || '월간 구독 신청')}</button></div>` : ''}
+    ${membershipGuideView({ compact: true })}
+  </details>`;
+}
+const MEMBER_READ_ONLY_NOTE = '정식회원의 핵심제안서는 읽기 전용입니다. 편집·재작성·저장·DOCX·PDF·ZIP 출력은 월간 구독 신청 후에 열립니다.';
+
+// ---------- 승인 대기 잠금 ----------
+// 이름만 보여 주고 아무 요청도 보내지 않는다. 누르면 잠금 안내만 뜬다.
+const LOCKED_FEATURES = [
+  ['공고 준비·공고 분석', '공식 공고 가져오기와 공고문 분석'],
+  ['신청기관 정보', '기관정보 등록과 공고 적합성 비교'],
+  ['핵심제안서', '개인화된 5쪽 제안서 만들기'],
+  ['선정 가능성 진단서', '적합도와 탈락 위험 확인'],
+  ['전체 사업계획서', '설계·작성·검증·제출본'],
+  ['공고보관함·계획서보관함', '보관한 공고와 계획서 열기']
+];
+
+function lockedFeatureList() {
+  return `<div class="card"><div class="card-title"><div><h3>이용할 수 있는 기능</h3><span>승인 후 열립니다</span></div>
+      <span class="status 확인-필요">승인 대기</span></div>
+    <p class="muted">지금은 기능 이름만 보실 수 있습니다. 누르셔도 자료를 불러오거나 AI를 부르지 않습니다.</p>
+    <div class="requirement-list">${LOCKED_FEATURES.map(([name, detail]) => `<article class="requirement"><div>
+      <div><strong>${escapeHtml(name)}</strong> <span class="status 확인-필요">잠김</span></div>
+      <small class="muted">${escapeHtml(detail)}</small>
+    </div><button class="button secondary" data-locked-feature="${escapeHtml(name)}">열어 보기</button></article>`).join('')}</div>
+    ${auth.lockedNotice ? `<div class="alert warning"><strong>${escapeHtml(auth.lockedNotice)}</strong></div>` : ''}
+    <p class="muted">본인·기관정보는 지금도 입력하고 고칠 수 있습니다. 아래 「내 정보 수정」을 이용해 주세요.</p>
+  </div>`;
+}
+
+function bindMembership() {
+  document.querySelectorAll('[data-locked-feature]').forEach(el => el.onclick = () => {
+    // 잠금 안내만 띄운다. 서버를 부르지 않는다.
+    setAuth({ lockedNotice: `${el.dataset.lockedFeature}은(는) 관리자 승인 후에 열립니다. 승인 전에는 자료를 불러오지 않습니다.` });
+  });
+  document.querySelector('#apply-subscription')?.addEventListener('click', () => setAuth({
+    notice: `${membershipPlansState()?.pricing?.applyLabel || '월간 구독 신청'}: ${membershipPlansState()?.pricing?.billingNote || ''}`
+  }));
+  document.querySelectorAll('[data-open-membership]').forEach(el => el.onclick = () => {
+    document.querySelector('#membership-guide')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
+
 // ---------- 내 정보 수정 (모든 회원) ----------
 // 승인 대기·정식·프리미엄 회원 모두 자기 정보를 직접 고친다.
 // 역할·승인·이용권·프리미엄 상태·사용량은 이 폼에 없다. 서버도 그 항목은 받지 않는다.
@@ -633,6 +827,7 @@ function accountRow(item) {
     <div><strong>${escapeHtml(item.name || '이름 미입력')}</strong> <span class="status ${item.status === 'active' ? '충족' : '확인-필요'}">${escapeHtml(STATUS_LABELS[item.status] || item.status)}</span> <span class="muted">${escapeHtml(ROLE_LABELS[item.role] || item.role)}</span>${self ? ' <span class="muted">(내 계정)</span>' : ''}</div>
     <small class="muted">${escapeHtml(detail)}</small>
     <div>${premiumBadge(item)}${item.profileReviewNeeded ? ' <span class="status 확인-필요">기관정보 변경 확인 필요</span>' : ''}${item.profileUpdatedAt ? ` <span class="muted">정보 변경 ${escapeHtml(String(item.profileUpdatedAt).slice(0, 10))}</span>` : ''}</div>
+    ${locked ? '' : subscriptionRow(item)}
     ${locked ? '' : premiumRow(item)}
     <div class="actions">${locked ? '<span class="muted">이 화면에서 바꿀 수 없는 계정입니다.</span>' : `
       ${item.status === 'active' ? `<button class="button secondary" data-admin-disable="${item.id}" ${auth.busy ? 'disabled' : ''}>사용 중지</button>`
@@ -643,7 +838,34 @@ function accountRow(item) {
   </div></article>`;
 }
 
+// 시험용 월간 구독. 결제 연동이 없으므로 관리자가 확인한 건만 손으로 연다.
+function subscriptionRow(item) {
+  const current = item.subscription || { status: 'none', startedOn: '', endsOn: '', note: '' };
+  const draft = (auth.subscriptionDraft || {})[item.id] || {};
+  const value = key => (draft[key] !== undefined ? draft[key] : current[key] || '');
+  const left = current.remaining || { coreProposal: 0, diagnosis: 0 };
+  return `<details class="premium-edit"><summary>월간 구독 ${current.status === 'none' ? '부여' : '수정'} · ${escapeHtml(current.statusLabel || '구독 없음')}</summary>
+    <p class="muted">남은 핵심제안서 ${left.coreProposal}편 · 남은 진단서 ${left.diagnosis}편${current.renewsOn ? ` · 다음 갱신 ${escapeHtml(current.renewsOn)}` : ''}. 결제 연동이 없어 관리자가 손으로 여는 시험용 값입니다.</p>
+    <div class="two-col">
+      <div class="field"><label for="sub-status-${item.id}">구독 상태</label><select id="sub-status-${item.id}" data-sub-field="status" data-sub-id="${item.id}">${[['active', '구독 중'], ['paused', '중지'], ['ended', '종료']].map(([id, label]) => `<option value="${id}" ${value('status') === id ? 'selected' : ''}>${label}</option>`).join('')}</select></div>
+      <div class="field"><label for="sub-start-${item.id}">시작일</label><input id="sub-start-${item.id}" type="date" data-sub-field="startedOn" data-sub-id="${item.id}" value="${escapeHtml(value('startedOn'))}"></div>
+      <div class="field"><label for="sub-end-${item.id}">종료일(선택)</label><input id="sub-end-${item.id}" type="date" data-sub-field="endsOn" data-sub-id="${item.id}" value="${escapeHtml(value('endsOn'))}"></div>
+    </div>
+    <div class="actions"><span class="muted">구독은 승인 상태·역할·프리미엄 계약과 별개입니다.</span>
+      <button class="button primary" data-sub-save="${item.id}" ${auth.busy ? 'disabled' : ''}>구독 저장</button></div>
+  </details>`;
+}
+
+async function runSubscription(id) {
+  const draft = (auth.subscriptionDraft || {})[id] || {};
+  setAuth({ busy: true, error: '', notice: '' });
+  const result = await setAccountSubscription(id, draft).catch(() => ({ ok: false }));
+  if (!result.ok) return setAuth({ busy: false, error: result.error || '구독을 저장하지 못했습니다.' });
+  setAuth({ busy: false, accounts: result.users || auth.accounts, subscriptionDraft: {}, notice: '월간 구독을 저장했습니다.' });
+}
+
 // ---------- 정식 수주회원(프리미엄) 관리 ----------
+
 // 부여·중지는 관리자만 한다. 운영관리자 경로에서는 서버가 언제나 거절한다.
 function premiumBadge(item) {
   if (!item.contract) return '<span class="muted">일반 회원</span>';
@@ -718,6 +940,14 @@ function bindShowcase() {
     el.oninput = apply; el.onchange = apply;
   });
   document.querySelectorAll('[data-premium-save]').forEach(el => el.onclick = () => void runPremiumContract(el.dataset.premiumSave));
+  document.querySelectorAll('[data-sub-field]').forEach(el => {
+    const apply = () => {
+      const id = el.dataset.subId;
+      auth.subscriptionDraft = { ...(auth.subscriptionDraft || {}), [id]: { ...((auth.subscriptionDraft || {})[id] || {}), [el.dataset.subField]: el.value } };
+    };
+    el.oninput = apply; el.onchange = apply;
+  });
+  document.querySelectorAll('[data-sub-save]').forEach(el => el.onclick = () => void runSubscription(el.dataset.subSave));
 }
 
 async function runShowcase(kind, id = '', next = false) {
@@ -988,7 +1218,7 @@ const LANDING_SECURITY = [
   ['로그인 상태는 쿠키로만', '로그인 정보는 HttpOnly·Secure 쿠키로만 오갑니다. 계정 승인·중지·복구·세션 종료 같은 운영 동작은 실행자·대상·시각이 감사기록으로 남습니다.'],
   ['원문은 요청할 때만 전송', '올린 파일과 작성 중인 내용은 분석을 요청할 때만 서버로 갑니다. 진행 상태는 이 브라우저에 보관됩니다.']
 ];
-const LANDING_SECTIONS = [['landing-value', '핵심 가치'], ['landing-flow', '이용 흐름'], ['landing-notices', '공모정보 검색'], ['landing-features', '주요 기능'], ['landing-audience', '이용 대상'], ['landing-security', '보안·승인']];
+const LANDING_SECTIONS = [['landing-value', '핵심 가치'], ['landing-flow', '이용 흐름'], ['landing-notices', '공모정보 검색'], ['landing-features', '주요 기능'], ['membership-guide', '회원 안내'], ['landing-audience', '이용 대상'], ['landing-security', '보안·승인']];
 const landingCta = extra => `<div class="landing-cta"><button class="button primary" data-landing="signup">3페이지 무료 체험</button><button class="button secondary" data-landing="login">로그인</button><button class="button secondary" data-landing-notices="1">공모정보 검색</button><button class="button secondary" data-landing-example="1">우수 계획서 예시 보기</button>${extra || ''}</div>`;
 const landingCards = (items, plain = true) => items.map(([title, body]) =>
   `<article class="landing-card${plain ? ' plain' : ''}"><h3>${escapeHtml(title)}</h3><p>${escapeHtml(body)}</p></article>`).join('');
@@ -1040,6 +1270,8 @@ function landingView() {
         <div class="landing-head" style="margin:22px 0 12px"><p>다루는 공모 유형</p></div>
         <div class="landing-grid">${TYPES.map(([, name, kind]) => `<article class="landing-card plain"><h3>${escapeHtml(name)}</h3><p>${escapeHtml(kind)} 공모를 준비하는 기관·담당자</p></article>`).join('')}</div>
       </div>
+
+      ${membershipGuideView()}
 
       <div class="landing-section" id="landing-security">
         <div class="landing-head"><h2>보안·승인 안내</h2><p>실제로 구현되어 있는 내용만 적었습니다.</p></div>
@@ -1357,7 +1589,7 @@ function loginView() {
     : recovering ? '운영관리자에게 받은 일회용 복구코드로 새 비밀번호를 정합니다.'
     : joining ? '처음이시면 여기서 계정을 만드세요.' : '이미 계정이 있으면 로그인하세요.';
   return `<div class="layout home-layout"><main class="main"><div class="card" id="login-card" style="max-width:460px;margin:7vh auto">
-    <div class="card-title"><div><h3>MS12 사업계획서 작성 도우미</h3><span>${headline}</span></div><button class="button secondary" id="back-to-landing" type="button">← 서비스 소개</button></div>
+    <div class="card-title"><div><h3>MS12 사업계획서 작성 도우미</h3><span>${headline}</span></div><button class="button secondary" id="back-to-landing" type="button">← 서비스 소개</button><button class="button secondary" type="button" data-open-membership="login">회원 안내</button></div>
     ${auth.error ? `<div class="alert danger"><strong>${escapeHtml(auth.error)}</strong></div>` : ''}
     ${auth.notice ? `<div class="alert success"><strong>${escapeHtml(auth.notice)}</strong></div>` : ''}
     <div class="actions" style="justify-content:stretch;gap:8px">
@@ -1376,6 +1608,7 @@ function loginView() {
       <div class="actions"><span class="muted">${joining ? '네이버·다음 등 어떤 이메일이든 됩니다.' : ''}</span><button class="button primary" id="login-submit" type="submit" ${checking || auth.busy ? 'disabled' : ''}>${auth.busy ? '처리 중…' : joining ? '가입 신청' : '로그인'}</button></div>
     </form>
     <p class="muted">${joining ? '가입한 뒤 관리자가 승인해야 작업 화면이 열립니다. 가입 직후에는 기관·담당자 정보를 입력하는 화면이 나옵니다.' : '비밀번호를 잊었으면 운영관리자에게 일회용 복구코드를 요청한 뒤 위의 「복구코드」를 누르세요.'}</p>`}
+    ${membershipGuideView({ compact: true })}
     </div></main></div>`;
 }
 
@@ -3542,11 +3775,15 @@ function render() {
   // 저장된 화면 위치가 남아 있어도 권한이 없으면 열리지 않는다.
   if (state.activeTool === 'operator' && !isOperator()) state.activeTool = 'home';
   if (state.activeTool === 'premium' && !isPremium()) state.activeTool = 'home';
-  const tools = { home: homeView, coaching: coachingView, applicants: applicantsToolView, sample: sampleView, engagement: engagementView, account: accountView, admin: adminView, operator: operatorView, premium: premiumView };
+  if (state.activeTool === 'diagnosis' && !auth.membership?.canDiagnosis) state.activeTool = 'home';
+  const tools = { home: homeView, coaching: coachingView, applicants: applicantsToolView, sample: sampleView, engagement: engagementView, account: accountView, admin: adminView, operator: operatorView, premium: premiumView, diagnosis: diagnosisView };
   app.innerHTML = shell((tools[state.activeTool] || views[state.step] || views[0])()); bind(); startBusyElapsedTimer(); runPendingAiMove();
 }
 // 소개 화면에는 폼이 없다. 로그인 화면으로 넘기는 버튼과 구역 이동만 연결하고 서버는 부르지 않는다.
 function bindLanding() {
+  bindMembership();
+  bindDiagnosis();
+  if (!auth.plans) void loadMembershipPlans();
   document.querySelectorAll('[data-landing]').forEach(el => el.onclick = () => setAuth({ view: 'auth', mode: el.dataset.landing === 'signup' ? 'signup' : 'login', error: '', notice: '' }));
   document.querySelectorAll('[data-landing-scroll]').forEach(el => el.onclick = () => document.querySelector(`#${el.dataset.landingScroll}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   // 예시 보기는 로그인 여부와 무관하다. 서버를 부르지 않고 화면만 바꾼다.
@@ -3587,6 +3824,9 @@ function bindCoreProposal() {
   document.querySelectorAll('[data-social]').forEach(el => el.addEventListener('click', () => void beginSocial(el.dataset.social, el.dataset.socialMode)));
 }
 function bindLogin() {
+  bindMembership();
+  bindMemberProfile();
+  if (!auth.plans) void loadMembershipPlans();
   document.querySelector('#back-to-landing')?.addEventListener('click', () => setAuth({ view: 'landing', error: '', notice: '' }));
   document.querySelector('#login-email')?.addEventListener('input', event => { auth.emailDraft = event.target.value; });
   document.querySelector('#login-password')?.addEventListener('input', event => { auth.passwordDraft = event.target.value; });
@@ -3922,6 +4162,8 @@ function bind() {
   bindTopMenus();
   bindMemberProfile();
   bindPremium();
+  bindMembership();
+  if (!auth.plans) void loadMembershipPlans();
   bindShowcase();
   if (auth.adminTab === 'showcase' && isAdmin()) void loadShowcase();
   if (state.activeTool === 'premium') void loadPremium();
@@ -3933,6 +4175,7 @@ function bind() {
   document.querySelector('#sign-out')?.addEventListener('click', () => void submitLogout());
   document.querySelector('#open-account')?.addEventListener('click', () => setState({ activeTool: 'account', notice: '', error: '' }));
   document.querySelector('#open-premium')?.addEventListener('click', () => setState({ activeTool: 'premium', notice: '', error: '' }));
+  document.querySelector('#open-diagnosis')?.addEventListener('click', () => setState({ activeTool: 'diagnosis', notice: '', error: '' }));
   document.querySelectorAll('[data-portal]').forEach(el => el.onclick = () => openPortal(el.dataset.portal));
   document.querySelectorAll('[data-portal-open]').forEach(el => el.onclick = () => (el.dataset.portalOpen === 'admin' ? openAdmin() : openOperator()));
   document.querySelector('#reload-admin')?.addEventListener('click', () => void loadAccounts());

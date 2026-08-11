@@ -16,6 +16,9 @@ import { SESSION_COOKIE } from '../server/session.js';
 import { CONTACT_LABEL, DEFAULT_PLAN, PLANS, TRIAL_ACTION, effectivePlan, hasFullAccess, planRefusal } from '../server/plan.js';
 import { BLOCKED_ACTIONS } from '../server/operator-scope.js';
 import { fakeDb } from './fixtures/fake-d1.js';
+import { PRICING } from '../server/membership.js';
+
+const PRICING_APPLY = PRICING.applyLabel;
 
 const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
 const migration = fs.readFileSync(new URL('../migrations/0007_plans.sql', import.meta.url), 'utf8');
@@ -71,6 +74,15 @@ function mockOpenAI(result = SKETCH) {
   return { calls, restore: () => { globalThis.fetch = original; } };
 }
 
+// 구독회원. 쪽수를 자유롭게 고르는 시험은 이 계정으로 한다(정식회원은 5쪽 고정이다).
+function seedSubscription(db, userId, patch = {}) {
+  db.tables.subscriptions.push({
+    user_id: userId, status: 'active', started_on: '2026-08-01', ends_on: '', cycle_start: '2026-08-01', renews_on: '2099-09-01',
+    core_used: 0, diagnosis_used: 0, note: '', granted_by: 'admin-1',
+    created_at: '2026-08-01T00:00:00.000Z', updated_at: '2026-08-01T00:00:00.000Z', ...patch
+  });
+}
+
 test('이용권 규칙은 역할을 먼저 보고 무료 체험에는 한 가지 작업만 연다', () => {
   assert.equal(effectivePlan({ role: 'admin', plan: 'trial' }), 'full', '관리자는 열 값과 무관하게 전체 기능');
   assert.equal(effectivePlan({ role: 'operator', plan: 'trial' }), 'full', '운영관리자도 전체 기능');
@@ -110,8 +122,9 @@ test('전체 이용권이 없으면 생성·검증·보관 API가 서버에서 �
       const response = await through(db, post('/api/proposal', { action, payload: { sourceText: NOTICE, organization: {} } }, { cookie }), 'proposal');
       assert.equal(response.status, 403, action);
       const body = await response.json();
-      assert.equal(body.needsPlan, true, action);
-      assert.ok(body.error.includes(CONTACT_LABEL), action);
+      // 이제 거절 사유가 등급별로 갈린다. 정식회원에게는 구독 신청을, 그 밖에는 이용권 문의를 알린다.
+      assert.ok(body.needsSubscription || body.needsPlan || body.needsPremium, action);
+      assert.ok(body.error.includes(CONTACT_LABEL) || body.error.includes(PRICING_APPLY), action);
     }
     // 검증·코칭과 심사 검토도 같은 기준으로 막힌다.
     const coaching = await through(db, post('/api/proposal-coaching', { action: 'startCoaching', proposalText: '가'.repeat(200) }, { cookie }), 'coaching');
@@ -121,7 +134,8 @@ test('전체 이용권이 없으면 생성·검증·보관 API가 서버에서 �
     // 계획서 보관도 전체 이용권 기능이다.
     const saved = await through(db, post('/api/archive', { action: 'saveProposal', proposal: { id: 'p1', title: 't', stage: 's', snapshot: {} } }, { cookie, headers: { 'X-Archive-Key': '12345678-1234-1234-1234-123456789abc' } }), 'archive');
     assert.equal(saved.status, 403);
-    assert.equal((await saved.json()).needsPlan, true);
+    // 정식회원의 5쪽 제안서는 읽기 전용이라 저장이 열리지 않는다.
+    assert.equal((await saved.json()).needsSubscription, true);
     // 막힌 요청은 OpenAI를 한 번도 부르지 않는다.
     assert.equal(mock.calls.length, 0, '차단된 요청이 비용을 쓰면 안 된다');
   } finally { mock.restore(); }
@@ -137,7 +151,9 @@ test('핵심제안서는 계정당 한 번만 열리고 두 번째부터 서버�
     assert.equal(first.status, 200);
     const body = await first.json();
     assert.equal(body.trialUsed, true);
-    assert.equal(body.targetPages, 3);
+    // 정식회원은 희망 쪽수와 무관하게 5쪽으로 고정된다.
+    assert.equal(body.targetPages, 5);
+    assert.equal(body.readOnly, true);
     assert.ok(Array.isArray(body.sections) && body.sections.length >= 4);
     // 사용 여부가 계정 행에 남는다.
     assert.match(db.tables.users.find(item => item.id === 'trial-1').trial_used_at, /^\d{4}-\d{2}-\d{2}T/);
@@ -200,6 +216,7 @@ test('예산 방향은 근거가 있을 때만 제시하고 없으면 금액을 
   let withoutBudget = '';
   try {
     // 5쪽이면 예산 방향 항목이 구성에 들어간다.
+    seedSubscription(db, 'trial-1');
     await through(db, post('/api/proposal', { action: TRIAL_ACTION, payload: { ...CORE_INPUT, targetPages: 5 } }, { cookie }), 'proposal');
     withBudget = JSON.parse(mock.calls[0].options.body).input[1].content[0].text;
   } finally { mock.restore(); }
@@ -207,6 +224,7 @@ test('예산 방향은 근거가 있을 때만 제시하고 없으면 금액을 
   const short = fakeDb();
   await seedUser(short, { id: 'trial-2', email: 'trial2@ms12.test', plan: 'trial' });
   const shortCookie = await signIn(short, 'trial2@ms12.test');
+  seedSubscription(short, 'trial-2');
   const shortMock = mockOpenAI();
   try {
     // 1쪽이면 예산 방향이 구성에 없으므로 예산 규칙도 붙지 않는다.
@@ -267,8 +285,9 @@ test('제출처 유형에 따라 제안서 구조와 강조점이 달라진다',
 test('희망 쪽수에 따라 항목 수와 분량이 달라지고 같은 말로 채우지 않는다', async () => {
   const shapeOf = async pages => {
     const db = fakeDb();
-    await seedUser(db, { id: 'trial-1', email: 'trial@ms12.test', plan: 'trial' });
-    const cookie = await signIn(db, 'trial@ms12.test');
+    await seedUser(db, { id: 'sub-1', email: 'sub@ms12.test', plan: 'trial' });
+    seedSubscription(db, 'sub-1');
+    const cookie = await signIn(db, 'sub@ms12.test');
     const mock = mockOpenAI();
     try {
       const response = await through(db, post('/api/proposal', { action: TRIAL_ACTION, payload: { ...CORE_INPUT, targetPages: pages } }, { cookie }), 'proposal');
@@ -316,6 +335,7 @@ test('희망 쪽수에 따라 항목 수와 분량이 달라지고 같은 말로
 test('구성안을 먼저 만들고 그 구성대로 본문을 쓴다', async () => {
   const db = fakeDb();
   await seedUser(db, { id: 'trial-1', email: 'trial@ms12.test', plan: 'trial' });
+  seedSubscription(db, 'trial-1');
   const cookie = await signIn(db, 'trial@ms12.test');
   // 모델이 항목을 빠뜨리고 쪽 번호를 흔들어도 구성안이 결과를 잡아 준다.
   const mock = mockOpenAI({ title: '제안', summary: '요약', outline: [{ page: 1, title: '1쪽', focus: '판단' }], sections: [{ id: 'idea', title: '멋대로 바꾼 제목', page: 99, content: '내용' }], tables: [], checkNeeded: [] });

@@ -1,5 +1,8 @@
 import { withDerived } from '../../server/notice-search.js';
 import { NEED_FULL, hasFullAccess } from '../../server/plan.js';
+import { LOCKED_NOTICE, MEMBER_READ_ONLY, membershipOf } from '../../server/membership.js';
+import { loadSubscription } from '../../server/subscription.js';
+import { contractState } from '../../server/premium.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 const MAX_NOTICE_BATCH = 100;
@@ -19,9 +22,11 @@ export async function onRequest(context) {
     if (body.action === 'searchNotices') return json({ notices: await searchNotices(context.env.ARCHIVE_DB, body.filters, await owner(context.request)) });
     const ownerHash = await owner(context.request);
     if (!ownerHash) return json({ error: '자료보관함 식별키가 없습니다.' }, 401);
-    // 계획서 보관은 전체 이용권 기능이다. 무료 체험 계정은 한 장짜리 구상만 보고 저장하지 않는다.
+    // 계획서 보관은 구독·프리미엄·기존 전체 이용권에서만 열린다.
+    // 승인 대기 회원은 아무것도 저장하지 않고, 정식회원의 5쪽 제안서는 읽기 전용이다.
     if (body.action === 'saveProposal') {
-      if (!hasFullAccess(context.data?.session?.user)) return json({ error: NEED_FULL, needsPlan: true }, 403);
+      const refusal = await saveRefusal(context);
+      if (refusal) return json(refusal.body, refusal.status);
       return json(await saveProposal(context.env.ARCHIVE_DB, ownerHash, body.proposal));
     }
     if (body.action === 'listProposals') return json({ proposals: await listProposals(context.env.ARCHIVE_DB, ownerHash) });
@@ -188,4 +193,19 @@ function simpleHash(value) { let hash = 2166136261; for (let index = 0; index < 
 function safeJson(value) { try { return JSON.parse(value); } catch { return {}; } }
 function clean(value, max) { return String(value || '').trim().slice(0, max); }
 function date(value) { const match = String(value || '').match(/\d{4}-\d{2}-\d{2}/); return match?.[0] || ''; }
+// 저장을 막을 이유가 있으면 그 이유를 돌려준다. 등급 판정은 서버에서만 한다.
+async function saveRefusal(context) {
+  const user = context.data?.session?.user;
+  if (!user?.id) return { status: 401, body: { error: '로그인이 필요합니다.' } };
+  const subscription = await loadSubscription(context.env.ARCHIVE_DB, user.id);
+  const row = await context.env.ARCHIVE_DB.prepare('SELECT status, started_on, ends_on FROM premium_contracts WHERE user_id = ?').bind(user.id).first();
+  const contract = row ? contractState({ status: row.status, startedOn: row.started_on || '', endsOn: row.ends_on || '' }) : null;
+  const membership = membershipOf({ user, subscription, contract });
+  if (membership.locked) return { status: 403, body: { error: LOCKED_NOTICE, locked: true } };
+  if (membership.canSave) return null;
+  // 기존 전체 이용권 회원은 그대로 저장할 수 있다.
+  if (hasFullAccess(user)) return null;
+  return { status: 403, body: { error: MEMBER_READ_ONLY, needsSubscription: true } };
+}
+
 function json(body, status = 200, headers = {}) { return new Response(JSON.stringify(body), { status, headers: { ...JSON_HEADERS, ...headers } }); }

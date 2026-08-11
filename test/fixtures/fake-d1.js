@@ -4,7 +4,7 @@ export function fakeDb() {
   const tables = {
     users: [], sessions: [], login_attempts: [], user_identities: [], oauth_states: [],
     admin_audit_log: [], account_recovery_codes: [], user_activity_events: [], archived_notices: [], ai_usage_events: [],
-    premium_contracts: [], showcase_proposals: [], member_profiles: []
+    premium_contracts: [], showcase_proposals: [], member_profiles: [], subscriptions: [], archived_proposals: []
   };
   let seq = 0;
   // D1은 바꾼 행 수를 meta.changes로 알려 준다. 무료 체험 1회 제한이 이 값을 본다.
@@ -256,6 +256,58 @@ export function fakeDb() {
       return rows([shape(list)]);
     }
 
+    // ---- 계획서 보관함(저장 권한 확인용 최소 대역) ----
+    if (/^SELECT created_at FROM archived_proposals WHERE id = \? AND owner_hash/.test(text)) {
+      return rows(tables.archived_proposals.filter(item => item.id === args[0] && item.owner_hash === args[1]));
+    }
+    if (/^INSERT INTO archived_proposals/.test(text)) {
+      const [id, owner_hash, notice_key, title, stage, proposal_json, created_at, updated_at] = args;
+      const found = tables.archived_proposals.find(item => item.id === id);
+      if (found) Object.assign(found, { title, stage, notice_key, proposal_json, updated_at });
+      else tables.archived_proposals.push({ id, owner_hash, notice_key, title, stage, proposal_json, created_at, updated_at });
+      return rows([], 1);
+    }
+    // ---- 월간 구독 ----
+    if (/FROM subscriptions WHERE user_id/.test(text)) {
+      return rows(tables.subscriptions.filter(item => item.user_id === args[0]));
+    }
+    if (/^SELECT user_id, status, started_on, ends_on, cycle_start, renews_on, core_used, diagnosis_used, note, updated_at FROM subscriptions$/.test(text)) {
+      return rows(tables.subscriptions);
+    }
+    if (/FROM subscriptions$/.test(text)) return rows(tables.subscriptions);
+    if (/^INSERT INTO subscriptions/.test(text)) {
+      const [user_id, status, started_on, ends_on, cycle_start, renews_on, note, granted_by, created_at, updated_at] = args;
+      const next = { user_id, status, started_on, ends_on, cycle_start, renews_on, core_used: 0, diagnosis_used: 0, note, granted_by, created_at, updated_at };
+      const found = tables.subscriptions.find(item => item.user_id === user_id);
+      if (found) Object.assign(found, { status, started_on, ends_on, cycle_start, renews_on, note, updated_at });
+      else tables.subscriptions.push(next);
+      return rows([], 1);
+    }
+    if (/^UPDATE subscriptions SET status = \?, updated_at = \? WHERE user_id = \? AND status = \?/.test(text)) {
+      const found = tables.subscriptions.find(item => item.user_id === args[2] && item.status === args[3]);
+      if (found) Object.assign(found, { status: args[0], updated_at: args[1] });
+      return rows([], found ? 1 : 0);
+    }
+    if (/^UPDATE subscriptions SET cycle_start = \?, renews_on = \?, core_used = 0, diagnosis_used = 0/.test(text)) {
+      const found = tables.subscriptions.find(item => item.user_id === args[3] && item.renews_on === args[4]);
+      if (found) Object.assign(found, { cycle_start: args[0], renews_on: args[1], core_used: 0, diagnosis_used: 0, updated_at: args[2] });
+      return rows([], found ? 1 : 0);
+    }
+    // 편수 차감. 조건부 UPDATE라 한도를 넘으면 바뀐 행이 없다.
+    if (/^UPDATE subscriptions SET (core_used|diagnosis_used) = \1 \+ 1/.test(text)) {
+      const column = /core_used/.test(text) ? 'core_used' : 'diagnosis_used';
+      const found = tables.subscriptions.find(item => item.user_id === args[1] && item.status === 'active'
+        && item.cycle_start === args[2] && Number(item[column] || 0) < Number(args[3]));
+      if (found) { found[column] = Number(found[column] || 0) + 1; found.updated_at = args[0]; }
+      return rows([], found ? 1 : 0);
+    }
+    if (/^UPDATE subscriptions SET (core_used|diagnosis_used) = MAX/.test(text)) {
+      const column = /core_used/.test(text) ? 'core_used' : 'diagnosis_used';
+      const found = tables.subscriptions.find(item => item.user_id === args[1]);
+      if (found) { found[column] = Math.max(0, Number(found[column] || 0) - 1); found.updated_at = args[0]; }
+      return rows([], found ? 1 : 0);
+    }
+
     // ---- 정식 수주계약(프리미엄) ----
     if (/^SELECT user_id, status, started_on, ends_on, progress, progress_note, contract_name, updated_at FROM premium_contracts WHERE user_id/.test(text)) {
       return rows(tables.premium_contracts.filter(item => item.user_id === args[0]));
@@ -264,7 +316,7 @@ export function fakeDb() {
       || /^SELECT user_id, status, started_on, ends_on, progress, progress_note, contract_name, updated_at FROM premium_contracts$/.test(text)) {
       return rows(tables.premium_contracts);
     }
-    if (/^SELECT status, started_on, ends_on, progress FROM premium_contracts WHERE user_id/.test(text)) {
+    if (/^SELECT status, started_on, ends_on(, progress)? FROM premium_contracts WHERE user_id/.test(text)) {
       return rows(tables.premium_contracts.filter(item => item.user_id === args[0]));
     }
     if (/^SELECT status FROM premium_contracts WHERE user_id/.test(text)) {

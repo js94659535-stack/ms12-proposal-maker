@@ -21,6 +21,9 @@ export const BLOCKED_ACTIONS = new Map([
   ['grantOperator', '운영관리자 지정'],
   ['revokeOperator', '운영관리자 해제'],
   ['setPlan', '이용권 변경'],
+  ['setSubscription', '월간 구독 지정·해제'],
+  ['grantSubscription', '월간 구독 부여'],
+  ['revokeSubscription', '월간 구독 중지'],
   ['setPremium', '정식 수주회원 지정·해제'],
   ['grantPremium', '정식 수주회원 부여'],
   ['revokePremium', '정식 수주회원 중지'],
@@ -48,8 +51,8 @@ export const BLOCKED_ACTIONS = new Map([
 export const NOT_INTEGRATED = [
   { key: 'paymentAmount', label: '결제금액', reason: '결제 기능이 연결되어 있지 않아 저장된 금액 자료가 없습니다. 전체 이용권이 없는 계정에는 「이용권 문의」로만 안내합니다.' },
   { key: 'paymentStatus', label: '결제상태', reason: '결제 기능이 연결되어 있지 않아 저장된 상태 자료가 없습니다. 대신 이용권(무료 체험·전체)과 무료 체험 사용 여부를 확인할 수 있습니다.' },
-  { key: 'subscriptionPeriod', label: '이용기간', reason: '이용기간(구독) 자료를 저장하는 곳이 없습니다. 가입일과 계정 상태, 이용권만 확인할 수 있습니다.' },
-  { key: 'usageVolume', label: '이용량(작성·검증 건수)', reason: '계획서·신청기관 자료는 브라우저 복구키(X-Archive-Key) 기준으로 보관되어 계정과 연결되지 않습니다. 계정 기준으로 남는 이용 기록은 무료 체험 1회 사용 여부뿐입니다.' }
+  { key: 'subscriptionPeriod', label: '결제 기준 이용기간', reason: '정기결제가 연결되어 있지 않습니다. 화면에 보이는 구독 기간은 관리자가 손으로 넣은 시험용 값이며 결제 사실을 뜻하지 않습니다.' },
+  { key: 'usageVolume', label: '계획서·신청기관 이용량', reason: '계획서·신청기관 자료는 브라우저 복구키(X-Archive-Key) 기준으로 보관되어 계정과 연결되지 않습니다. 계정 기준으로 남는 것은 무료 5쪽 사용 여부와 구독 주기의 제안서·진단서 사용 편수뿐입니다.' }
 ];
 
 // 대상으로 삼을 수 없는 계정인지 본다. 관리자·다른 운영관리자·자기 자신은 손대지 못한다.

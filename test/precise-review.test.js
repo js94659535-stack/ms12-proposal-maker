@@ -154,7 +154,7 @@ test('검증은 본문을 바꾸지 않고 수정은 한 번의 호출로 끝난
 });
 
 test('서버는 검증·수정 작업을 따로 등록하고 본문을 돌려받지 않는다', () => {
-  assert.match(api, /const ACTIONS = \[[^\]]*'preciseReview', 'patchSections', 'rewrite', 'finalize', CORE_PROPOSAL_ACTION];/);
+  assert.match(api, /const ACTIONS = \[[^\]]*'preciseReview', 'patchSections', 'rewrite', 'finalize', CORE_PROPOSAL_ACTION, DIAGNOSIS_ACTION];/);
   assert.match(api, /preciseReview: 8_000, patchSections: 10_000/);
   // 검증 스키마에는 본문 필드가 없다.
   const schema = api.slice(api.indexOf('const PRECISE_REVIEW_SCHEMA'), api.indexOf('const PATCH_SCHEMA'));

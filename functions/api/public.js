@@ -1,3 +1,4 @@
+import { membershipPlans } from '../../server/membership.js';
 // 공모정보 검색. 로그인하지 않아도 열리는 유일한 자료 경로다.
 // 이미 D1에 모아 둔 archived_notices만 읽는다. AI도 외부 API도 부르지 않고 새로 수집하지도 않는다.
 // 회원 계획서(archived_proposals)·기관 자료(applicant_organizations)·계정 자료는 이 파일에서 읽지 않는다.
@@ -22,6 +23,8 @@ export async function onRequest(context) {
   let body;
   try { body = await request.json(); } catch { return json({ error: '요청 JSON 형식이 올바르지 않습니다.' }, 400); }
 
+  // 회원 안내. 랜딩·로그인 화면이 계정 설정·관리자 화면과 같은 설정값을 쓴다.
+  if (body.action === 'membershipPlans') return json(membershipPlans());
   if (body.action === 'searchNotices') return searchNotices(env.ARCHIVE_DB, body);
   if (body.action === 'noticeDetail') return noticeDetail(env.ARCHIVE_DB, body.key);
   return json({ error: '지원하지 않는 작업입니다.' }, 400);

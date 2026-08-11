@@ -337,9 +337,13 @@ test('결제·이용량은 지어내지 않고 미연동으로만 알린다', as
   assert.deepEqual(keys, ['paymentAmount', 'paymentStatus', 'subscriptionPeriod', 'usageVolume']);
   assert.ok(body.notIntegrated.every(item => item.reason.length > 10));
   // 응답 어디에도 결제 금액·상태 같은 값이 들어 있지 않다.
-  for (const key of ['amount', 'paidAt', 'price', 'subscription', 'usageCount']) {
+  for (const key of ['amount', 'paidAt', 'price', 'paymentStatus', 'usageCount']) {
     assert.ok(!body.users.some(user => Object.hasOwn(user, key)), key);
   }
+  // 구독은 지어낸 값이 아니라 관리자가 손으로 넣은 실제 행이다. 없으면 「구독 없음」으로만 알린다.
+  assert.ok(body.users.every(user => user.subscription && typeof user.subscription.status === 'string'));
+  assert.ok(body.users.every(user => user.subscription.status !== 'none' || user.subscription.statusLabel === '구독 없음'));
+  assert.ok(body.notIntegrated.some(item => item.reason.includes('결제 사실을 뜻하지 않습니다')));
   assert.ok(body.notIntegrated.some(item => item.reason.includes('X-Archive-Key')));
   // 이용권과 무료 체험 사용 여부는 지어낸 값이 아니라 D1에 실제로 저장된 값이라 그대로 보여 준다.
   assert.ok(body.users.every(user => ['trial', 'full'].includes(user.plan)));
