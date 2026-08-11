@@ -1264,10 +1264,10 @@ function homeView() {
     <div class="home">
       <header class="home-header">
         <div class="home-brand"><strong>사업계획서 작성 도우미</strong><span>공고 분석부터 제출본까지</span></div>
-        <nav class="home-nav"><button class="button ghost" id="workflow-back" aria-label="뒤로 가기">← 뒤로</button><button class="button ghost" disabled aria-current="page">⌂ 홈 화면</button><button class="button ghost" id="workflow-forward" aria-label="앞으로 가기">앞으로 →</button><button class="button ghost" data-home-scroll="home-product">제품소개</button><button class="button ghost" data-home-scroll="home-flow">이용방법</button><button class="button ghost" data-home-scroll="home-features">주요기능</button><button class="button ghost" data-home-archive="1">공고보관함·계획서보관함</button>${portalLinks('button ghost')}<button class="button primary" data-home-start="1">무료로 시작하기</button></nav>
+        <nav class="home-nav"><button class="button ghost" id="workflow-back" aria-label="뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="button ghost" disabled aria-current="page">⌂ 홈 화면</button><button class="button ghost" id="workflow-forward" aria-label="앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button><button class="button ghost" data-home-scroll="home-product">제품소개</button><button class="button ghost" data-home-scroll="home-flow">이용방법</button><button class="button ghost" data-home-scroll="home-features">주요기능</button><button class="button ghost" data-home-archive="1">공고보관함·계획서보관함</button>${portalLinks('button ghost')}<button class="button primary" data-home-start="1">새 계획서 시작</button></nav>
       </header>
 
-      <section class="home-hero" id="home-product">
+      <section class="home-hero">
         <div class="home-hero-bg" aria-hidden="true"><span></span><span></span></div>
         <div class="home-hero-inner">
           <span class="home-eyebrow">공모사업 계획서 작성·검증 플랫폼</span>
@@ -1310,7 +1310,7 @@ function homeView() {
         </div>
       </section>
 
-      <section class="home-section">
+      <section class="home-section" id="home-product">
         <div class="home-head"><h2>서비스 화면</h2><p>실제 작업 화면에서 이렇게 진행됩니다.</p></div>
         <div class="home-grid three">
           <article class="home-shot"><span>공고 분석</span><h3>선정 논리 11항목</h3><p>목적·자격·필수 사업내용·평가·성과 요구를 공고 원문 문장과 함께 확인합니다.</p><button class="button ghost" data-home-step="1">화면 열기</button></article>
@@ -1347,7 +1347,7 @@ function homeView() {
       <section class="home-final">
         <h2>공고 하나로 시작해 제출본까지 완성하세요</h2>
         <p>지금 공고문을 올리거나 사업 내용을 입력하면 첫 단계부터 안내합니다.</p>
-        <div class="home-actions"><button class="button primary" data-home-start="1">무료로 시작하기</button><button class="button secondary" data-open-sample="notice">[샘플] 예시 프로젝트 보기</button><button class="button ghost" data-home-archive="1">공고보관함·계획서보관함 보기</button></div>
+        <div class="home-actions"><button class="button primary" data-home-start="1">새 계획서 시작</button><button class="button secondary" data-open-sample="notice">[샘플] 예시 프로젝트 보기</button><button class="button ghost" data-home-archive="1">공고보관함·계획서보관함 보기</button></div>
       </section>
 
       <footer class="home-footer"><span>사업계획서 작성 도우미</span><div><button class="button ghost" data-home-start="1">새 계획서</button><button class="button ghost" data-home-archive="1">공고보관함·계획서보관함</button><button class="button ghost" data-open-applicants="1">신청기관 정보</button></div></footer>
@@ -3510,9 +3510,9 @@ function bind() {
   bindApplicants();
   document.querySelector('#back')?.addEventListener('click', () => navigateToStep(state.step - 1, { notice: '', error: '' }));
   document.querySelector('#next')?.addEventListener('click', () => navigateToStep(state.step + 1, { notice: '', error: '' }));
-  document.querySelector('#workflow-back')?.addEventListener('click', () => { state.activeTool = 'workflow'; navigateBack(); });
+  document.querySelector('#workflow-back')?.addEventListener('click', () => { if (!navigationHistory.backStack.length) return; state.activeTool = 'workflow'; navigateBack(); });
   document.querySelector('#workflow-home')?.addEventListener('click', () => setState({ activeTool: 'home', notice: '', error: '' }));
-  document.querySelector('#workflow-forward')?.addEventListener('click', () => { state.activeTool = 'workflow'; navigateForward(); });
+  document.querySelector('#workflow-forward')?.addEventListener('click', () => { if (!navigationHistory.forwardStack.length) return; state.activeTool = 'workflow'; navigateForward(); });
   document.querySelector('#go-to-review')?.addEventListener('click', () => navigateToStep(4));
   document.querySelector('#menu-toggle')?.addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
   const fileInput = document.querySelector('#source-files');
@@ -3792,7 +3792,12 @@ function bind() {
       dots.forEach((dot, position) => dot.classList.toggle('active', position === index));
     }, { passive: true });
   });
-  document.querySelectorAll('[data-home-scroll]').forEach(el => el.onclick = () => document.querySelector(`#${el.dataset.homeScroll}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  // 구역 이동. 가리키는 구역이 없으면 눌러도 아무 일이 없으므로 그 자리에서 드러나게 둔다.
+  document.querySelectorAll('[data-home-scroll]').forEach(el => el.onclick = () => {
+    const target = document.querySelector(`#${el.dataset.homeScroll}`);
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
   // 대화형 시작: 공고문 업로드와 직접 입력 모두 기존 공고 준비 단계로 연결한다.
   document.querySelectorAll('[data-home-upload]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(0, { notice: '공고문·신청서 파일을 업로드해 주세요. 아래 업로드 영역에 파일을 끌어다 놓아도 됩니다.', error: '' }); });
   document.querySelectorAll('[data-home-manual]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(0, { notice: '공고문이 없으면 아래 직접 입력란에 사업 내용을 붙여넣어 시작할 수 있습니다.', error: '' }); });
