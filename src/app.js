@@ -122,7 +122,7 @@ function hasFullAccess() {
   if (!user) return false;
   return user.role === 'admin' || user.role === 'operator' || user.plan === 'full';
 }
-// 승인은 받았지만 전체 이용권이 없는 회원. 3페이지 핵심계획서 화면만 쓴다.
+// 승인은 받았지만 전체 이용권이 없는 회원. 핵심제안서 화면만 쓴다.
 function trialAccount() { return auth.status === 'signedIn' && auth.user?.status === 'active' && !hasFullAccess(); }
 // 발급된 복구코드(issued)는 이 객체 안에서만 살고 localStorage·sessionStorage에 절대 넣지 않는다.
 function emptyOperator() {
@@ -304,7 +304,7 @@ const ADMIN_DONE = {
   operator: '운영관리자로 지정했습니다. 쓰던 세션을 끊었으니 다시 로그인해야 합니다.',
   customer: '운영관리자 권한을 해제했습니다. 쓰던 세션을 끊었으니 다시 로그인해야 합니다.',
   full: '전체 이용권을 부여했습니다. 다시 로그인하지 않아도 곧바로 반영됩니다.',
-  trial: '전체 이용권을 회수했습니다. 이 계정은 3페이지 핵심계획서 무료 생성 화면만 쓰게 됩니다.'
+  trial: '전체 이용권을 회수했습니다. 이 계정은 핵심제안서 무료 생성 화면만 쓰게 됩니다.'
 };
 const PLAN_LABELS = { full: '전체 이용권', trial: '무료 체험' };
 
@@ -665,7 +665,7 @@ function landingView() {
         <h1>공고 한 건에서 제출본까지,<br>근거를 남기며 씁니다</h1>
         <p class="landing-lead">공고를 분석해 선정 논리를 세우고, 확인된 기관 정보와 이번 사업의 확정값만으로 계획서를 만듭니다. 확인되지 않은 값은 지어내지 않고 [확인 필요]로 남겨 제출 전에 정리합니다.</p>
         ${landingCta()}
-        <p class="landing-note">가입 후 관리자 승인을 받으면 <strong>계정당 한 번</strong> 개인 맞춤 3페이지 핵심계획서를 무료로 만들어 볼 수 있습니다. 전체 계획서 작성·검증·출력은 전체 이용권 기능이며, 결제는 아직 열려 있지 않아 「${CONTACT_LABEL}」로 안내합니다. 예시 계획서는 로그인 없이 바로 볼 수 있습니다.</p>
+        <p class="landing-note">가입 후 관리자 승인을 받으면 <strong>계정당 한 번</strong> 원하는 쪽수에 맞춘 개인 맞춤 핵심제안서를 무료로 만들어 볼 수 있습니다. 전체 계획서 작성·검증·출력은 전체 이용권 기능이며, 결제는 아직 열려 있지 않아 「${CONTACT_LABEL}」로 안내합니다. 예시 계획서는 로그인 없이 바로 볼 수 있습니다.</p>
       </div>
 
       <div class="landing-section" id="landing-value">
@@ -842,7 +842,7 @@ function exampleView() {
         <div class="landing-grid">${EXAMPLE_SECTIONS.map(item => `<article class="landing-card"><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.body)}</p><ul><li>근거: ${escapeHtml(item.evidence)}</li></ul></article>`).join('')}</div>
       </div>
       ${auth.status === 'signedIn' ? '' : `<div class="landing-section">
-        <div class="landing-head"><h2>직접 만들어 보세요</h2><p>가입하고 승인을 받으면 계정당 한 번 개인 맞춤 3페이지 핵심계획서를 무료로 만들 수 있습니다.</p></div>
+        <div class="landing-head"><h2>직접 만들어 보세요</h2><p>가입하고 승인을 받으면 계정당 한 번 원하는 쪽수에 맞춘 개인 맞춤 핵심제안서를 무료로 만들 수 있습니다.</p></div>
         ${landingCta()}
       </div>`}
       <footer class="landing-footer"><span>사업계획서 작성 도우미 · 근거 있는 계획서</span><div><button class="button secondary" data-landing-back="1">${auth.status === 'signedIn' ? '내 화면으로' : '서비스 소개로'}</button></div></footer>
@@ -3175,7 +3175,7 @@ function render() {
   if (isStaff() && !state.portal) { app.innerHTML = portalChoiceView(); bindPortalChoice(); return; }
   // 계획서 포털에서는 관리 화면이 열리지 않는다. 저장된 화면 위치가 남아 있어도 되돌린다.
   if (isStaff() && state.portal === 'proposal' && ['admin', 'operator'].includes(state.activeTool)) state.activeTool = 'home';
-  // 전체 이용권이 없는 회원은 3페이지 핵심계획서 화면만 본다. 생성·출력 차단은 서버가 한다.
+  // 전체 이용권이 없는 회원은 핵심제안서 화면만 본다. 생성·차단은 서버가 한다.
   if (trialAccount()) { app.innerHTML = coreProposalView(); bindCoreProposal(); return; }
   const views = [noticeImportView, noticeConfirmView, applicantSelectView, businessSelectView, documentView, documentView];
   // 관리자 화면은 관리자에게만 열린다. 저장된 화면 위치가 남아 있어도 역할이 아니면 되돌린다.

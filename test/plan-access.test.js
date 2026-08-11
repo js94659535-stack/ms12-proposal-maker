@@ -185,6 +185,43 @@ test('핵심제안서 실패는 사용 기록을 남기지 않고 잘못된 입�
   // 출력 상한은 쪽수를 따른다.
   assert.match(proposalSource, /max_output_tokens: body\.action === CORE_PROPOSAL_ACTION \? outputTokensFor\(body\.payload\.plan\.pages\)/);
   assert.match(proposalSource, /required: \['title', 'summary', 'outline', 'sections', 'tables', 'checkNeeded'\]/);
+  // 닿지 않는 옛 분기와 스키마는 남겨 두지 않는다.
+  for (const dead of ['trialCorePlanLegacy', 'TRIAL_CORE_PLAN_SCHEMA', 'settleBudget']) {
+    assert.ok(!proposalSource.includes(dead), `${dead}가 남아 있다`);
+  }
+});
+
+test('예산 방향은 근거가 있을 때만 제시하고 없으면 금액을 만들지 않는다', async () => {
+  const db = fakeDb();
+  await seedUser(db, { id: 'trial-1', email: 'trial@ms12.test', plan: 'trial' });
+  const cookie = await signIn(db, 'trial@ms12.test');
+  const mock = mockOpenAI();
+  let withBudget = '';
+  let withoutBudget = '';
+  try {
+    // 5쪽이면 예산 방향 항목이 구성에 들어간다.
+    await through(db, post('/api/proposal', { action: TRIAL_ACTION, payload: { ...CORE_INPUT, targetPages: 5 } }, { cookie }), 'proposal');
+    withBudget = JSON.parse(mock.calls[0].options.body).input[1].content[0].text;
+  } finally { mock.restore(); }
+
+  const short = fakeDb();
+  await seedUser(short, { id: 'trial-2', email: 'trial2@ms12.test', plan: 'trial' });
+  const shortCookie = await signIn(short, 'trial2@ms12.test');
+  const shortMock = mockOpenAI();
+  try {
+    // 1쪽이면 예산 방향이 구성에 없으므로 예산 규칙도 붙지 않는다.
+    await through(short, post('/api/proposal', { action: TRIAL_ACTION, payload: { ...CORE_INPUT, targetPages: 1 } }, { cookie: shortCookie }), 'proposal');
+    withoutBudget = JSON.parse(shortMock.calls[0].options.body).input[1].content[0].text;
+  } finally { shortMock.restore(); }
+
+  // 근거가 있으면 그 범위 안에서 항목별 방향만, 없으면 정해진 문구로 남긴다.
+  assert.match(withBudget, /「예산 방향」 항목은 방향만 적는다/);
+  assert.match(withBudget, /인건비·프로그램비·재료비·홍보비/);
+  assert.match(withBudget, /\[확인 필요: 공고문 또는 기관 확인 필요\]/);
+  assert.match(withBudget, /추정 금액을 근거처럼 적지 않는다/);
+  // 상세 산출내역과 제출용 예산표는 이 기능에서 만들지 않는다.
+  assert.match(withBudget, /상세 산출내역\(단가 × 수량 × 개월수\)과 제출용 예산표는 만들지 않는다/);
+  assert.doesNotMatch(withoutBudget, /「예산 방향」 항목은 방향만 적는다/, '예산 항목이 없는 분량에는 규칙을 붙이지 않는다');
 });
 
 test('제출처 유형에 따라 제안서 구조와 강조점이 달라진다', async () => {
