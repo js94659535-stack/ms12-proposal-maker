@@ -110,7 +110,7 @@ test('가입한 비밀번호는 원문 없이 사용자마다 다른 salt로 저
   await join(db, { email: 'kim@naver.com', password: PASSWORD, passwordConfirm: PASSWORD }, { ip: '203.0.113.1' });
   await join(db, { email: 'park@daum.net', password: PASSWORD, passwordConfirm: PASSWORD }, { ip: '203.0.113.2' });
   const [first, second] = db.tables.users;
-  assert.equal(first.password_algo, 'PBKDF2-HMAC-SHA256');
+  assert.equal(first.password_algo, 'PBKDF2-HMAC-SHA256-CHAIN');
   assert.equal(first.password_iterations, 600_000);
   assert.notEqual(first.password_salt, second.password_salt, '같은 비밀번호라도 salt가 달라야 한다');
   assert.notEqual(first.password_hash, second.password_hash);

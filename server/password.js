@@ -1,6 +1,12 @@
 // 비밀번호 해싱. Cloudflare Workers와 Node가 같은 WebCrypto를 쓰므로 관리자 생성 스크립트와 서버가 같은 코드를 탄다.
-export const PASSWORD_ALGO = 'PBKDF2-HMAC-SHA256';
+// Cloudflare Workers는 PBKDF2 한 번에 100,000회까지만 허용한다(그 이상은 NotSupportedError).
+// 반복 횟수를 낮추는 대신 앞 결과를 다음 입력으로 넣어 총 600,000회를 그대로 채운다.
+// 공격자가 해야 하는 계산량은 600,000회 그대로다.
+export const PASSWORD_ALGO = 'PBKDF2-HMAC-SHA256-CHAIN';
+// 예전에 Node에서 한 번에 600,000회로 만든 값. Workers에서는 계산할 수 없어 비밀번호를 다시 정해야 한다.
+export const LEGACY_PASSWORD_ALGO = 'PBKDF2-HMAC-SHA256';
 export const PASSWORD_ITERATIONS = 600_000;
+export const MAX_ITERATIONS_PER_CALL = 100_000;
 const SALT_BYTES = 16;
 const KEY_BITS = 256;
 
@@ -19,11 +25,27 @@ export function newSalt() {
 
 // 반복 횟수는 사용자 행에 적힌 값을 그대로 쓴다. 값을 올려도 기존 계정이 열린다.
 export async function derivePassword(password, { salt, iterations = PASSWORD_ITERATIONS, algo = PASSWORD_ALGO } = {}) {
-  if (algo !== PASSWORD_ALGO) throw new Error('지원하지 않는 비밀번호 해시 방식입니다.');
+  if (algo !== PASSWORD_ALGO && algo !== LEGACY_PASSWORD_ALGO) throw new Error('지원하지 않는 비밀번호 해시 방식입니다.');
   if (!salt) throw new Error('salt가 필요합니다.');
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(String(password)), 'PBKDF2', false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: fromHex(salt), iterations: Number(iterations) }, key, KEY_BITS);
+  const total = Number(iterations);
+  if (!Number.isInteger(total) || total < 1) throw new Error('반복 횟수가 올바르지 않습니다.');
+  // 예전 방식은 한 번에 다 돌린다. Node에서만 계산되고 Workers에서는 그대로 실패한다.
+  if (algo === LEGACY_PASSWORD_ALGO) return toHex(await deriveBits(new TextEncoder().encode(String(password)), salt, total));
+
+  let material = new TextEncoder().encode(String(password));
+  let bits = null;
+  for (let done = 0; done < total;) {
+    const rounds = Math.min(MAX_ITERATIONS_PER_CALL, total - done);
+    bits = await deriveBits(material, salt, rounds);
+    material = new Uint8Array(bits);
+    done += rounds;
+  }
   return toHex(bits);
+}
+
+async function deriveBits(material, salt, iterations) {
+  const key = await crypto.subtle.importKey('raw', material, 'PBKDF2', false, ['deriveBits']);
+  return crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: fromHex(salt), iterations }, key, KEY_BITS);
 }
 
 export async function createPasswordRecord(password) {

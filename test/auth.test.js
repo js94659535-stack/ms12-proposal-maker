@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { onRequest as authRoute } from '../functions/api/auth.js';
 import { onRequest as middleware } from '../functions/api/_middleware.js';
-import { PASSWORD_ALGO, PASSWORD_ITERATIONS, createPasswordRecord, sha256Hex } from '../server/password.js';
+import { MAX_ITERATIONS_PER_CALL, PASSWORD_ALGO, PASSWORD_ITERATIONS, createPasswordRecord, sha256Hex } from '../server/password.js';
 import { SESSION_COOKIE, sameOriginRequest } from '../server/session.js';
 
 const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
@@ -227,10 +227,12 @@ test('반복 로그인 실패를 제한한다', async () => {
 
 test('비밀번호 해시 방식과 반복 횟수를 사용자 행에 기록한다', async () => {
   const record = await createPasswordRecord(PASSWORD);
-  assert.equal(record.password_algo, 'PBKDF2-HMAC-SHA256');
+  // Workers가 한 번에 100,000회까지만 받아 이어 돌린다. 총 반복 횟수는 600,000회 그대로다.
+  assert.equal(record.password_algo, 'PBKDF2-HMAC-SHA256-CHAIN');
   assert.equal(record.password_iterations, 600_000);
-  assert.equal(PASSWORD_ALGO, 'PBKDF2-HMAC-SHA256');
+  assert.equal(PASSWORD_ALGO, 'PBKDF2-HMAC-SHA256-CHAIN');
   assert.equal(PASSWORD_ITERATIONS, 600_000);
+  assert.ok(MAX_ITERATIONS_PER_CALL <= 100_000, 'Workers 한도를 넘는 호출을 만들면 안 된다');
   assert.match(record.password_salt, /^[a-f0-9]{32}$/);
   assert.match(record.password_hash, /^[a-f0-9]{64}$/);
   // 같은 비밀번호라도 salt가 달라 해시가 달라진다.

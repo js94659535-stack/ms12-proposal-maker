@@ -1,5 +1,5 @@
 // 로그인·로그아웃·현재 사용자. 세션 원문은 응답 본문에 담지 않고 쿠키로만 내보낸다.
-import { constantTimeEqual, createPasswordRecord, derivePassword, sha256Hex } from '../../server/password.js';
+import { PASSWORD_ALGO, constantTimeEqual, createPasswordRecord, derivePassword, sha256Hex } from '../../server/password.js';
 import { SESSION_STATUSES, clearedSessionCookie, createSession, destroySession, purgeExpiredSessions, sessionCookie, touchSession } from '../../server/session.js';
 import { SIGNUP_ROLE, SIGNUP_STATUS, validateSignup } from '../../server/signup.js';
 
@@ -79,7 +79,7 @@ async function login(db, request, body) {
   const salt = user?.password_salt || (await sha256Hex(`decoy:${email}`)).slice(0, 32);
   const iterations = Number(user?.password_iterations) || 600_000;
   let derived = '';
-  try { derived = await derivePassword(password, { salt, iterations, algo: user?.password_algo || 'PBKDF2-HMAC-SHA256' }); }
+  try { derived = await derivePassword(password, { salt, iterations, algo: user?.password_algo || PASSWORD_ALGO }); }
   catch { derived = ''; }
 
   // 승인 대기 계정도 로그인은 된다. 작업 API는 미들웨어가 막는다. 중지된 계정은 들어오지 못한다.
