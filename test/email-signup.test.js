@@ -26,7 +26,7 @@ function fakeDb() {
     if (/^UPDATE sessions SET/.test(text)) { const s = tables.sessions.find(i => i.token_hash === args[2]); if (s) { s.last_seen_at = args[0]; s.expires_at = args[1]; } return rows([]); }
     if (/^DELETE FROM sessions WHERE token_hash/.test(text)) { tables.sessions = tables.sessions.filter(i => i.token_hash !== args[0]); return rows([]); }
     if (/^DELETE FROM sessions WHERE expires_at/.test(text)) { tables.sessions = tables.sessions.filter(i => i.expires_at >= args[0]); return rows([]); }
-    if (/^SELECT id, email, role, org_id, name, status, password_algo/.test(text)) return rows(tables.users.filter(i => i.email === args[0]));
+    if (/^SELECT id, email, role, org_id, name, status, plan, trial_used_at, password_algo/.test(text)) return rows(tables.users.filter(i => i.email === args[0]));
     if (/^SELECT phone, org_name/.test(text)) return rows(tables.users.filter(i => i.id === args[0]));
     if (/^UPDATE users SET name = \?, phone/.test(text)) {
       const user = tables.users.find(i => i.id === args[9]);

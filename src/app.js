@@ -1,11 +1,12 @@
-import { analyzeWithAI, draftPartWithAI, draftWithAI, finalizeWithAI, fullProposalWithAI, masterWithAI, patchSectionsWithAI, preciseReviewWithAI, rewriteWithAI } from './api.js';
+import { analyzeWithAI, draftPartWithAI, draftWithAI, finalizeWithAI, fullProposalWithAI, masterWithAI, patchSectionsWithAI, preciseReviewWithAI, rewriteWithAI, trialSketchWithAI } from './api.js';
+import { EXAMPLE_NOTE, EXAMPLE_POINTS, EXAMPLE_SECTIONS, EXAMPLE_SUMMARY, EXAMPLE_TITLE } from './example-plan.js';
 import { extractFile, extractFiles } from './files.js';
 import { localAnalyze } from './fallback.js';
 import { buildDocxBlob, downloadBlob, exportDocx, exportPdf, printDocument, submissionFileName } from './export.js';
 import { buildProposalPdfBlob, exportProposalPdf } from './pdf-export.js';
 import { MANIFEST_NAME, packageStale, planSubmissionZip, zipBytes } from './submission-zip.js';
 import { UNAUTHORIZED, accountProfile, clearOAuthCallback, currentUser, finishSocial, login, logout, readOAuthCallback, recoverPassword, saveAccountProfile, signup as signupEmail, startSocial } from './auth.js';
-import { approveAccount, disableAccount, listAccounts, removeAccount, setAccountRole } from './admin.js';
+import { approveAccount, disableAccount, listAccounts, removeAccount, setAccountPlan, setAccountRole } from './admin.js';
 import { operatorApprove, operatorDisable, operatorEndSessions, operatorIssueRecoveryCode, operatorOverview, operatorReactivate, operatorUnlockLogin, operatorUserDetail } from './operator.js';
 import { reportError, reportStep, resetActivityDedupe } from './activity.js';
 import { fetchNoticeDetail, fetchNoticeList, importNoticeUrl, noticeBodyText } from './notices.js';
@@ -101,8 +102,21 @@ let auth = {
   // 관리자 화면 자료. 로그인 상태와 함께만 살아 있고 localStorage에 저장하지 않는다.
   accounts: [], accountsLoaded: false, confirmDelete: '',
   // 운영관리자 화면 자료. 발급한 복구코드는 화면에만 잠시 두고 저장하지 않는다.
-  operator: emptyOperator()
+  operator: emptyOperator(),
+  // 1페이지 무료 체험 화면. 결과는 화면에만 두고 localStorage에 저장하지 않는다.
+  trial: { sourceDraft: '', result: null }
 };
+// 결제 기능이 아직 없다. 전체 이용권이 없는 사람에게는 이 문구로만 안내한다.
+const CONTACT_LABEL = '이용권 문의';
+const NEED_FULL_NOTICE = `전체 이용권이 있어야 쓸 수 있는 기능입니다. ${CONTACT_LABEL}로 연락해 주세요.`;
+// 전체 기능을 쓸 수 있는 사람. 실제 차단은 서버가 하고 화면은 그 결과를 따른다.
+function hasFullAccess() {
+  const user = auth.user;
+  if (!user) return false;
+  return user.role === 'admin' || user.role === 'operator' || user.plan === 'full';
+}
+// 승인은 받았지만 전체 이용권이 없는 회원. 1페이지 무료 체험 화면만 쓴다.
+function trialAccount() { return auth.status === 'signedIn' && auth.user?.status === 'active' && !hasFullAccess(); }
 // 발급된 복구코드(issued)는 이 객체 안에서만 살고 localStorage·sessionStorage에 절대 넣지 않는다.
 function emptyOperator() {
   return { loaded: false, users: [], audit: [], notIntegrated: [], query: '', queryDraft: '', selected: '', detail: null, issued: null, tab: 'users', confirmEnd: '' };
@@ -229,8 +243,11 @@ const ADMIN_DONE = {
   approve: '계정을 승인했습니다. 이제 작업 화면을 쓸 수 있습니다.', disable: '계정 사용을 중지하고 로그인 상태를 해제했습니다.',
   delete: '계정과 연결된 소셜 계정을 지웠습니다.',
   operator: '운영관리자로 지정했습니다. 쓰던 세션을 끊었으니 다시 로그인해야 합니다.',
-  customer: '운영관리자 권한을 해제했습니다. 쓰던 세션을 끊었으니 다시 로그인해야 합니다.'
+  customer: '운영관리자 권한을 해제했습니다. 쓰던 세션을 끊었으니 다시 로그인해야 합니다.',
+  full: '전체 이용권을 부여했습니다. 다시 로그인하지 않아도 곧바로 반영됩니다.',
+  trial: '전체 이용권을 회수했습니다. 이 계정은 1페이지 무료 체험 화면만 쓰게 됩니다.'
 };
+const PLAN_LABELS = { full: '전체 이용권', trial: '무료 체험' };
 
 function openAdmin() {
   auth = { ...auth, error: '', notice: '', confirmDelete: '' };
@@ -250,6 +267,7 @@ async function runAdminAction(kind, id) {
   setAuth({ busy: true, error: '', notice: '', confirmDelete: '' });
   // 운영관리자 지정·해제도 여기를 지난다. 서버는 관리자 계정과 'admin' 역할을 받지 않는다.
   const call = kind === 'operator' || kind === 'customer' ? () => setAccountRole(id, kind)
+    : kind === 'full' || kind === 'trial' ? () => setAccountPlan(id, kind)
     : kind === 'approve' ? approveAccount : kind === 'disable' ? disableAccount : removeAccount;
   const result = await call(id).catch(() => ({ ok: false }));
   if (!result.ok) return setAuth({ busy: false, error: result.error || '요청을 처리하지 못했습니다.' });
@@ -280,7 +298,10 @@ function accountRow(item) {
     item.orgName || '기관명 미입력', item.phone || '연락처 미입력',
     item.email || (social ? `소셜: ${social}` : '이메일 없음'),
     `가입 ${String(item.createdAt).slice(0, 10)}`,
-    item.consentedAt ? `동의 ${item.termsVersion}` : '동의 기록 없음'
+    item.consentedAt ? `동의 ${item.termsVersion}` : '동의 기록 없음',
+    // 결제 자료는 없다. 이용권과 무료 체험 사용 여부만 실제 기록으로 보여 준다.
+    `${PLAN_LABELS[item.effectivePlan] || item.effectivePlan || '무료 체험'}${item.effectivePlan === 'full' ? '' : `(${CONTACT_LABEL})`}`,
+    item.trialUsed ? `무료 체험 사용 ${String(item.trialUsedAt).slice(0, 10)}` : '무료 체험 미사용'
   ].join(' · ');
   return `<article class="requirement"><div>
     <div><strong>${escapeHtml(item.name || '이름 미입력')}</strong> <span class="status ${item.status === 'active' ? '충족' : '확인-필요'}">${escapeHtml(STATUS_LABELS[item.status] || item.status)}</span> <span class="muted">${escapeHtml(ROLE_LABELS[item.role] || item.role)}</span>${self ? ' <span class="muted">(내 계정)</span>' : ''}</div>
@@ -289,6 +310,7 @@ function accountRow(item) {
       ${item.status === 'active' ? `<button class="button secondary" data-admin-disable="${item.id}" ${auth.busy ? 'disabled' : ''}>사용 중지</button>`
     : `<button class="button primary" data-admin-approve="${item.id}" ${auth.busy ? 'disabled' : ''}>승인</button>`}
       <button class="button secondary" data-admin-role="${item.role === 'operator' ? 'customer' : 'operator'}" data-admin-role-id="${item.id}" ${auth.busy ? 'disabled' : ''}>${item.role === 'operator' ? '운영관리자 해제' : '운영관리자 지정'}</button>
+      <button class="button secondary" data-admin-plan="${item.plan === 'full' ? 'trial' : 'full'}" data-admin-plan-id="${item.id}" ${auth.busy ? 'disabled' : ''}>${item.plan === 'full' ? '전체 이용권 회수' : '전체 이용권 부여'}</button>
       <button class="button secondary" data-admin-delete="${item.id}" ${auth.busy ? 'disabled' : ''}>${auth.confirmDelete === item.id ? '한 번 더 누르면 삭제' : '삭제'}</button>`}</div>
   </div></article>`;
 }
@@ -355,7 +377,7 @@ function operatorView() {
     <div class="card-title"><div><h3>운영관리자</h3><span>회원 상태와 이용 흔적을 확인하고 승인·중지·잠금 해제·복구코드 발급을 처리합니다.</span></div><span class="status ${waiting.length ? '확인-필요' : '충족'}">승인 대기 ${waiting.length}건</span></div>
     ${auth.error ? `<div class="alert danger"><strong>${escapeHtml(auth.error)}</strong></div>` : ''}
     ${auth.notice ? `<div class="alert success"><strong>${escapeHtml(auth.notice)}</strong></div>` : ''}
-    <div class="alert"><strong>운영관리자 권한 범위</strong><p>회원 승인·중지·재활성화, 검색, 이용 흔적 확인, 로그인 잠금 해제, 전체 세션 종료, 일회용 복구코드 발급까지 할 수 있습니다. 비밀번호 조회·직접 지정, 역할(운영관리자) 지정·해제, 요금·결제정책 변경, 환불, API 키·모델·시스템 설정, 계정·자료 영구 삭제, 전체 자료 내보내기, 관리자 계정 변경은 서버에서 거절합니다.</p></div>
+    <div class="alert"><strong>운영관리자 권한 범위</strong><p>회원 승인·중지·재활성화, 검색, 이용 흔적 확인, 로그인 잠금 해제, 전체 세션 종료, 일회용 복구코드 발급까지 할 수 있습니다. 이용권과 무료 체험 사용 여부는 <strong>조회만</strong> 됩니다. 비밀번호 조회·직접 지정, 역할(운영관리자) 지정·해제, 이용권 부여·회수, 요금·결제정책 변경, 환불, API 키·모델·시스템 설정, 계정·자료 영구 삭제, 전체 자료 내보내기, 관리자 계정 변경은 서버에서 거절합니다.</p></div>
     ${operatorNotIntegrated(view.notIntegrated)}
     <div class="field"><label for="operator-search">회원 검색</label><input id="operator-search" placeholder="이름·이메일·기관명·연락처·계정 식별자" value="${escapeHtml(view.queryDraft)}"></div>
     <div class="actions"><span class="muted">${view.loaded ? `${view.users.length}건 표시${view.query ? ` · 검색어 「${escapeHtml(view.query)}」` : ''}${locked.length ? ` · 로그인 잠금 ${locked.length}건` : ''}` : '회원 목록을 불러오는 중입니다.'}</span>
@@ -395,6 +417,7 @@ function operatorRow(item) {
     <small class="muted">${escapeHtml(contact)}</small>
     <small class="muted">${escapeHtml(usage)}</small>
     <small class="muted">${escapeHtml(stuck)}</small>
+    <small class="muted">${escapeHtml(`이용권 ${PLAN_LABELS[item.plan] || item.plan || '무료 체험'}${item.plan === 'full' ? '' : `(${CONTACT_LABEL})`} · ${item.trialUsed ? `무료 체험 사용 ${stamp(item.trialUsedAt)}` : '무료 체험 미사용'} · 이용권 변경은 관리자만 할 수 있습니다`)}</small>
     <small class="muted">결제금액·결제상태·이용기간·이용량: 미연동</small>
     <div class="actions">${guarded ? '<span class="muted">관리자·운영관리자·내 계정은 이 화면에서 바꿀 수 없습니다.</span>' : `
       ${(OPERATOR_STATUS_ACTIONS[item.status] || []).map(([kind, label, tone]) => `<button class="button ${tone}" data-operator-action="${kind}" data-operator-id="${item.id}" ${auth.busy ? 'disabled' : ''}>${label}</button>`).join('')}
@@ -493,7 +516,7 @@ const LANDING_SECURITY = [
   ['원문은 요청할 때만 전송', '올린 파일과 작성 중인 내용은 분석을 요청할 때만 서버로 갑니다. 진행 상태는 이 브라우저에 보관됩니다.']
 ];
 const LANDING_SECTIONS = [['landing-value', '핵심 가치'], ['landing-flow', '이용 흐름'], ['landing-features', '주요 기능'], ['landing-audience', '이용 대상'], ['landing-security', '보안·승인']];
-const landingCta = extra => `<div class="landing-cta"><button class="button primary" data-landing="signup">무료로 시작하기</button><button class="button secondary" data-landing="login">로그인</button>${extra || ''}</div>`;
+const landingCta = extra => `<div class="landing-cta"><button class="button primary" data-landing="signup">1페이지 무료 체험</button><button class="button secondary" data-landing="login">로그인</button><button class="button secondary" data-landing-example="1">우수 계획서 예시 보기</button>${extra || ''}</div>`;
 const landingCards = (items, plain = true) => items.map(([title, body]) =>
   `<article class="landing-card${plain ? ' plain' : ''}"><h3>${escapeHtml(title)}</h3><p>${escapeHtml(body)}</p></article>`).join('');
 
@@ -501,7 +524,7 @@ function landingView() {
   return `<div class="layout home-layout"><main class="main"><div class="home">
     <header class="home-header">
       <div class="home-brand"><strong>사업계획서 작성 도우미</strong><span>공고 분석부터 제출본까지</span></div>
-      <nav class="home-nav">${LANDING_SECTIONS.map(([id, label]) => `<button class="button ghost" data-landing-scroll="${id}">${label}</button>`).join('')}<button class="button ghost" data-landing="login">로그인</button><button class="button primary" data-landing="signup">무료로 시작하기</button></nav>
+      <nav class="home-nav">${LANDING_SECTIONS.map(([id, label]) => `<button class="button ghost" data-landing-scroll="${id}">${label}</button>`).join('')}<button class="button ghost" data-landing="login">로그인</button><button class="button primary" data-landing="signup">1페이지 무료 체험</button></nav>
     </header>
     <section class="landing">
       ${auth.notice ? `<div class="alert success"><strong>${escapeHtml(auth.notice)}</strong></div>` : ''}
@@ -510,7 +533,7 @@ function landingView() {
         <h1>공고 한 건에서 제출본까지,<br>근거를 남기며 씁니다</h1>
         <p class="landing-lead">공고를 분석해 선정 논리를 세우고, 확인된 기관 정보와 이번 사업의 확정값만으로 계획서를 만듭니다. 확인되지 않은 값은 지어내지 않고 [확인 필요]로 남겨 제출 전에 정리합니다.</p>
         ${landingCta()}
-        <p class="landing-note">가입은 무료입니다. 가입한 뒤 관리자 승인을 거쳐 작업 화면이 열립니다.</p>
+        <p class="landing-note">가입 후 관리자 승인을 받으면 <strong>계정당 한 번</strong> 1페이지 사업구상을 무료로 만들어 볼 수 있습니다. 전체 계획서 작성·검증·출력은 전체 이용권 기능이며, 결제는 아직 열려 있지 않아 「${CONTACT_LABEL}」로 안내합니다. 예시 계획서는 로그인 없이 바로 볼 수 있습니다.</p>
       </div>
 
       <div class="landing-section" id="landing-value">
@@ -545,9 +568,114 @@ function landingView() {
         ${landingCta()}
       </div>
 
-      <footer class="landing-footer"><span>사업계획서 작성 도우미 · 근거 있는 계획서</span><div><button class="button secondary" data-landing="signup">무료로 시작하기</button><button class="button secondary" data-landing="login">로그인</button></div></footer>
+      <footer class="landing-footer"><span>사업계획서 작성 도우미 · 근거 있는 계획서</span><div><button class="button secondary" data-landing="signup">1페이지 무료 체험</button><button class="button secondary" data-landing="login">로그인</button></div></footer>
     </section>
   </div></main></div>`;
+}
+
+// 로그인 없이 보는 정적 예시. 서버를 부르지 않고 example-plan.js의 문자열만 그린다.
+// 개인정보와 실제 기관정보는 그 파일에 들어 있지 않다.
+function exampleView() {
+  return `<div class="layout home-layout"><main class="main"><div class="home">
+    <header class="home-header">
+      <div class="home-brand"><strong>${escapeHtml(EXAMPLE_TITLE)}</strong><span>로그인 없이 볼 수 있는 예시입니다</span></div>
+      <nav class="home-nav">${auth.status === 'signedIn'
+    ? '<button class="button primary" data-landing-back="1">← 내 화면으로</button>'
+    : '<button class="button ghost" data-landing-back="1">← 서비스 소개</button><button class="button ghost" data-landing="login">로그인</button><button class="button primary" data-landing="signup">1페이지 무료 체험</button>'}</nav>
+    </header>
+    <section class="landing">
+      <div class="landing-hero">
+        <p class="landing-eyebrow">우수 계획서 예시</p>
+        <h1>잘 쓴 계획서는 이렇게 생겼습니다</h1>
+        <p class="landing-lead">${escapeHtml(EXAMPLE_SUMMARY)}</p>
+        <div class="alert warning"><strong>가상의 예시입니다</strong><p>${escapeHtml(EXAMPLE_NOTE)}</p></div>
+      </div>
+      <div class="landing-section">
+        <div class="landing-head"><h2>이 예시가 지키는 것</h2></div>
+        <div class="landing-grid four">${EXAMPLE_POINTS.map(([title, body]) => `<article class="landing-card plain"><h3>${escapeHtml(title)}</h3><p>${escapeHtml(body)}</p></article>`).join('')}</div>
+      </div>
+      <div class="landing-section">
+        <div class="landing-head"><h2>계획서 본문 ${EXAMPLE_SECTIONS.length}개 항목</h2><p>실제 작업 화면이 만드는 구조와 같은 순서입니다.</p></div>
+        <div class="landing-grid">${EXAMPLE_SECTIONS.map(item => `<article class="landing-card"><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.body)}</p><ul><li>근거: ${escapeHtml(item.evidence)}</li></ul></article>`).join('')}</div>
+      </div>
+      ${auth.status === 'signedIn' ? '' : `<div class="landing-section">
+        <div class="landing-head"><h2>직접 만들어 보세요</h2><p>가입하고 승인을 받으면 계정당 한 번 1페이지 사업구상을 무료로 만들 수 있습니다.</p></div>
+        ${landingCta()}
+      </div>`}
+      <footer class="landing-footer"><span>사업계획서 작성 도우미 · 근거 있는 계획서</span><div><button class="button secondary" data-landing-back="1">${auth.status === 'signedIn' ? '내 화면으로' : '서비스 소개로'}</button></div></footer>
+    </section>
+  </div></main></div>`;
+}
+
+// ---------- 1페이지 무료 체험 ----------
+// 전체 이용권이 없는 회원이 보는 유일한 작업 화면. 서버가 계정당 한 번만 열어 준다.
+const TRIAL_FIELDS = [
+  ['noticePurpose', '공고 목적'], ['selectionKeys', '선정 핵심'], ['projectName', '사업명'], ['problem', '문제'],
+  ['target', '대상'], ['goal', '목표'], ['activities', '핵심 활동'], ['expectedEffect', '기대효과']
+];
+const TRIAL_LOCKED = [
+  ['전체 계획서 작성', '10개 항목 본문과 표를 한 번에 만드는 기능'],
+  ['반복 재작성·부분 수정', '문제를 지목해 항목만 다시 쓰는 기능'],
+  ['검증·코칭', '평가기준으로 문제를 찾고 수정 방향을 받는 기능'],
+  ['DOCX·PDF·ZIP 출력', '제출본 파일로 내려받는 기능'],
+  ['공고보관함·계획서보관함', '공고와 계획서를 계정에 보관하고 이어서 작업하는 기능']
+];
+
+function trialView() {
+  const done = Boolean(auth.user?.trialUsed);
+  const result = auth.trial.result;
+  return `<div class="layout home-layout"><main class="main"><div class="home">
+    <header class="home-header">
+      <div class="home-brand"><strong>1페이지 무료 체험</strong><span>${escapeHtml(accountEmail())}</span></div>
+      <nav class="home-nav"><button class="button ghost" data-landing-example="1">우수 계획서 예시</button><button class="button ghost" id="sign-out">로그아웃</button></nav>
+    </header>
+    <section class="landing">
+      ${auth.error ? `<div class="alert danger"><strong>${escapeHtml(auth.error)}</strong></div>` : ''}
+      ${auth.notice ? `<div class="alert success"><strong>${escapeHtml(auth.notice)}</strong></div>` : ''}
+      <div class="landing-hero">
+        <p class="landing-eyebrow">무료 체험 · 계정당 1회</p>
+        <h1>공고문을 넣으면 사업구상 한 장을 만들어 드립니다</h1>
+        <p class="landing-lead">공고 목적·선정 핵심·사업명·문제·대상·목표·핵심 활동·기대효과 여덟 항목만 짧게 정리합니다. 계획서 본문·예산표·일정표는 만들지 않습니다.</p>
+        <p class="landing-note">${done ? '무료 체험을 이미 사용했습니다. 아래 결과는 다시 볼 수 있지만 새로 만들 수는 없습니다.' : '한 번만 실행됩니다. 공고문을 충분히 붙여넣은 뒤 눌러 주세요.'}</p>
+      </div>
+      <div class="landing-section">
+        <div class="landing-head"><h2>공고문 붙여넣기</h2><p>공고문 본문을 그대로 붙여넣어 주세요. 파일 업로드와 공고 조회는 전체 이용권 기능입니다.</p></div>
+        <div class="field"><label for="trial-source">공고 원문</label><textarea id="trial-source" class="source-text" placeholder="공고문 내용을 붙여넣어 주세요." ${done || auth.busy ? 'disabled' : ''}>${escapeHtml(auth.trial.sourceDraft)}</textarea></div>
+        <div class="actions"><span class="muted">${done ? '사용 완료' : `${auth.trial.sourceDraft.trim().length.toLocaleString()}자 입력됨`}</span><button class="button primary" id="trial-run" ${done || auth.busy ? 'disabled' : ''}>${auth.busy ? '만드는 중…' : '1페이지 사업구상 만들기'}</button></div>
+      </div>
+      ${result ? `<div class="landing-section" id="trial-result">
+        <div class="landing-head"><h2>사업구상 한 장</h2><p>확인되지 않은 값은 지어내지 않고 [확인 필요]로 남깁니다. 이 결과는 저장되지 않으니 필요하면 복사해 두세요.</p></div>
+        <div class="landing-grid">${TRIAL_FIELDS.map(([key, label]) => {
+    const value = result[key];
+    const body = Array.isArray(value) ? `<ul>${value.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : `<p>${escapeHtml(String(value || ''))}</p>`;
+    return `<article class="landing-card"><h3>${escapeHtml(label)}</h3>${body}</article>`;
+  }).join('')}</div>
+      </div>` : ''}
+      <div class="landing-section">
+        <div class="landing-head"><h2>전체 이용권 기능</h2><p>아래 기능은 무료 체험에 들어 있지 않습니다. 결제는 아직 열려 있지 않아 「${CONTACT_LABEL}」로 안내합니다.</p></div>
+        <div class="landing-grid">${TRIAL_LOCKED.map(([title, body]) => `<article class="landing-card plain"><h3>${escapeHtml(title)} <span class="status 확인-필요">${CONTACT_LABEL}</span></h3><p>${escapeHtml(body)}</p></article>`).join('')}</div>
+      </div>
+      <div class="landing-section">${accountLinkPanel()}</div>
+      <footer class="landing-footer"><span>사업계획서 작성 도우미 · 무료 체험 계정</span><div><button class="button secondary" data-landing-example="1">우수 계획서 예시</button></div></footer>
+    </section>
+  </div></main></div>`;
+}
+
+async function runTrialSketch() {
+  if (auth.busy || auth.user?.trialUsed) return;
+  const sourceText = auth.trial.sourceDraft.trim();
+  if (sourceText.length < 30) return setAuth({ error: '공고문을 30자 이상 붙여넣어 주세요.', notice: '' });
+  setAuth({ busy: true, error: '', notice: '' });
+  const result = await trialSketchWithAI({ sourceText }).catch(error => ({ error: error?.message || '사업구상을 만들지 못했습니다.' }));
+  if (result?.error) {
+    // 이미 썼다는 응답이면 화면도 사용 완료로 맞춘다. 실제 판단은 서버가 한다.
+    const spent = /한 번만/.test(result.error);
+    return setAuth({ busy: false, error: result.error, user: spent ? { ...auth.user, trialUsed: true } : auth.user });
+  }
+  setAuth({
+    busy: false, notice: '1페이지 사업구상을 만들었습니다. 무료 체험은 여기까지입니다.',
+    user: { ...auth.user, trialUsed: true }, trial: { ...auth.trial, result }
+  });
 }
 
 // 로그인과 회원가입을 한 화면에서 또렷하게 나눈다. 지금 무엇을 하는 중인지 늘 보이게 한다.
@@ -2669,11 +2797,15 @@ function directFactsView() {
 
 function render() {
   // 로그인하기 전에는 작업 화면을 그리지 않는다. 실제 차단은 서버가 하고 화면은 그 결과를 따른다.
+  // 우수 계획서 예시는 로그인 여부와 상관없이 열린다. 서버를 부르지 않는 정적 화면이다.
+  if (auth.view === 'example') { app.innerHTML = exampleView(); bindLanding(); return; }
   if (auth.status !== 'signedIn' && showAuthForm()) { app.innerHTML = loginView(); bindLogin(); return; }
   // 로그아웃 상태의 첫 화면은 서비스 소개다. 두 버튼을 누르거나 전할 말이 생기면 위 줄에서 로그인 화면으로 바뀐다.
   if (auth.status !== 'signedIn') { app.innerHTML = landingView(); bindLanding(); return; }
   // 승인 전 계정은 가입 절차 화면만 본다. 실제 차단은 서버가 한다.
   if (pendingAccount()) { app.innerHTML = pendingView(); bindLogin(); return; }
+  // 전체 이용권이 없는 회원은 1페이지 무료 체험 화면만 본다. 생성·출력 차단은 서버가 한다.
+  if (trialAccount()) { app.innerHTML = trialView(); bindTrial(); return; }
   const views = [noticeImportView, noticeConfirmView, applicantSelectView, businessSelectView, documentView, documentView];
   // 관리자 화면은 관리자에게만 열린다. 저장된 화면 위치가 남아 있어도 역할이 아니면 되돌린다.
   if (state.activeTool === 'admin' && !isAdmin()) state.activeTool = 'home';
@@ -2686,6 +2818,17 @@ function render() {
 function bindLanding() {
   document.querySelectorAll('[data-landing]').forEach(el => el.onclick = () => setAuth({ view: 'auth', mode: el.dataset.landing === 'signup' ? 'signup' : 'login', error: '', notice: '' }));
   document.querySelectorAll('[data-landing-scroll]').forEach(el => el.onclick = () => document.querySelector(`#${el.dataset.landingScroll}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  // 예시 보기는 로그인 여부와 무관하다. 서버를 부르지 않고 화면만 바꾼다.
+  document.querySelectorAll('[data-landing-example]').forEach(el => el.onclick = () => setAuth({ view: 'example', error: '', notice: '' }));
+  document.querySelectorAll('[data-landing-back]').forEach(el => el.onclick = () => setAuth({ view: 'landing', error: '', notice: '' }));
+}
+// 무료 체험 화면. 실행은 한 번뿐이고 나머지 기능은 서버가 막는다.
+function bindTrial() {
+  document.querySelector('#trial-source')?.addEventListener('input', event => { auth.trial.sourceDraft = event.target.value; });
+  document.querySelector('#trial-run')?.addEventListener('click', () => void runTrialSketch());
+  document.querySelector('#sign-out')?.addEventListener('click', () => void submitLogout());
+  document.querySelectorAll('[data-landing-example]').forEach(el => el.onclick = () => setAuth({ view: 'example', error: '', notice: '' }));
+  document.querySelectorAll('[data-social]').forEach(el => el.addEventListener('click', () => void beginSocial(el.dataset.social, el.dataset.socialMode)));
 }
 function bindLogin() {
   document.querySelector('#back-to-landing')?.addEventListener('click', () => setAuth({ view: 'landing', error: '', notice: '' }));
@@ -3035,6 +3178,7 @@ function bind() {
   document.querySelectorAll('[data-admin-disable]').forEach(el => el.onclick = () => void runAdminAction('disable', el.dataset.adminDisable));
   document.querySelectorAll('[data-admin-delete]').forEach(el => el.onclick = () => void runAdminAction('delete', el.dataset.adminDelete));
   document.querySelectorAll('[data-admin-role]').forEach(el => el.onclick = () => void runAdminAction(el.dataset.adminRole, el.dataset.adminRoleId));
+  document.querySelectorAll('[data-admin-plan]').forEach(el => el.onclick = () => void runAdminAction(el.dataset.adminPlan, el.dataset.adminPlanId));
   document.querySelector('#open-operator')?.addEventListener('click', () => openOperator());
   document.querySelector('#open-operator-home')?.addEventListener('click', () => openOperator());
   document.querySelector('#close-operator')?.addEventListener('click', () => setState({ activeTool: 'workflow', notice: '', error: '' }));

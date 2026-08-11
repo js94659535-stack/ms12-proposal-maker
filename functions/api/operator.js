@@ -4,6 +4,7 @@ import { recentActivity, stuckSummary } from '../../server/activity.js';
 import { listAudit, listAuditForTarget, recordAudit } from '../../server/audit.js';
 import { emailAttemptHash, loginLockState, unlockEmailAttempts } from '../../server/login-attempts.js';
 import { BLOCKED_ACTIONS, NOT_INTEGRATED, OPERATOR_ACTIONS, OPERATOR_ROLES, targetRefusal } from '../../server/operator-scope.js';
+import { CONTACT_LABEL, DEFAULT_PLAN, effectivePlan } from '../../server/plan.js';
 import { issueRecoveryCode } from '../../server/recovery.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
@@ -47,7 +48,7 @@ export async function onRequest(context) {
 // ---------- 읽기 ----------
 async function overview(db, body) {
   const users = await directory(db, String(body.query || ''));
-  return { users, audit: await listAudit(db, { limit: 50 }), notIntegrated: NOT_INTEGRATED, blocked: [...BLOCKED_ACTIONS.values()] };
+  return { users, audit: await listAudit(db, { limit: 50 }), notIntegrated: NOT_INTEGRATED, blocked: [...BLOCKED_ACTIONS.values()], contactLabel: CONTACT_LABEL };
 }
 
 async function userDetail(db, id) {
@@ -66,7 +67,7 @@ async function userDetail(db, id) {
 // 회원 목록. 비밀번호 열은 아예 SELECT에 넣지 않는다.
 async function directory(db, query) {
   const users = (await db.prepare(`SELECT id, email, role, status, name, phone, org_name, is_contact,
-    terms_version, privacy_version, consented_at, profile_completed_at, created_at, updated_at FROM users ORDER BY created_at`).all())?.results || [];
+    terms_version, privacy_version, consented_at, profile_completed_at, created_at, updated_at, plan, trial_used_at FROM users ORDER BY created_at`).all())?.results || [];
   const identities = (await db.prepare('SELECT user_id, provider, email FROM user_identities ORDER BY linked_at').all())?.results || [];
   const sessions = (await db.prepare(`SELECT user_id, COUNT(*) AS session_count, MAX(last_seen_at) AS last_seen_at, MAX(expires_at) AS expires_at
     FROM sessions GROUP BY user_id`).all())?.results || [];
@@ -94,6 +95,8 @@ async function directory(db, query) {
       isContact: Boolean(row.is_contact), termsVersion: row.terms_version || '', privacyVersion: row.privacy_version || '',
       consentedAt: row.consented_at || '', profileCompleted: Boolean(row.profile_completed_at),
       createdAt: row.created_at, updatedAt: row.updated_at || '',
+      // 이용권과 무료 체험 사용 여부는 읽기만 한다. 바꾸는 동작은 BLOCKED_ACTIONS가 거절한다.
+      plan: effectivePlan(row), planColumn: row.plan || DEFAULT_PLAN, trialUsed: Boolean(row.trial_used_at), trialUsedAt: row.trial_used_at || '',
       identities: (byUser.get(row.id) || []).map(item => ({ provider: item.provider, email: item.email || '' })),
       sessions: { count: Number(session?.session_count || 0), lastSeenAt: session?.last_seen_at || '', expiresAt: session?.expires_at || '' },
       login: locks.get(row.id) || { failures: 0, lastFailureAt: '', locked: false },

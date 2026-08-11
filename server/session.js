@@ -1,5 +1,6 @@
 // 세션 쿠키와 동일 출처 검사. 서버에서만 쓴다.
 import { sha256Hex, toHex } from './password.js';
+import { DEFAULT_PLAN } from './plan.js';
 
 // __Host- 접두사는 Secure·Path=/·Domain 없음을 브라우저가 강제한다. 하위 도메인이 쿠키를 심을 수 없다.
 export const SESSION_COOKIE = '__Host-ms12_session';
@@ -52,14 +53,18 @@ export async function createSession(db, userId, now = new Date()) {
 export async function loadSession(db, token, now = new Date()) {
   if (!/^[a-f0-9]{64}$/.test(String(token || ''))) return null;
   const tokenHash = await sha256Hex(token);
-  const row = await db.prepare(`SELECT s.token_hash, s.expires_at, u.id AS user_id, u.email, u.role, u.org_id, u.name, u.status
+  const row = await db.prepare(`SELECT s.token_hash, s.expires_at, u.id AS user_id, u.email, u.role, u.org_id, u.name, u.status, u.plan, u.trial_used_at
     FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?`).bind(tokenHash).first();
   if (!row) return null;
   // pending은 가입 절차를 마치라고 붙여 둔 상태다. 세션은 열리지만 작업 API는 미들웨어가 막는다.
   if (!SESSION_STATUSES.has(row.status) || !row.expires_at || row.expires_at <= now.toISOString()) return null;
   return {
     tokenHash, expiresAt: row.expires_at,
-    user: { id: row.user_id, email: row.email, role: row.role, orgId: row.org_id || '', name: row.name || '', status: row.status }
+    // 이용권은 요청마다 users 행에서 다시 읽는다. 관리자가 바꾸면 다시 로그인하지 않아도 곧바로 반영된다.
+    user: {
+      id: row.user_id, email: row.email, role: row.role, orgId: row.org_id || '', name: row.name || '', status: row.status,
+      plan: row.plan || DEFAULT_PLAN, trialUsedAt: row.trial_used_at || ''
+    }
   };
 }
 

@@ -1,4 +1,8 @@
+import { TRIAL_ACTION, TRIAL_SPENT, consumeTrial, hasFullAccess, planRefusal, releaseTrial } from '../../server/plan.js';
+
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
+// 무료 체험은 공고 원문도 짧게만 받는다. 비용을 계정 단위로 묶어 두기 위해서다.
+const TRIAL_SOURCE_CHARS = 20_000;
 const LIMITS = Object.freeze({
   requestBytes: 750_000,
   sourceChars: 180_000,
@@ -8,8 +12,9 @@ const LIMITS = Object.freeze({
   rewriteInstructionChars: 4_000,
   analysisChars: 300_000,
   timeoutMs: 300_000,
-  outputTokens: Object.freeze({ analyze: 6_000, master: 12_000, draftPart: 7_000, draft: 12_000, fullProposal: 20_000, preciseReview: 8_000, patchSections: 10_000, rewrite: 4_000, finalize: 9_000 })
+  outputTokens: Object.freeze({ analyze: 6_000, master: 12_000, draftPart: 7_000, draft: 12_000, fullProposal: 20_000, preciseReview: 8_000, patchSections: 10_000, rewrite: 4_000, finalize: 9_000, trialSketch: 1_600 })
 });
+const ACTIONS = ['analyze', 'master', 'draftPart', 'draft', 'fullProposal', 'preciseReview', 'patchSections', 'rewrite', 'finalize', TRIAL_ACTION];
 
 export async function onRequest(context) {
   try {
@@ -24,9 +29,19 @@ export async function onRequest(context) {
     if (new TextEncoder().encode(rawBody).byteLength > LIMITS.requestBytes) return limitError('요청 본문');
     let body;
     try { body = JSON.parse(rawBody); } catch { return json({ error: '요청 JSON 형식이 올바르지 않습니다.' }, 400); }
-    if (!['analyze', 'master', 'draftPart', 'draft', 'fullProposal', 'preciseReview', 'patchSections', 'rewrite', 'finalize'].includes(body.action)) return json({ error: '지원하지 않는 작업입니다.' }, 400);
+    if (!ACTIONS.includes(body.action)) return json({ error: '지원하지 않는 작업입니다.' }, 400);
+    // 미들웨어가 로그인을 확인했지만 이용권은 여기서 본다. 이 경로만 따로 불려도 막힌다.
+    const user = context.data?.session?.user;
+    if (!user?.id) return json({ error: '로그인이 필요합니다.' }, 401);
+    const refusal = planRefusal(user, body.action);
+    if (refusal) return json({ error: refusal.error, needsPlan: true }, refusal.status);
     const validation = validate(body.action, body.payload);
     if (validation) return json({ error: validation }, 400);
+    // 무료 체험은 OpenAI를 부르기 전에 D1에서 한 번만 통과시킨다. 같은 계정이 동시에 눌러도 한 번만 열린다.
+    const trialRun = body.action === TRIAL_ACTION && !hasFullAccess(user);
+    if (trialRun && !(await consumeTrial(context.env.ARCHIVE_DB, user.id))) return json({ error: TRIAL_SPENT, trialUsed: true }, 403);
+    // 우리 쪽 실패로 결과가 없으면 체험 기회를 돌려준다. 사용자 잘못이 아니다.
+    const refund = async response => { if (trialRun) await releaseTrial(context.env.ARCHIVE_DB, user.id); return response; };
 
     const clientAddress = context.request.headers.get('CF-Connecting-IP') || 'anonymous';
     const safetyIdentifier = await sha256(`ms12:${clientAddress}`);
@@ -55,23 +70,25 @@ export async function onRequest(context) {
       });
       raw = await response.json();
     } catch (error) {
-      if (error?.name === 'AbortError') return json({ error: 'OpenAI 요청 시간이 초과되었습니다. 자동 재시도하지 않았습니다.' }, 504);
-      return json({ error: 'OpenAI 서비스에 연결하지 못했습니다. 자동 재시도하지 않았습니다.' }, 502);
+      if (error?.name === 'AbortError') return refund(json({ error: 'OpenAI 요청 시간이 초과되었습니다. 자동 재시도하지 않았습니다.' }, 504));
+      return refund(json({ error: 'OpenAI 서비스에 연결하지 못했습니다. 자동 재시도하지 않았습니다.' }, 502));
     } finally {
       clearTimeout(timeoutId);
     }
     if (!response.ok) {
       // 429는 원인이 서로 다르다. 안전한 필드만 진단으로 함께 돌려준다.
       const diagnostic = openAIDiagnostic(raw, response.status, response.headers);
-      return json({ error: normalizeOpenAIError(raw, response.status, response.headers), ...(response.status === 429 ? { rateLimitDiagnostic: diagnostic } : {}) }, response.status === 429 ? 429 : 502);
+      return refund(json({ error: normalizeOpenAIError(raw, response.status, response.headers), ...(response.status === 429 ? { rateLimitDiagnostic: diagnostic } : {}) }, response.status === 429 ? 429 : 502));
     }
     // 응답이 끝까지 생성되지 않은 경우와 형식 오류를 구분한다. 자동 재시도는 하지 않는다.
     const incomplete = incompleteFailure(raw);
-    if (incomplete) return json(incomplete, 502);
+    if (incomplete) return refund(json(incomplete, 502));
     const outputText = extractOutputText(raw);
-    if (!outputText) return json({ error: 'AI 응답에서 결과 본문을 찾지 못했습니다.' }, 502);
+    if (!outputText) return refund(json({ error: 'AI 응답에서 결과 본문을 찾지 못했습니다.' }, 502));
     let result;
-    try { result = JSON.parse(outputText); } catch { return json({ error: 'AI 응답 형식을 해석하지 못했습니다.', failureStage: 'output-parse' }, 502); }
+    try { result = JSON.parse(outputText); } catch { return refund(json({ error: 'AI 응답 형식을 해석하지 못했습니다.', failureStage: 'output-parse' }, 502)); }
+    // 무료 체험은 결과와 함께 「이번 한 번을 썼다」는 사실을 돌려준다. 화면은 이 값을 따른다.
+    if (body.action === TRIAL_ACTION) return json({ ...result, trialUsed: true, oneTime: true });
     if (body.action === 'analyze') result.analysis.mode = 'ai';
     if (body.action === 'draft' && typeof body.payload.sourceText === 'string') {
       const qualityError = validateEngineResult(result, body.payload);
@@ -110,6 +127,13 @@ const SYSTEM_POLICY = `당신은 대한민국 기관 제출용 사업계획서 �
 
 function validate(action, payload) {
   if (!payload || typeof payload !== 'object') return '요청 내용이 없습니다.';
+  // 무료 체험은 공고 원문 하나만 받는다. 기관 정보·설계도·이전 결과는 받지 않는다.
+  if (action === TRIAL_ACTION) {
+    const text = String(payload.sourceText || '').trim();
+    if (text.length < 30) return '공고 내용이 너무 짧습니다. 공고문을 붙여넣어 주세요.';
+    if (text.length > TRIAL_SOURCE_CHARS) return `무료 체험은 공고 원문 ${TRIAL_SOURCE_CHARS.toLocaleString()}자까지만 받습니다.`;
+    return '';
+  }
   // 분할 생성은 master가 확정한 경량 문맥만 쓰므로 공고 원문을 다시 받지 않는다.
   const includesSource = action === 'analyze' || action === 'master' || (action === 'draft' && typeof payload.sourceText === 'string');
   if (action === 'draftPart' && (!payload.master?.masterLogic || !Array.isArray(payload.group?.sectionKeys) || !payload.group.sectionKeys.length)) return '분할 생성에는 확정된 마스터 설계와 작성할 항목이 필요합니다.';
@@ -249,6 +273,16 @@ officialConflicts에 공고 기준과 사용자 확정값의 충돌이 있으면
 설계도의 문제 → 대상 → 목적 → 프로그램 → 회기·인력 → 예산 → 성과목표 → 성과지표 흐름을 계획서 각 항목에 같은 대상·같은 용어로 일관되게 반영한다.`;
 
 function taskSpecification(action, payload) {
+  // 1페이지 사업구상 무료 체험. 여덟 항목만, 정해진 분량으로만 만든다. 계획서 본문은 만들지 않는다.
+  if (action === TRIAL_ACTION) return {
+    name: 'proposal_trial_sketch', schema: TRIAL_SKETCH_SCHEMA,
+    prompt: `<SOURCE_DOCUMENT>\n${String(payload.sourceText).slice(0, TRIAL_SOURCE_CHARS)}\n</SOURCE_DOCUMENT>\n
+공고를 읽고 1페이지 분량의 「사업구상 한 장」만 만들어라. 계획서 본문·예산표·일정표·항목별 초안은 만들지 않는다.
+여덟 항목만 채운다: 공고 목적, 선정 핵심, 사업명, 문제, 대상, 목표, 핵심 활동, 기대효과.
+분량 상한을 반드시 지킨다. noticePurpose·problem·target·goal·expectedEffect는 각 200자 이내 한 문단, projectName은 40자 이내, selectionKeys와 activities는 각 3~5개이며 항목마다 60자 이내 한 문장.
+공고에 없는 필수조건·배점·금액·기간을 만들지 않는다. 신청기관의 인력·실적·예산은 알 수 없으므로 쓰지 않는다.
+확인할 수 없는 값은 지어내지 말고 그 자리에 [확인 필요]로 남긴다.`
+  };
   if (action === 'analyze') return {
     name: 'proposal_source_analysis', schema: ANALYSIS_SCHEMA,
     prompt: `사업 유형: ${payload.projectType}\n사용자 입력 사업정보: ${JSON.stringify(payload.project)}\n\n<ORGANIZATION_PROFILE>\n${JSON.stringify(payload.organization)}\n</ORGANIZATION_PROFILE>\n\n<SOURCE_DOCUMENT>\n${payload.sourceText}\n</SOURCE_DOCUMENT>\n\n원문을 분석해 공고 정보, 요구사항, 평가기준, 제출항목, 위험과 확인 질문을 추출하라. 위치는 파일명·페이지 표시가 있으면 그대로 사용하라.`
@@ -370,6 +404,16 @@ const FINALIZE_RULE = `CONFIRMED_VALUES는 사용자가 이번 사업 값으로 
 근거 우선순위는 1) 공식 공고·요강·평가기준 2) 사용자 확정값 3) 신청기관 확인정보 4) 현재 계획서 문장 5) 제안 순이다. 확정값과 다른 수치가 본문에 있으면 확정값으로 맞추고, 공식 공고 기준과 확정값이 충돌하면 임의로 고르지 말고 문장에 두 값을 함께 남기고 notApplied에 충돌로 기록한다.
 계획서를 새로 쓰지 마라. 값이 필요한 문단만 sections에 담아 최대 8개까지 반환하고, 바꾸지 않은 문단은 반환하지 않는다. 반환하는 content는 그 문단의 전체 본문이며 기존 문장·구조·용어를 유지한 채 확정값만 자연스럽게 반영한다.
 확정값에 없는 사실·수치·기관 실적을 새로 만들지 마라. 근거가 없으면 [확인 필요] 표기를 유지한다.`;
+// 무료 체험 결과. 여덟 항목만 있고 계획서 본문 항목은 아예 스키마에 없다.
+const TRIAL_SKETCH_SCHEMA = {
+  type: 'object', additionalProperties: false,
+  properties: {
+    noticePurpose: { type: 'string' }, selectionKeys: { type: 'array', minItems: 3, maxItems: 5, items: { type: 'string' } },
+    projectName: { type: 'string' }, problem: { type: 'string' }, target: { type: 'string' }, goal: { type: 'string' },
+    activities: { type: 'array', minItems: 3, maxItems: 5, items: { type: 'string' } }, expectedEffect: { type: 'string' }
+  },
+  required: ['noticePurpose', 'selectionKeys', 'projectName', 'problem', 'target', 'goal', 'activities', 'expectedEffect']
+};
 const requirement = {
   type: 'object', additionalProperties: false,
   properties: { id: { type: 'string' }, category: { type: 'string' }, requirement: { type: 'string' }, mandatory: { type: 'boolean' }, evidence: { type: 'string' }, location: { type: 'string' }, confidence: { type: 'string', enum: ['높음', '중간', '낮음'] } },

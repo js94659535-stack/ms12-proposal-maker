@@ -8,6 +8,8 @@ async function request(action, payload) {
   return data;
 }
 
+// 1페이지 사업구상 무료 체험. 계정당 한 번만 열리며 서버가 D1에서 사용 여부를 확인한다.
+export const trialSketchWithAI = payload => request('trialSketch', payload);
 export const analyzeWithAI = payload => request('analyze', payload);
 export const draftWithAI = payload => request('draft', payload);
 export const masterWithAI = payload => request('master', payload);

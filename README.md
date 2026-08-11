@@ -82,6 +82,48 @@ npx wrangler d1 migrations apply ms12-proposal-archive --remote
 - 오류·안내 문구가 있으면(소셜 로그인 실패, 로그아웃, 세션 만료, 복구코드 완료) 소개가 아니라 로그인 화면에 띄웁니다. Google·카카오 콜백 주소로 돌아온 경우도 첫 화면부터 로그인 화면입니다.
 - 스타일은 이미 있던 `.landing-*` 규칙을 그대로 씁니다(CSS 추가 없음).
 
+## 이용권과 비용 통제
+
+생성 API는 돈이 든다. 그래서 **계정 단위 이용권(`users.plan`)** 으로 통제하며, 화면이 아니라 서버가 막는다(`server/plan.js`).
+
+| 이용권 | 누구 | 쓸 수 있는 것 |
+|---|---|---|
+| `full` | 관리자·운영관리자(역할로 자동), 관리자가 부여한 회원, **마이그레이션 시점의 기존 활성 회원** | 전체 기능 |
+| `trial` | 신규 가입 회원(기본값) | **1페이지 사업구상 무료 체험 계정당 1회**만 |
+
+### 1페이지 무료 체험
+
+- `/api/proposal` `trialSketch` 하나만 열린다. 결과는 **공고 목적 · 선정 핵심 · 사업명 · 문제 · 대상 · 목표 · 핵심 활동 · 기대효과** 여덟 항목뿐이며, 스키마에 계획서 본문·표 항목 자체가 없다(`TRIAL_SKETCH_SCHEMA`).
+- 분량 상한: 공고 원문 20,000자 입력, 출력 1,600토큰, 각 항목 200자·목록 항목 60자.
+- **계정당 1회.** `UPDATE users SET trial_used_at = ? WHERE id = ? AND trial_used_at = ''` 조건부 갱신이라 같은 계정이 동시에 눌러도 한 번만 통과한다. 두 번째 요청은 OpenAI를 부르기 전에 403으로 끝난다.
+- 우리 쪽 실패(타임아웃·상류 오류·응답 파싱 실패)면 `trial_used_at`을 되돌려 체험 기회를 돌려준다.
+- 무료 체험에는 반복 재작성, 전체 계획서 생성, DOCX·PDF·ZIP 출력, 보관함이 없다.
+
+### 서버에서 막는 것 (화면에서 숨기는 것이 아니다)
+
+| 경로 | 무료 체험 계정 |
+|---|---|
+| `/api/proposal` `analyze` `master` `draft` `draftPart` `fullProposal` `preciseReview` `patchSections` `rewrite` `finalize` | 403 `needsPlan` |
+| `/api/proposal-coaching` (probe 제외) | 403 |
+| `/api/proposal-review` | 403 |
+| `/api/archive` `saveProposal` | 403 |
+
+DOCX·PDF·ZIP 출력은 브라우저에서만 이루어지고 별도의 서버 경로가 없다. 그 파일의 재료인 계획서 본문은 위 API로만 만들어지므로, **API를 막는 것이 곧 출력을 막는 것**이다. 화면에서도 무료 체험 계정에는 출력 버튼이 있는 작업 화면 자체가 열리지 않는다.
+
+### 부여·회수
+
+- **관리자만** `/api/admin` `setPlan`으로 `full`/`trial`을 바꾼다. `admin` 역할은 이 경로로 줄 수 없다.
+- 이용권은 요청마다 `users` 행에서 다시 읽으므로 바꾸면 다시 로그인하지 않아도 즉시 반영된다.
+- **운영관리자는 조회만 한다.** `/api/operator`에서 `setPlan`·`grantFullPlan`·`revokeFullPlan`·`resetTrial`은 403으로 거절되고 그 시도까지 감사기록에 남는다.
+
+### 결제
+
+결제 기능은 만들지 않았다. 전체 이용권이 없는 사용자에게는 금액·결제수단을 보여 주지 않고 **「이용권 문의」** 로만 안내한다(`CONTACT_LABEL`).
+
+## 공개 예시 계획서
+
+로그인 없이 랜딩에서 「우수 계획서 예시 보기」로 열 수 있다(`src/example-plan.js`). 정적 문자열만 그리며 **API를 한 번도 부르지 않는다.** 가상의 사례이고 기관명은 「○○기관」으로만 적어 개인정보와 실제 기관정보가 들어 있지 않다.
+
 ## 역할과 운영관리자(operator)
 
 계정 역할은 `admin`(관리자) · `operator`(운영관리자) · `customer`(고객) 세 가지입니다. 화면에서 숨기는 것이 아니라 서버(`functions/api/*`)에서 실제로 막습니다.
@@ -94,7 +136,9 @@ npx wrangler d1 migrations apply ms12-proposal-archive --remote
 | 멈춘 작업 단계·최근 오류 확인 | O | O | `user_activity_events` |
 | 로그인 잠금 해제 / 전체 세션 종료 | O | O | `/api/operator` |
 | 일회용 계정 복구코드 발급 | O | O | `account_recovery_codes` |
+| 이용권(전체/무료 체험) 조회 | O | O | `/api/operator` `overview` |
 | 운영관리자 지정·해제 | O | **X** | `/api/admin` `setRole` (admin 전용) |
+| 전체 이용권 부여·회수 | O | **X** | `/api/admin` `setPlan` (admin 전용) |
 | 계정·자료 영구 삭제, 전체 내보내기 | O(삭제만) | **X** | `/api/admin` `deleteUser` |
 | 비밀번호 조회·직접 지정, 요금·상품·결제정책, 환불, API 키·모델·시스템 설정, 관리자 계정 변경 | X | **X** | 어느 경로에도 기능이 없음 |
 

@@ -5,6 +5,7 @@ import { SIGNUP_ROLE, SIGNUP_STATUS, validateNewPassword, validateSignup } from 
 import { MAX_PER_CLIENT, MAX_PER_EMAIL, MAX_SIGNUP_PER_CLIENT, WINDOW_MINUTES, attemptWindowStart, clientAttemptHash, emailAttemptHash, signupClientHash, signupEmailHash } from '../../server/login-attempts.js';
 import { consumeRecoveryCode, purgeExpiredRecoveryCodes, revokeRecoveryCodes } from '../../server/recovery.js';
 import { recordAudit } from '../../server/audit.js';
+import { effectivePlan } from '../../server/plan.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 // 이메일이 있는지 없는지 알 수 없게 실패는 언제나 같은 문구를 쓴다.
@@ -76,7 +77,7 @@ async function login(db, request, body) {
   const clientHash = await clientAttemptHash(request.headers.get('cf-connecting-ip'));
   if (await throttled(db, emailHash, clientHash, now)) return json({ error: THROTTLED }, 429);
 
-  const user = await db.prepare('SELECT id, email, role, org_id, name, status, password_algo, password_iterations, password_salt, password_hash FROM users WHERE email = ?')
+  const user = await db.prepare('SELECT id, email, role, org_id, name, status, plan, trial_used_at, password_algo, password_iterations, password_salt, password_hash FROM users WHERE email = ?')
     .bind(email).first();
   // 계정이 없어도 같은 만큼 계산해 응답 시간으로 존재 여부가 드러나지 않게 한다.
   const salt = user?.password_salt || decoySalt(emailHash);
@@ -172,7 +173,11 @@ async function clearAttempts(db, emailHash, clientHash) {
 // 계정이 없을 때 쓰는 가짜 salt. 이메일 해시에서 뽑아 같은 이메일이면 늘 같은 값이 나온다.
 function decoySalt(emailHash) { return String(emailHash).slice(0, 32); }
 function publicUser(user) {
-  return { id: user.id, email: user.email, role: user.role, orgId: user.org_id || '', name: user.name || '', status: user.status };
+  return {
+    id: user.id, email: user.email, role: user.role, orgId: user.org_id || '', name: user.name || '', status: user.status,
+    // 이용권은 화면 표시용이다. 실제 차단은 요청마다 서버가 users 행을 보고 한다.
+    plan: effectivePlan({ role: user.role, plan: user.plan }), trialUsed: Boolean(user.trial_used_at)
+  };
 }
 function json(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), { status, headers: { ...JSON_HEADERS, ...headers } });

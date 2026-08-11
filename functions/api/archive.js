@@ -1,3 +1,5 @@
+import { NEED_FULL, hasFullAccess } from '../../server/plan.js';
+
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 const MAX_NOTICE_BATCH = 100;
 const MAX_PROPOSAL_BYTES = 700_000;
@@ -16,7 +18,11 @@ export async function onRequest(context) {
     if (body.action === 'searchNotices') return json({ notices: await searchNotices(context.env.ARCHIVE_DB, body.filters, await owner(context.request)) });
     const ownerHash = await owner(context.request);
     if (!ownerHash) return json({ error: '자료보관함 식별키가 없습니다.' }, 401);
-    if (body.action === 'saveProposal') return json(await saveProposal(context.env.ARCHIVE_DB, ownerHash, body.proposal));
+    // 계획서 보관은 전체 이용권 기능이다. 무료 체험 계정은 한 장짜리 구상만 보고 저장하지 않는다.
+    if (body.action === 'saveProposal') {
+      if (!hasFullAccess(context.data?.session?.user)) return json({ error: NEED_FULL, needsPlan: true }, 403);
+      return json(await saveProposal(context.env.ARCHIVE_DB, ownerHash, body.proposal));
+    }
     if (body.action === 'listProposals') return json({ proposals: await listProposals(context.env.ARCHIVE_DB, ownerHash) });
     if (body.action === 'getProposal') return json({ proposal: await getProposal(context.env.ARCHIVE_DB, ownerHash, body.id) });
     if (body.action === 'saveApplicant') return json(await saveApplicant(context.env.ARCHIVE_DB, ownerHash, body.applicant));

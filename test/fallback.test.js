@@ -6,6 +6,8 @@ import { draftReviewState, incompleteFailure, masterReviewState, mixedApplicatio
 import { buildOfficialSummary, classifyAttachment, handleNoticeRequest, isBusinessNotice, isOpenDeadline, mergeNoticeCandidates, parseProposalList, splitSubprojects } from '../functions/api/notices.js';
 import { buildPrintDocument } from '../src/export.js';
 import { onRequest as handleArchiveRequest, syncNotices } from '../functions/api/archive.js';
+// 전체 이용권 세션. 생성 API는 이용권을 서버에서 확인하므로 테스트도 실제와 같은 맥락을 넘긴다.
+const FULL_ACCESS = { session: { user: { id: 'test-full', email: 'full@ms12.test', role: 'customer', status: 'active', plan: 'full' } } };
 
 test('규칙 분석은 원문 근거를 보존한다', () => {
   const sourceText = '제출 마감은 2026년 9월 1일이다. 상담사 3명 이상을 필수 배치해야 한다. 평가 배점은 사업수행 50점이다.';
@@ -29,31 +31,31 @@ test('확정 회사 정보만 있어도 로컬 완성 초안을 생성한다', (
 });
 
 test('서버 API는 키가 없으면 외부 호출 전에 중단한다', async () => {
-  const response = await onRequest({ env: {}, request: new Request('https://example.test/api/proposal', { method: 'POST', headers: { 'Content-Type': 'application/json' } }) });
+  const response = await onRequest({ data: FULL_ACCESS, env: {}, request: new Request('https://example.test/api/proposal', { method: 'POST', headers: { 'Content-Type': 'application/json' } }) });
   assert.equal(response.status, 503);
   assert.match(await response.text(), /OPENAI_API_KEY/);
 });
 
 test('서버 API는 모델 환경변수가 없으면 외부 호출 전에 중단한다', async () => {
-  const response = await onRequest({ env: { OPENAI_API_KEY: 'test-only' }, request: new Request('https://example.test/api/proposal', { method: 'POST', headers: { 'Content-Type': 'application/json' } }) });
+  const response = await onRequest({ data: FULL_ACCESS, env: { OPENAI_API_KEY: 'test-only' }, request: new Request('https://example.test/api/proposal', { method: 'POST', headers: { 'Content-Type': 'application/json' } }) });
   assert.equal(response.status, 503);
   assert.match(await response.text(), /OPENAI_MODEL/);
 });
 
 test('서버 API는 POST와 application/json만 허용한다', async () => {
-  const getResponse = await onRequest({ env: {}, request: new Request('https://example.test/api/proposal') });
+  const getResponse = await onRequest({ data: FULL_ACCESS, env: {}, request: new Request('https://example.test/api/proposal') });
   assert.equal(getResponse.status, 405);
-  const mediaResponse = await onRequest({ env: {}, request: new Request('https://example.test/api/proposal', { method: 'POST', body: 'text' }) });
+  const mediaResponse = await onRequest({ data: FULL_ACCESS, env: {}, request: new Request('https://example.test/api/proposal', { method: 'POST', body: 'text' }) });
   assert.equal(mediaResponse.status, 415);
 });
 
 test('서버 API는 실제 본문 바이트와 원문 길이를 제한한다', async () => {
   const env = { OPENAI_API_KEY: 'test-only', OPENAI_MODEL: 'test-model' };
   const largeBody = JSON.stringify({ action: 'analyze', payload: { sourceText: '가'.repeat(300000) } });
-  const bodyResponse = await onRequest({ env, request: new Request('https://example.test/api/proposal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: largeBody }) });
+  const bodyResponse = await onRequest({ data: FULL_ACCESS, env, request: new Request('https://example.test/api/proposal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: largeBody }) });
   assert.equal(bodyResponse.status, 413);
   const longSource = JSON.stringify({ action: 'analyze', payload: { sourceText: 'a'.repeat(180001), organization: {} } });
-  const sourceResponse = await onRequest({ env, request: new Request('https://example.test/api/proposal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: longSource }) });
+  const sourceResponse = await onRequest({ data: FULL_ACCESS, env, request: new Request('https://example.test/api/proposal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: longSource }) });
   assert.equal(sourceResponse.status, 400);
   assert.match(await sourceResponse.text(), /180,000/);
 });
@@ -338,7 +340,7 @@ test('자료보관함은 동일 공고를 중복 저장하지 않고 내용이 �
 });
 
 test('자료보관함 API는 D1 미연결 상태와 전용 저장·검색 흐름을 명확히 처리한다', async () => {
-  const response = await handleArchiveRequest({ env: {}, request: new Request('https://example.test/api/archive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'searchNotices' }) }) });
+  const response = await handleArchiveRequest({ data: FULL_ACCESS, env: {}, request: new Request('https://example.test/api/archive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'searchNotices' }) }) });
   assert.equal(response.status, 503);
   const appSource = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   const config = fs.readFileSync(new URL('../wrangler.toml', import.meta.url), 'utf8');
@@ -895,7 +897,7 @@ test('확정값 반영은 한 번의 finalize 호출로 관련 문단만 고친�
   const apiSource = fs.readFileSync(new URL('../functions/api/proposal.js', import.meta.url), 'utf8');
   const appSource = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   // 새 작업은 허용 목록과 출력 상한에 함께 등록한다.
-  assert.match(apiSource, /'draft', 'fullProposal', 'preciseReview', 'patchSections', 'rewrite', 'finalize'\]\.includes\(body\.action\)/);
+  assert.match(apiSource, /const ACTIONS = \['analyze', 'master', 'draftPart', 'draft', 'fullProposal', 'preciseReview', 'patchSections', 'rewrite', 'finalize', TRIAL_ACTION\];/);
   assert.match(apiSource, /rewrite: 4_000, finalize: 9_000/);
   assert.match(apiSource, /name: 'proposal_finalize', schema: FINALIZE_SCHEMA/);
   // 계획서를 새로 쓰지 않고 값이 필요한 문단만 돌려준다.

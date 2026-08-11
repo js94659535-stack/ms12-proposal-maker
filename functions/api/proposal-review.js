@@ -1,3 +1,5 @@
+import { NEED_FULL, hasFullAccess } from '../../server/plan.js';
+
 const HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 const CRITERIA = [
   ['noticeFit', '공모 목적 적합성'], ['need', '사업 필요성의 구체성과 설득력'], ['target', '대상자 선정의 타당성'],
@@ -13,6 +15,8 @@ export async function onRequest(context) {
   if (new TextEncoder().encode(raw).byteLength > 750_000) return json({ error: '심사 요청 자료가 허용 크기를 초과했습니다.' }, 413);
   let payload;
   try { payload = JSON.parse(raw); } catch { return json({ error: '요청 JSON 형식이 올바르지 않습니다.' }, 400); }
+  // 심사 검토는 전체 이용권 기능이다. 무료 체험 계정은 여기서 막힌다.
+  if (!hasFullAccess(context.data?.session?.user)) return json({ error: NEED_FULL, needsPlan: true }, 403);
   if (!Array.isArray(payload.sections) || payload.sections.length !== 10) return json({ error: '현재 계획서 10개 항목이 필요합니다.' }, 400);
 
   const controller = new AbortController();

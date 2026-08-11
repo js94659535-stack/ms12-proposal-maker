@@ -1,5 +1,6 @@
 // 가입 후 최소 정보와 연결된 소셜 계정 목록. 로그인한 본인 것만 읽고 쓴다.
 import { CONSENT_VERSIONS, PROVIDER_LABELS, validateProfileForm } from '../../server/social-identity.js';
+import { CONTACT_LABEL, effectivePlan } from '../../server/plan.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 
@@ -20,10 +21,15 @@ export async function onRequest(context) {
 }
 
 async function profile(db, user) {
-  const row = await db.prepare('SELECT phone, org_name, is_contact, terms_version, privacy_version, consented_at, profile_completed_at FROM users WHERE id = ?')
+  const row = await db.prepare('SELECT phone, org_name, is_contact, terms_version, privacy_version, consented_at, profile_completed_at, plan, trial_used_at FROM users WHERE id = ?')
     .bind(user.id).first();
   return json({
-    user: { ...user, profileCompleted: Boolean(row?.profile_completed_at) },
+    // 이용권과 무료 체험 사용 여부는 화면 안내용이다. 실제 차단은 생성 API가 다시 확인한다.
+    user: {
+      ...user, profileCompleted: Boolean(row?.profile_completed_at),
+      plan: effectivePlan({ role: user.role, plan: row?.plan }), trialUsed: Boolean(row?.trial_used_at), trialUsedAt: row?.trial_used_at || '',
+      contactLabel: CONTACT_LABEL
+    },
     profile: {
       phone: row?.phone || '', orgName: row?.org_name || '', isContact: Boolean(row?.is_contact),
       termsVersion: row?.terms_version || '', privacyVersion: row?.privacy_version || '', consentedAt: row?.consented_at || ''

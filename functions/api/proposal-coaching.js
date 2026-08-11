@@ -1,3 +1,5 @@
+import { NEED_FULL, hasFullAccess } from '../../server/plan.js';
+
 const HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 const MAX_BYTES = 600_000;
 
@@ -15,6 +17,8 @@ export async function onRequest(context) {
     if (!context.env.OPENAI_PROBE_TOKEN || !constantTimeEqual(probeToken, context.env.OPENAI_PROBE_TOKEN)) return json({ error: 'Not found' }, 404);
     return runProbe(context.env);
   }
+  // 검증·코칭은 전체 이용권 기능이다. 무료 체험 계정은 여기서 막힌다.
+  if (!hasFullAccess(context.data?.session?.user)) return json({ error: NEED_FULL, needsPlan: true }, 403);
   if (payload.action === 'pollCoaching') return pollCoaching(context.env, context.request, payload);
   if (typeof payload.proposalText !== 'string' || payload.proposalText.trim().length < 30) return failure('application-validation', '검증할 계획서 원문이 필요합니다.', 400, safeDiagnostic(context.env.OPENAI_MODEL, 0, '', '', '', 0));
   if (payload.action === 'reviseIssue') {

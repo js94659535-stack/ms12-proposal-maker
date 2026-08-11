@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { onRequest, validateReviewResult } from '../functions/api/proposal-review.js';
+// 전체 이용권 세션. 생성 API는 이용권을 서버에서 확인하므로 테스트도 실제와 같은 맥락을 넘긴다.
+const FULL_ACCESS = { session: { user: { id: 'test-full', email: 'full@ms12.test', role: 'customer', status: 'active', plan: 'full' } } };
 
 const labels = ['공모 목적 적합성', '사업 필요성의 구체성과 설득력', '대상자 선정의 타당성', '프로그램과 실행 방법의 구체성', '신청기관과 협력기관 역할의 현실성', '예산의 적정성과 사업 내용의 일치', '성과목표와 성과지표의 측정 가능성', '계획서 전체의 논리적 일관성'];
 
@@ -25,9 +27,9 @@ function fixture() {
 }
 
 test('심사 API는 POST만 허용하고 환경변수 부재 시 외부 호출 전에 중단한다', async () => {
-  const get = await onRequest({ request: new Request('https://example.test/api/proposal-review'), env: {} });
+  const get = await onRequest({ data: FULL_ACCESS, request: new Request('https://example.test/api/proposal-review'), env: {} });
   assert.equal(get.status, 405);
-  const post = await onRequest({ request: new Request('https://example.test/api/proposal-review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }), env: {} });
+  const post = await onRequest({ data: FULL_ACCESS, request: new Request('https://example.test/api/proposal-review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }), env: {} });
   assert.equal(post.status, 503);
 });
 
@@ -50,6 +52,7 @@ test('심사 버튼 요청은 mock OpenAI를 한 번만 호출하고 구조화 �
   try {
     const sections = Array.from({ length: 10 }, (_, index) => ({ id: `s${index + 1}`, title: `항목 ${index + 1}`, content: `사용자가 수정한 최신 본문 ${index + 1}` }));
     const response = await onRequest({
+      data: FULL_ACCESS,
       env: { OPENAI_API_KEY: 'mock-only', OPENAI_MODEL: 'mock-model' },
       request: new Request('https://example.test/api/proposal-review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sections, officialDetailText: '공식 공고 원문' }) })
     });

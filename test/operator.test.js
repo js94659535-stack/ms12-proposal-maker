@@ -337,10 +337,14 @@ test('결제·이용량은 지어내지 않고 미연동으로만 알린다', as
   assert.deepEqual(keys, ['paymentAmount', 'paymentStatus', 'subscriptionPeriod', 'usageVolume']);
   assert.ok(body.notIntegrated.every(item => item.reason.length > 10));
   // 응답 어디에도 결제 금액·상태 같은 값이 들어 있지 않다.
-  for (const key of ['amount', 'paidAt', 'plan', 'subscription', 'usageCount']) {
+  for (const key of ['amount', 'paidAt', 'price', 'subscription', 'usageCount']) {
     assert.ok(!body.users.some(user => Object.hasOwn(user, key)), key);
   }
   assert.ok(body.notIntegrated.some(item => item.reason.includes('X-Archive-Key')));
+  // 이용권과 무료 체험 사용 여부는 지어낸 값이 아니라 D1에 실제로 저장된 값이라 그대로 보여 준다.
+  assert.ok(body.users.every(user => ['trial', 'full'].includes(user.plan)));
+  assert.ok(body.users.every(user => typeof user.trialUsed === 'boolean'));
+  assert.equal(body.contactLabel, '이용권 문의');
 });
 
 test('운영 화면은 비밀번호 값을 읽지도 내보내지도 않는다', async () => {

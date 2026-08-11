@@ -7,7 +7,7 @@ const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
 const css = fs.readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
 const page = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 // 소개 화면 본문만 잘라 낸다. 뒤에 붙는 로그인 화면과 섞이지 않게 한다.
-const landing = app.slice(app.indexOf('function landingView()'), app.indexOf('// 로그인과 회원가입을 한 화면에서'));
+const landing = app.slice(app.indexOf('function landingView()'), app.indexOf('// 로그인 없이 보는 정적 예시'));
 
 test('로그아웃 상태의 첫 화면은 로그인 창이 아니라 서비스 소개다', () => {
   assert.ok(landing.length > 1000, '소개 화면 본문을 찾지 못했다');
@@ -24,7 +24,7 @@ test('로그아웃 상태의 첫 화면은 로그인 창이 아니라 서비스 
 test('시작하기·로그인 버튼이 기존 로그인·회원가입 화면으로 이어진다', () => {
   assert.ok(landing.includes('data-landing="signup"'), 'data-landing="signup"');
   assert.ok(landing.includes('data-landing="login"'), 'data-landing="login"');
-  assert.ok(landing.includes('무료로 시작하기') && landing.includes('로그인'));
+  assert.ok(landing.includes('1페이지 무료 체험') && landing.includes('로그인'));
   assert.match(app, /el\.dataset\.landing === 'signup' \? 'signup' : 'login'/);
   // 로그인 화면에서 소개로 되돌아올 수 있다.
   assert.ok(app.includes('id="back-to-landing"'));
