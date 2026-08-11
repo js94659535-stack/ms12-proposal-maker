@@ -316,7 +316,9 @@ test('비밀번호 재설정은 기존 계정만 갱신하고 자료를 지우�
 });
 
 test('앱은 로그인하기 전 작업 화면을 그리지 않고 토큰을 저장하지 않는다', () => {
-  assert.match(app, /if \(auth\.status !== 'signedIn'\) \{ app\.innerHTML = loginView\(\); bindLogin\(\); return; \}/);
+  // 로그인 전에는 어떤 경우에도 작업 화면을 그리지 않는다. 소개 화면과 로그인 화면 둘 중 하나만 나온다.
+  assert.match(app, /if \(auth\.status !== 'signedIn' && showAuthForm\(\)\) \{ app\.innerHTML = loginView\(\); bindLogin\(\); return; \}/);
+  assert.match(app, /if \(auth\.status !== 'signedIn'\) \{ app\.innerHTML = landingView\(\); bindLanding\(\); return; \}/);
   assert.match(app, /void checkSession\(\);/);
   assert.match(app, /document\.querySelector\('#sign-out'\)\?\.addEventListener\('click', \(\) => void submitLogout\(\)\);/);
   // 세션이 끊기면 로그인 화면으로 되돌린다.

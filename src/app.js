@@ -92,7 +92,11 @@ let archiveMenuOpenedAt = 0;
 const attachmentFiles = new Map();
 // 로그인 상태. 세션 쿠키가 진짜 근거이고 이 값은 화면 표시용이다. localStorage에 저장하지 않는다.
 let auth = {
-  status: 'checking', user: null, mode: 'login', emailDraft: '', passwordDraft: '', confirmDraft: '', codeDraft: '', error: '', notice: '', busy: false,
+  status: 'checking', user: null, mode: 'login',
+  // 로그아웃 상태의 첫 화면. 처음 온 사람은 로그인 창이 아니라 서비스 소개를 본다.
+  // 공급자가 돌려보낸 주소면 소개를 거치지 않고 곧바로 로그인 화면에서 마무리한다.
+  view: readOAuthCallback() ? 'auth' : 'landing',
+  emailDraft: '', passwordDraft: '', confirmDraft: '', codeDraft: '', error: '', notice: '', busy: false,
   identities: [], profileDraft: { name: '', phone: '', orgName: '', isContact: null, agreeTerms: false, agreePrivacy: false },
   // 관리자 화면 자료. 로그인 상태와 함께만 살아 있고 localStorage에 저장하지 않는다.
   accounts: [], accountsLoaded: false, confirmDelete: '',
@@ -106,7 +110,10 @@ function emptyOperator() {
 
 function setAuth(patch) { auth = { ...auth, ...patch }; render(); }
 function setOperator(patch) { setAuth({ operator: { ...auth.operator, ...patch } }); }
-function signOutLocally(message = '') { resetActivityDedupe(); setAuth({ status: 'anonymous', user: null, mode: 'login', passwordDraft: '', confirmDraft: '', codeDraft: '', identities: [], accounts: [], accountsLoaded: false, operator: emptyOperator(), error: message, notice: '', busy: false }); }
+// 로그아웃하거나 세션이 끊기면 소개 화면이 아니라 로그인 화면으로 되돌린다. 전할 말을 그 자리에서 보여 주기 위해서다.
+function signOutLocally(message = '') { resetActivityDedupe(); setAuth({ status: 'anonymous', user: null, mode: 'login', view: 'auth', passwordDraft: '', confirmDraft: '', codeDraft: '', identities: [], accounts: [], accountsLoaded: false, operator: emptyOperator(), error: message, notice: '', busy: false }); }
+// 로그아웃 상태에서 소개 대신 로그인 화면을 보여야 하는 때. 전할 말이 있으면 소개 화면에 묻히지 않게 반드시 로그인 화면에 띄운다.
+function showAuthForm() { return auth.view === 'auth' || Boolean(auth.error) || Boolean(auth.notice); }
 // 승인 전 계정은 가입 절차 화면만 본다.
 function pendingAccount() { return auth.status === 'signedIn' && auth.user?.status === 'pending'; }
 // 관리자 화면을 열 수 있는 사람. 실제 차단은 서버가 하고 화면은 그 결과를 따른다.
@@ -455,6 +462,94 @@ async function submitLogout() {
   await logout().catch(() => ({}));
   signOutLocally('로그아웃했습니다.');
 }
+// ---------- 공개 소개 화면 ----------
+// 로그인하지 않은 사람이 가장 먼저 보는 화면. 서버를 부르지 않고 저장된 작업도 읽지 않는다.
+// state를 참조하면 공용 컴퓨터에서 앞사람의 사업명이 소개 화면에 남으므로 문자열만 쓴다.
+const LANDING_VALUES = [
+  ['공고 근거 기반 작성', '모든 문장을 공고 원문 문장과 출처에 연결합니다. 확인되지 않은 기관 사실은 만들지 않고 [확인 필요]로 남깁니다.'],
+  ['기관정보 재사용', '확인된 기관 정보와 과거 실적을 한 번 정리해 두면 사업마다 다시 입력하지 않습니다.'],
+  ['AI 검증·수정', '평가기준으로 문제를 찾고 위치·근거·수정 방향을 함께 제시합니다.'],
+  ['버전 보존', '수정본을 만들어도 V1·V2·V3를 덮어쓰지 않고 각각 남깁니다.']
+];
+const LANDING_FEATURES = [
+  ['공고 분석', '공고문·첨부 자료에서 목적·자격·필수내용·평가·성과 요구를 원문 근거와 함께 정리합니다.'],
+  ['기관정보 관리', '기관별 확인된 정보와 과거 실적을 나눠 보관하고 사업마다 다시 씁니다.'],
+  ['사업 설계도', '신청유형·대상·프로그램·예산·성과를 한 장으로 정리하고 미확정 항목을 추적합니다.'],
+  ['계획서 작성', '설계도를 기준으로 신청서 항목별 초안을 만들고 근거를 연결합니다.'],
+  ['검증·코칭', '평가기준으로 문제를 찾아 위치·근거·수정 방향을 함께 제시합니다.'],
+  ['수정계획과 버전', '수정 가능한 것만 반영하고 V1·V2·V3를 각각 보존합니다.'],
+  ['제출본 출력', '검토본을 DOCX·PDF로 출력합니다.'],
+  ['공고보관함·계획서보관함', '공고와 계획서를 보관하고 언제든 이어서 작업합니다.']
+];
+const LANDING_AUDIENCE = [
+  ['기관 사업 담당자', '복지관·센터·비영리 기관에서 공모 신청을 직접 준비하는 담당자'],
+  ['대행·컨설팅 수행자', '여러 기관의 계획서를 대신 작성하며 기관별 정보를 따로 관리해야 하는 실무자'],
+  ['처음 공모에 도전하는 팀', '무엇부터 써야 할지 막막해 공고 요구사항부터 순서대로 안내받고 싶은 팀']
+];
+const LANDING_SECURITY = [
+  ['가입 후 관리자 승인', '가입하면 먼저 가입 정보 입력 화면만 열립니다. 관리자가 승인해야 작업 화면이 열리며, 승인 전에는 서버가 작업 요청 자체를 받지 않습니다.'],
+  ['비밀번호는 저장하지 않음', '비밀번호는 해시만 보관해 운영관리자도 볼 수 없습니다. 잊었을 때는 10분·1회용 복구코드를 받아 본인이 직접 새로 정합니다.'],
+  ['로그인 상태는 쿠키로만', '로그인 정보는 HttpOnly·Secure 쿠키로만 오갑니다. 계정 승인·중지·복구·세션 종료 같은 운영 동작은 실행자·대상·시각이 감사기록으로 남습니다.'],
+  ['원문은 요청할 때만 전송', '올린 파일과 작성 중인 내용은 분석을 요청할 때만 서버로 갑니다. 진행 상태는 이 브라우저에 보관됩니다.']
+];
+const LANDING_SECTIONS = [['landing-value', '핵심 가치'], ['landing-flow', '이용 흐름'], ['landing-features', '주요 기능'], ['landing-audience', '이용 대상'], ['landing-security', '보안·승인']];
+const landingCta = extra => `<div class="landing-cta"><button class="button primary" data-landing="signup">무료로 시작하기</button><button class="button secondary" data-landing="login">로그인</button>${extra || ''}</div>`;
+const landingCards = (items, plain = true) => items.map(([title, body]) =>
+  `<article class="landing-card${plain ? ' plain' : ''}"><h3>${escapeHtml(title)}</h3><p>${escapeHtml(body)}</p></article>`).join('');
+
+function landingView() {
+  return `<div class="layout home-layout"><main class="main"><div class="home">
+    <header class="home-header">
+      <div class="home-brand"><strong>사업계획서 작성 도우미</strong><span>공고 분석부터 제출본까지</span></div>
+      <nav class="home-nav">${LANDING_SECTIONS.map(([id, label]) => `<button class="button ghost" data-landing-scroll="${id}">${label}</button>`).join('')}<button class="button ghost" data-landing="login">로그인</button><button class="button primary" data-landing="signup">무료로 시작하기</button></nav>
+    </header>
+    <section class="landing">
+      ${auth.notice ? `<div class="alert success"><strong>${escapeHtml(auth.notice)}</strong></div>` : ''}
+      <div class="landing-hero">
+        <p class="landing-eyebrow">공모사업 계획서 작성·검증 도구</p>
+        <h1>공고 한 건에서 제출본까지,<br>근거를 남기며 씁니다</h1>
+        <p class="landing-lead">공고를 분석해 선정 논리를 세우고, 확인된 기관 정보와 이번 사업의 확정값만으로 계획서를 만듭니다. 확인되지 않은 값은 지어내지 않고 [확인 필요]로 남겨 제출 전에 정리합니다.</p>
+        ${landingCta()}
+        <p class="landing-note">가입은 무료입니다. 가입한 뒤 관리자 승인을 거쳐 작업 화면이 열립니다.</p>
+      </div>
+
+      <div class="landing-section" id="landing-value">
+        <div class="landing-head"><h2>핵심 가치</h2><p>확인되지 않은 기관 사실은 만들지 않고, 확인이 필요한 내용은 사용자에게 남깁니다.</p></div>
+        <div class="landing-grid four">${landingCards(LANDING_VALUES)}</div>
+      </div>
+
+      <div class="landing-section" id="landing-flow">
+        <div class="landing-head"><h2>이용 흐름</h2><p>공고문 분석부터 사업계획서 완성까지 여섯 단계로 이어집니다.</p></div>
+        <div class="landing-grid three">${HOME_FLOW.map(step => `<article class="landing-card"><header><span class="landing-step">${escapeHtml(step.no)}</span><h3>${escapeHtml(step.title)}</h3></header><p>${escapeHtml(step.desc)}</p><ul>${step.items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul></article>`).join('')}</div>
+      </div>
+
+      <div class="landing-section" id="landing-features">
+        <div class="landing-head"><h2>주요 기능</h2><p>공모사업 작성에 필요한 과정을 한 곳에서 관리합니다.</p></div>
+        <div class="landing-grid four">${landingCards(LANDING_FEATURES)}</div>
+      </div>
+
+      <div class="landing-section" id="landing-audience">
+        <div class="landing-head"><h2>이용 대상</h2><p>공모 신청서를 직접 쓰거나 대신 써 주는 분들을 위한 도구입니다.</p></div>
+        <div class="landing-grid three">${landingCards(LANDING_AUDIENCE, false)}</div>
+        <div class="landing-head" style="margin:22px 0 12px"><p>다루는 공모 유형</p></div>
+        <div class="landing-grid">${TYPES.map(([, name, kind]) => `<article class="landing-card plain"><h3>${escapeHtml(name)}</h3><p>${escapeHtml(kind)} 공모를 준비하는 기관·담당자</p></article>`).join('')}</div>
+      </div>
+
+      <div class="landing-section" id="landing-security">
+        <div class="landing-head"><h2>보안·승인 안내</h2><p>실제로 구현되어 있는 내용만 적었습니다.</p></div>
+        <div class="landing-grid">${landingCards(LANDING_SECURITY)}</div>
+      </div>
+
+      <div class="landing-section">
+        <div class="landing-head"><h2>공고 하나로 시작해 제출본까지 완성하세요</h2><p>가입하고 승인받으면 공고문을 올리는 첫 단계부터 안내합니다.</p></div>
+        ${landingCta()}
+      </div>
+
+      <footer class="landing-footer"><span>사업계획서 작성 도우미 · 근거 있는 계획서</span><div><button class="button secondary" data-landing="signup">무료로 시작하기</button><button class="button secondary" data-landing="login">로그인</button></div></footer>
+    </section>
+  </div></main></div>`;
+}
+
 // 로그인과 회원가입을 한 화면에서 또렷하게 나눈다. 지금 무엇을 하는 중인지 늘 보이게 한다.
 function loginView() {
   const checking = auth.status === 'checking';
@@ -464,7 +559,7 @@ function loginView() {
     : recovering ? '운영관리자에게 받은 일회용 복구코드로 새 비밀번호를 정합니다.'
     : joining ? '처음이시면 여기서 계정을 만드세요.' : '이미 계정이 있으면 로그인하세요.';
   return `<div class="layout home-layout"><main class="main"><div class="card" id="login-card" style="max-width:460px;margin:7vh auto">
-    <div class="card-title"><div><h3>MS12 사업계획서 작성 도우미</h3><span>${headline}</span></div></div>
+    <div class="card-title"><div><h3>MS12 사업계획서 작성 도우미</h3><span>${headline}</span></div><button class="button secondary" id="back-to-landing" type="button">← 서비스 소개</button></div>
     ${auth.error ? `<div class="alert danger"><strong>${escapeHtml(auth.error)}</strong></div>` : ''}
     ${auth.notice ? `<div class="alert success"><strong>${escapeHtml(auth.notice)}</strong></div>` : ''}
     <div class="actions" style="justify-content:stretch;gap:8px">
@@ -2574,7 +2669,9 @@ function directFactsView() {
 
 function render() {
   // 로그인하기 전에는 작업 화면을 그리지 않는다. 실제 차단은 서버가 하고 화면은 그 결과를 따른다.
-  if (auth.status !== 'signedIn') { app.innerHTML = loginView(); bindLogin(); return; }
+  if (auth.status !== 'signedIn' && showAuthForm()) { app.innerHTML = loginView(); bindLogin(); return; }
+  // 로그아웃 상태의 첫 화면은 서비스 소개다. 두 버튼을 누르거나 전할 말이 생기면 위 줄에서 로그인 화면으로 바뀐다.
+  if (auth.status !== 'signedIn') { app.innerHTML = landingView(); bindLanding(); return; }
   // 승인 전 계정은 가입 절차 화면만 본다. 실제 차단은 서버가 한다.
   if (pendingAccount()) { app.innerHTML = pendingView(); bindLogin(); return; }
   const views = [noticeImportView, noticeConfirmView, applicantSelectView, businessSelectView, documentView, documentView];
@@ -2585,7 +2682,13 @@ function render() {
   const tools = { home: homeView, coaching: coachingView, applicants: applicantsToolView, sample: sampleView, engagement: engagementView, account: accountView, admin: adminView, operator: operatorView };
   app.innerHTML = shell((tools[state.activeTool] || views[state.step] || views[0])()); bind(); startBusyElapsedTimer(); runPendingAiMove();
 }
+// 소개 화면에는 폼이 없다. 로그인 화면으로 넘기는 버튼과 구역 이동만 연결하고 서버는 부르지 않는다.
+function bindLanding() {
+  document.querySelectorAll('[data-landing]').forEach(el => el.onclick = () => setAuth({ view: 'auth', mode: el.dataset.landing === 'signup' ? 'signup' : 'login', error: '', notice: '' }));
+  document.querySelectorAll('[data-landing-scroll]').forEach(el => el.onclick = () => document.querySelector(`#${el.dataset.landingScroll}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+}
 function bindLogin() {
+  document.querySelector('#back-to-landing')?.addEventListener('click', () => setAuth({ view: 'landing', error: '', notice: '' }));
   document.querySelector('#login-email')?.addEventListener('input', event => { auth.emailDraft = event.target.value; });
   document.querySelector('#login-password')?.addEventListener('input', event => { auth.passwordDraft = event.target.value; });
   document.querySelector('#login-password-confirm')?.addEventListener('input', event => { auth.confirmDraft = event.target.value; });
