@@ -31,7 +31,7 @@ export function normalizeForPdf(value) {
 const clean = value => normalizeForPdf(value);
 
 // 본문·표를 한 번에 그린다. 글꼴이 등록된 jsPDF 문서를 받아 쓰므로 브라우저와 검증에서 같은 경로를 탄다.
-export function renderProposalPdf(doc, { project = {}, sections = [], tables = [] } = {}) {
+export function renderProposalPdf(doc, { project = {}, sections = [], tables = [], pageBreaks = [] } = {}) {
   const bottom = PAGE.height - PAGE.bottom;
   let y = PAGE.top;
   const newPage = () => { doc.addPage(); y = PAGE.top; };
@@ -50,7 +50,9 @@ export function renderProposalPdf(doc, { project = {}, sections = [], tables = [
   doc.setFont(PDF_FONT, 'normal');
   write(project.title || '사업계획서', { size: SIZE.title, lineHeight: LINE.title, gap: 4 });
 
-  for (const section of sections) {
+  for (const [index, section] of sections.entries()) {
+    // 목표 쪽수를 맞추려고 정해진 자리에서만 쪽을 넘긴다. 글자 크기·여백은 줄이지 않는다.
+    if (pageBreaks.includes(index) && y > PAGE.top) newPage();
     // 제목만 쪽 끝에 남지 않게 본문 한 줄까지 함께 들어갈 자리를 본다.
     need(LINE.heading + LINE.body);
     write(section.title || '', { size: SIZE.heading, lineHeight: LINE.heading, gap: 1.2 });
@@ -106,7 +108,7 @@ function drawTable(doc, table, rows, startY, { newPage, bottom }) {
 }
 
 // 브라우저에서 실제 파일을 내려받는다. 글꼴은 눌렀을 때만 가져온다.
-export async function exportProposalPdf({ project, sections, tables = [], fileName }) {
+export async function exportProposalPdf({ project, sections, tables = [], pageBreaks = [], fileName }) {
   const blob = await buildProposalPdfBlob({ project, sections, tables });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
@@ -117,7 +119,7 @@ export async function exportProposalPdf({ project, sections, tables = [], fileNa
 }
 
 // 파일로 내려받지 않고 내용만 만든다. 제출 ZIP은 이 결과를 그대로 담는다.
-export async function buildProposalPdfBlob({ project, sections, tables = [] }) {
+export async function buildProposalPdfBlob({ project, sections, tables = [], pageBreaks = [] }) {
   if (!sections.length) throw new Error('PDF로 출력할 내용이 없습니다.');
   const [{ jsPDF }, fontUrl] = await Promise.all([
     import('jspdf'),
@@ -129,7 +131,7 @@ export async function buildProposalPdfBlob({ project, sections, tables = [] }) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   doc.addFileToVFS('NotoSansKR.ttf', base64);
   doc.addFont('NotoSansKR.ttf', PDF_FONT, 'normal');
-  renderProposalPdf(doc, { project, sections, tables });
+  renderProposalPdf(doc, { project, sections, tables, pageBreaks });
   const blob = doc.output('blob');
   // 만들어진 결과가 PDF가 아니면 내려받지 않는다(HTML을 PDF처럼 주지 않는다).
   if (!blob || blob.size < 1000) throw new Error('PDF를 만들지 못했습니다. 파일을 내려받지 않았습니다.');

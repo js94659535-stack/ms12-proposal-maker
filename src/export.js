@@ -16,11 +16,12 @@ export async function exportDocx(project, sections, options = {}) {
 
 // 파일로 내려받지 않고 내용만 만든다. 제출 ZIP은 이 결과를 그대로 담는다.
 export async function buildDocxBlob(project, sections, options = {}) {
-  const { forSubmission = false, tables = [] } = options;
+  const { forSubmission = false, tables = [], pageBreaks = [] } = options;
   const { Document, Packer, Paragraph, HeadingLevel, TextRun, Table, TableRow, TableCell, WidthType } = await import('docx');
   const children = [new Paragraph({ text: forSubmission ? (project.title || '사업계획서') : `${project.title || '사업계획서'} (검토용)`, heading: HeadingLevel.TITLE })];
-  sections.forEach(section => {
-    children.push(new Paragraph({ text: section.title, heading: HeadingLevel.HEADING_1 }));
+  sections.forEach((section, index) => {
+    // 목표 쪽수를 맞추려고 정해진 자리에서만 쪽을 넘긴다. 글자 크기·여백은 건드리지 않는다.
+    children.push(new Paragraph({ text: section.title, heading: HeadingLevel.HEADING_1, pageBreakBefore: pageBreaks.includes(index) }));
     section.content.split('\n').forEach(line => children.push(new Paragraph({ children: [new TextRun(line)] })));
     // 「검토 상태」는 내부 표시다. 제출본에는 넣지 않는다.
     if (!forSubmission) children.push(new Paragraph({ children: [new TextRun({ text: `검토 상태: ${section.status}`, italics: true })] }));

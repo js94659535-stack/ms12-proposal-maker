@@ -12,8 +12,8 @@ async function request(action, payload) {
   return data;
 }
 
-// 개인 맞춤 3페이지 핵심계획서. 계정당 한 번만 열리며 서버가 D1에서 사용 여부를 확인한다.
-export const trialCorePlanWithAI = payload => request('trialCorePlan', payload);
+// MS12 핵심제안서. 제출처와 희망 쪽수에 맞춰 만들며, 계정당 한 번만 열리는지는 서버가 D1에서 확인한다.
+export const coreProposalWithAI = payload => request('coreProposal', payload);
 export const analyzeWithAI = payload => request('analyze', payload);
 export const draftWithAI = payload => request('draft', payload);
 export const masterWithAI = payload => request('master', payload);

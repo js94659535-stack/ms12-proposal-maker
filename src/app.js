@@ -1,4 +1,4 @@
-import { analyzeWithAI, draftPartWithAI, draftWithAI, finalizeWithAI, fullProposalWithAI, masterWithAI, patchSectionsWithAI, preciseReviewWithAI, rewriteWithAI, setUsageProposalId, trialCorePlanWithAI } from './api.js';
+import { analyzeWithAI, coreProposalWithAI, draftPartWithAI, draftWithAI, finalizeWithAI, fullProposalWithAI, masterWithAI, patchSectionsWithAI, preciseReviewWithAI, rewriteWithAI, setUsageProposalId } from './api.js';
 import { EXAMPLE_NOTE, EXAMPLE_POINTS, EXAMPLE_SECTIONS, EXAMPLE_SUMMARY, EXAMPLE_TITLE } from './example-plan.js';
 import { extractFile, extractFiles } from './files.js';
 import { localAnalyze } from './fallback.js';
@@ -104,8 +104,8 @@ let auth = {
   accounts: [], accountsLoaded: false, confirmDelete: '', adminTab: 'accounts', notices: emptyAdminNotices(), usage: emptyUsage(),
   // 운영관리자 화면 자료. 발급한 복구코드는 화면에만 잠시 두고 저장하지 않는다.
   operator: emptyOperator(),
-  // 무료 회원의 3페이지 핵심계획서 화면. 결과는 화면에만 두고 브라우저 저장소에 넣지 않는다.
-  trial: { sourceDraft: '', noteDraft: '', result: null },
+  // 핵심제안서 화면. 입력과 결과는 화면에만 두고 브라우저 저장소에 넣지 않는다.
+  core: { draft: emptyCoreDraft(), result: null },
   // 공모정보 검색 화면. 로그인 없이도 쓰며 이미 모아 둔 자료만 읽는다.
   search: emptySearch()
 };
@@ -850,42 +850,67 @@ function exampleView() {
   </div></main></div>`;
 }
 
-// ---------- 3페이지 핵심계획서 무료 생성 ----------
-// 전체 이용권이 없는 회원이 보는 유일한 작업 화면. 서버가 계정당 한 번만 열어 준다.
-const TRIAL_FIELDS = [
-  ['projectName', '사업명'], ['noticePurpose', '공고 목적'], ['selectionKeys', '선정 핵심'], ['necessity', '사업 필요성'],
-  ['target', '대상'], ['goal', '목표'], ['programs', '핵심 활동'], ['schedule', '추진 일정'],
-  ['organization', '수행 체계'], ['budgetDirection', '예산 방향'], ['indicators', '성과지표'], ['expectedEffect', '기대효과'],
-  ['checkNeeded', '확인 필요']
+// ---------- MS12 핵심제안서 ----------
+// 첫 단계에서 제안자·아이디어·목적·제출처·희망 쪽수를 받고, 그 조건에 맞는 제안서를 만든다.
+// 공모사업계획서(전체 계획서)와는 다른 기능이다. 사용 횟수 제한과 서버 차단은 그대로 쓴다.
+const AUDIENCE_OPTIONS = [
+  ['public', '관공서·공공기관', '공익성 · 정책 연계 · 실행체계 · 예산 · 성과'],
+  ['company', '기업', '기대효과 · 차별성 · 비용 대비 가치 · 협력방식'],
+  ['foundation', '재단·복지기관', '대상자의 필요 · 사회적 가치 · 성과 · 지속가능성'],
+  ['school', '학교·교육기관', '대상 · 교육목표 · 운영과정 · 안전 · 기대효과'],
+  ['internal', '내부보고', '필요성 · 효율성 · 실행 가능성 · 의사결정 요청'],
+  ['other', '기타', '적으신 목적과 받는 분을 기준으로 구성']
 ];
-// 공고에 지원금액·예산 기준이 없을 때 쓰는 표시. 서버가 정하는 값과 같은 문구다.
-const BUDGET_UNKNOWN = '공고문 또는 기관 확인 필요';
-// 예산은 방향만 보여 준다. 상세 산출내역과 제출용 예산표는 전체 이용권 기능이다.
-function trialBudgetCard(budget) {
-  if (!budget) return '';
-  const known = budget.hasBasis && budget.basis && budget.basis !== BUDGET_UNKNOWN;
-  return `<article class="landing-card">
-    <h3>예산 방향 ${known ? '' : `<span class="status 확인-필요">${BUDGET_UNKNOWN}</span>`}</h3>
-    <p><strong>공고 기준</strong> ${escapeHtml(budget.basis || BUDGET_UNKNOWN)}</p>
-    <ul>${(budget.items || []).map(item => `<li><strong>${escapeHtml(item.category)}</strong> ${escapeHtml(item.direction)}</li>`).join('') || '<li>공고에서 예산 기준을 찾지 못했습니다.</li>'}</ul>
-    <p class="muted">${known ? '공고가 정한 기준 안에서의 방향입니다. 상세 산출내역과 제출용 예산표는 전체 이용권 기능입니다.' : '공고에 지원금액·예산 기준이 없어 금액을 만들지 않았습니다. 공고문이나 기관에서 확인한 뒤 채워 주세요.'}</p>
-  </article>`;
-}
-const TRIAL_LOCKED = [
-  ['전체 계획서 작성', '10개 항목 본문과 표를 한 번에 만드는 기능'],
-  ['상세 산출내역·제출용 예산표', '인건비 단가 × 수량 × 개월수까지 계산해 제출 서식의 예산표로 만드는 기능'],
+const CORE_MIN_IDEA = 20;
+const CORE_MIN_PAGES = 1;
+const CORE_MAX_PAGES = 20;
+const CORE_LOCKED = [
+  ['공모사업 전체 계획서', '공고를 분석해 신청서 10개 항목과 제출용 표까지 만드는 기능'],
+  ['상세 산출내역·제출용 예산표', '인건비 단가 × 수량 × 개월수까지 계산해 서식 예산표로 만드는 기능'],
   ['반복 재작성·부분 수정', '문제를 지목해 항목만 다시 쓰는 기능'],
   ['검증·코칭', '평가기준으로 문제를 찾고 수정 방향을 받는 기능'],
-  ['DOCX·PDF·ZIP 출력', '제출본 파일로 내려받는 기능'],
   ['공고보관함·계획서보관함', '공고와 계획서를 계정에 보관하고 이어서 작업하는 기능']
 ];
+function emptyCoreDraft() {
+  return { proposer: '', coreIdea: '', purpose: '', audienceType: 'public', recipient: '', targetPages: '3', sourceText: '' };
+}
+// 항목을 쪽별로 묶는다. 미리보기와 출력이 같은 쪽 나눔을 쓴다.
+function corePagesOf(result) {
+  const pages = new Map();
+  for (const section of result.sections || []) {
+    const page = Number(section.page) || 1;
+    if (!pages.has(page)) pages.set(page, []);
+    pages.get(page).push(section);
+  }
+  return [...pages.entries()].sort((a, b) => a[0] - b[0]);
+}
+// 쪽이 바뀌는 첫 항목의 자리. 출력에서 여기서만 쪽을 넘긴다.
+function corePageBreaks(result) {
+  const breaks = [];
+  let current = 0;
+  (result.sections || []).forEach((section, index) => {
+    const page = Number(section.page) || 1;
+    if (index && page > current) breaks.push(index);
+    current = page;
+  });
+  return breaks;
+}
+const coreExportPayload = result => ({
+  project: { title: result.title || 'MS12 핵심제안서' },
+  sections: (result.sections || []).map(section => ({ id: section.id, title: section.title, content: section.content, status: '확정' })),
+  tables: (result.tables || []).map(table => ({ title: table.title, columns: table.columns, rows: table.rows })),
+  pageBreaks: corePageBreaks(result)
+});
 
-function trialView() {
+function coreProposalView() {
   const done = Boolean(auth.user?.trialUsed);
-  const result = auth.trial.result;
+  const draft = auth.core.draft;
+  const result = auth.core.result;
+  const busy = auth.busy;
+  const audience = AUDIENCE_OPTIONS.find(([key]) => key === draft.audienceType) || AUDIENCE_OPTIONS[0];
   return `<div class="layout home-layout"><main class="main"><div class="home">
     <header class="home-header">
-      <div class="home-brand"><strong>3페이지 핵심계획서</strong><span>${escapeHtml(accountEmail())}</span></div>
+      <div class="home-brand"><strong>MS12 핵심제안서</strong><span>${escapeHtml(accountEmail())}</span></div>
       <nav class="home-nav"><button class="button ghost" data-landing-notices="1">공모정보 검색</button><button class="button ghost" data-landing-example="1">우수 계획서 예시</button><button class="button ghost" id="sign-out">로그아웃</button></nav>
     </header>
     <section class="landing">
@@ -893,54 +918,83 @@ function trialView() {
       ${auth.notice ? `<div class="alert success"><strong>${escapeHtml(auth.notice)}</strong></div>` : ''}
       <div class="landing-hero">
         <p class="landing-eyebrow">무료 회원 · 계정당 1회</p>
-        <h1>공고와 우리 기관 메모로 핵심계획서 세 쪽을 만들어 드립니다</h1>
-        <p class="landing-lead">사업명·공고 목적·선정 핵심·사업 필요성·대상·목표·핵심 활동·추진 일정·수행 체계·예산 방향·성과지표·기대효과 열두 항목을 정리합니다. 예산은 공고 기준 안에서의 방향까지만 잡고, 상세 산출내역과 제출용 예산표는 만들지 않습니다.</p>
-        <p class="landing-note">${done ? '무료 생성을 이미 사용했습니다. 아래 결과는 다시 볼 수 있지만 새로 만들 수는 없습니다.' : '한 번만 실행됩니다. 공고문과 기관 메모를 채운 뒤 눌러 주세요.'}</p>
+        <h1>제안 조건을 알려 주시면 그에 맞는 제안서를 만듭니다</h1>
+        <p class="landing-lead">받는 곳과 원하는 쪽수에 맞춰 항목 구성과 분량을 먼저 설계하고, 그 구성대로 본문을 씁니다. 같은 말을 늘려 쪽수를 채우지 않습니다.</p>
+        <p class="landing-note">${done ? '무료 생성을 이미 사용했습니다. 아래 결과는 다시 볼 수 있지만 새로 만들 수는 없습니다.' : '한 번만 실행됩니다. 아래 내용을 채운 뒤 눌러 주세요.'}</p>
       </div>
       <div class="landing-section">
-        <div class="landing-head"><h2>공고문과 기관 메모</h2><p>공고문 본문을 붙여넣고, 우리 기관과 하려는 사업을 몇 줄 적어 주세요. 그 내용에 맞춰 만듭니다. 파일 업로드와 공고 불러오기는 전체 이용권 기능입니다.</p></div>
-        <div class="field"><label for="trial-source">공고 원문</label><textarea id="trial-source" class="source-text" placeholder="공고문 내용을 붙여넣어 주세요." ${done || auth.busy ? 'disabled' : ''}>${escapeHtml(auth.trial.sourceDraft)}</textarea></div>
-        <div class="field"><label for="trial-note">우리 기관·하려는 사업 (개인 맞춤용)</label><textarea id="trial-note" placeholder="예: 지역 아동센터입니다. 초등 고학년 정서지원 집단 프로그램을 주 1회 운영하려고 합니다." ${done || auth.busy ? 'disabled' : ''}>${escapeHtml(auth.trial.noteDraft)}</textarea><small class="muted">적은 내용에 맞춰 사업명·대상·활동을 구체화합니다. 적지 않은 인력·실적·예산은 만들어 넣지 않습니다.</small></div>
-        <div class="actions"><span class="muted">${done ? '사용 완료' : `공고 ${auth.trial.sourceDraft.trim().length.toLocaleString()}자 · 메모 ${auth.trial.noteDraft.trim().length.toLocaleString()}자`}</span><button class="button primary" id="trial-run" ${done || auth.busy ? 'disabled' : ''}>${auth.busy ? '만드는 중…' : '3페이지 핵심계획서 만들기'}</button></div>
+        <div class="landing-head"><h2>1단계 · 제안 조건</h2><p>적으신 내용만 근거로 씁니다. 적지 않은 실적·인력·예산은 만들어 넣지 않습니다.</p></div>
+        <div class="field"><label for="core-proposer">제안자·기관 기본정보</label><textarea id="core-proposer" placeholder="예: ○○지역아동센터. 초등 돌봄 12년, 상담 자격 인력 3명." ${done || busy ? 'disabled' : ''}>${escapeHtml(draft.proposer)}</textarea></div>
+        <div class="field"><label for="core-idea">핵심 아이디어 <span class="status 확인-필요">필수</span></label><textarea id="core-idea" class="source-text" placeholder="무엇을 하려는지 적어 주세요. 예: 초등 고학년 정서지원 집단 프로그램을 주 1회 16회기로 운영하려 합니다." ${done || busy ? 'disabled' : ''}>${escapeHtml(draft.coreIdea)}</textarea><small class="muted">${CORE_MIN_IDEA}자 이상 · 지금 ${draft.coreIdea.trim().length}자</small></div>
+        <div class="field"><label for="core-purpose">제안 목적</label><textarea id="core-purpose" placeholder="예: 내년도 예산 지원을 받기 위한 제안" ${done || busy ? 'disabled' : ''}>${escapeHtml(draft.purpose)}</textarea></div>
+        <div class="field"><label for="core-audience">제출처 유형</label><select id="core-audience" ${done || busy ? 'disabled' : ''}>${AUDIENCE_OPTIONS.map(([key, label]) => `<option value="${key}" ${draft.audienceType === key ? 'selected' : ''}>${label}</option>`).join('')}</select><small class="muted">강조점: ${escapeHtml(audience[2])}</small></div>
+        <div class="field"><label for="core-recipient">실제 제출기관명 (선택)</label><input id="core-recipient" placeholder="예: ○○시청 아동청소년과" value="${escapeHtml(draft.recipient)}" ${done || busy ? 'disabled' : ''}></div>
+        <div class="field"><label for="core-pages">희망 페이지 수</label><input id="core-pages" type="number" min="${CORE_MIN_PAGES}" max="${CORE_MAX_PAGES}" step="1" value="${escapeHtml(draft.targetPages)}" ${done || busy ? 'disabled' : ''}><small class="muted">${CORE_MIN_PAGES}~${CORE_MAX_PAGES}쪽 · 쪽수에 따라 항목 수와 분량이 달라집니다</small></div>
+        <details><summary>참고 자료 붙여넣기 (선택)</summary><div class="field"><label for="core-source">공고문·안내문 등</label><textarea id="core-source" placeholder="있으면 붙여넣어 주세요. 없어도 됩니다." ${done || busy ? 'disabled' : ''}>${escapeHtml(draft.sourceText)}</textarea></div></details>
+        <div class="actions"><span class="muted">${done ? '사용 완료' : `${escapeHtml(audience[1])} · ${escapeHtml(draft.targetPages || '?')}쪽`}</span><button class="button primary" id="core-run" ${done || busy ? 'disabled' : ''}>${busy ? '만드는 중…' : '핵심제안서 만들기'}</button></div>
       </div>
-      ${result ? `<div class="landing-section" id="trial-result">
-        <div class="landing-head"><h2>핵심계획서</h2><p>확인되지 않은 값은 지어내지 않고 [확인 필요]로 남깁니다. 이 결과는 저장되지 않으니 필요하면 복사해 두세요.</p></div>
-        <div class="landing-grid">${TRIAL_FIELDS.map(([key, label]) => {
-    const value = result[key];
-    if (key === 'budgetDirection') return trialBudgetCard(value);
-    if (Array.isArray(value) && !value.length) return '';
-    const body = Array.isArray(value)
-      ? `<ul>${value.map(item => `<li>${escapeHtml(item && typeof item === 'object' ? `${item.name}: ${item.how}` : item)}</li>`).join('')}</ul>`
-      : `<p>${escapeHtml(String(value || ''))}</p>`;
-    return `<article class="landing-card"><h3>${escapeHtml(label)}</h3>${body}</article>`;
-  }).join('')}</div>
-      </div>` : ''}
+      ${result ? coreResultView(result) : ''}
       <div class="landing-section">
-        <div class="landing-head"><h2>전체 이용권 기능</h2><p>아래 기능은 무료 체험에 들어 있지 않습니다. 결제는 아직 열려 있지 않아 「${CONTACT_LABEL}」로 안내합니다.</p></div>
-        <div class="landing-grid">${TRIAL_LOCKED.map(([title, body]) => `<article class="landing-card plain"><h3>${escapeHtml(title)} <span class="status 확인-필요">${CONTACT_LABEL}</span></h3><p>${escapeHtml(body)}</p></article>`).join('')}</div>
+        <div class="landing-head"><h2>전체 이용권 기능</h2><p>아래 기능은 핵심제안서에 들어 있지 않습니다. 결제는 아직 열려 있지 않아 「${CONTACT_LABEL}」로 안내합니다.</p></div>
+        <div class="landing-grid">${CORE_LOCKED.map(([title, body]) => `<article class="landing-card plain"><h3>${escapeHtml(title)} <span class="status 확인-필요">${CONTACT_LABEL}</span></h3><p>${escapeHtml(body)}</p></article>`).join('')}</div>
       </div>
       <div class="landing-section">${accountLinkPanel()}</div>
-      <footer class="landing-footer"><span>사업계획서 작성 도우미 · 무료 체험 계정</span><div><button class="button secondary" data-landing-example="1">우수 계획서 예시</button></div></footer>
+      <footer class="landing-footer"><span>MS12 핵심제안서 · 공모사업 전체 계획서와는 다른 기능입니다</span><div><button class="button secondary" data-landing-example="1">우수 계획서 예시</button></div></footer>
     </section>
   </div></main></div>`;
 }
 
-async function runTrialCorePlan() {
+// 2단계 · 만들어진 제안서. 쪽별로 나눠 보여 주고 그대로 내려받게 한다.
+function coreResultView(result) {
+  const pages = corePagesOf(result);
+  return `<div class="landing-section" id="core-result">
+    <div class="landing-head"><h2>2단계 · ${escapeHtml(result.title || '핵심제안서')}</h2><p>${escapeHtml(result.audience || '')} 제출용 · 목표 ${result.targetPages}쪽 · 실제 구성 ${pages.length}쪽. 확인되지 않은 값은 [확인 필요]로 남깁니다.</p></div>
+    ${result.summary ? `<div class="alert"><strong>한 줄 요약</strong><p>${escapeHtml(result.summary)}</p></div>` : ''}
+    <div class="actions"><span class="muted">저장되지 않습니다. 필요하면 내려받아 두세요.</span><div><button class="button secondary" id="core-docx" ${auth.busy ? 'disabled' : ''}>DOCX 내려받기</button><button class="button secondary" id="core-pdf" ${auth.busy ? 'disabled' : ''}>PDF 내려받기</button></div></div>
+    ${pages.map(([page, sections]) => `<article class="landing-card"><header><span class="landing-step">${page}</span><h3>${page}쪽</h3></header>
+      ${sections.map(section => `<div><strong>${escapeHtml(section.title)}</strong><p style="white-space:pre-wrap">${escapeHtml(section.content)}</p><small class="muted">${section.content.length}자 / 계획 ${section.plannedChars}자</small></div>`).join('')}
+    </article>`).join('')}
+    ${(result.tables || []).length ? `<div class="landing-grid">${result.tables.map(table => `<article class="landing-card plain"><h3>${escapeHtml(table.title)} <span class="muted">${table.page}쪽</span></h3>
+      <div class="responsive-table"><table><thead><tr>${(table.columns || []).map(column => `<th>${escapeHtml(column)}</th>`).join('')}</tr></thead>
+      <tbody>${(table.rows || []).map(row => `<tr>${row.map(cell => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table></div></article>`).join('')}</div>` : ''}
+    ${(result.checkNeeded || []).length ? `<div class="alert warning"><strong>확인 필요 ${result.checkNeeded.length}건</strong><ul>${result.checkNeeded.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul></div>` : ''}
+  </div>`;
+}
+
+async function runCoreProposal() {
   if (auth.busy || auth.user?.trialUsed) return;
-  const sourceText = auth.trial.sourceDraft.trim();
-  if (sourceText.length < 30) return setAuth({ error: '공고문을 30자 이상 붙여넣어 주세요.', notice: '' });
+  const draft = auth.core.draft;
+  if (draft.coreIdea.trim().length < CORE_MIN_IDEA) return setAuth({ error: `핵심 아이디어를 ${CORE_MIN_IDEA}자 이상 적어 주세요.`, notice: '' });
+  const pages = Number(draft.targetPages);
+  if (!Number.isInteger(pages) || pages < CORE_MIN_PAGES || pages > CORE_MAX_PAGES) {
+    return setAuth({ error: `희망 페이지 수를 ${CORE_MIN_PAGES}~${CORE_MAX_PAGES} 사이 숫자로 적어 주세요.`, notice: '' });
+  }
   setAuth({ busy: true, error: '', notice: '' });
-  const result = await trialCorePlanWithAI({ sourceText, applicantNote: auth.trial.noteDraft.trim() })
-    .catch(error => ({ error: error?.message || '핵심계획서를 만들지 못했습니다.' }));
+  const result = await coreProposalWithAI({
+    proposer: draft.proposer.trim(), coreIdea: draft.coreIdea.trim(), purpose: draft.purpose.trim(),
+    audienceType: draft.audienceType, recipient: draft.recipient.trim(), targetPages: pages, sourceText: draft.sourceText.trim()
+  }).catch(error => ({ error: error?.message || '핵심제안서를 만들지 못했습니다.' }));
   if (result?.error) {
-    // 이미 썼다는 응답이면 화면도 사용 완료로 맞춘다. 실제 판단은 서버가 한다.
     const spent = /한 번만/.test(result.error);
     return setAuth({ busy: false, error: result.error, user: spent ? { ...auth.user, trialUsed: true } : auth.user });
   }
   setAuth({
-    busy: false, notice: '3페이지 핵심계획서를 만들었습니다. 무료 생성은 여기까지입니다.',
-    user: { ...auth.user, trialUsed: true }, trial: { ...auth.trial, result }
+    busy: false, notice: `핵심제안서를 만들었습니다(${result.targetPages}쪽). 무료 생성은 여기까지입니다.`,
+    user: { ...auth.user, trialUsed: true }, core: { ...auth.core, result }
   });
+}
+
+// 내려받기. 목표 쪽수에 맞춰 정해진 자리에서만 쪽을 넘기고 글자 크기·여백은 줄이지 않는다.
+async function downloadCoreProposal(kind) {
+  const result = auth.core.result;
+  if (!result || auth.busy) return;
+  const payload = coreExportPayload(result);
+  setAuth({ busy: true, error: '' });
+  try {
+    if (kind === 'pdf') await exportProposalPdf({ ...payload, fileName: `${payload.project.title}.pdf` });
+    else await exportDocx(payload.project, payload.sections, { forSubmission: true, tables: payload.tables, pageBreaks: payload.pageBreaks });
+    setAuth({ busy: false, notice: '내려받았습니다.' });
+  } catch { setAuth({ busy: false, error: '파일을 만들지 못했습니다.' }); }
 }
 
 // 로그인과 회원가입을 한 화면에서 또렷하게 나눈다. 지금 무엇을 하는 중인지 늘 보이게 한다.
@@ -3080,7 +3134,7 @@ function render() {
   // 계획서 포털에서는 관리 화면이 열리지 않는다. 저장된 화면 위치가 남아 있어도 되돌린다.
   if (isStaff() && state.portal === 'proposal' && ['admin', 'operator'].includes(state.activeTool)) state.activeTool = 'home';
   // 전체 이용권이 없는 회원은 3페이지 핵심계획서 화면만 본다. 생성·출력 차단은 서버가 한다.
-  if (trialAccount()) { app.innerHTML = trialView(); bindTrial(); return; }
+  if (trialAccount()) { app.innerHTML = coreProposalView(); bindCoreProposal(); return; }
   const views = [noticeImportView, noticeConfirmView, applicantSelectView, businessSelectView, documentView, documentView];
   // 관리자 화면은 관리자에게만 열린다. 저장된 화면 위치가 남아 있어도 역할이 아니면 되돌린다.
   if (state.activeTool === 'admin' && !isAdmin()) state.activeTool = 'home';
@@ -3112,11 +3166,20 @@ function bindNoticeSearch() {
   document.querySelector('#notice-filter-reset')?.addEventListener('click', () => void runNoticeSearch({ filters: {} }));
   document.querySelectorAll('[data-notice-open]').forEach(el => el.onclick = () => void openNoticeDetail(el.dataset.noticeOpen));
 }
-// 무료 체험 화면. 실행은 한 번뿐이고 나머지 기능은 서버가 막는다.
-function bindTrial() {
-  document.querySelector('#trial-source')?.addEventListener('input', event => { auth.trial.sourceDraft = event.target.value; });
-  document.querySelector('#trial-note')?.addEventListener('input', event => { auth.trial.noteDraft = event.target.value; });
-  document.querySelector('#trial-run')?.addEventListener('click', () => void runTrialCorePlan());
+// 핵심제안서 화면. 실행은 한 번뿐이고 나머지 기능은 서버가 막는다.
+function bindCoreProposal() {
+  const field = (id, key) => document.querySelector(id)?.addEventListener('input', event => { auth.core.draft[key] = event.target.value; });
+  field('#core-proposer', 'proposer');
+  field('#core-idea', 'coreIdea');
+  field('#core-purpose', 'purpose');
+  field('#core-recipient', 'recipient');
+  field('#core-pages', 'targetPages');
+  field('#core-source', 'sourceText');
+  // 제출처를 바꾸면 강조점 안내가 함께 바뀌므로 다시 그린다.
+  document.querySelector('#core-audience')?.addEventListener('change', event => setAuth({ core: { ...auth.core, draft: { ...auth.core.draft, audienceType: event.target.value } } }));
+  document.querySelector('#core-run')?.addEventListener('click', () => void runCoreProposal());
+  document.querySelector('#core-docx')?.addEventListener('click', () => void downloadCoreProposal('docx'));
+  document.querySelector('#core-pdf')?.addEventListener('click', () => void downloadCoreProposal('pdf'));
   document.querySelector('#sign-out')?.addEventListener('click', () => void submitLogout());
   document.querySelectorAll('[data-landing-example]').forEach(el => el.onclick = () => setAuth({ view: 'example', error: '', notice: '' }));
   document.querySelectorAll('[data-social]').forEach(el => el.addEventListener('click', () => void beginSocial(el.dataset.social, el.dataset.socialMode)));

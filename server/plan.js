@@ -4,9 +4,11 @@ export const PLANS = new Set(['trial', 'full']);
 export const DEFAULT_PLAN = 'trial';
 // 관리자·운영관리자는 역할 자체로 전체 기능을 쓴다. plan 열 값과 무관하다.
 export const FULL_ROLES = new Set(['admin', 'operator']);
-// 무료 회원이 쓸 수 있는 유일한 생성 작업. 개인 맞춤 3페이지 핵심계획서 한 부만 만든다.
-export const TRIAL_ACTION = 'trialCorePlan';
-export const TRIAL_LABEL = '3페이지 핵심계획서';
+// 무료 회원이 쓸 수 있는 유일한 생성 작업. 「핵심제안서」 한 부만 만든다.
+// 사용 횟수 기록(users.trial_used_at)은 그대로 쓴다. 열 이름은 자료 안전을 위해 바꾸지 않았다.
+export const CORE_PROPOSAL_ACTION = 'coreProposal';
+export const TRIAL_ACTION = CORE_PROPOSAL_ACTION;
+export const TRIAL_LABEL = '핵심제안서';
 export const CONTACT_LABEL = '이용권 문의';
 export const NEED_FULL = `전체 이용권이 있어야 쓸 수 있는 기능입니다. ${CONTACT_LABEL}로 연락해 주세요.`;
 export const TRIAL_SPENT = `${TRIAL_LABEL} 무료 생성은 계정당 한 번만 쓸 수 있습니다. ${CONTACT_LABEL}로 연락해 주세요.`;

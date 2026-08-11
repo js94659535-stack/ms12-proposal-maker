@@ -265,5 +265,5 @@ test('검색 화면은 두 방식을 고르게 하고 크롤링이라는 말을 
   // 사용자 화면에는 「크롤링」이라는 말을 쓰지 않는다.
   assert.doesNotMatch(app, /크롤링/);
   // 검색 화면은 AI 경로를 부르지 않는다.
-  assert.doesNotMatch(view, /trialCorePlanWithAI|analyzeWithAI|fullProposalWithAI/);
+  assert.doesNotMatch(view, /coreProposalWithAI|analyzeWithAI|fullProposalWithAI/);
 });

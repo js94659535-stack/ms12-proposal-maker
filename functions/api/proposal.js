@@ -1,5 +1,6 @@
 import { budgetRefusal, extractUsage, recordAiUsage } from '../../server/ai-usage.js';
-import { TRIAL_ACTION, TRIAL_SPENT, consumeTrial, hasFullAccess, planRefusal, releaseTrial } from '../../server/plan.js';
+import { outputTokensFor, planPages, validateCoreProposalInput } from '../../server/core-proposal.js';
+import { CORE_PROPOSAL_ACTION, TRIAL_ACTION, TRIAL_SPENT, consumeTrial, hasFullAccess, planRefusal, releaseTrial } from '../../server/plan.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 // 무료 생성은 공고 원문과 메모를 짧게만 받는다. 비용을 계정 단위로 묶어 두기 위해서다.
@@ -16,9 +17,9 @@ const LIMITS = Object.freeze({
   rewriteInstructionChars: 4_000,
   analysisChars: 300_000,
   timeoutMs: 300_000,
-  outputTokens: Object.freeze({ analyze: 6_000, master: 12_000, draftPart: 7_000, draft: 12_000, fullProposal: 20_000, preciseReview: 8_000, patchSections: 10_000, rewrite: 4_000, finalize: 9_000, trialCorePlan: 5_000 })
+  outputTokens: Object.freeze({ analyze: 6_000, master: 12_000, draftPart: 7_000, draft: 12_000, fullProposal: 20_000, preciseReview: 8_000, patchSections: 10_000, rewrite: 4_000, finalize: 9_000, coreProposal: 5_000 })
 });
-const ACTIONS = ['analyze', 'master', 'draftPart', 'draft', 'fullProposal', 'preciseReview', 'patchSections', 'rewrite', 'finalize', TRIAL_ACTION];
+const ACTIONS = ['analyze', 'master', 'draftPart', 'draft', 'fullProposal', 'preciseReview', 'patchSections', 'rewrite', 'finalize', CORE_PROPOSAL_ACTION];
 
 export async function onRequest(context) {
   try {
@@ -79,7 +80,7 @@ export async function onRequest(context) {
             { role: 'user', content: [{ type: 'input_text', text: specification.prompt }] }
           ],
           text: { verbosity: 'medium', format: { type: 'json_schema', name: specification.name, strict: true, schema: specification.schema } },
-          max_output_tokens: LIMITS.outputTokens[body.action]
+          max_output_tokens: body.action === CORE_PROPOSAL_ACTION ? outputTokensFor(body.payload.plan.pages) : LIMITS.outputTokens[body.action]
         })
       });
       raw = await response.json();
@@ -105,7 +106,11 @@ export async function onRequest(context) {
     let result;
     try { result = JSON.parse(outputText); } catch { return refund(json({ error: 'AI 응답 형식을 해석하지 못했습니다.', failureStage: 'output-parse' }, 502)); }
     // 무료 체험은 결과와 함께 「이번 한 번을 썼다」는 사실을 돌려준다. 화면은 이 값을 따른다.
-    if (body.action === TRIAL_ACTION) return json({ ...result, budgetDirection: settleBudget(result.budgetDirection), trialUsed: true, oneTime: true });
+    if (body.action === CORE_PROPOSAL_ACTION) {
+      // 화면과 출력이 목표 쪽수를 알아야 쪽 나눔을 맞출 수 있다.
+      const plan = body.payload.plan;
+      return json({ ...result, targetPages: plan.pages, audience: plan.audience.label, sections: alignSections(result.sections, plan), trialUsed: true, oneTime: true });
+    }
     if (body.action === 'analyze') result.analysis.mode = 'ai';
     if (body.action === 'draft' && typeof body.payload.sourceText === 'string') {
       const qualityError = validateEngineResult(result, body.payload);
@@ -129,6 +134,22 @@ export async function onRequest(context) {
   } catch (error) {
     return json({ error: '서버 처리 중 오류가 발생했습니다. 입력을 확인하거나 관리자에게 문의하세요.' }, 500);
   }
+}
+
+// 본문 항목을 구성안에 맞춘다. 모델이 항목을 빠뜨리거나 쪽 번호를 흔들어도 화면·출력이 흔들리지 않게 한다.
+function alignSections(sections, plan) {
+  const written = new Map((Array.isArray(sections) ? sections : []).map(item => [String(item?.id || ''), item]));
+  return plan.sections.map(planned => {
+    const found = written.get(planned.key) || {};
+    return {
+      id: planned.key,
+      title: String(found.title || planned.title).slice(0, 120),
+      // 쪽 번호는 구성안이 정한 값을 쓴다. 출력의 쪽 나눔이 이 값을 따른다.
+      page: planned.page,
+      plannedChars: planned.chars,
+      content: String(found.content || '[확인 필요] 이 항목의 내용을 만들지 못했습니다.').slice(0, planned.chars * 3)
+    };
+  });
 }
 
 // 예산 근거가 없다고 나오면 근거 문구를 우리가 정한 표시로 고정한다.
@@ -157,12 +178,12 @@ const SYSTEM_POLICY = `당신은 대한민국 기관 제출용 사업계획서 �
 
 function validate(action, payload) {
   if (!payload || typeof payload !== 'object') return '요청 내용이 없습니다.';
-  // 무료 회원의 핵심계획서는 공고 원문과 짧은 기관·사업 메모만 받는다. 설계도·이전 결과는 받지 않는다.
-  if (action === TRIAL_ACTION) {
-    const text = String(payload.sourceText || '').trim();
-    if (text.length < 30) return '공고 내용이 너무 짧습니다. 공고문을 붙여넣어 주세요.';
-    if (text.length > TRIAL_SOURCE_CHARS) return `무료 생성은 공고 원문 ${TRIAL_SOURCE_CHARS.toLocaleString()}자까지만 받습니다.`;
-    if (String(payload.applicantNote || '').length > TRIAL_NOTE_CHARS) return `기관·사업 메모는 ${TRIAL_NOTE_CHARS.toLocaleString()}자 이하로 적어 주세요.`;
+  // 핵심제안서는 첫 단계 입력만 받는다. 검사에 통과하면 구성안을 만들어 payload에 붙인다.
+  if (action === CORE_PROPOSAL_ACTION) {
+    const checked = validateCoreProposalInput(payload);
+    if (checked.error) return checked.error;
+    payload.core = checked.value;
+    payload.plan = planPages({ pages: checked.value.targetPages, audienceType: checked.value.audienceType });
     return '';
   }
   // 분할 생성은 master가 확정한 경량 문맥만 쓰므로 공고 원문을 다시 받지 않는다.
@@ -304,24 +325,43 @@ officialConflicts에 공고 기준과 사용자 확정값의 충돌이 있으면
 설계도의 문제 → 대상 → 목적 → 프로그램 → 회기·인력 → 예산 → 성과목표 → 성과지표 흐름을 계획서 각 항목에 같은 대상·같은 용어로 일관되게 반영한다.`;
 
 function taskSpecification(action, payload) {
+  // 핵심제안서. 제출처와 희망 페이지 수에 맞춰 구성안을 먼저 만들고 그 구성대로 본문을 쓴다.
+  if (action === CORE_PROPOSAL_ACTION) {
+    const input = payload.core;
+    const plan = payload.plan;
+    const audience = plan.audience;
+    return {
+      name: 'ms12_core_proposal', schema: CORE_PROPOSAL_SCHEMA,
+      prompt: `<PROPOSER>\n${input.proposer || '(적지 않음)'}\n</PROPOSER>
+<CORE_IDEA>\n${input.coreIdea}\n</CORE_IDEA>
+<PURPOSE>\n${input.purpose || '(적지 않음)'}\n</PURPOSE>
+<RECIPIENT_TYPE>${audience.label}</RECIPIENT_TYPE>
+<RECIPIENT_NAME>${input.recipient || '(적지 않음)'}</RECIPIENT_NAME>
+<TARGET_PAGES>${plan.pages}</TARGET_PAGES>
+${input.sourceText ? `<REFERENCE>\n${input.sourceText}\n</REFERENCE>\n` : ''}<PAGE_PLAN>${JSON.stringify(plan.sections.map(section => ({ id: section.key, title: section.title, page: section.page, chars: section.chars })))}</PAGE_PLAN>
+
+MS12 「핵심제안서」 한 부를 만든다. 공모사업 제출용 전체 계획서가 아니라, 받는 사람이 읽고 판단할 수 있는 제안서다.
+
+1) 먼저 outline에 페이지별 구성안을 적는다. ${plan.pages}쪽 전부를 1쪽부터 ${plan.pages}쪽까지 하나씩 넣고, 그 쪽에서 무엇을 결정하게 할지 focus에 한 문장으로 적는다.
+2) 그다음 sections에 본문을 쓴다. PAGE_PLAN에 있는 항목을 id·title·page 그대로 하나씩만 쓰고, 항목을 더하거나 빼지 않는다.
+3) 각 항목 content의 길이는 PAGE_PLAN의 chars에 ±20% 안으로 맞춘다. 분량을 채우려고 같은 말을 다시 쓰거나, 한 문장을 늘려 쓰거나, 앞 항목 내용을 옮겨 적지 않는다. 쓸 내용이 모자라면 짧게 끝내고 checkNeeded에 무엇이 더 필요한지 적는다.
+4) tables에는 표로 보여야 이해가 빠른 내용만 ${plan.tableSlots}개까지 넣는다. ${plan.tableSlots ? '일정·역할·예산 방향·성과지표처럼 줄글보다 표가 나은 것만 고른다. 본문에 같은 내용을 다시 풀어 쓰지 않는다.' : '이 분량에서는 표를 넣지 않는다. 빈 배열로 둔다.'}
+
+받는 곳이 ${audience.label}이므로 ${audience.emphasis.length ? `${audience.emphasis.join(' · ')}을(를) 앞세운다.` : '사용자가 적은 제안 목적과 받는 사람을 기준으로 구성한다.'} ${audience.guide}
+
+CORE_IDEA는 제안자가 직접 적은 내용이며 이 제안서의 중심이다. 여기에 없는 실적·인력·예산·협약·수치를 만들어 내지 않는다.
+근거가 없는 값은 그 자리에 [확인 필요]라고 적고 checkNeeded에 무엇을 확인해야 하는지 모은다. 금액은 제안자가 적은 범위 안에서만 쓰고, 적지 않았으면 만들지 않는다.
+title은 40자 이내의 제안서 제목, summary는 200자 이내로 받는 사람이 한눈에 보는 요약이다.`
+    };
+  }
   // 개인 맞춤 3페이지 핵심계획서. 계정당 한 번만 만들며 전체 계획서·표·출력은 여기에 없다.
-  if (action === TRIAL_ACTION) return {
+  if (action === 'trialCorePlanLegacy') return {
     name: 'proposal_trial_core_plan', schema: TRIAL_CORE_PLAN_SCHEMA,
     prompt: `<SOURCE_DOCUMENT>\n${String(payload.sourceText).slice(0, TRIAL_SOURCE_CHARS)}\n</SOURCE_DOCUMENT>\n<APPLICANT_NOTE>\n${String(payload.applicantNote || '').slice(0, TRIAL_NOTE_CHARS)}\n</APPLICANT_NOTE>\n
 공고와 신청자가 직접 적은 메모를 읽고 A4 세 쪽 분량의 「핵심계획서」를 만들어라. 제출용 전체 계획서가 아니라 핵심만 담은 요약본이다.
-APPLICANT_NOTE는 신청자가 스스로 적은 기관·사업 메모다. 이 내용에 맞춰 사업명·대상·활동을 구체화하되, 메모에 없는 인력·실적·자격·예산·시설은 만들지 않는다.
-열두 항목을 채운다: 공고 목적, 선정 핵심, 사업명, 사업 필요성, 대상, 목표, 핵심 활동, 추진 일정, 수행 체계, 예산 방향, 성과지표, 기대효과.
-분량 상한을 지킨다. necessity는 600자 이내, target·goal·schedule·organization·expectedEffect는 각 400자 이내, noticePurpose는 300자 이내, projectName은 40자 이내.
-selectionKeys는 3~5개이며 각 80자 이내. programs는 3~5개이며 각 name 40자·how 200자 이내. indicators는 3~5개이며 각 100자 이내.
-
 budgetDirection은 「방향」만 적는다. 상세 산출내역(단가 × 수량 × 개월수)과 제출용 예산표는 만들지 않는다.
-- SOURCE_DOCUMENT에 지원금액·지원한도·예산 편성 기준이 있으면 hasBasis를 true로 두고, basis에 그 근거를 공고 표현 그대로 한 문장(120자 이내)으로 적는다.
-  items에는 인건비·프로그램비·재료비·홍보비처럼 이 사업에 실제로 필요한 항목을 3~6개 골라 category(20자 이내)와 direction(120자 이내)을 적는다.
-  direction에는 그 항목에 무엇을 쓸지와 공고 기준 안에서의 대략적 비중만 적는다. 공고에 없는 확정 금액·단가를 새로 만들지 않는다.
-- 지원금액이나 예산 기준을 공고에서 찾을 수 없으면 hasBasis를 false로 두고 basis에는 정확히 「${BUDGET_UNKNOWN}」이라고만 적는다.
-  이때 items의 direction에는 금액이나 비율을 쓰지 말고 무엇을 공고문이나 기관에서 확인해야 하는지 적는다.
-
-공고에 없는 필수조건·배점·금액·기간을 만들지 않는다. 확인할 수 없는 값은 지어내지 말고 그 자리에 [확인 필요]로 남기고 checkNeeded에 최대 5개까지 모은다.`
+- 지원금액이나 예산 기준을 찾을 수 없으면 hasBasis를 false로 두고 basis에는 정확히 「${BUDGET_UNKNOWN}」이라고만 적는다.
+확인할 수 없는 값은 지어내지 말고 그 자리에 [확인 필요]로 남기고 checkNeeded에 최대 5개까지 모은다.`
   };
   if (action === 'analyze') return {
     name: 'proposal_source_analysis', schema: ANALYSIS_SCHEMA,
@@ -444,6 +484,39 @@ const FINALIZE_RULE = `CONFIRMED_VALUES는 사용자가 이번 사업 값으로 
 근거 우선순위는 1) 공식 공고·요강·평가기준 2) 사용자 확정값 3) 신청기관 확인정보 4) 현재 계획서 문장 5) 제안 순이다. 확정값과 다른 수치가 본문에 있으면 확정값으로 맞추고, 공식 공고 기준과 확정값이 충돌하면 임의로 고르지 말고 문장에 두 값을 함께 남기고 notApplied에 충돌로 기록한다.
 계획서를 새로 쓰지 마라. 값이 필요한 문단만 sections에 담아 최대 8개까지 반환하고, 바꾸지 않은 문단은 반환하지 않는다. 반환하는 content는 그 문단의 전체 본문이며 기존 문장·구조·용어를 유지한 채 확정값만 자연스럽게 반영한다.
 확정값에 없는 사실·수치·기관 실적을 새로 만들지 마라. 근거가 없으면 [확인 필요] 표기를 유지한다.`;
+// 「핵심제안서」. 페이지별 구성안을 먼저 만들고 그 구성에 맞춰 본문을 쓴다.
+// outline이 sections보다 앞에 있어야 모델이 구성안을 먼저 확정한 뒤 본문을 이어 쓴다.
+const corePage = {
+  type: 'object', additionalProperties: false,
+  properties: { page: { type: 'integer' }, title: { type: 'string' }, focus: { type: 'string' } },
+  required: ['page', 'title', 'focus']
+};
+const coreSection = {
+  type: 'object', additionalProperties: false,
+  properties: { id: { type: 'string' }, title: { type: 'string' }, page: { type: 'integer' }, content: { type: 'string' } },
+  required: ['id', 'title', 'page', 'content']
+};
+const coreTable = {
+  type: 'object', additionalProperties: false,
+  properties: {
+    title: { type: 'string' }, page: { type: 'integer' },
+    columns: { type: 'array', minItems: 2, maxItems: 6, items: { type: 'string' } },
+    rows: { type: 'array', minItems: 1, maxItems: 12, items: { type: 'array', minItems: 2, maxItems: 6, items: { type: 'string' } } }
+  },
+  required: ['title', 'page', 'columns', 'rows']
+};
+const CORE_PROPOSAL_SCHEMA = {
+  type: 'object', additionalProperties: false,
+  properties: {
+    title: { type: 'string' }, summary: { type: 'string' },
+    outline: { type: 'array', minItems: 1, maxItems: 20, items: corePage },
+    sections: { type: 'array', minItems: 4, maxItems: 12, items: coreSection },
+    tables: { type: 'array', maxItems: 3, items: coreTable },
+    checkNeeded: { type: 'array', maxItems: 8, items: { type: 'string' } }
+  },
+  required: ['title', 'summary', 'outline', 'sections', 'tables', 'checkNeeded']
+};
+
 // 무료 회원의 3페이지 핵심계획서. 열한 항목뿐이고 제출용 계획서 본문·표 항목은 스키마에 아예 없다.
 const trialProgram = {
   type: 'object', additionalProperties: false,
