@@ -364,7 +364,9 @@ test('운영 화면은 비밀번호 값을 읽지도 내보내지도 않는다',
 test('운영관리자에게만 운영 화면 진입점이 보이고 관리자만 역할을 바꾼다', () => {
   // 화면 게이트는 서버 차단을 대신하지 않고 결과만 따른다.
   assert.match(app, /function isOperator\(\) \{ return auth\.status === 'signedIn' && \(auth\.user\?\.role === 'operator' \|\| auth\.user\?\.role === 'admin'\) && auth\.user\?\.status === 'active'; \}/);
-  assert.match(app, /\$\{isOperator\(\) \? `<button class="history-button" id="open-operator"/);
+  // 진입점은 포털 단추로 모였다. 운영관리자에게만 보인다.
+  assert.match(app, /function isStaff\(\) \{ return isAdmin\(\) \|\| isOperator\(\); \}/);
+  assert.match(app, /data-portal-open="operator"[^`]*>운영관리자</);
   assert.match(app, /if \(state\.activeTool === 'operator' && !isOperator\(\)\) state\.activeTool = 'home';/);
   assert.match(app, /operator: operatorView/);
   // 운영 화면 버튼과 처리기가 연결되어 있다.

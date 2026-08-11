@@ -190,8 +190,12 @@ test('관리자 화면은 비밀번호 값을 읽지도 내보내지도 않는�
 test('관리자에게만 관리자 화면 진입점이 보인다', () => {
   // 화면 게이트는 서버 차단을 대신하지 않고 결과만 따른다.
   assert.match(app, /function isAdmin\(\) \{ return auth\.status === 'signedIn' && auth\.user\?\.role === 'admin' && auth\.user\?\.status === 'active'; \}/);
-  assert.match(app, /\$\{isAdmin\(\) \? `<button class="history-button" id="open-admin"/);
-  assert.match(app, /\$\{isAdmin\(\) \? '<button class="button ghost" id="open-admin-home">관리자<\/button>' : ''\}/);
+  // 진입점은 포털 단추 하나로 모였다. 관리자·운영관리자가 아니면 아무것도 나오지 않는다.
+  assert.match(app, /function portalLinks\(cls = 'history-button'\) \{/);
+  assert.match(app, /if \(!isStaff\(\)\) return '';/);
+  assert.match(app, /data-portal-open="admin"[^`]*>관리자</);
+  assert.match(app, /\$\{portalLinks\(\)\}/);
+  assert.match(app, /\$\{portalLinks\('button ghost'\)\}/);
   // 저장된 화면 위치가 남아 있어도 관리자가 아니면 열리지 않는다.
   assert.match(app, /if \(state\.activeTool === 'admin' && !isAdmin\(\)\) state\.activeTool = 'home';/);
   assert.match(app, /admin: adminView/);

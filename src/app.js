@@ -72,7 +72,7 @@ const SOURCE_TYPES = ['공고 공문', '세부 공고문', '공모신청서', '�
 const NAVIGATION_KEY = 'ms12_workflow_navigation_v1';
 const NAVIGATION_LIMIT = 10;
 const initial = {
-  step: 0, activeTool: 'home', homeSeen: false, project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
+  step: 0, activeTool: 'home', homeSeen: false, portal: '', project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
   coaching: { title: '', text: '', validatedText: '', criteriaText: '', officialEvaluationProvided: false, sourceProposalId: '', sourceNoticeKey: '', seriesId: '', currentArchiveId: '', result: null, workItems: [], pendingJob: null, version: 0, references: [], referenceType: REFERENCE_TYPES[0], referenceDraft: '', referenceNameDraft: '' },
   applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
   revisionPlan: null, draftReview: null, projectNarrative: '', proposalVersions: [], proposalFlow: { status: '', baselineVersion: 0, reviewTarget: null, rounds: [], requests: [], requestOpen: false, requestText: '', requestScope: [], openVersion: 0, compareVersion: 0, approvedVersion: 0, approvedAt: '' }, coachingSelection: [], applicantSkipped: false, noticeLogic: null, redesignForContract: false,
@@ -141,6 +141,58 @@ function pendingAccount() { return auth.status === 'signedIn' && auth.user?.stat
 function isAdmin() { return auth.status === 'signedIn' && auth.user?.role === 'admin' && auth.user?.status === 'active'; }
 // 운영관리자 화면을 열 수 있는 사람. 관리자도 같은 화면을 쓸 수 있다.
 function isOperator() { return auth.status === 'signedIn' && (auth.user?.role === 'operator' || auth.user?.role === 'admin') && auth.user?.status === 'active'; }
+// ---------- 관리자 포털 · 계획서 포털 ----------
+// 관리자·운영관리자는 계정을 따로 만들지 않고 한 계정으로 두 포털을 오간다.
+// 계획서 포털에서는 회원과 똑같은 화면으로 직접 작업하고, 관리자 포털에서는 회원·이용권·공모정보를 관리한다.
+const PORTALS = ['admin', 'proposal'];
+function isStaff() { return isAdmin() || isOperator(); }
+function inAdminPortal() { return isStaff() && state.portal === 'admin'; }
+// 계획서 포털에서는 관리 진입점을 숨기고 되돌아가는 단추 하나만 남긴다. 회원이 보는 화면과 같게 하려는 것이다.
+function portalLinks(cls = 'history-button') {
+  if (!isStaff()) return '';
+  if (!inAdminPortal()) return `<button class="${cls}" data-portal="admin">관리자 포털</button>`;
+  return `${isOperator() ? `<button class="${cls}" data-portal-open="operator" aria-pressed="${state.activeTool === 'operator'}">운영관리자</button>` : ''}${isAdmin() ? `<button class="${cls}" data-portal-open="admin" aria-pressed="${state.activeTool === 'admin'}">관리자</button>` : ''}<button class="${cls}" data-portal="proposal">계획서 포털</button>`;
+}
+function openPortal(portal) {
+  if (!PORTALS.includes(portal)) return;
+  state.portal = portal;
+  if (portal !== 'admin') return setState({ activeTool: 'home', notice: '', error: '' });
+  return isAdmin() ? openAdmin() : openOperator();
+}
+
+// 로그인 직후 어디로 들어갈지 고른다. 한 번 고르면 기억하고 언제든 위쪽 단추로 바꾼다.
+function portalChoiceView() {
+  return `<div class="layout home-layout"><main class="main"><div class="home">
+    <header class="home-header">
+      <div class="home-brand"><strong>사업계획서 작성 도우미</strong><span>${escapeHtml(accountEmail())} · ${escapeHtml(ROLE_LABELS[auth.user?.role] || auth.user?.role || '')}</span></div>
+      <nav class="home-nav"><button class="button ghost" id="sign-out">로그아웃</button></nav>
+    </header>
+    <section class="landing">
+      <div class="landing-hero">
+        <p class="landing-eyebrow">포털 선택</p>
+        <h1>어느 쪽으로 들어가시겠어요?</h1>
+        <p class="landing-lead">같은 계정으로 두 포털을 오갑니다. 회원 계정을 따로 만들 필요가 없습니다. 들어간 뒤에도 위쪽 단추로 언제든 바꿀 수 있습니다.</p>
+      </div>
+      <div class="landing-section">
+        <div class="landing-grid">
+          <article class="landing-card"><header><span class="landing-step">1</span><h3>계획서 포털</h3></header>
+            <p>회원이 보는 화면 그대로 들어가 직접 계획서를 작성합니다. 공고 분석부터 검증·제출본까지 회원과 같은 흐름으로 진행합니다.</p>
+            <ul><li>공고 가져오기·분석</li><li>신청기관 정보와 사업 설계</li><li>계획서 작성·검증·출력</li></ul>
+            <button class="button primary" data-portal="proposal">계획서 포털로 들어가기</button></article>
+          <article class="landing-card"><header><span class="landing-step">2</span><h3>관리자 포털</h3></header>
+            <p>관리자 입장에서 회원과 서비스를 관리합니다. 회원이 보는 작업 화면은 열리지 않습니다.</p>
+            <ul><li>회원 승인·중지·역할</li><li>이용권 부여·회수와 AI 사용량·비용</li><li>공모정보 공개 관리${isAdmin() ? '' : ' (조회)'}</li></ul>
+            <button class="button primary" data-portal="admin">관리자 포털로 들어가기</button></article>
+        </div>
+      </div>
+      <footer class="landing-footer"><span>한 계정으로 두 포털을 씁니다 · 회원 계정을 따로 만들지 않습니다</span><div></div></footer>
+    </section>
+  </div></main></div>`;
+}
+function bindPortalChoice() {
+  document.querySelectorAll('[data-portal]').forEach(el => el.onclick = () => openPortal(el.dataset.portal));
+  document.querySelector('#sign-out')?.addEventListener('click', () => void submitLogout());
+}
 
 async function checkSession() {
   // 공급자가 돌려보낸 주소면 먼저 마무리한다.
@@ -363,7 +415,7 @@ function adminView() {
     <div class="requirement-list">${waiting.map(accountRow).join('') || '<p class="muted">승인을 기다리는 계정이 없습니다.</p>'}</div>
     <h4>이용 중·중지된 계정 ${rest.length}건</h4>
     <div class="requirement-list">${rest.map(accountRow).join('') || '<p class="muted">표시할 계정이 없습니다.</p>'}</div>
-    <div class="actions"><span class="muted">관리자 계정과 내 계정은 이 화면에서 바꿀 수 없습니다.</span><div><button class="button secondary" id="reload-admin" ${auth.busy ? 'disabled' : ''}>목록 새로고침</button><button class="button secondary" id="open-admin-notices" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'notices' ? '공모정보 접기' : '공모정보 관리'}</button><button class="button secondary" id="open-admin-usage" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'usage' ? '사용량 접기' : 'AI 사용량·비용'}</button><button class="button secondary" id="close-admin">작업 화면으로</button></div></div>
+    <div class="actions"><span class="muted">관리자 계정과 내 계정은 이 화면에서 바꿀 수 없습니다.</span><div><button class="button secondary" id="reload-admin" ${auth.busy ? 'disabled' : ''}>목록 새로고침</button><button class="button secondary" id="open-admin-notices" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'notices' ? '공모정보 접기' : '공모정보 관리'}</button><button class="button secondary" id="open-admin-usage" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'usage' ? '사용량 접기' : 'AI 사용량·비용'}</button><button class="button secondary" id="close-admin">계획서 포털로</button></div></div>
     ${auth.adminTab === 'notices' ? adminNoticesPanel() : ''}
     ${auth.adminTab === 'usage' ? usagePanel() : ''}
   </div>`;
@@ -460,7 +512,7 @@ function operatorView() {
     ${operatorNotIntegrated(view.notIntegrated)}
     <div class="field"><label for="operator-search">회원 검색</label><input id="operator-search" placeholder="이름·이메일·기관명·연락처·계정 식별자" value="${escapeHtml(view.queryDraft)}"></div>
     <div class="actions"><span class="muted">${view.loaded ? `${view.users.length}건 표시${view.query ? ` · 검색어 「${escapeHtml(view.query)}」` : ''}${locked.length ? ` · 로그인 잠금 ${locked.length}건` : ''}` : '회원 목록을 불러오는 중입니다.'}</span>
-      <div><button class="button secondary" id="operator-search-run" ${auth.busy ? 'disabled' : ''}>검색</button><button class="button secondary" id="operator-reload" ${auth.busy ? 'disabled' : ''}>새로고침</button><button class="button secondary" id="close-operator">작업 화면으로</button></div></div>
+      <div><button class="button secondary" id="operator-search-run" ${auth.busy ? 'disabled' : ''}>검색</button><button class="button secondary" id="operator-reload" ${auth.busy ? 'disabled' : ''}>새로고침</button><button class="button secondary" id="close-operator">계획서 포털로</button></div></div>
     <div class="actions" style="justify-content:stretch;gap:8px">
       <button class="button ${view.tab === 'users' ? 'primary' : 'secondary'}" data-operator-tab="users" aria-pressed="${view.tab === 'users'}">회원 ${view.users.length}</button>
       <button class="button ${view.tab === 'audit' ? 'primary' : 'secondary'}" data-operator-tab="audit" aria-pressed="${view.tab === 'audit'}">감사기록 ${view.audit.length}</button>
@@ -943,6 +995,8 @@ function loadState() {
       ? { ...structuredClone(initial.stagedGeneration), ...saved.stagedGeneration, parts: Array.isArray(saved.stagedGeneration.parts) ? saved.stagedGeneration.parts : [], completedGroupIds: Array.isArray(saved.stagedGeneration.completedGroupIds) ? saved.stagedGeneration.completedGroupIds : [] }
       : structuredClone(initial.stagedGeneration);
     const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantDocDraft: '', applicantExtraction: null, coachingSelection: [], attachmentLinks: {}, submissionZip: null };
+    // 알 수 없는 포털 값이 남아 있으면 다시 고르게 한다.
+    restored.portal = ['admin', 'proposal'].includes(saved.portal) ? saved.portal : '';
     // 예전에 저장한 상태에는 의뢰 건 정보가 없다. 빈 값으로 채우기만 하고 기존 데이터는 건드리지 않는다.
     restored.engagement = normalizeEngagement(saved.engagement || {});
     // 예전에 저장한 버전에는 식별자·표가 없다. 빠진 것만 채우고 값은 그대로 둔다.
@@ -1169,7 +1223,7 @@ function shell(content) {
     <div class="layout">
       <main class="main">
         <header class="workflow-header">
-          <div class="workflow-brand"><div class="brand"><span class="brand-mark">계</span><div><strong>사업계획서 작성 도우미</strong><small>공고 분석부터 제출본까지</small></div></div><span class="save-state">● 자동 저장 중</span><span class="mode">${escapeHtml(accountEmail())}</span><button class="history-button" id="open-account" aria-pressed="${state.activeTool === 'account'}">계정 설정</button>${isOperator() ? `<button class="history-button" id="open-operator" aria-pressed="${state.activeTool === 'operator'}">운영관리자</button>` : ''}${isAdmin() ? `<button class="history-button" id="open-admin" aria-pressed="${state.activeTool === 'admin'}">관리자</button>` : ''}<button class="history-button" id="sign-out">로그아웃</button></div>
+          <div class="workflow-brand"><div class="brand"><span class="brand-mark">계</span><div><strong>사업계획서 작성 도우미</strong><small>공고 분석부터 제출본까지</small></div></div><span class="save-state">● 자동 저장 중</span><span class="mode">${escapeHtml(accountEmail())}</span><button class="history-button" id="open-account" aria-pressed="${state.activeTool === 'account'}">계정 설정</button>${portalLinks()}<button class="history-button" id="sign-out">로그아웃</button></div>
           <div class="workflow-row"><label class="type-select-label" for="business-type">사업 유형<select id="business-type">${TYPES.map(([id, name]) => `<option value="${id}" ${state.project.type === id ? 'selected' : ''}>${name}</option>`).join('')}</select></label><nav class="workflow-steps" aria-label="작성 단계">${STEPS.map((name, i) => { const complete = isStepComplete(i); return `<button data-step="${i}" class="workflow-step ${state.activeTool === 'workflow' && state.step === i ? 'active' : ''} ${complete ? 'done' : ''}" ${state.activeTool === 'workflow' && state.step === i ? 'aria-current="step"' : ''}><span>${complete ? '✓' : i + 1}</span>${name}</button>`; }).join('')}</nav><button class="history-button" id="open-archive-box">공고보관함·계획서보관함</button><button class="history-button" id="open-engagement" aria-pressed="${state.activeTool === 'engagement'}">의뢰 건</button><button class="history-button" id="open-applicants" aria-pressed="${state.activeTool === 'applicants'}">신청기관 정보</button><button class="history-button" id="open-coaching" aria-pressed="${state.activeTool === 'coaching'}">계획서 검증·코칭</button><nav class="workflow-history" aria-label="앱 작업 화면 이동"><button class="history-button" id="workflow-back" aria-label="직전 작업 화면으로 뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="history-button" id="workflow-home" aria-label="홈 화면으로 가기">⌂ 홈 화면</button><button class="history-button" id="workflow-forward" aria-label="다음 작업 화면으로 앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button></nav></div>
         </header>
         ${aiResultBanner()}
@@ -1210,7 +1264,7 @@ function homeView() {
     <div class="home">
       <header class="home-header">
         <div class="home-brand"><strong>사업계획서 작성 도우미</strong><span>공고 분석부터 제출본까지</span></div>
-        <nav class="home-nav"><button class="button ghost" id="workflow-back" aria-label="뒤로 가기">← 뒤로</button><button class="button ghost" disabled aria-current="page">⌂ 홈 화면</button><button class="button ghost" id="workflow-forward" aria-label="앞으로 가기">앞으로 →</button><button class="button ghost" data-home-scroll="home-product">제품소개</button><button class="button ghost" data-home-scroll="home-flow">이용방법</button><button class="button ghost" data-home-scroll="home-features">주요기능</button><button class="button ghost" data-home-archive="1">공고보관함·계획서보관함</button>${isOperator() ? '<button class="button ghost" id="open-operator-home">운영관리자</button>' : ''}${isAdmin() ? '<button class="button ghost" id="open-admin-home">관리자</button>' : ''}<button class="button primary" data-home-start="1">무료로 시작하기</button></nav>
+        <nav class="home-nav"><button class="button ghost" id="workflow-back" aria-label="뒤로 가기">← 뒤로</button><button class="button ghost" disabled aria-current="page">⌂ 홈 화면</button><button class="button ghost" id="workflow-forward" aria-label="앞으로 가기">앞으로 →</button><button class="button ghost" data-home-scroll="home-product">제품소개</button><button class="button ghost" data-home-scroll="home-flow">이용방법</button><button class="button ghost" data-home-scroll="home-features">주요기능</button><button class="button ghost" data-home-archive="1">공고보관함·계획서보관함</button>${portalLinks('button ghost')}<button class="button primary" data-home-start="1">무료로 시작하기</button></nav>
       </header>
 
       <section class="home-hero" id="home-product">
@@ -3021,6 +3075,10 @@ function render() {
   if (auth.status !== 'signedIn') { app.innerHTML = landingView(); bindLanding(); return; }
   // 승인 전 계정은 가입 절차 화면만 본다. 실제 차단은 서버가 한다.
   if (pendingAccount()) { app.innerHTML = pendingView(); bindLogin(); return; }
+  // 관리자·운영관리자는 어느 포털로 들어갈지 먼저 고른다. 회원 계정을 따로 만들지 않는다.
+  if (isStaff() && !state.portal) { app.innerHTML = portalChoiceView(); bindPortalChoice(); return; }
+  // 계획서 포털에서는 관리 화면이 열리지 않는다. 저장된 화면 위치가 남아 있어도 되돌린다.
+  if (isStaff() && state.portal === 'proposal' && ['admin', 'operator'].includes(state.activeTool)) state.activeTool = 'home';
   // 전체 이용권이 없는 회원은 3페이지 핵심계획서 화면만 본다. 생성·출력 차단은 서버가 한다.
   if (trialAccount()) { app.innerHTML = trialView(); bindTrial(); return; }
   const views = [noticeImportView, noticeConfirmView, applicantSelectView, businessSelectView, documentView, documentView];
@@ -3403,10 +3461,10 @@ function bind() {
   document.querySelectorAll('[data-step]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(Number(el.dataset.step), { notice: '', error: '' }); });
   document.querySelector('#sign-out')?.addEventListener('click', () => void submitLogout());
   document.querySelector('#open-account')?.addEventListener('click', () => setState({ activeTool: 'account', notice: '', error: '' }));
-  document.querySelector('#open-admin')?.addEventListener('click', () => openAdmin());
-  document.querySelector('#open-admin-home')?.addEventListener('click', () => openAdmin());
+  document.querySelectorAll('[data-portal]').forEach(el => el.onclick = () => openPortal(el.dataset.portal));
+  document.querySelectorAll('[data-portal-open]').forEach(el => el.onclick = () => (el.dataset.portalOpen === 'admin' ? openAdmin() : openOperator()));
   document.querySelector('#reload-admin')?.addEventListener('click', () => void loadAccounts());
-  document.querySelector('#close-admin')?.addEventListener('click', () => setState({ activeTool: 'workflow', notice: '', error: '' }));
+  document.querySelector('#close-admin')?.addEventListener('click', () => openPortal('proposal'));
   document.querySelectorAll('[data-admin-approve]').forEach(el => el.onclick = () => void runAdminAction('approve', el.dataset.adminApprove));
   document.querySelectorAll('[data-admin-disable]').forEach(el => el.onclick = () => void runAdminAction('disable', el.dataset.adminDisable));
   document.querySelectorAll('[data-admin-delete]').forEach(el => el.onclick = () => void runAdminAction('delete', el.dataset.adminDelete));
@@ -3427,9 +3485,7 @@ function bind() {
   document.querySelector('#admin-notice-search')?.addEventListener('click', () => void loadAdminNotices(auth.notices.queryDraft.trim()));
   document.querySelector('#admin-notice-reload')?.addEventListener('click', () => void loadAdminNotices());
   document.querySelectorAll('[data-notice-public]').forEach(el => el.onclick = () => void toggleNoticePublic(el.dataset.noticePublic, Boolean(el.dataset.noticeNext)));
-  document.querySelector('#open-operator')?.addEventListener('click', () => openOperator());
-  document.querySelector('#open-operator-home')?.addEventListener('click', () => openOperator());
-  document.querySelector('#close-operator')?.addEventListener('click', () => setState({ activeTool: 'workflow', notice: '', error: '' }));
+  document.querySelector('#close-operator')?.addEventListener('click', () => openPortal('proposal'));
   document.querySelector('#operator-reload')?.addEventListener('click', () => void loadOperator());
   document.querySelector('#operator-search')?.addEventListener('input', event => { auth.operator.queryDraft = event.target.value; });
   document.querySelector('#operator-search-run')?.addEventListener('click', () => void loadOperator(auth.operator.queryDraft.trim()));
