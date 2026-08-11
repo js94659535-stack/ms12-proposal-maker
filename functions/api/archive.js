@@ -1,3 +1,4 @@
+import { withDerived } from '../../server/notice-search.js';
 import { NEED_FULL, hasFullAccess } from '../../server/plan.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
@@ -43,10 +44,13 @@ export async function syncNotices(db, values) {
     const existing = await db.prepare('SELECT content_hash FROM archived_notices WHERE source_key = ?').bind(normalized.sourceKey).first();
     if (existing?.content_hash === normalized.contentHash) { result.unchanged += 1; continue; }
     const now = new Date().toISOString();
-    await db.prepare(`INSERT INTO archived_notices (source_key, source, source_label, list_sn, dstb_bsns_code, title, deadline, application_period, summary, eligibility, support_details, support_limit, content_hash, notice_json, first_seen_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(source_key) DO UPDATE SET source=excluded.source, source_label=excluded.source_label, list_sn=excluded.list_sn, dstb_bsns_code=excluded.dstb_bsns_code, title=excluded.title, deadline=excluded.deadline, application_period=excluded.application_period, summary=excluded.summary, eligibility=excluded.eligibility, support_details=excluded.support_details, support_limit=excluded.support_limit, content_hash=excluded.content_hash, notice_json=excluded.notice_json, updated_at=excluded.updated_at`)
-      .bind(normalized.sourceKey, normalized.source, normalized.sourceLabel, normalized.listSn, normalized.dstbBsnsCode, normalized.title, normalized.deadline, normalized.applicationPeriod, normalized.summary, normalized.eligibility, normalized.supportDetails, normalized.supportLimit, normalized.contentHash, normalized.noticeJson, now, now).run();
+    // 검색용 문자열과 분류를 저장할 때 함께 채운다. 읽을 때 다시 만들 필요를 줄인다.
+    const indexed = noticeIndex(normalized);
+    await db.prepare(`INSERT INTO archived_notices (source_key, source, source_label, list_sn, dstb_bsns_code, title, deadline, application_period, summary, eligibility, support_details, support_limit, content_hash, notice_json, first_seen_at, updated_at, region, audience, field, last_checked_at, search_title, search_keywords, search_summary)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(source_key) DO UPDATE SET source=excluded.source, source_label=excluded.source_label, list_sn=excluded.list_sn, dstb_bsns_code=excluded.dstb_bsns_code, title=excluded.title, deadline=excluded.deadline, application_period=excluded.application_period, summary=excluded.summary, eligibility=excluded.eligibility, support_details=excluded.support_details, support_limit=excluded.support_limit, content_hash=excluded.content_hash, notice_json=excluded.notice_json, updated_at=excluded.updated_at, region=excluded.region, audience=excluded.audience, field=excluded.field, last_checked_at=excluded.last_checked_at, search_title=excluded.search_title, search_keywords=excluded.search_keywords, search_summary=excluded.search_summary`)
+      .bind(normalized.sourceKey, normalized.source, normalized.sourceLabel, normalized.listSn, normalized.dstbBsnsCode, normalized.title, normalized.deadline, normalized.applicationPeriod, normalized.summary, normalized.eligibility, normalized.supportDetails, normalized.supportLimit, normalized.contentHash, normalized.noticeJson, now, now,
+        indexed.region, indexed.audience, indexed.field, now, indexed.search_title, indexed.search_keywords, indexed.search_summary).run();
     if (existing) result.updated += 1; else result.inserted += 1;
   }
   return result;
@@ -151,6 +155,15 @@ export async function deleteApplicant(db, ownerHash, id) {
   if (!key) throw new Error('invalid applicant');
   await db.prepare('DELETE FROM applicant_organizations WHERE id = ? AND owner_hash = ?').bind(key, ownerHash).run();
   return { id: key, deleted: true };
+}
+
+// 저장할 자료를 검색 열 이름에 맞춰 옮긴 뒤 파생값을 만든다.
+function noticeIndex(normalized) {
+  return withDerived({
+    title: normalized.title, source: normalized.source, source_label: normalized.sourceLabel,
+    summary: normalized.summary, eligibility: normalized.eligibility,
+    support_limit: normalized.supportLimit, application_period: normalized.applicationPeriod
+  });
 }
 
 function normalizeNotice(value) {

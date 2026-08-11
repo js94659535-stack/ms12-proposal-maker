@@ -4,11 +4,12 @@ export const PLANS = new Set(['trial', 'full']);
 export const DEFAULT_PLAN = 'trial';
 // 관리자·운영관리자는 역할 자체로 전체 기능을 쓴다. plan 열 값과 무관하다.
 export const FULL_ROLES = new Set(['admin', 'operator']);
-// 무료 체험이 쓸 수 있는 유일한 생성 작업. 1페이지 사업구상 한 장만 만든다.
-export const TRIAL_ACTION = 'trialSketch';
+// 무료 회원이 쓸 수 있는 유일한 생성 작업. 개인 맞춤 3페이지 핵심계획서 한 부만 만든다.
+export const TRIAL_ACTION = 'trialCorePlan';
+export const TRIAL_LABEL = '3페이지 핵심계획서';
 export const CONTACT_LABEL = '이용권 문의';
 export const NEED_FULL = `전체 이용권이 있어야 쓸 수 있는 기능입니다. ${CONTACT_LABEL}로 연락해 주세요.`;
-export const TRIAL_SPENT = `1페이지 무료 체험은 계정당 한 번만 쓸 수 있습니다. ${CONTACT_LABEL}로 연락해 주세요.`;
+export const TRIAL_SPENT = `${TRIAL_LABEL} 무료 생성은 계정당 한 번만 쓸 수 있습니다. ${CONTACT_LABEL}로 연락해 주세요.`;
 
 // 이 사람이 실제로 가진 이용권. 역할이 우선한다.
 export function effectivePlan(user) {

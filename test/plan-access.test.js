@@ -172,8 +172,8 @@ test('무료 체험 실패는 사용 기록을 남기지 않고 분량 상한을
   assert.equal(db.tables.users.find(item => item.id === 'trial-1').trial_used_at, '');
 
   // 여덟 항목만 만들고 출력 토큰도 작게 묶어 둔다.
-  assert.match(proposalSource, /trialSketch: 1_600/);
-  assert.match(proposalSource, /required: \['noticePurpose', 'selectionKeys', 'projectName', 'problem', 'target', 'goal', 'activities', 'expectedEffect'\]/);
+  assert.match(proposalSource, /trialCorePlan: 5_000/);
+  assert.match(proposalSource, /required: \['noticePurpose', 'selectionKeys', 'projectName', 'necessity', 'target', 'goal', 'programs', 'schedule', 'organization', 'indicators', 'expectedEffect', 'checkNeeded'\]/);
 });
 
 test('관리자·운영관리자는 이용권 열과 무관하게 전체 기능을 쓴다', async () => {
@@ -247,7 +247,7 @@ test('이용권을 바꾸면 다시 로그인하지 않아도 곧바로 반영�
 });
 
 test('예시 계획서는 로그인 없이 열리고 서버를 부르지 않는다', () => {
-  const view = app.slice(app.indexOf('// 로그인 없이 보는 정적 예시'), app.indexOf('// ---------- 1페이지 무료 체험 ----------'));
+  const view = app.slice(app.indexOf('// 로그인 없이 보는 정적 예시'), app.indexOf('// ---------- 3페이지 핵심계획서 무료 생성 ----------'));
   assert.ok(view.length > 500, '예시 화면을 찾지 못했다');
   // 로그인 여부와 상관없이 먼저 걸리는 분기다.
   assert.match(app, /if \(auth\.view === 'example'\) \{ app\.innerHTML = exampleView\(\); bindLanding\(\); return; \}/);
@@ -261,11 +261,15 @@ test('예시 계획서는 로그인 없이 열리고 서버를 부르지 않는�
 });
 
 test('무료 체험 화면만 열리고 잠긴 기능은 이용권 문의로 표시한다', () => {
-  const view = app.slice(app.indexOf('// ---------- 1페이지 무료 체험 ----------'), app.indexOf('// 로그인과 회원가입을 한 화면에서'));
+  const view = app.slice(app.indexOf('// ---------- 3페이지 핵심계획서 무료 생성 ----------'), app.indexOf('// 로그인과 회원가입을 한 화면에서'));
   assert.match(app, /function trialAccount\(\) \{ return auth\.status === 'signedIn' && auth\.user\?\.status === 'active' && !hasFullAccess\(\); \}/);
   assert.match(app, /if \(trialAccount\(\)\) \{ app\.innerHTML = trialView\(\); bindTrial\(\); return; \}/);
-  // 여덟 항목만 보여 준다.
-  for (const label of ['공고 목적', '선정 핵심', '사업명', '문제', '대상', '목표', '핵심 활동', '기대효과']) assert.ok(view.includes(label), label);
+  // 3페이지 핵심계획서의 열한 항목을 보여 준다. 제출용 계획서 본문·예산표는 없다.
+  for (const label of ['사업명', '공고 목적', '선정 핵심', '사업 필요성', '대상', '목표', '핵심 활동', '추진 일정', '수행 체계', '성과지표', '기대효과']) {
+    assert.ok(view.includes(label), label);
+  }
+  // 개인 맞춤을 위해 기관·사업 메모를 함께 받는다.
+  assert.ok(view.includes('id="trial-note"'), 'trial-note');
   // 잠긴 기능을 숨기지 않고 사유와 함께 보여 준다.
   for (const label of ['전체 계획서 작성', '반복 재작성', '검증·코칭', 'DOCX·PDF·ZIP 출력']) assert.ok(view.includes(label), label);
   // 문구는 상수 하나에서만 나온다. 서버와 화면이 같은 말을 쓴다.
@@ -275,5 +279,5 @@ test('무료 체험 화면만 열리고 잠긴 기능은 이용권 문의로 표
   assert.doesNotMatch(app, /결제하기|카드 등록|payment|checkout/i);
   // 화면 게이트는 서버 차단을 대신하지 않는다.
   assert.match(app, /function hasFullAccess\(\) \{/);
-  assert.match(app, /1페이지 무료 체험<\/button>/);
+  assert.match(app, /3페이지 무료 체험<\/button>/);
 });

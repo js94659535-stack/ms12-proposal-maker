@@ -1,8 +1,9 @@
 import { TRIAL_ACTION, TRIAL_SPENT, consumeTrial, hasFullAccess, planRefusal, releaseTrial } from '../../server/plan.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
-// 무료 체험은 공고 원문도 짧게만 받는다. 비용을 계정 단위로 묶어 두기 위해서다.
+// 무료 생성은 공고 원문과 메모를 짧게만 받는다. 비용을 계정 단위로 묶어 두기 위해서다.
 const TRIAL_SOURCE_CHARS = 20_000;
+const TRIAL_NOTE_CHARS = 2_000;
 const LIMITS = Object.freeze({
   requestBytes: 750_000,
   sourceChars: 180_000,
@@ -12,7 +13,7 @@ const LIMITS = Object.freeze({
   rewriteInstructionChars: 4_000,
   analysisChars: 300_000,
   timeoutMs: 300_000,
-  outputTokens: Object.freeze({ analyze: 6_000, master: 12_000, draftPart: 7_000, draft: 12_000, fullProposal: 20_000, preciseReview: 8_000, patchSections: 10_000, rewrite: 4_000, finalize: 9_000, trialSketch: 1_600 })
+  outputTokens: Object.freeze({ analyze: 6_000, master: 12_000, draftPart: 7_000, draft: 12_000, fullProposal: 20_000, preciseReview: 8_000, patchSections: 10_000, rewrite: 4_000, finalize: 9_000, trialCorePlan: 5_000 })
 });
 const ACTIONS = ['analyze', 'master', 'draftPart', 'draft', 'fullProposal', 'preciseReview', 'patchSections', 'rewrite', 'finalize', TRIAL_ACTION];
 
@@ -127,11 +128,12 @@ const SYSTEM_POLICY = `당신은 대한민국 기관 제출용 사업계획서 �
 
 function validate(action, payload) {
   if (!payload || typeof payload !== 'object') return '요청 내용이 없습니다.';
-  // 무료 체험은 공고 원문 하나만 받는다. 기관 정보·설계도·이전 결과는 받지 않는다.
+  // 무료 회원의 핵심계획서는 공고 원문과 짧은 기관·사업 메모만 받는다. 설계도·이전 결과는 받지 않는다.
   if (action === TRIAL_ACTION) {
     const text = String(payload.sourceText || '').trim();
     if (text.length < 30) return '공고 내용이 너무 짧습니다. 공고문을 붙여넣어 주세요.';
-    if (text.length > TRIAL_SOURCE_CHARS) return `무료 체험은 공고 원문 ${TRIAL_SOURCE_CHARS.toLocaleString()}자까지만 받습니다.`;
+    if (text.length > TRIAL_SOURCE_CHARS) return `무료 생성은 공고 원문 ${TRIAL_SOURCE_CHARS.toLocaleString()}자까지만 받습니다.`;
+    if (String(payload.applicantNote || '').length > TRIAL_NOTE_CHARS) return `기관·사업 메모는 ${TRIAL_NOTE_CHARS.toLocaleString()}자 이하로 적어 주세요.`;
     return '';
   }
   // 분할 생성은 master가 확정한 경량 문맥만 쓰므로 공고 원문을 다시 받지 않는다.
@@ -273,15 +275,16 @@ officialConflicts에 공고 기준과 사용자 확정값의 충돌이 있으면
 설계도의 문제 → 대상 → 목적 → 프로그램 → 회기·인력 → 예산 → 성과목표 → 성과지표 흐름을 계획서 각 항목에 같은 대상·같은 용어로 일관되게 반영한다.`;
 
 function taskSpecification(action, payload) {
-  // 1페이지 사업구상 무료 체험. 여덟 항목만, 정해진 분량으로만 만든다. 계획서 본문은 만들지 않는다.
+  // 개인 맞춤 3페이지 핵심계획서. 계정당 한 번만 만들며 전체 계획서·표·출력은 여기에 없다.
   if (action === TRIAL_ACTION) return {
-    name: 'proposal_trial_sketch', schema: TRIAL_SKETCH_SCHEMA,
-    prompt: `<SOURCE_DOCUMENT>\n${String(payload.sourceText).slice(0, TRIAL_SOURCE_CHARS)}\n</SOURCE_DOCUMENT>\n
-공고를 읽고 1페이지 분량의 「사업구상 한 장」만 만들어라. 계획서 본문·예산표·일정표·항목별 초안은 만들지 않는다.
-여덟 항목만 채운다: 공고 목적, 선정 핵심, 사업명, 문제, 대상, 목표, 핵심 활동, 기대효과.
-분량 상한을 반드시 지킨다. noticePurpose·problem·target·goal·expectedEffect는 각 200자 이내 한 문단, projectName은 40자 이내, selectionKeys와 activities는 각 3~5개이며 항목마다 60자 이내 한 문장.
-공고에 없는 필수조건·배점·금액·기간을 만들지 않는다. 신청기관의 인력·실적·예산은 알 수 없으므로 쓰지 않는다.
-확인할 수 없는 값은 지어내지 말고 그 자리에 [확인 필요]로 남긴다.`
+    name: 'proposal_trial_core_plan', schema: TRIAL_CORE_PLAN_SCHEMA,
+    prompt: `<SOURCE_DOCUMENT>\n${String(payload.sourceText).slice(0, TRIAL_SOURCE_CHARS)}\n</SOURCE_DOCUMENT>\n<APPLICANT_NOTE>\n${String(payload.applicantNote || '').slice(0, TRIAL_NOTE_CHARS)}\n</APPLICANT_NOTE>\n
+공고와 신청자가 직접 적은 메모를 읽고 A4 세 쪽 분량의 「핵심계획서」를 만들어라. 제출용 전체 계획서가 아니라 핵심만 담은 요약본이다.
+APPLICANT_NOTE는 신청자가 스스로 적은 기관·사업 메모다. 이 내용에 맞춰 사업명·대상·활동을 구체화하되, 메모에 없는 인력·실적·자격·예산·시설은 만들지 않는다.
+열한 항목을 채운다: 공고 목적, 선정 핵심, 사업명, 사업 필요성, 대상, 목표, 핵심 활동, 추진 일정, 수행 체계, 성과지표, 기대효과.
+분량 상한을 지킨다. necessity는 600자 이내, target·goal·schedule·organization·expectedEffect는 각 400자 이내, noticePurpose는 300자 이내, projectName은 40자 이내.
+selectionKeys는 3~5개이며 각 80자 이내. programs는 3~5개이며 각 name 40자·how 200자 이내. indicators는 3~5개이며 각 100자 이내.
+공고에 없는 필수조건·배점·금액·기간을 만들지 않는다. 확인할 수 없는 값은 지어내지 말고 그 자리에 [확인 필요]로 남기고 checkNeeded에 최대 5개까지 모은다.`
   };
   if (action === 'analyze') return {
     name: 'proposal_source_analysis', schema: ANALYSIS_SCHEMA,
@@ -404,15 +407,22 @@ const FINALIZE_RULE = `CONFIRMED_VALUES는 사용자가 이번 사업 값으로 
 근거 우선순위는 1) 공식 공고·요강·평가기준 2) 사용자 확정값 3) 신청기관 확인정보 4) 현재 계획서 문장 5) 제안 순이다. 확정값과 다른 수치가 본문에 있으면 확정값으로 맞추고, 공식 공고 기준과 확정값이 충돌하면 임의로 고르지 말고 문장에 두 값을 함께 남기고 notApplied에 충돌로 기록한다.
 계획서를 새로 쓰지 마라. 값이 필요한 문단만 sections에 담아 최대 8개까지 반환하고, 바꾸지 않은 문단은 반환하지 않는다. 반환하는 content는 그 문단의 전체 본문이며 기존 문장·구조·용어를 유지한 채 확정값만 자연스럽게 반영한다.
 확정값에 없는 사실·수치·기관 실적을 새로 만들지 마라. 근거가 없으면 [확인 필요] 표기를 유지한다.`;
-// 무료 체험 결과. 여덟 항목만 있고 계획서 본문 항목은 아예 스키마에 없다.
-const TRIAL_SKETCH_SCHEMA = {
+// 무료 회원의 3페이지 핵심계획서. 열한 항목뿐이고 제출용 계획서 본문·표 항목은 스키마에 아예 없다.
+const trialProgram = {
+  type: 'object', additionalProperties: false,
+  properties: { name: { type: 'string' }, how: { type: 'string' } }, required: ['name', 'how']
+};
+const TRIAL_CORE_PLAN_SCHEMA = {
   type: 'object', additionalProperties: false,
   properties: {
     noticePurpose: { type: 'string' }, selectionKeys: { type: 'array', minItems: 3, maxItems: 5, items: { type: 'string' } },
-    projectName: { type: 'string' }, problem: { type: 'string' }, target: { type: 'string' }, goal: { type: 'string' },
-    activities: { type: 'array', minItems: 3, maxItems: 5, items: { type: 'string' } }, expectedEffect: { type: 'string' }
+    projectName: { type: 'string' }, necessity: { type: 'string' }, target: { type: 'string' }, goal: { type: 'string' },
+    programs: { type: 'array', minItems: 3, maxItems: 5, items: trialProgram },
+    schedule: { type: 'string' }, organization: { type: 'string' },
+    indicators: { type: 'array', minItems: 3, maxItems: 5, items: { type: 'string' } },
+    expectedEffect: { type: 'string' }, checkNeeded: { type: 'array', maxItems: 5, items: { type: 'string' } }
   },
-  required: ['noticePurpose', 'selectionKeys', 'projectName', 'problem', 'target', 'goal', 'activities', 'expectedEffect']
+  required: ['noticePurpose', 'selectionKeys', 'projectName', 'necessity', 'target', 'goal', 'programs', 'schedule', 'organization', 'indicators', 'expectedEffect', 'checkNeeded']
 };
 const requirement = {
   type: 'object', additionalProperties: false,

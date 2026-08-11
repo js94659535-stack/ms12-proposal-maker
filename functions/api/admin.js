@@ -1,6 +1,7 @@
 // 관리자 전용 계정 관리. 화면에서 숨기는 것이 아니라 여기서 실제로 막는다.
 // 비밀번호 열은 읽지도 내보내지도 않는다.
 import { recordAudit } from '../../server/audit.js';
+import { RANK, adminNotice, findDuplicates, parseQuery, rankNotice, withDerived } from '../../server/notice-search.js';
 import { DEFAULT_PLAN, PLANS, effectivePlan } from '../../server/plan.js';
 import { revokeRecoveryCodes } from '../../server/recovery.js';
 
@@ -31,6 +32,9 @@ export async function onRequest(context) {
   if (body.action === 'setRole') return mutate(env.ARCHIVE_DB, actor, body.id, (db, target) => setRole(db, target, body.role));
   // 전체 이용권 부여·회수는 관리자만 한다. 운영관리자 경로(/api/operator)에서는 언제나 거절된다.
   if (body.action === 'setPlan') return mutate(env.ARCHIVE_DB, actor, body.id, (db, target) => setPlan(db, target, body.plan));
+  // 공모정보 관리. 공개 여부와 상관없이 모아 둔 자료 전체를 본다.
+  if (body.action === 'listNotices') return json(await listNotices(env.ARCHIVE_DB, body.query), 200);
+  if (body.action === 'setNoticePublic') return setNoticePublic(env.ARCHIVE_DB, actor, body);
   return json({ error: '지원하지 않는 작업입니다.' }, 400);
 }
 
@@ -108,6 +112,42 @@ async function setPlan(db, target, plan) {
   if (target.plan === next) return { error: '이미 같은 이용권입니다.' };
   await db.prepare('UPDATE users SET plan = ?, updated_at = ? WHERE id = ?').bind(next, new Date().toISOString(), target.id).run();
   return { action: next === 'full' ? 'admin.grantFullPlan' : 'admin.revokeFullPlan', detail: `${target.plan || DEFAULT_PLAN} → ${next}` };
+}
+
+// ---------- 공모정보 관리 ----------
+// 공개 여부와 상관없이 모아 둔 자료 전체를 본다. 새로 수집하거나 외부를 부르지 않는다.
+async function listNotices(db, query) {
+  const rows = (await db.prepare(`SELECT source_key, source, source_label, list_sn, title, deadline, application_period,
+    summary, eligibility, support_limit, content_hash, region, audience, field, source_url, last_checked_at,
+    duplicate_of, is_public, first_seen_at, updated_at FROM archived_notices
+    ORDER BY (deadline = '') ASC, deadline DESC LIMIT 400`).all())?.results || [];
+  const derived = rows.map(withDerived);
+  const duplicates = findDuplicates(derived);
+  const terms = parseQuery(query);
+  const now = new Date();
+  const notices = derived
+    // 관리자 검색은 공개 여부와 관계없이 전체를 대상으로 하고 광역 범위로 찾는다.
+    .filter(row => rankNotice(row, terms, 'broad') !== RANK.none)
+    .map(row => adminNotice(row, { duplicate: duplicates.has(row.source_key), duplicateOf: duplicates.get(row.source_key) || '' }, now));
+  return {
+    notices, total: notices.length, collected: rows.length,
+    hidden: derived.filter(row => Number(row.is_public ?? 1) !== 1).length,
+    duplicates: duplicates.size
+  };
+}
+
+async function setNoticePublic(db, actor, body) {
+  const key = String(body.key || '').slice(0, 180);
+  const row = await db.prepare('SELECT source_key, title, is_public FROM archived_notices WHERE source_key = ?').bind(key).first();
+  if (!row) return json({ error: '해당 공모정보를 찾지 못했습니다.' }, 404);
+  const next = body.isPublic ? 1 : 0;
+  if (Number(row.is_public ?? 1) === next) return json({ error: '이미 같은 공개 상태입니다.' }, 400);
+  await db.prepare('UPDATE archived_notices SET is_public = ? WHERE source_key = ?').bind(next, key).run();
+  await recordAudit(db, {
+    actor, action: next ? 'notice.publish' : 'notice.hide', targetId: key,
+    detail: `${String(row.title || '').slice(0, 80)} → ${next ? '공개' : '비공개'}`
+  });
+  return json({ ok: true, ...(await listNotices(db, body.query)) }, 200);
 }
 
 async function remove(db, target) {

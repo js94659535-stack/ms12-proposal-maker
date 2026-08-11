@@ -3,7 +3,7 @@
 export function fakeDb() {
   const tables = {
     users: [], sessions: [], login_attempts: [], user_identities: [], oauth_states: [],
-    admin_audit_log: [], account_recovery_codes: [], user_activity_events: []
+    admin_audit_log: [], account_recovery_codes: [], user_activity_events: [], archived_notices: []
   };
   let seq = 0;
   // D1은 바꾼 행 수를 meta.changes로 알려 준다. 무료 체험 1회 제한이 이 값을 본다.
@@ -189,6 +189,25 @@ export function fakeDb() {
     }
     if (/^SELECT user_id, kind, step, step_label, code, at FROM user_activity_events/.test(text)) {
       return rows([...tables.user_activity_events].sort(byNewest).slice(0, 500));
+    }
+
+    // ---- 공모정보 ----
+    // 마감이 빈 자료를 뒤로 두고 마감일 내림차순. 실제 SQL의 ORDER BY와 같은 순서를 흉내 낸다.
+    if (/^SELECT source_key, source, source_label, list_sn, title, deadline/.test(text)) {
+      const wantsPublicOnly = /is_public = 1/.test(text);
+      if (/WHERE source_key = \?/.test(text)) {
+        return rows(tables.archived_notices.filter(item => item.source_key === args[0] && (!wantsPublicOnly || Number(item.is_public ?? 1) === 1)));
+      }
+      const list = tables.archived_notices.filter(item => !wantsPublicOnly || Number(item.is_public ?? 1) === 1);
+      return rows([...list].sort((a, b) => (a.deadline ? 0 : 1) - (b.deadline ? 0 : 1) || String(b.deadline).localeCompare(String(a.deadline))));
+    }
+    if (/^SELECT source_key, title, is_public FROM archived_notices WHERE source_key/.test(text)) {
+      return rows(tables.archived_notices.filter(item => item.source_key === args[0]));
+    }
+    if (/^UPDATE archived_notices SET is_public = \? WHERE source_key/.test(text)) {
+      const found = tables.archived_notices.find(item => item.source_key === args[1]);
+      if (found) found.is_public = args[0];
+      return rows([], found ? 1 : 0);
     }
 
     throw new Error(`대역이 모르는 쿼리: ${text.slice(0, 80)}`);

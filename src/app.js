@@ -1,4 +1,4 @@
-import { analyzeWithAI, draftPartWithAI, draftWithAI, finalizeWithAI, fullProposalWithAI, masterWithAI, patchSectionsWithAI, preciseReviewWithAI, rewriteWithAI, trialSketchWithAI } from './api.js';
+import { analyzeWithAI, draftPartWithAI, draftWithAI, finalizeWithAI, fullProposalWithAI, masterWithAI, patchSectionsWithAI, preciseReviewWithAI, rewriteWithAI, trialCorePlanWithAI } from './api.js';
 import { EXAMPLE_NOTE, EXAMPLE_POINTS, EXAMPLE_SECTIONS, EXAMPLE_SUMMARY, EXAMPLE_TITLE } from './example-plan.js';
 import { extractFile, extractFiles } from './files.js';
 import { localAnalyze } from './fallback.js';
@@ -6,7 +6,8 @@ import { buildDocxBlob, downloadBlob, exportDocx, exportPdf, printDocument, subm
 import { buildProposalPdfBlob, exportProposalPdf } from './pdf-export.js';
 import { MANIFEST_NAME, packageStale, planSubmissionZip, zipBytes } from './submission-zip.js';
 import { UNAUTHORIZED, accountProfile, clearOAuthCallback, currentUser, finishSocial, login, logout, readOAuthCallback, recoverPassword, saveAccountProfile, signup as signupEmail, startSocial } from './auth.js';
-import { approveAccount, disableAccount, listAccounts, removeAccount, setAccountPlan, setAccountRole } from './admin.js';
+import { approveAccount, disableAccount, listAccounts, listCollectedNotices, removeAccount, setAccountPlan, setAccountRole, setNoticePublic } from './admin.js';
+import { publicNoticeDetail, searchPublicNotices } from './notice-search.js';
 import { operatorApprove, operatorDisable, operatorEndSessions, operatorIssueRecoveryCode, operatorOverview, operatorReactivate, operatorUnlockLogin, operatorUserDetail } from './operator.js';
 import { reportError, reportStep, resetActivityDedupe } from './activity.js';
 import { fetchNoticeDetail, fetchNoticeList, importNoticeUrl, noticeBodyText } from './notices.js';
@@ -100,12 +101,18 @@ let auth = {
   emailDraft: '', passwordDraft: '', confirmDraft: '', codeDraft: '', error: '', notice: '', busy: false,
   identities: [], profileDraft: { name: '', phone: '', orgName: '', isContact: null, agreeTerms: false, agreePrivacy: false },
   // 관리자 화면 자료. 로그인 상태와 함께만 살아 있고 localStorage에 저장하지 않는다.
-  accounts: [], accountsLoaded: false, confirmDelete: '',
+  accounts: [], accountsLoaded: false, confirmDelete: '', adminTab: 'accounts', notices: emptyAdminNotices(),
   // 운영관리자 화면 자료. 발급한 복구코드는 화면에만 잠시 두고 저장하지 않는다.
   operator: emptyOperator(),
-  // 1페이지 무료 체험 화면. 결과는 화면에만 두고 localStorage에 저장하지 않는다.
-  trial: { sourceDraft: '', result: null }
+  // 무료 회원의 3페이지 핵심계획서 화면. 결과는 화면에만 두고 브라우저 저장소에 넣지 않는다.
+  trial: { sourceDraft: '', noteDraft: '', result: null },
+  // 공모정보 검색 화면. 로그인 없이도 쓰며 이미 모아 둔 자료만 읽는다.
+  search: emptySearch()
 };
+// 검색 기본값은 결과 정확도가 높은 맞춤검색이다.
+function emptySearch() {
+  return { mode: 'focused', queryDraft: '', query: '', loaded: false, busy: false, notices: [], total: 0, facets: null, filters: {}, selected: '', detail: null, signupNotice: '' };
+}
 // 결제 기능이 아직 없다. 전체 이용권이 없는 사람에게는 이 문구로만 안내한다.
 const CONTACT_LABEL = '이용권 문의';
 const NEED_FULL_NOTICE = `전체 이용권이 있어야 쓸 수 있는 기능입니다. ${CONTACT_LABEL}로 연락해 주세요.`;
@@ -115,7 +122,7 @@ function hasFullAccess() {
   if (!user) return false;
   return user.role === 'admin' || user.role === 'operator' || user.plan === 'full';
 }
-// 승인은 받았지만 전체 이용권이 없는 회원. 1페이지 무료 체험 화면만 쓴다.
+// 승인은 받았지만 전체 이용권이 없는 회원. 3페이지 핵심계획서 화면만 쓴다.
 function trialAccount() { return auth.status === 'signedIn' && auth.user?.status === 'active' && !hasFullAccess(); }
 // 발급된 복구코드(issued)는 이 객체 안에서만 살고 localStorage·sessionStorage에 절대 넣지 않는다.
 function emptyOperator() {
@@ -245,14 +252,47 @@ const ADMIN_DONE = {
   operator: '운영관리자로 지정했습니다. 쓰던 세션을 끊었으니 다시 로그인해야 합니다.',
   customer: '운영관리자 권한을 해제했습니다. 쓰던 세션을 끊었으니 다시 로그인해야 합니다.',
   full: '전체 이용권을 부여했습니다. 다시 로그인하지 않아도 곧바로 반영됩니다.',
-  trial: '전체 이용권을 회수했습니다. 이 계정은 1페이지 무료 체험 화면만 쓰게 됩니다.'
+  trial: '전체 이용권을 회수했습니다. 이 계정은 3페이지 핵심계획서 무료 생성 화면만 쓰게 됩니다.'
 };
 const PLAN_LABELS = { full: '전체 이용권', trial: '무료 체험' };
 
 function openAdmin() {
-  auth = { ...auth, error: '', notice: '', confirmDelete: '' };
+  auth = { ...auth, error: '', notice: '', confirmDelete: '', adminTab: 'accounts', notices: emptyAdminNotices() };
   setState({ activeTool: 'admin', notice: '', error: '' });
   void loadAccounts();
+}
+// 관리자 공모정보 관리 자료. 공개 여부와 상관없이 모아 둔 자료 전체를 본다.
+function emptyAdminNotices() { return { loaded: false, list: [], total: 0, collected: 0, hidden: 0, duplicates: 0, query: '', queryDraft: '' }; }
+async function loadAdminNotices(query = auth.notices.query) {
+  const result = await listCollectedNotices(query).catch(() => ({ ok: false }));
+  if (!result.ok) return setAuth({ error: result.error || '공모정보를 불러오지 못했습니다.', notices: { ...auth.notices, loaded: true } });
+  setAuth({ notices: { ...auth.notices, loaded: true, query, list: result.notices || [], total: result.total || 0, collected: result.collected || 0, hidden: result.hidden || 0, duplicates: result.duplicates || 0 } });
+}
+async function toggleNoticePublic(key, isPublic) {
+  if (auth.busy) return;
+  setAuth({ busy: true, error: '', notice: '' });
+  const result = await setNoticePublic(key, isPublic, auth.notices.query).catch(() => ({ ok: false }));
+  if (!result.ok) return setAuth({ busy: false, error: result.error || '공개 여부를 바꾸지 못했습니다.' });
+  setAuth({
+    busy: false, notice: isPublic ? '이 공모정보를 비회원에게 공개했습니다.' : '이 공모정보를 비공개로 바꿨습니다.',
+    notices: { ...auth.notices, list: result.notices || auth.notices.list, total: result.total ?? auth.notices.total, collected: result.collected ?? auth.notices.collected, hidden: result.hidden ?? auth.notices.hidden, duplicates: result.duplicates ?? auth.notices.duplicates }
+  });
+}
+
+// 관리자용 공모정보 목록. 출처 URL·수집일·최종 확인일·중복 여부·공개 여부를 함께 본다.
+function adminNoticesPanel() {
+  const view = auth.notices;
+  return `<div class="card-title" style="margin-top:18px"><div><h4>공모정보 관리</h4><span>모아 둔 ${view.collected}건 · 비공개 ${view.hidden}건 · 중복 의심 ${view.duplicates}건</span></div></div>
+    <div class="field"><label for="admin-notice-query">전체 수집자료 검색</label><input id="admin-notice-query" placeholder="제목·주최기관·요약으로 찾기" value="${escapeHtml(view.queryDraft)}"></div>
+    <div class="actions"><span class="muted">${view.loaded ? `${view.total}건 표시` : '불러오는 중입니다.'} · 비회원에게는 공개로 표시된 자료만 보입니다.</span>
+      <div><button class="button secondary" id="admin-notice-search" ${auth.busy ? 'disabled' : ''}>검색</button><button class="button secondary" id="admin-notice-reload" ${auth.busy ? 'disabled' : ''}>새로고침</button></div></div>
+    <div class="requirement-list">${view.list.map(item => `<article class="requirement"><div>
+      <div><strong>${escapeHtml(item.title)}</strong> <span class="status ${item.isPublic ? '충족' : '확인-필요'}">${item.isPublic ? '공개' : '비공개'}</span>${item.duplicate ? ' <span class="status 확인-필요">중복 의심</span>' : ''}</div>
+      <small class="muted">${escapeHtml([item.organizer, `${item.stateLabel}${item.deadline ? ` ${item.deadline}` : ''}`, item.applicationPeriod || '접수기간 미기록', item.supportAmount || '지원금액 미기록'].join(' · '))}</small>
+      <small class="muted">${escapeHtml(`식별자 ${item.key} · 수집일 ${String(item.collectedAt).slice(0, 10) || '기록 없음'} · 최종 확인일 ${String(item.lastCheckedAt).slice(0, 10) || '기록 없음'}`)}</small>
+      <small class="muted">${escapeHtml(`출처 URL ${item.sourceUrl || '미기록'}${item.duplicate ? ` · 먼저 수집된 자료 ${item.duplicateOf}` : ''}`)}</small>
+      <div class="actions"><button class="button secondary" data-notice-public="${escapeHtml(item.key)}" data-notice-next="${item.isPublic ? '' : '1'}" ${auth.busy ? 'disabled' : ''}>${item.isPublic ? '비공개로' : '공개로'}</button></div>
+    </div></article>`).join('') || (view.loaded ? '<p class="muted">조건에 맞는 공모정보가 없습니다.</p>' : '')}</div>`;
 }
 async function loadAccounts() {
   const result = await listAccounts().catch(() => ({ ok: false }));
@@ -286,7 +326,8 @@ function adminView() {
     <div class="requirement-list">${waiting.map(accountRow).join('') || '<p class="muted">승인을 기다리는 계정이 없습니다.</p>'}</div>
     <h4>이용 중·중지된 계정 ${rest.length}건</h4>
     <div class="requirement-list">${rest.map(accountRow).join('') || '<p class="muted">표시할 계정이 없습니다.</p>'}</div>
-    <div class="actions"><span class="muted">관리자 계정과 내 계정은 이 화면에서 바꿀 수 없습니다.</span><div><button class="button secondary" id="reload-admin" ${auth.busy ? 'disabled' : ''}>목록 새로고침</button><button class="button secondary" id="close-admin">작업 화면으로</button></div></div>
+    <div class="actions"><span class="muted">관리자 계정과 내 계정은 이 화면에서 바꿀 수 없습니다.</span><div><button class="button secondary" id="reload-admin" ${auth.busy ? 'disabled' : ''}>목록 새로고침</button><button class="button secondary" id="open-admin-notices" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'notices' ? '공모정보 접기' : '공모정보 관리'}</button><button class="button secondary" id="close-admin">작업 화면으로</button></div></div>
+    ${auth.adminTab === 'notices' ? adminNoticesPanel() : ''}
   </div>`;
 }
 
@@ -515,8 +556,8 @@ const LANDING_SECURITY = [
   ['로그인 상태는 쿠키로만', '로그인 정보는 HttpOnly·Secure 쿠키로만 오갑니다. 계정 승인·중지·복구·세션 종료 같은 운영 동작은 실행자·대상·시각이 감사기록으로 남습니다.'],
   ['원문은 요청할 때만 전송', '올린 파일과 작성 중인 내용은 분석을 요청할 때만 서버로 갑니다. 진행 상태는 이 브라우저에 보관됩니다.']
 ];
-const LANDING_SECTIONS = [['landing-value', '핵심 가치'], ['landing-flow', '이용 흐름'], ['landing-features', '주요 기능'], ['landing-audience', '이용 대상'], ['landing-security', '보안·승인']];
-const landingCta = extra => `<div class="landing-cta"><button class="button primary" data-landing="signup">1페이지 무료 체험</button><button class="button secondary" data-landing="login">로그인</button><button class="button secondary" data-landing-example="1">우수 계획서 예시 보기</button>${extra || ''}</div>`;
+const LANDING_SECTIONS = [['landing-value', '핵심 가치'], ['landing-flow', '이용 흐름'], ['landing-notices', '공모정보 검색'], ['landing-features', '주요 기능'], ['landing-audience', '이용 대상'], ['landing-security', '보안·승인']];
+const landingCta = extra => `<div class="landing-cta"><button class="button primary" data-landing="signup">3페이지 무료 체험</button><button class="button secondary" data-landing="login">로그인</button><button class="button secondary" data-landing-notices="1">공모정보 검색</button><button class="button secondary" data-landing-example="1">우수 계획서 예시 보기</button>${extra || ''}</div>`;
 const landingCards = (items, plain = true) => items.map(([title, body]) =>
   `<article class="landing-card${plain ? ' plain' : ''}"><h3>${escapeHtml(title)}</h3><p>${escapeHtml(body)}</p></article>`).join('');
 
@@ -524,7 +565,7 @@ function landingView() {
   return `<div class="layout home-layout"><main class="main"><div class="home">
     <header class="home-header">
       <div class="home-brand"><strong>사업계획서 작성 도우미</strong><span>공고 분석부터 제출본까지</span></div>
-      <nav class="home-nav">${LANDING_SECTIONS.map(([id, label]) => `<button class="button ghost" data-landing-scroll="${id}">${label}</button>`).join('')}<button class="button ghost" data-landing="login">로그인</button><button class="button primary" data-landing="signup">1페이지 무료 체험</button></nav>
+      <nav class="home-nav">${LANDING_SECTIONS.map(([id, label]) => `<button class="button ghost" data-landing-scroll="${id}">${label}</button>`).join('')}<button class="button ghost" data-landing-notices="1">공모정보 검색</button><button class="button ghost" data-landing="login">로그인</button><button class="button primary" data-landing="signup">3페이지 무료 체험</button></nav>
     </header>
     <section class="landing">
       ${auth.notice ? `<div class="alert success"><strong>${escapeHtml(auth.notice)}</strong></div>` : ''}
@@ -533,7 +574,7 @@ function landingView() {
         <h1>공고 한 건에서 제출본까지,<br>근거를 남기며 씁니다</h1>
         <p class="landing-lead">공고를 분석해 선정 논리를 세우고, 확인된 기관 정보와 이번 사업의 확정값만으로 계획서를 만듭니다. 확인되지 않은 값은 지어내지 않고 [확인 필요]로 남겨 제출 전에 정리합니다.</p>
         ${landingCta()}
-        <p class="landing-note">가입 후 관리자 승인을 받으면 <strong>계정당 한 번</strong> 1페이지 사업구상을 무료로 만들어 볼 수 있습니다. 전체 계획서 작성·검증·출력은 전체 이용권 기능이며, 결제는 아직 열려 있지 않아 「${CONTACT_LABEL}」로 안내합니다. 예시 계획서는 로그인 없이 바로 볼 수 있습니다.</p>
+        <p class="landing-note">가입 후 관리자 승인을 받으면 <strong>계정당 한 번</strong> 개인 맞춤 3페이지 핵심계획서를 무료로 만들어 볼 수 있습니다. 전체 계획서 작성·검증·출력은 전체 이용권 기능이며, 결제는 아직 열려 있지 않아 「${CONTACT_LABEL}」로 안내합니다. 예시 계획서는 로그인 없이 바로 볼 수 있습니다.</p>
       </div>
 
       <div class="landing-section" id="landing-value">
@@ -544,6 +585,16 @@ function landingView() {
       <div class="landing-section" id="landing-flow">
         <div class="landing-head"><h2>이용 흐름</h2><p>공고문 분석부터 사업계획서 완성까지 여섯 단계로 이어집니다.</p></div>
         <div class="landing-grid three">${HOME_FLOW.map(step => `<article class="landing-card"><header><span class="landing-step">${escapeHtml(step.no)}</span><h3>${escapeHtml(step.title)}</h3></header><p>${escapeHtml(step.desc)}</p><ul>${step.items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul></article>`).join('')}</div>
+      </div>
+
+      <div class="landing-section" id="landing-notices">
+        <div class="landing-head"><h2>공모정보 검색</h2><p>회원가입 없이 지금 열려 있는 공모를 찾아볼 수 있습니다. 이미 모아 둔 공모정보에서만 찾으며 검색에는 AI를 쓰지 않습니다.</p></div>
+        <div class="landing-grid three">
+          <article class="landing-card plain"><h3>맞춤검색</h3><p>공고 제목과 제목에 연결된 연관 키워드만 찾습니다. 기본으로 켜져 있고 결과가 정확합니다.</p></article>
+          <article class="landing-card plain"><h3>광역검색</h3><p>맞춤검색 범위에 공고 요약 내용까지 넓혀 찾습니다. 제목에 걸린 결과를 먼저 보여 줍니다.</p></article>
+          <article class="landing-card plain"><h3>좁혀 보기</h3><p>모집 중·마감 임박·마감, 지역, 대상, 분야, 주최기관으로 걸러 볼 수 있습니다.</p></article>
+        </div>
+        <div class="landing-cta"><button class="button primary" data-landing-notices="1">공모정보 검색 열기</button></div>
       </div>
 
       <div class="landing-section" id="landing-features">
@@ -568,9 +619,110 @@ function landingView() {
         ${landingCta()}
       </div>
 
-      <footer class="landing-footer"><span>사업계획서 작성 도우미 · 근거 있는 계획서</span><div><button class="button secondary" data-landing="signup">1페이지 무료 체험</button><button class="button secondary" data-landing="login">로그인</button></div></footer>
+      <footer class="landing-footer"><span>사업계획서 작성 도우미 · 근거 있는 계획서</span><div><button class="button secondary" data-landing-notices="1">공모정보 검색</button><button class="button secondary" data-landing="signup">3페이지 무료 체험</button><button class="button secondary" data-landing="login">로그인</button></div></footer>
     </section>
   </div></main></div>`;
+}
+
+// ---------- 공모정보 검색 ----------
+// 로그인 없이 열린다. 이미 모아 둔 공고의 공개 항목만 보여 주고 AI·외부 API를 부르지 않는다.
+const SEARCH_MODE_HELP = {
+  focused: '공고 제목과 제목에 연결된 연관 키워드만 찾습니다. 결과가 정확합니다.',
+  broad: '맞춤검색 범위에 공고 요약 내용까지 넓혀 찾습니다. 제목에 걸린 결과를 먼저 보여 줍니다.'
+};
+const FACET_LABELS = { state: '모집 상태', region: '지역', audience: '대상', field: '분야', organizer: '주최기관' };
+
+function setSearch(patch) { setAuth({ search: { ...auth.search, ...patch } }); }
+function openNoticeSearch() {
+  auth = { ...auth, error: '', notice: '', view: 'notices', search: { ...emptySearch(), mode: auth.search.mode } };
+  render();
+  void runNoticeSearch();
+}
+async function runNoticeSearch(patch = {}) {
+  const next = { ...auth.search, ...patch };
+  setSearch({ ...patch, busy: true });
+  const result = await searchPublicNotices(next.query, next.mode, next.filters).catch(() => ({ ok: false }));
+  if (!result.ok) return setAuth({ error: result.error || '공모정보를 불러오지 못했습니다.', search: { ...auth.search, busy: false, loaded: true } });
+  setSearch({ busy: false, loaded: true, notices: result.notices || [], total: result.total || 0, facets: result.facets || null, signupNotice: result.signupNotice || '', selected: '', detail: null });
+}
+async function openNoticeDetail(key) {
+  if (auth.search.selected === key) return setSearch({ selected: '', detail: null });
+  setSearch({ selected: key, detail: null });
+  const result = await publicNoticeDetail(key).catch(() => ({ ok: false }));
+  if (!result.ok) return setAuth({ error: result.error || '공모정보를 불러오지 못했습니다.' });
+  setSearch({ detail: result.notice });
+}
+const activeFilters = () => Object.entries(auth.search.filters).filter(([, value]) => value);
+
+function noticeSearchView() {
+  const view = auth.search;
+  const signedIn = auth.status === 'signedIn';
+  return `<div class="layout home-layout"><main class="main"><div class="home">
+    <header class="home-header">
+      <div class="home-brand"><strong>공모정보 검색</strong><span>이미 모아 둔 공모정보를 찾아봅니다</span></div>
+      <nav class="home-nav">${signedIn
+    ? '<button class="button primary" data-landing-back="1">← 내 화면으로</button>'
+    : '<button class="button ghost" data-landing-back="1">← 서비스 소개</button><button class="button ghost" data-landing-example="1">계획서 예시</button><button class="button ghost" data-landing="login">로그인</button><button class="button primary" data-landing="signup">무료로 시작하기</button>'}</nav>
+    </header>
+    <section class="landing">
+      ${auth.error ? `<div class="alert danger"><strong>${escapeHtml(auth.error)}</strong></div>` : ''}
+      <div class="landing-hero">
+        <p class="landing-eyebrow">공모정보 검색</p>
+        <h1>어떤 공모가 열려 있는지 먼저 보세요</h1>
+        <p class="landing-lead">회원가입 없이 검색할 수 있습니다. 이미 모아 둔 공모정보에서만 찾으며 검색에는 AI를 쓰지 않습니다.</p>
+        <div class="actions" style="justify-content:stretch;gap:8px;margin-top:18px">
+          ${['focused', 'broad'].map(mode => `<button class="button ${view.mode === mode ? 'primary' : 'secondary'}" data-search-mode="${mode}" aria-pressed="${view.mode === mode}">${mode === 'focused' ? '맞춤검색' : '광역검색'}</button>`).join('')}
+        </div>
+        <p class="landing-note">${escapeHtml(SEARCH_MODE_HELP[view.mode])}</p>
+        <div class="field" style="margin-top:14px"><label for="notice-query">검색어</label><input id="notice-query" placeholder="예: 아동 정서, 청년 창업, 복권기금" value="${escapeHtml(view.queryDraft)}"></div>
+        <div class="landing-cta"><button class="button primary" id="notice-search-run" ${view.busy ? 'disabled' : ''}>${view.busy ? '찾는 중…' : '검색'}</button>${activeFilters().length ? '<button class="button secondary" id="notice-filter-reset">필터 해제</button>' : ''}</div>
+      </div>
+      ${noticeFacets(view)}
+      <div class="landing-section">
+        <div class="landing-head"><h2>검색 결과 ${view.total}건</h2><p>${view.busy ? '찾는 중입니다.' : view.query ? `「${escapeHtml(view.query)}」 · ${view.mode === 'focused' ? '맞춤검색' : '광역검색'} · 제목 일치 → 연관 키워드 → 요약 순으로 보여 줍니다.` : '검색어 없이 최근 공모부터 보여 줍니다.'}</p></div>
+        <div class="landing-grid">${view.notices.map(noticeCard).join('') || (view.loaded ? '<p class="muted">조건에 맞는 공모정보가 없습니다. 광역검색으로 넓혀 보세요.</p>' : '<p class="muted">불러오는 중입니다.</p>')}</div>
+        ${view.total > view.notices.length ? `<p class="muted">상위 ${view.notices.length}건만 보여 줍니다. 검색어나 필터로 좁혀 주세요.</p>` : ''}
+      </div>
+      ${signedIn ? '' : `<div class="landing-section">
+        <div class="landing-head"><h2>더 필요하신가요</h2><p>${escapeHtml(view.signupNotice || '상세 적합성 분석과 맞춤 사업설계는 회원가입 후 이용할 수 있습니다.')}</p></div>
+        ${landingCta()}
+      </div>`}
+      <footer class="landing-footer"><span>공개된 공모정보만 보여 줍니다 · 개인정보와 회원 자료는 포함하지 않습니다</span><div><button class="button secondary" data-landing-back="1">${signedIn ? '내 화면으로' : '서비스 소개로'}</button></div></footer>
+    </section>
+  </div></main></div>`;
+}
+
+function noticeFacets(view) {
+  if (!view.facets) return '';
+  const groups = ['state', 'region', 'audience', 'field', 'organizer']
+    .map(key => {
+      const items = (view.facets[key] || []).filter(item => item.total).slice(0, 8);
+      if (!items.length) return '';
+      const current = view.filters[key] || '';
+      return `<article class="landing-card plain"><h3>${FACET_LABELS[key]}</h3><div class="actions" style="flex-wrap:wrap;gap:6px;margin:0;justify-content:flex-start">
+        ${items.map(item => `<button class="button ${current === item.value ? 'primary' : 'secondary'}" data-search-filter="${key}" data-search-value="${escapeHtml(item.value)}">${escapeHtml(item.label || item.value)} ${item.total}</button>`).join('')}
+      </div></article>`;
+    }).join('');
+  if (!groups) return '';
+  return `<div class="landing-section"><div class="landing-head"><h2>좁혀 보기</h2><p>모집 상태·지역·대상·분야·주최기관으로 걸러 볼 수 있습니다.</p></div><div class="landing-grid">${groups}</div></div>`;
+}
+
+function noticeCard(item) {
+  const open = auth.search.selected === item.key;
+  const detail = open ? auth.search.detail : null;
+  const tags = [...item.region, ...item.audience, ...item.field].slice(0, 6);
+  return `<article class="landing-card">
+    <header><span class="status ${item.state === 'closed' ? '확인-필요' : '충족'}">${escapeHtml(item.stateLabel)}</span><h3>${escapeHtml(item.title)}</h3></header>
+    <p><strong>${escapeHtml(item.organizer)}</strong>${item.matchedBy ? ` · <span class="muted">${escapeHtml(item.matchedBy)}</span>` : ''}</p>
+    <ul>
+      <li>접수기간: ${escapeHtml(item.applicationPeriod || '공고 확인 필요')}${item.deadline ? ` (마감 ${escapeHtml(item.deadline)})` : ''}</li>
+      <li>지원금액: ${escapeHtml(item.supportAmount || '공고 확인 필요')}</li>
+      <li>지원대상: ${escapeHtml((item.eligibility || '공고 확인 필요').slice(0, 120))}</li>
+    </ul>
+    ${tags.length ? `<p>${tags.map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join(' ')}</p>` : ''}
+    ${open ? (detail ? `<div class="alert"><strong>요약</strong><p>${escapeHtml(detail.summary || '요약이 없습니다.')}</p>${detail.supportDetails ? `<p><strong>지원내용</strong> ${escapeHtml(detail.supportDetails.slice(0, 600))}</p>` : ''}<p class="muted">원문 출처: ${escapeHtml(detail.sourceLabel)}${detail.sourceUrl ? ` · ${escapeHtml(detail.sourceUrl)}` : ' (출처 주소 미기록)'}</p></div>` : '<p class="muted">불러오는 중입니다.</p>') : ''}
+    <button class="button secondary" data-notice-open="${escapeHtml(item.key)}">${open ? '접기' : '자세히'}</button>
+  </article>`;
 }
 
 // 로그인 없이 보는 정적 예시. 서버를 부르지 않고 example-plan.js의 문자열만 그린다.
@@ -581,7 +733,7 @@ function exampleView() {
       <div class="home-brand"><strong>${escapeHtml(EXAMPLE_TITLE)}</strong><span>로그인 없이 볼 수 있는 예시입니다</span></div>
       <nav class="home-nav">${auth.status === 'signedIn'
     ? '<button class="button primary" data-landing-back="1">← 내 화면으로</button>'
-    : '<button class="button ghost" data-landing-back="1">← 서비스 소개</button><button class="button ghost" data-landing="login">로그인</button><button class="button primary" data-landing="signup">1페이지 무료 체험</button>'}</nav>
+    : '<button class="button ghost" data-landing-back="1">← 서비스 소개</button><button class="button ghost" data-landing-notices="1">공모정보 검색</button><button class="button ghost" data-landing="login">로그인</button><button class="button primary" data-landing="signup">3페이지 무료 체험</button>'}</nav>
     </header>
     <section class="landing">
       <div class="landing-hero">
@@ -599,7 +751,7 @@ function exampleView() {
         <div class="landing-grid">${EXAMPLE_SECTIONS.map(item => `<article class="landing-card"><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.body)}</p><ul><li>근거: ${escapeHtml(item.evidence)}</li></ul></article>`).join('')}</div>
       </div>
       ${auth.status === 'signedIn' ? '' : `<div class="landing-section">
-        <div class="landing-head"><h2>직접 만들어 보세요</h2><p>가입하고 승인을 받으면 계정당 한 번 1페이지 사업구상을 무료로 만들 수 있습니다.</p></div>
+        <div class="landing-head"><h2>직접 만들어 보세요</h2><p>가입하고 승인을 받으면 계정당 한 번 개인 맞춤 3페이지 핵심계획서를 무료로 만들 수 있습니다.</p></div>
         ${landingCta()}
       </div>`}
       <footer class="landing-footer"><span>사업계획서 작성 도우미 · 근거 있는 계획서</span><div><button class="button secondary" data-landing-back="1">${auth.status === 'signedIn' ? '내 화면으로' : '서비스 소개로'}</button></div></footer>
@@ -607,11 +759,12 @@ function exampleView() {
   </div></main></div>`;
 }
 
-// ---------- 1페이지 무료 체험 ----------
+// ---------- 3페이지 핵심계획서 무료 생성 ----------
 // 전체 이용권이 없는 회원이 보는 유일한 작업 화면. 서버가 계정당 한 번만 열어 준다.
 const TRIAL_FIELDS = [
-  ['noticePurpose', '공고 목적'], ['selectionKeys', '선정 핵심'], ['projectName', '사업명'], ['problem', '문제'],
-  ['target', '대상'], ['goal', '목표'], ['activities', '핵심 활동'], ['expectedEffect', '기대효과']
+  ['projectName', '사업명'], ['noticePurpose', '공고 목적'], ['selectionKeys', '선정 핵심'], ['necessity', '사업 필요성'],
+  ['target', '대상'], ['goal', '목표'], ['programs', '핵심 활동'], ['schedule', '추진 일정'],
+  ['organization', '수행 체계'], ['indicators', '성과지표'], ['expectedEffect', '기대효과'], ['checkNeeded', '확인 필요']
 ];
 const TRIAL_LOCKED = [
   ['전체 계획서 작성', '10개 항목 본문과 표를 한 번에 만드는 기능'],
@@ -626,28 +779,32 @@ function trialView() {
   const result = auth.trial.result;
   return `<div class="layout home-layout"><main class="main"><div class="home">
     <header class="home-header">
-      <div class="home-brand"><strong>1페이지 무료 체험</strong><span>${escapeHtml(accountEmail())}</span></div>
-      <nav class="home-nav"><button class="button ghost" data-landing-example="1">우수 계획서 예시</button><button class="button ghost" id="sign-out">로그아웃</button></nav>
+      <div class="home-brand"><strong>3페이지 핵심계획서</strong><span>${escapeHtml(accountEmail())}</span></div>
+      <nav class="home-nav"><button class="button ghost" data-landing-notices="1">공모정보 검색</button><button class="button ghost" data-landing-example="1">우수 계획서 예시</button><button class="button ghost" id="sign-out">로그아웃</button></nav>
     </header>
     <section class="landing">
       ${auth.error ? `<div class="alert danger"><strong>${escapeHtml(auth.error)}</strong></div>` : ''}
       ${auth.notice ? `<div class="alert success"><strong>${escapeHtml(auth.notice)}</strong></div>` : ''}
       <div class="landing-hero">
-        <p class="landing-eyebrow">무료 체험 · 계정당 1회</p>
-        <h1>공고문을 넣으면 사업구상 한 장을 만들어 드립니다</h1>
-        <p class="landing-lead">공고 목적·선정 핵심·사업명·문제·대상·목표·핵심 활동·기대효과 여덟 항목만 짧게 정리합니다. 계획서 본문·예산표·일정표는 만들지 않습니다.</p>
-        <p class="landing-note">${done ? '무료 체험을 이미 사용했습니다. 아래 결과는 다시 볼 수 있지만 새로 만들 수는 없습니다.' : '한 번만 실행됩니다. 공고문을 충분히 붙여넣은 뒤 눌러 주세요.'}</p>
+        <p class="landing-eyebrow">무료 회원 · 계정당 1회</p>
+        <h1>공고와 우리 기관 메모로 핵심계획서 세 쪽을 만들어 드립니다</h1>
+        <p class="landing-lead">사업명·공고 목적·선정 핵심·사업 필요성·대상·목표·핵심 활동·추진 일정·수행 체계·성과지표·기대효과를 정리합니다. 제출용 전체 계획서와 예산표는 만들지 않습니다.</p>
+        <p class="landing-note">${done ? '무료 생성을 이미 사용했습니다. 아래 결과는 다시 볼 수 있지만 새로 만들 수는 없습니다.' : '한 번만 실행됩니다. 공고문과 기관 메모를 채운 뒤 눌러 주세요.'}</p>
       </div>
       <div class="landing-section">
-        <div class="landing-head"><h2>공고문 붙여넣기</h2><p>공고문 본문을 그대로 붙여넣어 주세요. 파일 업로드와 공고 조회는 전체 이용권 기능입니다.</p></div>
+        <div class="landing-head"><h2>공고문과 기관 메모</h2><p>공고문 본문을 붙여넣고, 우리 기관과 하려는 사업을 몇 줄 적어 주세요. 그 내용에 맞춰 만듭니다. 파일 업로드와 공고 불러오기는 전체 이용권 기능입니다.</p></div>
         <div class="field"><label for="trial-source">공고 원문</label><textarea id="trial-source" class="source-text" placeholder="공고문 내용을 붙여넣어 주세요." ${done || auth.busy ? 'disabled' : ''}>${escapeHtml(auth.trial.sourceDraft)}</textarea></div>
-        <div class="actions"><span class="muted">${done ? '사용 완료' : `${auth.trial.sourceDraft.trim().length.toLocaleString()}자 입력됨`}</span><button class="button primary" id="trial-run" ${done || auth.busy ? 'disabled' : ''}>${auth.busy ? '만드는 중…' : '1페이지 사업구상 만들기'}</button></div>
+        <div class="field"><label for="trial-note">우리 기관·하려는 사업 (개인 맞춤용)</label><textarea id="trial-note" placeholder="예: 지역 아동센터입니다. 초등 고학년 정서지원 집단 프로그램을 주 1회 운영하려고 합니다." ${done || auth.busy ? 'disabled' : ''}>${escapeHtml(auth.trial.noteDraft)}</textarea><small class="muted">적은 내용에 맞춰 사업명·대상·활동을 구체화합니다. 적지 않은 인력·실적·예산은 만들어 넣지 않습니다.</small></div>
+        <div class="actions"><span class="muted">${done ? '사용 완료' : `공고 ${auth.trial.sourceDraft.trim().length.toLocaleString()}자 · 메모 ${auth.trial.noteDraft.trim().length.toLocaleString()}자`}</span><button class="button primary" id="trial-run" ${done || auth.busy ? 'disabled' : ''}>${auth.busy ? '만드는 중…' : '3페이지 핵심계획서 만들기'}</button></div>
       </div>
       ${result ? `<div class="landing-section" id="trial-result">
-        <div class="landing-head"><h2>사업구상 한 장</h2><p>확인되지 않은 값은 지어내지 않고 [확인 필요]로 남깁니다. 이 결과는 저장되지 않으니 필요하면 복사해 두세요.</p></div>
+        <div class="landing-head"><h2>핵심계획서</h2><p>확인되지 않은 값은 지어내지 않고 [확인 필요]로 남깁니다. 이 결과는 저장되지 않으니 필요하면 복사해 두세요.</p></div>
         <div class="landing-grid">${TRIAL_FIELDS.map(([key, label]) => {
     const value = result[key];
-    const body = Array.isArray(value) ? `<ul>${value.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : `<p>${escapeHtml(String(value || ''))}</p>`;
+    if (Array.isArray(value) && !value.length) return '';
+    const body = Array.isArray(value)
+      ? `<ul>${value.map(item => `<li>${escapeHtml(item && typeof item === 'object' ? `${item.name}: ${item.how}` : item)}</li>`).join('')}</ul>`
+      : `<p>${escapeHtml(String(value || ''))}</p>`;
     return `<article class="landing-card"><h3>${escapeHtml(label)}</h3>${body}</article>`;
   }).join('')}</div>
       </div>` : ''}
@@ -661,19 +818,20 @@ function trialView() {
   </div></main></div>`;
 }
 
-async function runTrialSketch() {
+async function runTrialCorePlan() {
   if (auth.busy || auth.user?.trialUsed) return;
   const sourceText = auth.trial.sourceDraft.trim();
   if (sourceText.length < 30) return setAuth({ error: '공고문을 30자 이상 붙여넣어 주세요.', notice: '' });
   setAuth({ busy: true, error: '', notice: '' });
-  const result = await trialSketchWithAI({ sourceText }).catch(error => ({ error: error?.message || '사업구상을 만들지 못했습니다.' }));
+  const result = await trialCorePlanWithAI({ sourceText, applicantNote: auth.trial.noteDraft.trim() })
+    .catch(error => ({ error: error?.message || '핵심계획서를 만들지 못했습니다.' }));
   if (result?.error) {
     // 이미 썼다는 응답이면 화면도 사용 완료로 맞춘다. 실제 판단은 서버가 한다.
     const spent = /한 번만/.test(result.error);
     return setAuth({ busy: false, error: result.error, user: spent ? { ...auth.user, trialUsed: true } : auth.user });
   }
   setAuth({
-    busy: false, notice: '1페이지 사업구상을 만들었습니다. 무료 체험은 여기까지입니다.',
+    busy: false, notice: '3페이지 핵심계획서를 만들었습니다. 무료 생성은 여기까지입니다.',
     user: { ...auth.user, trialUsed: true }, trial: { ...auth.trial, result }
   });
 }
@@ -2799,12 +2957,14 @@ function render() {
   // 로그인하기 전에는 작업 화면을 그리지 않는다. 실제 차단은 서버가 하고 화면은 그 결과를 따른다.
   // 우수 계획서 예시는 로그인 여부와 상관없이 열린다. 서버를 부르지 않는 정적 화면이다.
   if (auth.view === 'example') { app.innerHTML = exampleView(); bindLanding(); return; }
+  // 공모정보 검색도 로그인 여부와 상관없이 열린다. 공개 항목만 돌려주는 경로만 부른다.
+  if (auth.view === 'notices') { app.innerHTML = noticeSearchView(); bindNoticeSearch(); return; }
   if (auth.status !== 'signedIn' && showAuthForm()) { app.innerHTML = loginView(); bindLogin(); return; }
   // 로그아웃 상태의 첫 화면은 서비스 소개다. 두 버튼을 누르거나 전할 말이 생기면 위 줄에서 로그인 화면으로 바뀐다.
   if (auth.status !== 'signedIn') { app.innerHTML = landingView(); bindLanding(); return; }
   // 승인 전 계정은 가입 절차 화면만 본다. 실제 차단은 서버가 한다.
   if (pendingAccount()) { app.innerHTML = pendingView(); bindLogin(); return; }
-  // 전체 이용권이 없는 회원은 1페이지 무료 체험 화면만 본다. 생성·출력 차단은 서버가 한다.
+  // 전체 이용권이 없는 회원은 3페이지 핵심계획서 화면만 본다. 생성·출력 차단은 서버가 한다.
   if (trialAccount()) { app.innerHTML = trialView(); bindTrial(); return; }
   const views = [noticeImportView, noticeConfirmView, applicantSelectView, businessSelectView, documentView, documentView];
   // 관리자 화면은 관리자에게만 열린다. 저장된 화면 위치가 남아 있어도 역할이 아니면 되돌린다.
@@ -2821,11 +2981,27 @@ function bindLanding() {
   // 예시 보기는 로그인 여부와 무관하다. 서버를 부르지 않고 화면만 바꾼다.
   document.querySelectorAll('[data-landing-example]').forEach(el => el.onclick = () => setAuth({ view: 'example', error: '', notice: '' }));
   document.querySelectorAll('[data-landing-back]').forEach(el => el.onclick = () => setAuth({ view: 'landing', error: '', notice: '' }));
+  document.querySelectorAll('[data-landing-notices]').forEach(el => el.onclick = () => openNoticeSearch());
+}
+// 공모정보 검색 화면. 검색·필터·자세히만 연결하고 AI 경로는 부르지 않는다.
+function bindNoticeSearch() {
+  bindLanding();
+  document.querySelector('#notice-query')?.addEventListener('input', event => { auth.search.queryDraft = event.target.value; });
+  document.querySelector('#notice-search-run')?.addEventListener('click', () => void runNoticeSearch({ query: auth.search.queryDraft.trim() }));
+  document.querySelectorAll('[data-search-mode]').forEach(el => el.onclick = () => void runNoticeSearch({ mode: el.dataset.searchMode, query: auth.search.queryDraft.trim() }));
+  document.querySelectorAll('[data-search-filter]').forEach(el => el.onclick = () => {
+    const key = el.dataset.searchFilter;
+    const value = auth.search.filters[key] === el.dataset.searchValue ? '' : el.dataset.searchValue;
+    void runNoticeSearch({ filters: { ...auth.search.filters, [key]: value } });
+  });
+  document.querySelector('#notice-filter-reset')?.addEventListener('click', () => void runNoticeSearch({ filters: {} }));
+  document.querySelectorAll('[data-notice-open]').forEach(el => el.onclick = () => void openNoticeDetail(el.dataset.noticeOpen));
 }
 // 무료 체험 화면. 실행은 한 번뿐이고 나머지 기능은 서버가 막는다.
 function bindTrial() {
   document.querySelector('#trial-source')?.addEventListener('input', event => { auth.trial.sourceDraft = event.target.value; });
-  document.querySelector('#trial-run')?.addEventListener('click', () => void runTrialSketch());
+  document.querySelector('#trial-note')?.addEventListener('input', event => { auth.trial.noteDraft = event.target.value; });
+  document.querySelector('#trial-run')?.addEventListener('click', () => void runTrialCorePlan());
   document.querySelector('#sign-out')?.addEventListener('click', () => void submitLogout());
   document.querySelectorAll('[data-landing-example]').forEach(el => el.onclick = () => setAuth({ view: 'example', error: '', notice: '' }));
   document.querySelectorAll('[data-social]').forEach(el => el.addEventListener('click', () => void beginSocial(el.dataset.social, el.dataset.socialMode)));
@@ -3179,6 +3355,15 @@ function bind() {
   document.querySelectorAll('[data-admin-delete]').forEach(el => el.onclick = () => void runAdminAction('delete', el.dataset.adminDelete));
   document.querySelectorAll('[data-admin-role]').forEach(el => el.onclick = () => void runAdminAction(el.dataset.adminRole, el.dataset.adminRoleId));
   document.querySelectorAll('[data-admin-plan]').forEach(el => el.onclick = () => void runAdminAction(el.dataset.adminPlan, el.dataset.adminPlanId));
+  document.querySelector('#open-admin-notices')?.addEventListener('click', () => {
+    const opening = auth.adminTab !== 'notices';
+    setAuth({ adminTab: opening ? 'notices' : 'accounts', error: '', notice: '' });
+    if (opening && !auth.notices.loaded) void loadAdminNotices();
+  });
+  document.querySelector('#admin-notice-query')?.addEventListener('input', event => { auth.notices.queryDraft = event.target.value; });
+  document.querySelector('#admin-notice-search')?.addEventListener('click', () => void loadAdminNotices(auth.notices.queryDraft.trim()));
+  document.querySelector('#admin-notice-reload')?.addEventListener('click', () => void loadAdminNotices());
+  document.querySelectorAll('[data-notice-public]').forEach(el => el.onclick = () => void toggleNoticePublic(el.dataset.noticePublic, Boolean(el.dataset.noticeNext)));
   document.querySelector('#open-operator')?.addEventListener('click', () => openOperator());
   document.querySelector('#open-operator-home')?.addEventListener('click', () => openOperator());
   document.querySelector('#close-operator')?.addEventListener('click', () => setState({ activeTool: 'workflow', notice: '', error: '' }));

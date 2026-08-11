@@ -17,3 +17,6 @@ export const removeAccount = id => post('deleteUser', { id });
 export const setAccountRole = (id, role) => post('setRole', { id, role });
 // 전체 이용권 부여·회수도 관리자만 한다. 운영관리자 경로에서는 서버가 거절한다.
 export const setAccountPlan = (id, plan) => post('setPlan', { id, plan });
+// 공모정보 관리. 공개 여부와 상관없이 모아 둔 자료 전체를 본다.
+export const listCollectedNotices = (query = '') => post('listNotices', { query });
+export const setNoticePublic = (key, isPublic, query = '') => post('setNoticePublic', { key, isPublic, query });

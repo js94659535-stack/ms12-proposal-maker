@@ -2,8 +2,9 @@
 // 인증에 실패한 요청은 다음 단계로 넘기지 않으므로 OpenAI 호출도 일어나지 않는다.
 import { loadSession, readSessionCookie, sameOriginRequest } from '../../server/session.js';
 
-// 로그인과 소셜 가입만 열어 둔다. 나머지는 기본이 401이다.
-const PUBLIC_PATHS = new Set(['/api/auth', '/api/oauth']);
+// 로그인·소셜 가입과 공모정보 검색만 열어 둔다. 나머지는 기본이 401이다.
+// /api/public은 이미 모아 둔 공고의 공개 항목만 돌려주며 계정·계획서 자료를 읽지 않는다.
+const PUBLIC_PATHS = new Set(['/api/auth', '/api/oauth', '/api/public']);
 // 승인 대기(pending) 계정이 쓸 수 있는 곳. 가입 절차를 마치는 데 필요한 것만 연다.
 const PENDING_PATHS = new Set(['/api/auth', '/api/oauth', '/api/account']);
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
