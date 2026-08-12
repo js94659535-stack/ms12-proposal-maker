@@ -3461,7 +3461,7 @@ async function saveQuickOrg() {
   const check = readyToDraft(draft);
   if (!check.ready) return setState({ notice: `${check.missing.join(' · ')}를 먼저 적어 주세요.` });
   const items = quickToApplicantItems(draft).map(item => makeApplicantItem(item));
-  const existing = findApplicant(state, state.selectedApplicantId);
+  const existing = findApplicant(state.applicants, state.selectedApplicantId);
   // 새 신청기관은 normalizeApplicant로 만든다. buildApplicantOrganization은 계획서에 넘길
   // 자료를 만드는 함수라 여기에 쓰면 항목이 사라진 빈 기관이 만들어진다.
   const applicant = existing
@@ -3679,7 +3679,7 @@ function ideaAssetPanel() {
 // ---------- 제안서 작성정보 (단계적 질문) ----------
 // 공고문과 기관정보에서 아는 것은 다시 묻지 않고, 부족한 것만 다섯 개씩 묻는다.
 function intakePanel() {
-  const applicant = findApplicant(state, state.selectedApplicantId) || { items: [] };
+  const applicant = findApplicant(state.applicants, state.selectedApplicantId) || { items: [] };
   const view = intakeState({ answers: state.intakeAnswers || {}, notice: state.selectedNotice || {}, applicant });
   const suspicious = checkNumbers(view);
   return `<details class="card org-details" id="proposal-intake" ${view.ready ? '' : 'open'}>
@@ -3700,7 +3700,7 @@ function intakePanel() {
 // 내 정보에 적어 둔 기관정보를 신청기관으로 물려준다.
 // 덮어쓰지 않는다. 값이 다르면 새 항목으로 넣고 회원이 확인해 고른다.
 async function pullProfileIntoApplicant() {
-  const applicant = findApplicant(state, state.selectedApplicantId);
+  const applicant = findApplicant(state.applicants, state.selectedApplicantId);
   if (!applicant) return setState({ error: '먼저 신청기관을 고르세요.' });
   const profile = { ...(auth.memberProfile || {}), name: auth.user?.name || '', orgName: auth.user?.orgName || '', phone: auth.user?.phone || '' };
   const merged = mergeProfileIntoApplicant(applicant, profile);
@@ -4365,7 +4365,7 @@ function assemblyCheckView() {
 // 설계가 확정되어 있으면 곧바로 작성하고, 아니면 무엇이 필요한지 알리고 그 화면으로 데려간다.
 function startWritingView() {
   const permission = generationPermission();
-  const applicant = findApplicant(state, state.selectedApplicantId);
+  const applicant = findApplicant(state.applicants, state.selectedApplicantId);
   const steps = [
     { done: Boolean(state.selectedNotice?.title || state.sourceText.trim()), label: '공고 고르기', goto: 'notice',
       reason: '먼저 공고를 고르거나 공고문을 붙여넣어 주세요. 공고 준비 화면으로 이동합니다.' },
