@@ -4127,12 +4127,11 @@ function simpleWriteView() {
   const chosen = Boolean(state.selectedNotice?.title || state.sourceText.trim());
   const step = simpleStep({ noticeChosen: chosen, requestWritten: Boolean(String(state.projectNarrative || '').trim()), sections: state.sections.length });
   const done = step === 'done';
-  return `${viewModeBadge()}<div class="page-heading"><div><h2>간편 계획서 작성</h2>
+  // 지금 보는 화면 표시는 머리띠 아래에 한 번만 나온다. 여기서 또 그리면 두 줄이 된다.
+  return `<div class="page-heading"><div><h2>간편 계획서 작성</h2>
     <p>공고를 고르고 하고 싶은 사업을 한두 문장으로 적으면 됩니다. 분석·설계·검증은 안에서 자동으로 돌아갑니다.</p></div>
     <button class="button secondary" id="open-expert-detail">작성 과정 자세히 보기</button></div>
     ${simpleProgress(step)}
-    ${state.error ? `<div class="alert danger"><strong>${escapeHtml(state.error)}</strong></div>` : ''}
-    ${state.notice ? `<div class="alert success"><strong>${escapeHtml(state.notice)}</strong></div>` : ''}
     <div class="card">
       <div class="card-title"><div><h3>1·2 공고 찾기와 선택</h3><span>${chosen ? escapeHtml(String(state.selectedNotice?.title || '붙여넣은 공고문').slice(0, 60)) : '아직 고르지 않았습니다'}</span></div>
         <span class="status ${chosen ? '충족' : '확인-필요'}">${chosen ? '선택함' : '필요'}</span></div>

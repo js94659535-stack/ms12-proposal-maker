@@ -22,9 +22,9 @@ test('최고관리자의 기본 화면은 관리자 랜딩이고 회원 화면�
 test('지금 어느 화면을 보고 있는지 화면 위에 적는다', () => {
   assert.match(app, /function viewModeBadge\(\) \{/);
   assert.match(app, /const label = simple \? '회원 화면\(간편\)' : '전문가 상세';/);
-  // 작업 화면과 간편 화면 양쪽에 같은 표시가 붙는다.
+  // 머리띠 아래 한 곳에서만 그린다. 두 번 그리면 같은 줄이 겹쳐 보인다.
   assert.match(app, /\$\{viewModeBadge\(\)\}\s*\n\s*\$\{aiResultBanner\(\)\}/);
-  assert.match(app, /return `\$\{viewModeBadge\(\)\}<div class="page-heading"><div><h2>간편 계획서 작성<\/h2>/);
+  assert.equal((app.match(/\$\{viewModeBadge\(\)\}/g) || []).length, 1);
 });
 
 test('전환해도 고른 공고·기관·작성 중인 계획서·단계가 남는다', () => {
