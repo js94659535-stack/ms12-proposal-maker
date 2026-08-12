@@ -6863,7 +6863,15 @@ function suggestionFor(key) {
 }
 
 // 간편 화면의 「AI가 계획서 만들기」. 안에서는 기존 절차를 그대로 밟는다.
+// 지금 AI가 돌고 있으면 다시 부르지 않는다. 눌린 것은 알려 준다.
+function aiBusy(what = '이미 만들고 있습니다') {
+  if (!state.busy) return false;
+  setState({ notice: `${what}. 끝나면 결과가 화면에 나옵니다.`, error: '' });
+  return true;
+}
+
 async function runSimpleGeneration() {
+  if (aiBusy('이미 계획서를 만들고 있습니다')) return;
   if (!state.selectedNotice?.title && !state.sourceText.trim()) {
     return setState({ error: '먼저 공고를 고르거나 공고문을 붙여넣어 주세요.' });
   }
@@ -6884,6 +6892,7 @@ async function runSimpleGeneration() {
 
 // 한 번에 수정 요청. 요청한 곳만 고치고 나머지는 그대로 둔다.
 async function runRevision() {
+  if (aiBusy('이미 수정하고 있습니다')) return;
   const draft = state.reviseDraft || { kind: 'add', text: '' };
   const gate = canRevise({ kind: draft.kind, text: draft.text, history: state.revisions || [] });
   if (!gate.allowed) return setState({ error: `${gate.message} (${gate.action})` });
@@ -6980,6 +6989,7 @@ function showError(error) {
 }
 
 async function generateCompleteProposal() {
+  if (aiBusy('이미 계획서를 만들고 있습니다')) return;
   const manualLength = state.manualSources.filter(value => value.extractionStatus === 'success').reduce((sum, value) => sum + value.extractedText.length, 0);
   if (state.sourceText.trim().length + manualLength < 30) return setState({ error: '사업계획서를 작성할 공식 또는 직접 자료를 30자 이상 입력해 주세요.' });
   if (state.sourceText.length > 180000 || state.sourceText.length + manualLength > 220000) return setState({ error: '생성 입력 자료가 허용 길이를 초과했습니다. 자료를 나누거나 불필요한 내용을 줄여 주세요.' });
@@ -7153,6 +7163,7 @@ async function generateFullProposal() {
 // 확인되지 않은 값이 있어도 초안 작성은 막지 않는다. 부족한 값은 [확인 필요]로 남기고 제출 단계에서 확인한다.
 // 이 경로는 이미 분할 작성을 시작한 기존 계획서의 이어쓰기 전용이다.
 async function generateProposalParts() {
+  if (aiBusy('이미 남은 내용을 쓰고 있습니다')) return;
   const staged = state.stagedGeneration;
   const all = staged?.master?.sectionPlan || [];
   const groups = all;

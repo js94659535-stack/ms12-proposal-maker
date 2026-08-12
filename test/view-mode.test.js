@@ -57,3 +57,16 @@ test('작성 과정 자세히 보기는 계획서가 나오기 전에도 열린�
   assert.match(app, /\$\{chosen \? expertDetails\(\) : ''\}/);
   assert.match(app, /function expertDetails\(\) \{[\s\S]{0,400}strategyView\(\)[\s\S]{0,200}designQuestionsView\(\)[\s\S]{0,200}stagedGenerationView\(\)/);
 });
+
+test('같은 단추를 다시 눌러도 AI를 두 번 부르지 않는다', () => {
+  assert.match(app, /function aiBusy\(what = '이미 만들고 있습니다'\) \{\s*\n\s*if \(!state\.busy\) return false;/);
+  for (const name of ['runSimpleGeneration', 'runRevision', 'generateCompleteProposal', 'generateProposalParts']) {
+    assert.match(app, new RegExp(`async function ${name}\\(\\) \\{\\s*\\n\\s*if \\(aiBusy`), name);
+  }
+  // 막을 때도 무슨 일이 벌어지고 있는지 알려 준다. 조용히 삼키지 않는다.
+  assert.match(app, /setState\(\{ notice: `\$\{what\}\. 끝나면 결과가 화면에 나옵니다\.`, error: '' \}\);/);
+});
+
+test('설계만 만들고 멈추지 않고 본문까지 이어서 만든다', () => {
+  assert.match(app, /if \(state\.stagedGeneration\?\.master && !state\.sections\.length\) await generateProposalParts\(\);/);
+});
