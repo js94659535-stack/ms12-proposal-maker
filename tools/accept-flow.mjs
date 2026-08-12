@@ -36,6 +36,9 @@ try {
   await page.size(1280, 800);
 
   // ---------- 1. 로그인과 기본 진입 화면 ----------
+  // 앞 시험이 남긴 브라우저 저장 상태를 지우고 처음 들어온 회원과 같은 자리에서 시작한다.
+  await page.go(SITE, 2500);
+  await page.run("(() => { localStorage.clear(); sessionStorage.clear(); return '1'; })()");
   record(1, '로그인', await signIn(), account.email);
   await page.go(SITE, 4500);
   const home = await page.run(`(() => JSON.stringify({
@@ -117,6 +120,8 @@ try {
   record(9, '기관 간단정보·한 줄 요청 입력', Number(ready?.orgs || 0) > 0 && Number(ready?.idea || 0) > 10, `기관 ${ready?.orgs}곳 · 요청 ${ready?.idea}자`);
 
   // ---------- 4. 중복 클릭 방지와 생성 ----------
+  // 클릭 경로만 먼저 확인할 때는 AI를 부르지 않는다. 토큰을 헛되이 쓰지 않으려는 것이다.
+  if (process.env.SKIP_AI === '1') throw new Error('SKIP_AI: 생성 전까지만 확인');
   const started = Date.now();
   await page.click('#simple-generate', 1200);
   const second = await page.run("(() => { const el = document.querySelector('#simple-generate'); if (!el) return JSON.stringify({ found: false }); el.click(); return JSON.stringify({ found: true, notice: (document.querySelector('.alert.success')?.textContent||'').trim().slice(0,40), busy: !!document.querySelector('.busy') }); })()", 1500);

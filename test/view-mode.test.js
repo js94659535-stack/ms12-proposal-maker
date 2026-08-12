@@ -70,3 +70,13 @@ test('같은 단추를 다시 눌러도 AI를 두 번 부르지 않는다', () =
 test('설계만 만들고 멈추지 않고 본문까지 이어서 만든다', () => {
   assert.match(app, /if \(state\.stagedGeneration\?\.master && !state\.sections\.length\) await generateProposalParts\(\);/);
 });
+
+test('공고 찾기는 기존 공고 준비 화면을 열고 고르면 간편 화면으로 돌아온다', () => {
+  // 간편 화면만 다시 그리면 눌러도 아무 일이 없다. 기존 단계 화면을 실제로 연다.
+  assert.match(app, /#simple-find'\)\?\.addEventListener\('click', \(\) => setState\(\{ expertDetail: true, activeTool: '', step: 0/);
+  assert.match(app, /#simple-change-notice'\)\?\.addEventListener\('click', \(\) => setState\(\{ expertDetail: true, activeTool: '', step: 0/);
+  // 공고를 고르면 제자리로 돌아온다. 고른 공고와 본문은 그대로다.
+  assert.match(app, /setState\(\{ busy: '', pendingNoticeChoice: null, expertDetail: false, notice: '선택한 공고 본문을/);
+  // 보관함에서 연 목록도 실제로 보인다.
+  assert.match(app, /navigateToStep\(1, \{ noticeResults, expertDetail: true,/);
+});

@@ -6613,7 +6613,7 @@ function useArchivedNotice(index) {
   if (!notice) return;
   const existing = state.noticeResults.findIndex(item => archiveNoticeKey(item) === archiveNoticeKey(notice));
   const noticeResults = existing >= 0 ? state.noticeResults : [...state.noticeResults, notice];
-  navigateToStep(1, { noticeResults, notice: '공고보관함(D1)에 보관된 공고를 이번 작업 임시 목록에 열었습니다. 공고보관함 원본은 그대로 남습니다.' });
+  navigateToStep(1, { noticeResults, expertDetail: true, notice: '공고보관함(D1)에 보관된 공고를 이번 작업 임시 목록에 열었습니다. 공고보관함 원본은 그대로 남습니다.' });
 }
 
 async function viewArchivedNotice(index) {
@@ -6739,7 +6739,8 @@ function applyNoticeSelection(notice, subproject = null) {
   state.archiveProposalId = '';
   state.sourceText = `${title}\n\n${bodyText}`;
   state.selectedNotice = { title, selectedSubproject: subproject?.title || '', registeredAt: notice.registeredAt, references: notice.references, sourceLabels: notice.sourceLabels, attachments: notice.attachments, applicationPeriod: primary.applicationPeriod, performancePeriod: primary.performancePeriod, supportLimit: primary.supportLimit, detailText: bodyText, officialTextExtracted: false, extractedAttachmentKeys: [] };
-  setState({ busy: '', pendingNoticeChoice: null, notice: '선택한 공고 본문을 사업계획서 입력으로 가져왔습니다.' });
+  // 간편 화면을 쓰는 회원은 공고를 고른 뒤 제자리로 돌아온다. 고른 공고와 본문은 그대로 남는다.
+  setState({ busy: '', pendingNoticeChoice: null, expertDetail: false, notice: '선택한 공고 본문을 사업계획서 입력으로 가져왔습니다.' });
   requestAnimationFrame(() => document.querySelector('#selected-notice-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
 }
 
@@ -6832,8 +6833,8 @@ async function downloadProposalPdf() {
 // 간편 화면 처리기. 기존 처리기(bind)를 먼저 걸고 그 위에 얹는다.
 function bindSimple() {
   // 보기 전환과 「작성 과정 자세히 보기」는 bind()에서 한 번만 연결한다. 두 번 걸면 서로 되돌린다.
-  document.querySelector('#simple-find')?.addEventListener('click', () => setState({ activeTool: '', step: 0, notice: '공고를 고르면 분석은 자동으로 합니다.' }));
-  document.querySelector('#simple-change-notice')?.addEventListener('click', () => setState({ activeTool: '', step: 0, notice: '' }));
+  document.querySelector('#simple-find')?.addEventListener('click', () => setState({ expertDetail: true, activeTool: '', step: 0, notice: '공고를 고르면 분석은 자동으로 합니다. 고르면 간편 화면으로 돌아옵니다.' }));
+  document.querySelector('#simple-change-notice')?.addEventListener('click', () => setState({ expertDetail: true, activeTool: '', step: 0, notice: '' }));
   document.querySelector('#simple-idea')?.addEventListener('input', event => { state.projectNarrative = event.target.value; });
   // 입력이 끝나면 저장까지 한다. 저장하지 않으면 새로고침에 한 줄 요청이 사라진다.
   document.querySelector('#simple-idea')?.addEventListener('change', event => setState({ projectNarrative: event.target.value }));
