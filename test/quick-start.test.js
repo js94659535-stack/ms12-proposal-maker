@@ -109,7 +109,8 @@ test('간단 시작은 신청기관 기록을 제대로 만든다', () => {
   // 함수 본문만 본다. 뒤에 오는 다른 함수까지 읽으면 엉뚱한 것을 잡는다.
   const fn = app.slice(at, app.indexOf('\n}', at) + 2);
   // buildApplicantOrganization은 계획서에 넘길 자료를 만드는 함수라 여기 쓰면 빈 기관이 된다.
-  assert.ok(!fn.includes('buildApplicantOrganization'), '기관 생성에는 normalizeApplicant를 쓴다');
+  // 주석에서 그 이름을 설명하는 것은 괜찮다. 실제로 부르지만 않으면 된다.
+  assert.ok(!/buildApplicantOrganization\(/.test(fn), '기관 생성에는 normalizeApplicant를 쓴다');
   assert.match(fn, /normalizeApplicant\(\{ name: draft\.orgName, items \}\)/);
   assert.match(fn, /selectedApplicantId: applicant\.id, applicantEditingId: applicant\.id/);
 });
