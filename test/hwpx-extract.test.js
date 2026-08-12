@@ -89,10 +89,11 @@ test('업로드 화면과 안내 문구에 HWPX가 연결된다', () => {
   const filesSource = fs.readFileSync(new URL('../src/files.js', import.meta.url), 'utf8');
   assert.match(filesSource, /extension === 'hwp'/);
   // 구형 HWP도 실제로 읽는다. 못 읽을 때만 변환을 안내한다.
-  assert.match(filesSource, /extractHwpText/);
+  assert.match(filesSource, /extractHwpDocument/);
   assert.match(filesSource, /HWP_CONVERT_GUIDE/);
-  const hwpSource = fs.readFileSync(new URL('../src/hwp.js', import.meta.url), 'utf8');
-  assert.match(hwpSource, /HWPX·DOCX·PDF로 변환 후 다시 올려 주세요/);
+  // 변환 안내 문구는 files.js 한 곳에만 둔다. HWP 판독기는 hwp-text.js 하나뿐이다.
+  assert.match(filesSource, /HWPX·DOCX·PDF로 변환 후 다시 올려 주세요/);
+  assert.equal(fs.existsSync(new URL('../src/hwp.js', import.meta.url)), false, 'HWP 판독기를 두 벌 두지 않는다');
   assert.doesNotMatch(filesSource, /jszip|pako|fflate/i);
 
   const appSource = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');

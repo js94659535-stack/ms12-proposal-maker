@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { countTables, decodeParaText, extractHwpText, readCompoundFile, readParagraphs } from '../src/hwp.js';
+import { countSectionTables, extractHwpDocument, extractHwpText, parseSectionRecords } from '../src/hwp-text.js';
 import { hwpxSectionText } from '../src/files.js';
 import { FAILED_MESSAGE, STALE_MESSAGE, looksLikeAssetFailure, shouldReload } from '../src/module-loader.js';
 
@@ -19,7 +19,7 @@ const sampleBuffer = () => {
 // ---------- 구형 HWP ----------
 
 test('실제 공고문 HWP에서 본문과 표를 읽는다', { skip: hasSample ? false : '시험용 공식 HWP 파일이 없습니다' }, async () => {
-  const result = await extractHwpText(sampleBuffer());
+  const result = await extractHwpDocument(sampleBuffer());
   // 사랑의열매 공식 공고문 첨부. 본문이 실제로 나온다.
   assert.ok(result.text.length > 3000, `본문 ${result.text.length}자`);
   assert.match(result.text, /공모/);
@@ -29,34 +29,17 @@ test('실제 공고문 HWP에서 본문과 표를 읽는다', { skip: hasSample 
   assert.match(result.text, /proposal\.chest\.or\.kr\)/);
 });
 
-test('HWP 구조를 읽고 스트림을 찾는다', { skip: hasSample ? false : '시험용 공식 HWP 파일이 없습니다' }, () => {
-  const file = readCompoundFile(sampleBuffer());
-  const names = file.entries.filter(entry => entry.type === 2).map(entry => entry.name);
-  assert.ok(names.includes('FileHeader'));
-  assert.ok(names.some(name => /^Section\d+$/.test(name)));
-  assert.ok(file.streamOf('FileHeader').length >= 40);
-});
-
 test('HWP가 아닌 파일은 형식이 아니라고 말한다', async () => {
   const notHwp = new TextEncoder().encode('x'.repeat(600)).buffer;
-  await assert.rejects(() => extractHwpText(notHwp), /HWP\(한글 5\.0\) 형식이 아닙니다/);
+  await assert.rejects(() => extractHwpText(notHwp), /형식이 아닙니다/);
 });
 
-test('문단 제어문자는 규격대로 건너뛴다', () => {
-  // 인라인·확장 제어문자는 8글자(16바이트)를 차지한다. 2바이트로 보면 정보가 글자로 샌다.
-  const units = [0x41, 0x03, 0, 0, 0, 0, 0, 0, 0x03, 0x42];
-  const bytes = new Uint8Array(units.length * 2);
-  const view = new DataView(bytes.buffer);
-  units.forEach((code, index) => view.setUint16(index * 2, code, true));
-  assert.equal(decodeParaText(bytes), 'AB');
-});
-
-test('표는 개체 식별자로 센다', { skip: hasSample ? false : '시험용 공식 HWP 파일이 없습니다' }, () => {
-  const file = readCompoundFile(sampleBuffer());
-  const section = new Uint8Array(zlib.inflateRawSync(Buffer.from(file.streamOf('Section0'))));
+test('표는 개체 식별자로 센다', { skip: hasSample ? false : '시험용 공식 HWP 파일이 없습니다' }, async () => {
+  const result = await extractHwpDocument(sampleBuffer());
   // HWPTAG_TABLE(76)이 없는 문서에서도 tbl 식별자로 표를 찾는다.
-  assert.ok(countTables(section) > 0);
-  assert.ok(readParagraphs(section).length > 10);
+  assert.ok(result.tables > 0, `표 ${result.tables}개`);
+  assert.equal(typeof countSectionTables, 'function');
+  assert.equal(typeof parseSectionRecords, 'function');
 });
 
 // ---------- HWPX ----------

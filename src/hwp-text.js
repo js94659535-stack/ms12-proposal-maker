@@ -138,9 +138,12 @@ export function parseSectionRecords(bytes) {
         const code = view.getUint16(offset + index, true);
         if (code === 13 || code === 10) { text += '\n'; continue; }
         if (code === 9) { text += '\t'; continue; }
-        // 표·그림 등 확장 제어문자는 16바이트를 차지한다.
+        // 표·그림 등 확장 제어문자와 인라인 제어문자는 둘 다 16바이트를 차지한다.
+        // 인라인(4~9, 19, 20)을 2바이트로만 건너뛰면 뒤따르는 정보 바이트가
+        // 글자로 새어 나온다. 실제 공고문에서 주소 끝에 한자가 붙던 원인이다.
         if (code < 32) {
           if ([1, 2, 3, 11, 12, 14, 15, 16, 17, 18, 21, 22, 23].includes(code)) { index += 14; text += ' '; }
+          else if ([4, 5, 6, 7, 8, 9, 19, 20].includes(code)) { index += 14; }
           continue;
         }
         text += String.fromCharCode(code);
@@ -176,4 +179,43 @@ export async function extractHwpText(buffer) {
   const text = parts.join('\n\n').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
   if (text.length < 30) throw new HwpUnsupportedError('HWP에서 본문 텍스트를 찾지 못했습니다. PDF 또는 HWPX로 저장해 주세요.');
   return text;
+}
+
+// 표 개수. 표는 개체(CTRL_HEADER)로 들어 있고 종류를 4바이트 식별자로 적는다.
+// 실제 공고문에서는 HWPTAG_TABLE(76)이 나타나지 않고 식별자 'tbl '로만 구분됐다.
+const CTRL_HEADER_TAG = 71;
+export function countSectionTables(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let offset = 0;
+  let count = 0;
+  while (offset + 4 <= bytes.length) {
+    const header = view.getUint32(offset, true);
+    const tag = header & 0x3ff;
+    let size = (header >> 20) & 0xfff;
+    offset += 4;
+    if (size === 0xfff) { size = view.getUint32(offset, true); offset += 4; }
+    if (offset + size > bytes.length) break;
+    // 식별자는 뒤집혀 저장된다. 'tbl '가 ' lbt'로 들어 있다.
+    if (tag === CTRL_HEADER_TAG && size >= 4) {
+      const id = String.fromCharCode(...bytes.subarray(offset, offset + 4)).split('').reverse().join('');
+      if (id === 'tbl ') count += 1;
+    }
+    offset += size;
+  }
+  return count;
+}
+
+// 본문과 표 개수를 함께 돌려준다. 첨부 진단 화면이 이 값을 쓴다.
+export async function extractHwpDocument(buffer) {
+  const text = await extractHwpText(buffer);
+  let tables = 0;
+  try {
+    const streams = readCompoundFile(buffer);
+    const flags = new DataView(streams.get('FileHeader').buffer, streams.get('FileHeader').byteOffset, streams.get('FileHeader').byteLength).getUint32(36, true);
+    for (const [name, raw] of streams.entries()) {
+      if (!/^Section\d+$/.test(name)) continue;
+      tables += countSectionTables(flags & 0x1 ? await inflateRaw(raw) : raw);
+    }
+  } catch { /* 표 수를 못 세도 본문은 그대로 쓴다 */ }
+  return { text, tables };
 }

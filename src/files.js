@@ -1,6 +1,9 @@
 // HWPX(OWPML)는 XML을 담은 ZIP이고, 구형 HWP는 CFB 컨테이너다.
 // 둘 다 외부 변환 서비스 없이 브라우저 안에서 읽는다. 읽지 못하면 읽은 척하지 않는다.
-import { extractHwpText, HWP_CONVERT_GUIDE } from './hwp.js';
+import { extractHwpDocument } from './hwp-text.js';
+
+// 못 읽는 형식에는 언제나 같은 말로 변환을 안내한다.
+export const HWP_CONVERT_GUIDE = 'HWPX·DOCX·PDF로 변환 후 다시 올려 주세요.';
 import { loadModule } from './module-loader.js';
 
 const HWP_GUIDE = `한글 HWP 파일을 읽지 못했습니다. ${HWP_CONVERT_GUIDE}`;
@@ -123,7 +126,7 @@ export async function extractFile(file) {
   if (extension === 'hwp') {
     let result;
     try {
-      result = await extractHwpText(await file.arrayBuffer());
+      result = await extractHwpDocument(await file.arrayBuffer());
     } catch (error) {
       // 원인을 그대로 전한다. 못 읽은 것을 읽은 것처럼 만들지 않는다.
       throw new Error(`${file.name}: ${error?.message || HWP_GUIDE}`);
