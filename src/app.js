@@ -225,7 +225,7 @@ function openPortal(portal) {
 function portalChoiceView() {
   return `<div class="layout home-layout"><main class="main"><div class="home">
     <header class="home-header">
-      <div class="home-brand"><strong>사업계획서 작성 도우미</strong><span>${escapeHtml(accountEmail())} · ${escapeHtml(ROLE_LABELS[auth.user?.role] || auth.user?.role || '')}</span></div>
+      <div class="home-brand"><strong>사업계획서 작성 도우미</strong><span>${escapeHtml(accountEmail())} · ${escapeHtml(ROLE_LABELS[auth.user?.role] || auth.user?.role || '')}${ROLE_DUTY[auth.user?.role] ? ` · ${escapeHtml(ROLE_DUTY[auth.user?.role])}` : ''}</span></div>
       <nav class="home-nav"><button class="button ghost" id="sign-out">로그아웃</button></nav>
     </header>
     <section class="landing">
@@ -3600,9 +3600,12 @@ async function saveQuickOrg() {
 
 function applicantsToolView() {
   const editing = findApplicant(state.applicants, state.applicantEditingId);
-  return `${quickStartPanel()}<div class="page-heading"><div><h2>신청기관 정보</h2><p>이번 사업을 신청하는 기관의 정보를 등록·수정합니다. 공고 분석 정보와는 분리해 보관하며, 확인된 정보만 계획서 작성에 전달합니다.</p><div class="actions">${sampleButton('applicant', '[샘플] 기관 보기')}</div></div><button class="button secondary" id="close-applicants">작성 흐름으로 돌아가기</button></div>
-    <div class="card"><div class="card-title"><div><h3>등록된 신청기관 ${state.applicants.length}곳</h3><span>마인드스토리도 등록기관 중 하나로만 취급합니다.</span></div><div><button class="button secondary" id="load-applicants">계획서보관함에서 불러오기</button></div></div>
-    <div class="two-col"><div class="field"><label for="applicant-name-draft">새 신청기관명</label><input id="applicant-name-draft" value="${escapeHtml(state.applicantNameDraft)}" placeholder="예: 사단법인 ○○센터"></div><div class="field"><label>&nbsp;</label><button class="button primary" id="add-applicant">신청기관 추가</button></div></div>
+  // 대행회원은 여러 고객 기관을 등록해 그 이름으로 계획서를 쓴다. 화면 이름만 바뀌고 자료 구조는 같다.
+  const clients = canHoldClients(auth.user?.role);
+  const who = clients ? '고객 기관' : '신청기관';
+  return `${quickStartPanel()}<div class="page-heading"><div><h2>${who} 정보</h2><p>${clients ? '대신 계획서를 쓸 고객 기관을 등록·수정합니다' : '이번 사업을 신청하는 기관의 정보를 등록·수정합니다'}. 공고 분석 정보와는 분리해 보관하며, 확인된 정보만 계획서 작성에 전달합니다.</p><div class="actions">${sampleButton('applicant', '[샘플] 기관 보기')}</div></div><button class="button secondary" id="close-applicants">작성 흐름으로 돌아가기</button></div>
+    <div class="card"><div class="card-title"><div><h3>등록된 ${who} ${state.applicants.length}곳</h3><span>마인드스토리도 등록기관 중 하나로만 취급합니다.</span></div><div><button class="button secondary" id="load-applicants">계획서보관함에서 불러오기</button></div></div>
+    <div class="two-col"><div class="field"><label for="applicant-name-draft">새 ${who}명</label><input id="applicant-name-draft" value="${escapeHtml(state.applicantNameDraft)}" placeholder="예: 사단법인 ○○센터"></div><div class="field"><label>&nbsp;</label><button class="button primary" id="add-applicant">신청기관 추가</button></div></div>
     ${state.applicants.length ? `<div class="requirement-list">${state.applicants.map(applicant => {
       const confirmed = applicant.items.filter(item => item.status === CONFIRMED_STATUS).length;
       return `<article class="requirement"><div><span class="tag">${applicant.id === state.selectedApplicantId ? '이번 사업 신청기관' : '등록기관'}</span><div><strong>${escapeHtml(applicant.name)}</strong><small>확인됨 ${confirmed}건 · 확인 필요·오래된 정보 ${applicant.items.length - confirmed}건 · 최근 수정 ${escapeHtml(String(applicant.updatedAt).slice(0, 10))}</small></div></div><div class="actions" style="margin:0;gap:8px"><button class="button secondary" data-edit-applicant="${escapeHtml(applicant.id)}">${state.applicantEditingId === applicant.id ? '수정 닫기' : '정보 수정'}</button><button class="button secondary" data-select-applicant="${escapeHtml(applicant.id)}">이번 사업 신청기관으로 선택</button><button class="button secondary" data-delete-applicant="${escapeHtml(applicant.id)}">삭제</button></div></article>`;
