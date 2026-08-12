@@ -31,8 +31,11 @@ test('두 포털이 각각 무엇을 하는지 고르는 화면에 적혀 있다
 test('계획서 포털에서는 회원과 같은 화면을 쓰고 관리 화면은 열리지 않는다', () => {
   // 관리 화면 위치가 저장되어 있어도 계획서 포털에서는 홈으로 되돌린다.
   assert.match(app, /if \(isStaff\(\) && state\.portal === 'proposal' && \['admin', 'operator'\]\.includes\(state\.activeTool\)\) state\.activeTool = 'home';/);
-  // 계획서 포털에서는 관리·운영 진입점 대신 되돌아가는 단추 하나만 보인다.
-  assert.match(block, /if \(!inAdminPortal\(\)\) return `<button class="\$\{cls\}" data-portal="admin">관리자 포털<\/button>`;/);
+  // 계획서 포털에서는 관리·운영 진입점 대신 되돌아가는 단추와 화면 전환만 보인다.
+  assert.match(block, /if \(!inAdminPortal\(\)\) return `\$\{viewToggle\}<button class="\$\{cls\}" data-portal="admin">관리자 포털<\/button>`;/);
+  // 회원 화면과 전문가 화면을 즉시 오간다. 최고관리자·운영관리자만이다.
+  assert.match(block, /canToggleView\(\)/);
+  assert.match(block, /전문가 상세 보기.*회원 화면으로 보기|회원 화면으로 보기/);
   // 관리자 포털에서만 관리·운영 진입점과 계획서 포털 단추가 함께 나온다.
   assert.match(block, /data-portal-open="operator"/);
   assert.match(block, /data-portal-open="admin"/);

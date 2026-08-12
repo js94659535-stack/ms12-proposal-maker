@@ -15,6 +15,8 @@ import { ABILITIES, SCOPES } from '../server/permissions.js';
 import { BUSINESS_TYPES, SOURCE_GROUPS } from '../server/notice-sources.js';
 import { FITNESS_LABELS } from '../server/notice-classify.js';
 import { ORG_TYPES, QUICK_FIELDS, followUpQuestions, quickToApplicantItems, readyToDraft } from '../server/quick-org.js';
+import { ANSWER_CHOICES, HIDDEN_EXPERT, MAX_QUESTIONS as SIMPLE_MAX_QUESTIONS, RESULT_ACTIONS, SIMPLE_STEPS, answerValue, currentStep as simpleStep, viewModeFor } from '../server/simple-flow.js';
+import { REVISION_KINDS, canRevise, diffSections, keptFacts, newUnknowns, remainingOf, revisionSlot, settleRevision } from '../server/revision.js';
 import { CORE_AREAS, areaProgress, mergeProfileIntoApplicant } from '../server/org-profile.js';
 import { ASSET_KINDS, ASSET_STATUS, STATUS_LABELS as ASSET_STATUS_LABELS, assetSentence, suggestAssets, validateAsset } from '../server/idea-assets.js';
 import { MAX_QUESTIONS, UNKNOWN, checkNumbers, intakeState } from '../server/proposal-intake.js';
@@ -88,6 +90,8 @@ const initial = {
   ideaAssets: [], ideaAssetsLoaded: false, assetDraft: null, intakeAnswers: {},
   // 간단 시작 입력과 뒤이은 확인 질문. 계획서 원문과 따로 둔다.
   quickOrg: {}, quickAnswers: {},
+  // 간편·전문가 화면 전환과 한 번에 수정 요청. 계획서 원문과 따로 둔다.
+  viewMode: '', reviseOpen: false, reviseDraft: null, revisions: [], revisionBackup: null,
   applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
   revisionPlan: null, draftReview: null, projectNarrative: '',
   // 서버가 붙여 준 근거 검증·평가자 검토. 화면은 판정하지 않고 그대로 보여 준다.
@@ -192,7 +196,12 @@ function inAdminPortal() { return isStaff() && state.portal === 'admin'; }
 // 계획서 포털에서는 관리 진입점을 숨기고 되돌아가는 단추 하나만 남긴다. 회원이 보는 화면과 같게 하려는 것이다.
 function portalLinks(cls = 'history-button') {
   if (!isStaff()) return premiumLink(cls);
-  if (!inAdminPortal()) return `<button class="${cls}" data-portal="admin">관리자 포털</button>`;
+  // 계획서 포털에서는 회원 화면과 전문가 화면을 즉시 오간다.
+  // 화면만 바뀔 뿐 서버의 분석·검증·권한 차단은 그대로 돈다.
+  const viewToggle = !inAdminPortal() && canToggleView()
+    ? `<button class="${cls}" id="toggle-view">${viewMode() === 'simple' ? '전문가 상세 보기' : '회원 화면으로 보기'}</button>`
+    : '';
+  if (!inAdminPortal()) return `${viewToggle}<button class="${cls}" data-portal="admin">관리자 포털</button>`;
   return `${isOperator() ? `<button class="${cls}" data-portal-open="operator" aria-pressed="${state.activeTool === 'operator'}">운영관리자</button>` : ''}${isAdmin() ? `<button class="${cls}" data-portal-open="admin" aria-pressed="${state.activeTool === 'admin'}">관리자</button>` : ''}<button class="${cls}" data-portal="proposal">계획서 포털</button>`;
 }
 // 프리미엄회원 전용 진입점. 계약이 있는 사람에게만 보인다.
@@ -3916,6 +3925,133 @@ function questionsView() {
     <div class="questions">${questions.length ? questions.map((q, i) => `<div class="card question"><div><span>${q.required ? '필수 확인' : '권장 확인'}</span><strong>${escapeHtml(q.question)}</strong></div><textarea data-answer="${i}" placeholder="확인된 사실과 증빙만 입력하세요. 모르면 비워 두세요.">${escapeHtml(q.answer || '')}</textarea></div>`).join('') : '<div class="empty-state"><div>✓</div><h2>추가 질문이 없습니다</h2><p>그래도 인력·실적·예산 증빙은 최종 제출 전에 확인하세요.</p></div>'}</div>${footer({ nextLabel: '사업계획서 초안 생성', nextId: 'draft' })}`;
 }
 
+
+// ---------- 간편 작성 화면 ----------
+//
+// 일반회원에게는 네 걸음만 보인다. 공고 분석·사업 설계·사실검증은 없애지 않고
+// 「작성 과정 자세히 보기」 안에 그대로 둔다. 안에서는 예전과 똑같이 돈다.
+function viewMode() { return viewModeFor(auth.user, state.viewMode).mode; }
+function canToggleView() { return viewModeFor(auth.user, state.viewMode).canToggle; }
+
+function simpleProgress(active) {
+  return `<div class="stat-badges">${SIMPLE_STEPS.map((item, index) => {
+    const done = SIMPLE_STEPS.findIndex(step => step.key === active) > index;
+    return `<span class="stat-badge" title="${escapeHtml(item.hint)}"><strong>${done ? '✓' : index + 1}</strong><span>${escapeHtml(item.label)}</span></span>`;
+  }).join('')}</div>`;
+}
+
+// 저장해 둔 기관을 고르거나 다섯 가지만 적는다.
+function simpleOrgPanel() {
+  const draft = quickDraft();
+  const saved = state.applicants || [];
+  const chosen = findApplicant(state.applicants, state.selectedApplicantId);
+  return `<details class="card org-details" id="simple-org" ${chosen ? '' : 'open'}>
+    <summary><b>신청기관</b> <small>${chosen ? escapeHtml(chosen.name) : '기관을 고르거나 간단히 적어 주세요'}</small></summary>
+    ${saved.length ? `<div class="inline-row"><label for="simple-org-pick">저장한 기관</label>
+      <select id="simple-org-pick"><option value="">고르세요</option>${saved.map(item => `<option value="${escapeHtml(item.id)}" ${state.selectedApplicantId === item.id ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}</select></div>` : ''}
+    <div class="two-col">${QUICK_FIELDS.map(field => `<div class="field">
+      <label for="quick-${field.key}">${escapeHtml(field.label)}${field.required ? '' : ' <span class="muted">(선택)</span>'}</label>
+      ${field.choices
+        ? `<select id="quick-${field.key}" data-quick-field="${field.key}"><option value="">고르세요</option>${ORG_TYPES.map(type => `<option value="${escapeHtml(type)}" ${draft[field.key] === type ? 'selected' : ''}>${escapeHtml(type)}</option>`).join('')}</select>`
+        : `<input id="quick-${field.key}" data-quick-field="${field.key}" value="${escapeHtml(draft[field.key] || '')}" placeholder="${escapeHtml(field.hint)}">`}
+    </div>`).join('')}</div>
+    <div class="actions"><span class="muted">적지 않은 인력·시설·실적·예산은 만들지 않고 [확인 필요]로 남깁니다.</span>
+      <button class="button secondary" id="quick-save" ${state.busy ? 'disabled' : ''}>기관정보 저장</button></div>
+  </details>`;
+}
+
+// 꼭 필요한 것만 세 개까지 묻는다. 모르면 넘길 수 있어야 작성이 멈추지 않는다.
+function simpleQuestionsPanel() {
+  const noticeText = [state.selectedNotice?.summary, state.selectedNotice?.eligibility, state.selectedNotice?.supportDetails, state.sourceText].filter(Boolean).join('\n');
+  const asked = followUpQuestions({ noticeText, answers: state.quickAnswers || {}, limit: SIMPLE_MAX_QUESTIONS });
+  if (!asked.length) return '';
+  return `<div class="alert"><strong>이 공고가 요구하는 것만 ${asked.length}가지 확인합니다</strong>
+    ${asked.map(item => `<div class="field"><label for="followup-${item.key}">${escapeHtml(item.ask)}</label>
+      <input id="followup-${item.key}" data-followup-field="${item.key}" value="${escapeHtml((state.quickAnswers || {})[item.key] || '')}" placeholder="모르면 아래에서 고르세요">
+      <div class="stat-badges">${ANSWER_CHOICES.map(choice => `<button class="button secondary" data-answer-choice="${choice.key}" data-answer-key="${item.key}" title="${escapeHtml(choice.note)}">${escapeHtml(choice.label)}</button>`).join('')}</div></div>`).join('')}
+    <p class="muted">비워 두거나 「아직 모르겠어요」를 고르면 계획서에 [확인 필요]로 남습니다. 없는 실적·인력·예산을 만들지 않습니다.</p></div>`;
+}
+
+// 완성 뒤 큰 버튼 다섯 개. 막힌 것은 회색으로 두지 않고 이유를 알린다.
+function simpleResultActions() {
+  const saved = Boolean(state.archiveProposalId);
+  const left = remainingOf(state.revisions || []);
+  return `<div class="actions" style="flex-wrap:wrap;gap:8px;justify-content:flex-start">
+    <button class="button secondary" id="simple-view">계획서 확인</button>
+    <button class="button primary" id="simple-revise" ${guard(left.total ? '' : `이 계획서의 AI 수정 2회를 모두 썼습니다. 직접 편집은 계속할 수 있습니다.`)}>한 번에 수정 요청 ${left.total ? `(${left.total}회 남음)` : '(소진)'}</button>
+    <button class="button secondary" id="save-proposal-archive">저장${saved ? ' 완료' : ''}</button>
+    <button class="button secondary" id="final-docx-top">DOCX 받기</button>
+    <button class="button secondary" id="final-pdf-top">PDF 받기</button>
+    <button class="button secondary" id="simple-expert">전문 검토 보기</button>
+  </div>`;
+}
+
+// 한 번에 수정 요청. 항목별로 고르게 하지 않는다.
+function revisionPanel() {
+  if (!state.reviseOpen) return '';
+  const draft = state.reviseDraft || { kind: 'add', text: '' };
+  const left = remainingOf(state.revisions || []);
+  const last = (state.revisions || []).filter(item => item.diff).at(-1);
+  return `<div class="card" id="revise-box">
+    <div class="card-title"><div><h3>한 번에 수정 요청</h3><span>요청한 곳만 고칩니다. 확인된 사실과 요청하지 않은 내용은 그대로 둡니다.</span></div>
+      <span class="status ${left.total ? '충족' : '부족'}">남은 수정 ${left.total}회</span></div>
+    <div class="field"><label>무엇을 바꿀까요?</label><div class="stat-badges">${REVISION_KINDS.map(kind => `<button class="button ${draft.kind === kind.key ? 'primary' : 'secondary'}" data-revise-kind="${kind.key}" title="${escapeHtml(kind.hint)}">${escapeHtml(kind.label)}</button>`).join('')}</div></div>
+    <div class="field"><label for="revise-text">어떻게 바꿀지 적어 주세요</label>
+      <textarea id="revise-text" class="source-text" style="min-height:80px" placeholder="예: 대상을 초등 고학년까지 넓히고 회기를 12회로 바꿔 주세요">${escapeHtml(draft.text || '')}</textarea></div>
+    <div class="actions"><span class="muted">공고·대상·목적·핵심사업을 모두 바꾸는 요청은 새 계획서로 안내합니다.</span>
+      <div><button class="button secondary" id="revise-cancel">닫기</button>
+        <button class="button primary" id="revise-run" ${state.busy ? 'disabled' : ''}>이대로 수정 요청</button></div></div>
+    ${last ? `<div class="alert success"><strong>지난 수정 결과</strong>
+      <p>바뀐 항목 ${last.diff.changed.length}개${last.diff.changed.length ? `: ${last.diff.changed.map(item => escapeHtml(item.title)).join(' · ')}` : ''}</p>
+      <p>그대로 둔 항목 ${last.diff.kept.length}개${last.lostFacts?.length ? ` · <b>사라진 확인 사실 ${last.lostFacts.length}개</b>` : ''}</p>
+      <p>새로 확인할 내용 ${last.newUnknowns}곳${last.counted ? '' : ` · 이번 요청은 횟수에서 빼지 않았습니다(${escapeHtml(last.note || '')})`}</p>
+      <div class="actions"><span class="muted">수정 전 버전을 보관해 두었습니다.</span>
+        <button class="button secondary" id="revise-undo">수정 전으로 되돌리기</button></div></div>` : ''}
+  </div>`;
+}
+
+// 전문 기능은 지우지 않는다. 접어서 그대로 둔다.
+function expertDetails() {
+  return `<details class="card org-details" id="expert-details">
+    <summary><b>작성 과정 자세히 보기</b> <small>공고 분석·설계·근거·검증은 그대로 돌아갑니다</small></summary>
+    <p class="muted">간편 화면은 아래 과정을 숨길 뿐 생략하지 않습니다: ${HIDDEN_EXPERT.map(item => escapeHtml(item)).join(' · ')}.</p>
+    ${strategyView()}
+    ${designQuestionsView()}
+    ${stagedGenerationView()}
+  </details>`;
+}
+
+function simpleWriteView() {
+  const chosen = Boolean(state.selectedNotice?.title || state.sourceText.trim());
+  const step = simpleStep({ noticeChosen: chosen, requestWritten: Boolean(String(state.projectNarrative || '').trim()), sections: state.sections.length });
+  const done = step === 'done';
+  return `<div class="page-heading"><div><h2>간편 계획서 작성</h2>
+    <p>공고를 고르고 하고 싶은 사업을 한두 문장으로 적으면 됩니다. 분석·설계·검증은 안에서 자동으로 돌아갑니다.</p></div>
+    ${canToggleView() ? `<button class="button secondary" id="toggle-view">전문가 상세 보기</button>` : ''}</div>
+    ${simpleProgress(step)}
+    ${state.error ? `<div class="alert danger"><strong>${escapeHtml(state.error)}</strong></div>` : ''}
+    ${state.notice ? `<div class="alert success"><strong>${escapeHtml(state.notice)}</strong></div>` : ''}
+    <div class="card">
+      <div class="card-title"><div><h3>1·2 공고 찾기와 선택</h3><span>${chosen ? escapeHtml(String(state.selectedNotice?.title || '붙여넣은 공고문').slice(0, 60)) : '아직 고르지 않았습니다'}</span></div>
+        <span class="status ${chosen ? '충족' : '확인-필요'}">${chosen ? '선택함' : '필요'}</span></div>
+      <div class="actions"><span class="muted">고르면 공고 분석을 자동으로 실행합니다.</span>
+        <div><button class="button ${chosen ? 'secondary' : 'primary'}" id="simple-find">공고 찾기</button>
+        ${chosen ? '<button class="button secondary" id="simple-change-notice">다른 공고로</button>' : ''}</div></div>
+    </div>
+    ${simpleOrgPanel()}
+    <div class="card">
+      <div class="card-title"><div><h3>3 하고 싶은 사업</h3><span>한두 문장이면 됩니다</span></div></div>
+      <div class="field"><textarea id="simple-idea" class="source-text" style="min-height:80px" placeholder="예: 방과후 돌봄이 끊긴 초등 저학년을 위해 주 2회 학습·정서 프로그램을 하고 싶습니다.">${escapeHtml(state.projectNarrative || '')}</textarea></div>
+      ${simpleQuestionsPanel()}
+      <div class="actions"><span class="muted">부족한 정보가 있어도 [확인 필요]로 남기고 만듭니다.</span>
+        <button class="button primary" id="simple-generate" ${guard(chosen ? '' : '먼저 공고를 고르거나 공고문을 붙여넣어 주세요.', 'notice')}>AI가 계획서 만들기</button></div>
+    </div>
+    ${done ? `<div class="card"><div class="card-title"><div><h3>4 계획서 완성</h3><span>항목 ${state.sections.length}개</span></div>
+      <span class="status 충족">완성</span></div>${simpleResultActions()}</div>` : ''}
+    ${revisionPanel()}
+    ${done ? expertDetails() : ''}`;
+}
+
 function documentView() {
   const strategy = strategyView();
   const questions = designQuestionsView();
@@ -4531,6 +4667,9 @@ function render() {
   if (isStaff() && state.portal === 'proposal' && ['admin', 'operator'].includes(state.activeTool)) state.activeTool = 'home';
   // 전체 이용권이 없는 회원은 핵심제안서 화면만 본다. 생성·차단은 서버가 한다.
   if (trialAccount()) { app.innerHTML = coreProposalView(); bindCoreProposal(); return; }
+  // 간편 화면. 일반회원의 기본이고 최고관리자·운영관리자는 전환해서 본다.
+  // 화면만 단순해질 뿐 분석·검증·권한 차단은 서버에서 그대로 돈다.
+  if (viewMode() === 'simple' && !state.activeTool) { app.innerHTML = shell(simpleWriteView()); bind(); bindSimple(); return; }
   const views = [noticeImportView, noticeConfirmView, applicantSelectView, businessSelectView, documentView, documentView];
   // 관리자 화면은 관리자에게만 열린다. 저장된 화면 위치가 남아 있어도 역할이 아니면 되돌린다.
   if (state.activeTool === 'admin' && !isAdmin()) state.activeTool = 'home';
@@ -4934,6 +5073,7 @@ function bind() {
   document.querySelectorAll('[data-type]').forEach(el => el.onclick = () => { state.project.type = el.dataset.type; saveState(); render(); });
   document.querySelector('#business-type')?.addEventListener('change', event => { state.project.type = event.target.value; saveState(); render(); });
   document.querySelectorAll('[data-step]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(Number(el.dataset.step), { notice: '', error: '' }); });
+  document.querySelector('#toggle-view')?.addEventListener('click', () => setState({ viewMode: viewMode() === 'simple' ? 'expert' : 'simple', activeTool: '', notice: '', error: '' }));
   document.querySelector('#sign-out')?.addEventListener('click', () => void submitLogout());
   document.querySelector('#open-account')?.addEventListener('click', () => setState({ activeTool: 'account', notice: '', error: '' }));
   document.querySelector('#open-premium')?.addEventListener('click', () => setState({ activeTool: 'premium', notice: '', error: '' }));
@@ -6579,6 +6719,123 @@ async function downloadProposalPdf() {
   } catch (error) {
     setState({ busy: '', error: String(error?.message || 'PDF를 만들지 못했습니다.') });
   }
+}
+
+
+// 간편 화면 처리기. 기존 처리기(bind)를 먼저 걸고 그 위에 얹는다.
+function bindSimple() {
+  document.querySelector('#toggle-view')?.addEventListener('click', () => setState({
+    viewMode: viewMode() === 'simple' ? 'expert' : 'simple', notice: '', error: ''
+  }));
+  document.querySelector('#simple-find')?.addEventListener('click', () => setState({ activeTool: '', step: 0, notice: '공고를 고르면 분석은 자동으로 합니다.' }));
+  document.querySelector('#simple-change-notice')?.addEventListener('click', () => setState({ activeTool: '', step: 0, notice: '' }));
+  document.querySelector('#simple-idea')?.addEventListener('input', event => { state.projectNarrative = event.target.value; });
+  document.querySelector('#simple-org-pick')?.addEventListener('change', event => setState({
+    selectedApplicantId: event.target.value, applicantEditingId: event.target.value,
+    notice: event.target.value ? '저장해 둔 기관정보를 씁니다.' : ''
+  }));
+  document.querySelector('#simple-generate')?.addEventListener('click', () => void runSimpleGeneration());
+  document.querySelector('#simple-view')?.addEventListener('click', () => setState({ activeTool: '', step: 4, viewMode: 'expert', notice: '작성한 계획서를 펼쳤습니다.' }));
+  document.querySelector('#simple-expert')?.addEventListener('click', () => setState({ activeTool: 'coaching', notice: '' }));
+  document.querySelector('#simple-revise')?.addEventListener('click', () => setState({ reviseOpen: true, reviseDraft: state.reviseDraft || { kind: 'add', text: '' } }));
+  document.querySelector('#revise-cancel')?.addEventListener('click', () => setState({ reviseOpen: false }));
+  document.querySelectorAll('[data-revise-kind]').forEach(el => el.onclick = () => setState({ reviseDraft: { ...(state.reviseDraft || {}), kind: el.dataset.reviseKind } }));
+  document.querySelector('#revise-text')?.addEventListener('input', event => { state.reviseDraft = { ...(state.reviseDraft || { kind: 'add' }), text: event.target.value }; });
+  document.querySelector('#revise-run')?.addEventListener('click', () => void runRevision());
+  document.querySelector('#revise-undo')?.addEventListener('click', () => undoRevision());
+  document.querySelectorAll('[data-answer-choice]').forEach(el => el.onclick = () => {
+    // 「모르겠다」를 골라도 작성은 멈추지 않는다. 값을 만들지 않고 표시만 남긴다.
+    const picked = answerValue(el.dataset.answerChoice, suggestionFor(el.dataset.answerKey));
+    state.quickAnswers = { ...(state.quickAnswers || {}), [el.dataset.answerKey]: picked.value || picked.mark };
+    setState({ quickAnswers: state.quickAnswers, notice: picked.value ? '추천값을 넣었습니다. 확인 전에는 [확인 필요]로 표시됩니다.' : '[확인 필요]로 남겼습니다.' });
+  });
+}
+
+// 추천값은 공고문에 실제로 적힌 말에서만 가져온다. 없으면 빈 값이다.
+function suggestionFor(key) {
+  const notice = state.selectedNotice || {};
+  const map = { budget: notice.supportLimit || '', staff: '', performance: '', partners: '', facilities: '' };
+  return map[key] || '';
+}
+
+// 간편 화면의 「AI가 계획서 만들기」. 안에서는 기존 절차를 그대로 밟는다.
+async function runSimpleGeneration() {
+  if (!state.selectedNotice?.title && !state.sourceText.trim()) {
+    return setState({ error: '먼저 공고를 고르거나 공고문을 붙여넣어 주세요.' });
+  }
+  // 기관정보가 아직 없으면 적은 것만이라도 저장한다. 없다고 막지 않는다.
+  if (!state.selectedApplicantId && readyToDraft(quickDraft()).ready) await saveQuickOrg();
+  // 설계 승인 절차는 그대로 둔다. 간편 화면에서는 요청·검토·승인을 잇달아 처리한다.
+  if (!generationPermission().allowed) {
+    requestDesignReview();
+    startDesignReview();
+    approveDesign();
+  }
+  await generateCompleteProposal();
+}
+
+// 한 번에 수정 요청. 요청한 곳만 고치고 나머지는 그대로 둔다.
+async function runRevision() {
+  const draft = state.reviseDraft || { kind: 'add', text: '' };
+  const gate = canRevise({ kind: draft.kind, text: draft.text, history: state.revisions || [] });
+  if (!gate.allowed) return setState({ error: `${gate.message} (${gate.action})` });
+  if (!String(draft.text || '').trim()) return setState({ error: '어떻게 바꿀지 한 줄이라도 적어 주세요.' });
+
+  const before = structuredClone(state.sections);
+  const facts = confirmedFactsForRevision();
+  setState({ busy: '요청한 곳만 고치는 중...', error: '', notice: '' });
+  let ok = false;
+  try {
+    const kindLabel = REVISION_KINDS.find(item => item.key === draft.kind)?.label || '수정';
+    // 기존 부분수정 경로를 그대로 쓴다. 요청과 확인된 사실을 기준에 함께 넣어
+    // 요청한 곳만 고치고 확인된 사실은 건드리지 않게 한다.
+    const basis = {
+      ...preciseBasis(),
+      revision: { kind: draft.kind, label: kindLabel, request: String(draft.text).slice(0, 1000) },
+      keepFacts: facts,
+      rule: '요청한 부분만 고칩니다. 요청하지 않은 항목과 확인된 사실은 그대로 둡니다. 근거 없는 수치·실적·기관은 만들지 말고 [확인 필요]로 남깁니다.'
+    };
+    const result = await patchSectionsWithAI({ basis, sections: state.sections });
+    const patched = Array.isArray(result?.sections) ? result.sections : [];
+    if (!patched.length) throw new Error('수정된 내용이 없습니다.');
+    const byId = new Map(patched.map(item => [item.id, item]));
+    state.sections = state.sections.map(section => (byId.has(section.id) ? { ...section, ...byId.get(section.id) } : section));
+    ok = true;
+  } catch (error) {
+    // 실패는 회원 잘못이 아니다. 횟수를 깎지 않는다.
+    const entry = settleRevision({ slot: revisionSlot(draft.kind), ok: false });
+    state.revisions = [...(state.revisions || []), entry];
+    return setState({ busy: '', revisions: state.revisions, error: `수정하지 못했습니다. 남은 횟수는 그대로입니다. (${String(error?.message || '').slice(0, 60)})` });
+  }
+
+  const diff = diffSections(before, state.sections);
+  const saved = Boolean(state.archiveProposalId);
+  const entry = {
+    ...settleRevision({ slot: gate.slot, ok, saved, changedSections: diff.changed.length }),
+    diff, newUnknowns: newUnknowns(before, state.sections), lostFacts: keptFacts(facts, state.sections).lost, at: new Date().toISOString()
+  };
+  state.revisions = [...(state.revisions || []), entry];
+  state.revisionBackup = before;
+  const left = remainingOf(state.revisions);
+  setState({
+    busy: '', revisions: state.revisions, revisionBackup: state.revisionBackup,
+    notice: `바뀐 항목 ${diff.changed.length}개 · 그대로 둔 항목 ${diff.kept.length}개 · 새로 확인할 내용 ${entry.newUnknowns}곳 · 남은 수정 ${left.total}회${entry.counted ? '' : ` (이번 요청은 세지 않았습니다: ${entry.note})`}`
+  });
+  if (state.archiveProposalId) await archiveCurrentProposal().catch(() => {});
+}
+
+// 수정 전 버전으로 되돌린다. 되돌리기는 횟수를 다시 채우지 않는다(이미 만들어진 결과가 있었으므로).
+function undoRevision() {
+  if (!state.revisionBackup) return setState({ error: '되돌릴 수정 전 버전이 없습니다.' });
+  state.sections = structuredClone(state.revisionBackup);
+  state.revisionBackup = null;
+  setState({ sections: state.sections, revisionBackup: null, notice: '수정 전 내용으로 되돌렸습니다.' });
+}
+
+// 확인된 사실 목록. 수정본이 이것을 지웠는지 확인하는 데 쓴다.
+function confirmedFactsForRevision() {
+  const applicant = findApplicant(state.applicants, state.selectedApplicantId);
+  return (applicant?.items || []).filter(item => item.status === CONFIRMED_STATUS).map(item => item.value).filter(Boolean).slice(0, 20);
 }
 
 async function createDraft() {
