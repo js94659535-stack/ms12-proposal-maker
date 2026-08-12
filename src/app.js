@@ -2439,7 +2439,7 @@ function homeView() {
         <div class="home-startbox">
           <div class="home-startbox-head"><span class="home-dot"></span><p class="home-startbox-title">공고문을 올리거나 사업 내용을 입력하면 첫 단계부터 안내합니다</p></div>
           <div class="home-startbox-actions"><button class="button primary" data-home-upload="1">공고문 업로드</button><button class="button secondary" data-home-manual="1">직접 입력</button><button class="button ghost" data-home-archive="1">공고보관함에서 열기</button></div>
-          <p class="home-startbox-note">PDF · DOCX · TXT · HWPX를 읽습니다. 파일은 분석을 요청할 때만 전송되고 화면 상태는 이 브라우저에 저장됩니다.</p>
+          <p class="home-startbox-note">PDF · DOCX · TXT · HWPX · HWP를 읽습니다. 파일은 분석을 요청할 때만 전송되고 화면 상태는 이 브라우저에 저장됩니다.</p>
         </div>
         <button class="home-scroll-cue" data-home-scroll="home-flow" aria-label="아래로 이동">여섯 단계 살펴보기 ↓</button>
       </section>
@@ -2529,11 +2529,33 @@ function stageHero({ eyebrow, title, lead, actions = '', routes = [] }) {
     ${routes.length || actions ? `<div class="stage-routes">${routes.map((route, index) => `<button class="stage-route ${index === 0 ? 'primary' : ''}" data-route="${escapeHtml(route.action)}" title="${escapeHtml(route.desc)}"><strong>${escapeHtml(route.label)}</strong><small>${escapeHtml(route.title)}</small></button>`).join('')}${actions}</div>` : ''}
   </section>`;
 }
+
+// 올린 파일 한 건의 결과. 파일명·형식·용량·글자 수·표 수·성공 여부를 그대로 적는다.
+// 읽지 못한 파일은 목록에서 지우지 않고 이유와 함께 남긴다. 그래야 사용자가 무엇을 할지 안다.
+const fileSize = bytes => (bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)}MB` : `${Math.max(1, Math.round(bytes / 1024))}KB`);
+function fileReportRow(item, index) {
+  const ok = item.extracted !== false;
+  return `<div class="file-item">
+    <span class="file-badge">${escapeHtml(item.type || '?')}</span>
+    <div><strong>${escapeHtml(item.name)}</strong>
+      <small>${escapeHtml([
+        item.size ? fileSize(item.size) : '',
+        ok ? `${Number(item.characters || 0).toLocaleString()}자` : '읽지 못함',
+        ok && item.tables ? `표 ${item.tables}개` : '',
+        ok && item.pages ? `${item.pages}쪽` : ''
+      ].filter(Boolean).join(' · '))}</small>
+      ${ok ? '' : `<small class="muted">${escapeHtml(item.reason || '원인을 확인하지 못했습니다.')}</small>`}
+    </div>
+    <span class="status ${ok ? '충족' : '부족'}">${ok ? '추출 성공' : '추출 실패'}</span>
+    <button data-remove-file="${index}" aria-label="파일 제거">×</button>
+  </div>`;
+}
+
 function noticeImportView() {
   return `${stageHero({ eyebrow: '1단계 · 공고 준비', title: '어떤 공고로 시작할까요?', lead: '공식 공고를 가져오거나 가지고 있는 공고문을 올리면 다음 단계부터 자동으로 이어집니다. 파일은 분석을 요청할 때만 전송됩니다.', actions: sampleButton('notice', '[샘플] 공고 먼저 보기'), routes: [{ title: '중앙회·광주지회 진행 중 공고', desc: '사랑의열매 중앙회·광주지회 진행 중 공고를 조회해 목록으로 가져옵니다.', label: '공고 조회', action: 'fetch' }, { title: 'PDF·DOCX·TXT·HWPX', desc: '공고문·신청서 파일을 읽어 분석 자료로 씁니다.', label: '파일 선택', action: 'upload' }, { title: '전에 가져온 공고 다시 열기', desc: '공고보관함에서 이어서 작업합니다.', label: '공고보관함', action: 'archive' }] })}
     <div class="dense-step">
     <div class="card"><div class="card-title"><div><h3>기관 공고 가져오기</h3><span>사랑의열매 중앙회 · 광주지회</span></div><button class="button primary" id="fetch-notices">공고 가져오기</button></div><p class="muted">${state.noticeResults.length ? `진행 중 공고 ${state.noticeResults.length}건을 가져왔습니다.` : '버튼을 누를 때만 공식 공모사업을 조회합니다.'} 가져온 목록은 <b>이 화면에서만 쓰는 임시 목록</b>이라 새로고침하면 사라지며, 과거 공고는 아래 <b>「공고보관함」</b>에서 다시 열 수 있습니다.</p>${state.noticeResults.length ? '<div class="actions"><span></span><button class="button primary" data-step="1">가져온 공고 확인 →</button></div>' : ''}</div>
-    <div class="source-grid"><div class="card"><div class="card-title"><h3>공고문·신청서 업로드</h3><span>PDF · DOCX · TXT · HWPX</span></div><label class="dropzone" for="source-files"><strong>파일 선택 또는 여기에 놓기</strong><small>스캔 PDF는 OCR이 필요할 수 있습니다.</small><input id="source-files" type="file" accept=".pdf,.docx,.txt,.hwpx" multiple></label><div class="file-list">${state.files.length ? state.files.map((f, i) => `<div class="file-item"><span class="file-badge">${escapeHtml(f.type)}</span><div><strong>${escapeHtml(f.name)}</strong><small>${Number(f.characters || 0).toLocaleString()}자</small></div><button data-remove-file="${i}" aria-label="파일 제거">×</button></div>`).join('') : '<p class="empty-inline">업로드한 파일이 없습니다.</p>'}</div></div>
+    <div class="source-grid"><div class="card"><div class="card-title"><h3>공고문·신청서 업로드</h3><span>PDF · DOCX · TXT · HWPX · HWP</span></div><label class="dropzone" for="source-files"><strong>파일 선택 또는 여기에 놓기</strong><small>스캔 PDF는 OCR이 필요할 수 있습니다.</small><input id="source-files" type="file" accept=".pdf,.docx,.txt,.hwpx,.hwp" multiple></label><div class="file-list">${state.files.length ? state.files.map(fileReportRow).join('') : '<p class="empty-inline">업로드한 파일이 없습니다.</p>'}</div></div>
     <div class="card"><div class="card-title"><h3>공고문 직접 붙여넣기</h3><span id="char-count">${state.sourceText.length.toLocaleString()}자</span></div><textarea id="source-text" class="source-text" placeholder="기관 공고문 또는 신청서 원문을 붙여넣으세요.">${escapeHtml(state.sourceText)}</textarea></div></div>
     ${manualSourcesView()}
     <details class="card org-details"><summary>누락 공고 URL과 공식 사이트</summary><div class="inline-row"><label for="missing-notice-url">누락 공고 가져오기</label><input id="missing-notice-url" type="url" value="${escapeHtml(state.noticeUrlDraft)}" placeholder="공식 공고 상세 주소"><button class="button secondary" id="import-notice-url">목록에 추가</button></div><div class="inline-row"><a class="button secondary" href="https://chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">중앙회 공식 사이트</a><a class="button secondary" href="https://gwangju.chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">광주지회 공식 사이트</a></div></details>
@@ -3527,7 +3549,7 @@ function removeApplicantSource(id) {
 function applicantDocumentView(applicant) {
   const review = state.applicantExtraction?.applicantId === applicant.id ? state.applicantExtraction : null;
   return `<div class="card"><div class="card-title"><div><h3>기관 문서에서 정보 추출</h3><span>사업계획서·결과보고서·기관소개서를 넣으면 기관정보 업데이트 후보를 만듭니다. 기존 정보는 자동으로 덮어쓰지 않습니다.</span></div></div>
-    <div class="field"><label for="applicant-doc-file">기관 문서 파일 (PDF·DOCX·TXT·HWPX)</label><input type="file" id="applicant-doc-file" accept=".pdf,.docx,.txt,.hwpx"><small class="muted">HWP는 한/글에서 HWPX·PDF·DOCX로 저장한 뒤 올려 주세요.</small></div>
+    <div class="field"><label for="applicant-doc-file">기관 문서 파일 (PDF·DOCX·TXT·HWPX·HWP)</label><input type="file" id="applicant-doc-file" accept=".pdf,.docx,.txt,.hwpx,.hwp"><small class="muted">한글 파일(HWPX·HWP)도 본문과 표를 읽습니다. 읽지 못하면 이유를 알려 드립니다.</small></div>
     <div class="field"><label for="applicant-doc-text">또는 문서 내용 붙여넣기</label><textarea id="applicant-doc-text" style="min-height:110px" placeholder="예) 기관명: 사단법인 ○○센터 / 상근 인력: 5명 / 2025년 청소년 마음건강 지원사업">${escapeHtml(state.applicantDocDraft)}</textarea></div>
     <div class="actions" style="margin:0"><span class="muted">${escapeHtml(review ? `${review.documentName || '붙여넣은 문서'} · 문서 기준시점 ${review.documentAsOf || ASOF_UNKNOWN}` : '외부 AI 호출 없이 규칙 기반으로 추출합니다.')}</span><button class="button primary" id="extract-applicant-doc">업데이트 후보 만들기</button></div>
     <div class="actions" style="margin-top:14px"><span class="muted">계획서보관함에 저장된 과거 사업계획서는 다시 업로드하지 않고 바로 사용할 수 있습니다.</span><button class="button secondary" id="load-applicant-archive">계획서보관함 목록</button></div>
@@ -3836,7 +3858,7 @@ function sourceTypeOptions(selected) { return SOURCE_TYPES.map(value => `<option
 function manualSourcesView() {
   // 보조 자료라서 기본은 접어 둔다. 이미 추가한 자료가 있으면 펼친 채로 보여 준다.
   const count = state.manualSources.length;
-  return `<details class="card org-details" id="manual-sources" ${count ? 'open' : ''}><summary><b>직접 자료 추가</b>${count ? ` · ${count}건` : ''} <small>PDF · DOCX · TXT / HWP·HWPX는 PDF 변환 안내</small></summary>
+  return `<details class="card org-details" id="manual-sources" ${count ? 'open' : ''}><summary><b>직접 자료 추가</b>${count ? ` · ${count}건` : ''} <small>PDF · DOCX · TXT / HWPX·HWP 지원</small></summary>
     <div class="two-col"><div class="field"><label for="manual-source-type">기본 자료 유형</label><select id="manual-source-type">${sourceTypeOptions(state.manualSourceType)}</select><label class="dropzone" for="manual-source-files"><strong>여러 파일 선택</strong><small>자료별 유형은 추가 후 변경할 수 있습니다.</small><input id="manual-source-files" type="file" accept=".pdf,.docx,.txt,.hwp,.hwpx" multiple></label></div>
     <div><div class="field"><label for="manual-source-name">붙여넣기 자료명</label><input id="manual-source-name" value="${escapeHtml(state.manualSourceName)}" placeholder="예: 2027년 신청서 작성항목"><label for="manual-source-text">원문 직접 붙여넣기</label><textarea id="manual-source-text" class="source-text" placeholder="공문·신청서·예산기준·심사기준 원문을 붙여넣으세요.">${escapeHtml(state.manualSourceText)}</textarea></div><button class="button secondary" id="add-manual-text">붙여넣기 자료 추가</button></div></div>
     ${count ? `<div class="requirement-list">${state.manualSources.map((item, index) => `<article class="requirement"><div><span class="tag ${item.extractionStatus === 'success' ? '' : 'mandatory'}">${item.extractionStatus === 'success' ? '추출 성공' : '추출 불가'}</span><div><strong>${escapeHtml(item.fileName)}</strong><select data-manual-source-type="${index}">${sourceTypeOptions(item.sourceType)}</select><small>${Number(item.extractedText?.length || 0).toLocaleString()}자${item.extractionError ? ` · ${escapeHtml(item.extractionError)}` : ''}</small><p class="muted">${escapeHtml((item.extractedText || '').slice(0, 180) || '텍스트 미리보기 없음')}</p></div></div><button class="button secondary" data-remove-manual-source="${index}">삭제</button></article>`).join('')}</div>` : '<p class="empty-inline">직접 추가한 자료가 없습니다.</p>'}</details>`;
@@ -4698,8 +4720,8 @@ function coachingView() {
   const coaching = state.coaching || initial.coaching;
   const result = coaching.result;
   return `<div class="page-heading"><div class="actions" style="justify-content:flex-end">${sampleButton('coachingV1', '[샘플] 검증 예시 보기')}</div><div><h2>계획서 검증·코칭</h2><p>내부·외부 계획서를 전체 구조부터 검토하고 문제가 있는 위치만 구체적으로 코칭합니다.</p></div><button class="button secondary" id="close-coaching">작성 흐름으로 돌아가기</button></div>
-    <div class="card"><div class="two-col"><div class="field"><label for="coaching-title">계획서명</label><input id="coaching-title" value="${escapeHtml(coaching.title)}" placeholder="검증할 계획서명"></div><div class="field"><label for="coaching-file">PDF·DOCX·TXT·HWPX 불러오기</label><input id="coaching-file" type="file" accept=".pdf,.docx,.txt,.hwpx"><small class="muted">HWP(한글 바이너리)는 직접 읽을 수 없습니다. 한/글에서 [다른 이름으로 저장] → HWPX·PDF·DOCX로 저장해 올려 주세요.</small></div></div>
-    <label class="dropzone" id="coaching-dropzone" for="coaching-file"><strong>평가받을 사업계획서를 여기에 끌어다 놓으세요</strong><small>클릭 선택과 같은 방식으로 처리합니다 · PDF · DOCX · TXT · HWPX</small></label>
+    <div class="card"><div class="two-col"><div class="field"><label for="coaching-title">계획서명</label><input id="coaching-title" value="${escapeHtml(coaching.title)}" placeholder="검증할 계획서명"></div><div class="field"><label for="coaching-file">PDF·DOCX·TXT·HWPX·HWP 불러오기</label><input id="coaching-file" type="file" accept=".pdf,.docx,.txt,.hwpx,.hwp"><small class="muted">한글 파일(HWPX·HWP)도 본문과 표를 읽습니다. 그림으로만 된 문서나 암호 문서는 이유를 알려 드립니다.</small></div></div>
+    <label class="dropzone" id="coaching-dropzone" for="coaching-file"><strong>평가받을 사업계획서를 여기에 끌어다 놓으세요</strong><small>클릭 선택과 같은 방식으로 처리합니다 · PDF · DOCX · TXT · HWPX · HWP</small></label>
     <div class="field"><label for="coaching-text">계획서 원문</label><textarea id="coaching-text" class="source-text" placeholder="직원이 작성한 계획서를 붙여넣거나 파일을 업로드하세요.">${escapeHtml(coaching.text)}</textarea></div>
     <div class="field"><label for="coaching-criteria">연결할 공고·신청서·공식 평가기준</label><textarea id="coaching-criteria" class="source-text" placeholder="평가표가 있으면 최우선 기준으로 사용합니다.">${escapeHtml(coaching.criteriaText)}</textarea><label><input id="coaching-official-evaluation" type="checkbox" ${coaching.officialEvaluationProvided ? 'checked' : ''}> 입력 자료에 공식 평가표가 포함되어 있음</label></div>
     <div class="actions"><div><button class="button secondary" id="coach-current-proposal" ${state.sections.length ? '' : 'disabled'}>현재 계획서 불러오기</button><button class="button secondary" id="coach-list-archive">계획서보관함 계획서</button></div><button class="button primary" id="run-coaching" ${coaching.pendingJob ? 'disabled' : ''}>${coaching.pendingJob ? '검증 중' : result ? '수정본 다시 검증' : '검증·코칭 실행'}</button></div><small>전체 검증은 OpenAI background mode로 실행됩니다. store=false이지만 polling을 위해 응답 데이터가 약 10분간 일시 저장될 수 있습니다.</small></div>
@@ -4796,7 +4818,7 @@ function coachingReferenceView(coaching) {
   const usageTag = { '공식 근거로 사용 가능': 'status 충족', '관련 있으나 참고용': 'status 부분-충족', '이번 사업과 맞지 않음': 'status 미충족', '출처/진위 확인 필요': 'status 확인-필요', '내용끼리 충돌함': 'status 미충족' };
   return `<div class="card"><div class="card-title"><div><h3>참고자료 ${references.length}건</h3><span>공고문·사업요강·평가기준·원본 등 계획서를 판단할 근거 자료입니다. 평가받는 계획서와 섞지 않습니다.</span></div></div>
     <div class="two-col"><div class="field"><label for="reference-type">자료 유형</label><select id="reference-type">${REFERENCE_TYPES.map(type => `<option value="${escapeHtml(type)}" ${coaching.referenceType === type ? 'selected' : ''}>${escapeHtml(type)}</option>`).join('')}</select></div>
-    <div class="field"><label for="reference-file">참고자료 파일 추가</label><input id="reference-file" type="file" accept=".pdf,.docx,.txt,.hwpx" multiple></div></div>
+    <div class="field"><label for="reference-file">참고자료 파일 추가</label><input id="reference-file" type="file" accept=".pdf,.docx,.txt,.hwpx,.hwp" multiple></div></div>
     <label class="dropzone" id="reference-dropzone" for="reference-file"><strong>참고자료를 여기에 끌어다 놓으세요</strong><small>선택한 자료 유형으로 여러 개를 한 번에 추가합니다</small></label>
     <div class="two-col"><div class="field"><label for="reference-name">붙여넣을 자료명</label><input id="reference-name" value="${escapeHtml(coaching.referenceNameDraft || '')}" placeholder="예: 2026년 배분사업 공고문"></div><div class="field"><label>&nbsp;</label><button class="button secondary" id="add-reference-text">붙여넣은 참고자료 추가</button></div></div>
     <div class="field"><label for="reference-text">참고자료 내용 붙여넣기</label><textarea id="reference-text" style="min-height:90px" placeholder="공고문·요강·평가기준 원문을 붙여넣으세요.">${escapeHtml(coaching.referenceDraft || '')}</textarea></div>
@@ -5013,7 +5035,28 @@ function bind() {
   document.querySelector('#menu-toggle')?.addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
   const fileInput = document.querySelector('#source-files');
   if (fileInput) fileInput.onchange = async e => {
-    try { setState({ busy: '파일에서 텍스트를 추출하는 중...', error: '' }); const parsed = await extractFiles([...e.target.files]); state.files.push(...parsed.map(v => ({ ...v, characters: v.text.length }))); state.sourceText += parsed.map(v => `\n\n[파일: ${v.name}]\n${v.text}`).join(''); setState({ busy: '', notice: `${parsed.length}개 파일을 읽었습니다.` }); }
+    try {
+      setState({ busy: '파일에서 텍스트를 추출하는 중...', error: '' });
+      const chosen = [...e.target.files];
+      const done = [];
+      const failed = [];
+      for (const file of chosen) {
+        try {
+          const parsed = await extractFile(file);
+          done.push({ ...parsed, characters: parsed.text.length, extracted: true });
+        } catch (error) {
+          // 읽지 못한 파일도 목록에 남긴다. 무엇이 문제였는지 함께 적는다.
+          failed.push({ name: file.name, type: (file.name.split('.').pop() || '').toUpperCase(), size: file.size, characters: 0, tables: 0, extracted: false, reason: String(error?.message || '').replace(`${file.name}: `, '') });
+        }
+      }
+      state.files.push(...done, ...failed);
+      state.sourceText += done.map(v => `\n\n[파일: ${v.name}]\n${v.text}`).join('');
+      setState({
+        busy: '',
+        notice: done.length ? `${done.length}개 파일을 읽었습니다.${failed.length ? ` ${failed.length}개는 읽지 못해 이유를 표시했습니다.` : ''}` : '',
+        error: done.length ? '' : failed.map(item => `${item.name}: ${item.reason}`).join(' / ')
+      });
+    }
     catch (error) { setState({ busy: '', error: error.message }); }
   };
   const manualFiles = document.querySelector('#manual-source-files');

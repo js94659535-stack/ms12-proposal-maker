@@ -1,5 +1,21 @@
-// HWPX(OWPML)는 XML을 담은 ZIP이므로 외부 변환 서비스 없이 브라우저·Node 공통 DecompressionStream만으로 본문을 읽는다.
-const HWP_GUIDE = '한글 HWP(바이너리) 파일은 브라우저에서 직접 읽을 수 없습니다. 한/글에서 [다른 이름으로 저장] → HWPX 또는 PDF·DOCX로 저장한 뒤 다시 올려 주세요.';
+// HWPX(OWPML)는 XML을 담은 ZIP이고, 구형 HWP는 CFB 컨테이너다.
+// 둘 다 외부 변환 서비스 없이 브라우저 안에서 읽는다. 읽지 못하면 읽은 척하지 않는다.
+import { extractHwpText, HWP_CONVERT_GUIDE } from './hwp.js';
+import { loadModule } from './module-loader.js';
+
+const HWP_GUIDE = `한글 HWP 파일을 읽지 못했습니다. ${HWP_CONVERT_GUIDE}`;
+// 지원 형식. 화면 안내와 input accept가 이 목록을 함께 쓴다.
+export const SUPPORTED = Object.freeze(['pdf', 'docx', 'txt', 'hwpx', 'hwp']);
+export const ACCEPT = SUPPORTED.map(item => `.${item}`).join(',');
+
+// 왜 못 읽었는지 갈라서 알려 준다. 원인을 뭉뚱그리면 사용자가 할 수 있는 일이 없다.
+export const REASON = Object.freeze({
+  empty: '빈 문서입니다. 내용이 있는 파일인지 확인해 주세요.',
+  encrypted: '암호가 걸린 문서입니다. 암호를 푼 뒤 다시 올려 주세요.',
+  damaged: '파일이 손상되었거나 형식과 내용이 다릅니다.',
+  scanned: '글자가 없는 스캔 문서로 보입니다. 글자를 인식한 PDF나 원본 문서로 올려 주세요.',
+  unsupported: `지원하지 않는 형식입니다. ${HWP_CONVERT_GUIDE}`
+});
 
 async function inflateRaw(bytes) {
   if (typeof DecompressionStream !== 'function') throw new Error('이 브라우저는 HWPX 압축 해제를 지원하지 않습니다. PDF 또는 DOCX로 저장해 올려 주세요.');
@@ -71,6 +87,14 @@ export function hwpxSectionText(xml) {
   return text.replace(/ +\t/g, '\t').replace(/\t +/g, '\t').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+export async function hwpxSections(buffer) {
+  if (new TextDecoder().decode(new Uint8Array(buffer).subarray(0, 2)) !== 'PK') throw new Error(`HWPX 형식이 아닙니다. ${HWP_CONVERT_GUIDE}`);
+  const sections = (await readZipEntries(buffer, name => /^Contents\/section\d+\.xml$/i.test(name)))
+    .sort((left, right) => Number(left.name.match(/\d+/)[0]) - Number(right.name.match(/\d+/)[0]));
+  if (!sections.length) throw new Error('HWPX 본문(Contents/section0.xml)을 찾지 못했습니다.');
+  return sections.map(section => section.text);
+}
+
 export async function extractHwpxText(buffer) {
   if (new TextDecoder().decode(new Uint8Array(buffer).subarray(0, 2)) !== 'PK') throw new Error(`HWPX 형식이 아닙니다. ${HWP_GUIDE}`);
   const sections = (await readZipEntries(buffer, name => /^Contents\/section\d+\.xml$/i.test(name)))
@@ -79,34 +103,89 @@ export async function extractHwpxText(buffer) {
   return sections.map(section => hwpxSectionText(section.text)).filter(Boolean).join('\n\n');
 }
 
+// 표 개수를 센다. HWPX·DOCX는 태그를, HWP는 개체 식별자를 본다.
+function countXmlTables(xml, tag) {
+  return (String(xml || '').match(new RegExp(`<(?:\\w+:)?${tag}(?=[\\s>])`, 'g')) || []).length;
+}
+
 export async function extractFile(file) {
   const extension = file.name.split('.').pop()?.toLowerCase();
-  if (file.size > 20 * 1024 * 1024) throw new Error(`${file.name}: 파일은 20MB 이하여야 합니다.`);
-  if (extension === 'txt') return { name: file.name, type: 'TXT', text: await file.text(), pages: 1 };
-  if (extension === 'hwp') throw new Error(`${file.name}: ${HWP_GUIDE}`);
+  const size = file.size;
+  if (size > 20 * 1024 * 1024) throw new Error(`${file.name}: 파일은 20MB 이하여야 합니다.`);
+  if (size === 0) throw new Error(`${file.name}: ${REASON.empty}`);
+
+  if (extension === 'txt') {
+    const text = await file.text();
+    if (!text.trim()) throw new Error(`${file.name}: ${REASON.empty}`);
+    return { name: file.name, type: 'TXT', size, text, pages: 1, tables: 0, extracted: true };
+  }
+
+  if (extension === 'hwp') {
+    let result;
+    try {
+      result = await extractHwpText(await file.arrayBuffer());
+    } catch (error) {
+      // 원인을 그대로 전한다. 못 읽은 것을 읽은 것처럼 만들지 않는다.
+      throw new Error(`${file.name}: ${error?.message || HWP_GUIDE}`);
+    }
+    return { name: file.name, type: 'HWP', size, text: result.text, pages: null, tables: result.tables, extracted: true };
+  }
+
   if (extension === 'hwpx') {
-    const text = await extractHwpxText(await file.arrayBuffer());
-    if (!text.trim()) throw new Error(`${file.name}: HWPX에서 본문 텍스트를 찾지 못했습니다. 표·이미지만 있는 문서라면 PDF로 저장해 올려 주세요.`);
-    return { name: file.name, type: 'HWPX', text, pages: null };
+    const buffer = await file.arrayBuffer();
+    let text = '';
+    let tables = 0;
+    try {
+      const sections = await hwpxSections(buffer);
+      text = sections.map(section => hwpxSectionText(section)).filter(Boolean).join('\n\n');
+      tables = sections.reduce((sum, section) => sum + countXmlTables(section, 'tbl'), 0);
+    } catch (error) {
+      throw new Error(`${file.name}: ${error?.message || REASON.damaged}`);
+    }
+    if (!text.trim()) throw new Error(`${file.name}: ${REASON.scanned} ${HWP_CONVERT_GUIDE}`);
+    return { name: file.name, type: 'HWPX', size, text, pages: null, tables, extracted: true };
   }
+
   if (extension === 'docx') {
-    const mammoth = await import('mammoth/mammoth.browser');
-    const result = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
-    return { name: file.name, type: 'DOCX', text: result.value, pages: null, warnings: result.messages.map(v => v.message) };
+    const mammoth = await loadModule(() => import('mammoth/mammoth.browser'), 'DOCX 읽기');
+    const buffer = await file.arrayBuffer();
+    let result;
+    try {
+      result = await mammoth.extractRawText({ arrayBuffer: buffer });
+    } catch (error) {
+      throw new Error(`${file.name}: ${/password|encrypt/i.test(String(error?.message)) ? REASON.encrypted : REASON.damaged}`);
+    }
+    if (!String(result.value || '').trim()) throw new Error(`${file.name}: ${REASON.empty}`);
+    // 표 개수는 원본 XML에서 센다. mammoth는 표를 글자로만 돌려준다.
+    let tables = 0;
+    try { tables = countXmlTables((await readZipEntries(buffer, name => name === 'word/document.xml'))[0]?.text || '', 'tbl'); } catch { /* 표 수는 못 세도 본문은 쓴다 */ }
+    return { name: file.name, type: 'DOCX', size, text: result.value, pages: null, tables, extracted: true, warnings: result.messages.map(v => v.message) };
   }
+
   if (extension === 'pdf') {
-    const pdfjs = await import('pdfjs-dist');
+    const pdfjs = await loadModule(() => import('pdfjs-dist'), 'PDF 읽기');
     pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString();
-    const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+    let pdf;
+    try {
+      pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+    } catch (error) {
+      const message = String(error?.name || error?.message || '');
+      if (/Password/i.test(message)) throw new Error(`${file.name}: ${REASON.encrypted}`);
+      throw new Error(`${file.name}: ${REASON.damaged}`);
+    }
     const pages = [];
     for (let pageNo = 1; pageNo <= pdf.numPages; pageNo += 1) {
       const page = await pdf.getPage(pageNo);
       const content = await page.getTextContent();
       pages.push(`[${pageNo}쪽]\n${content.items.map(item => item.str).join(' ')}`);
     }
-    return { name: file.name, type: 'PDF', text: pages.join('\n\n'), pages: pdf.numPages };
+    const text = pages.join('\n\n');
+    // 쪽은 있는데 글자가 거의 없으면 스캔본이다. 없는 내용을 지어내지 않는다.
+    if (text.replace(/\[\d+쪽\]/g, '').trim().length < 20) throw new Error(`${file.name}: ${REASON.scanned}`);
+    return { name: file.name, type: 'PDF', size, text, pages: pdf.numPages, tables: 0, extracted: true };
   }
-  throw new Error(`${file.name}: PDF, DOCX, TXT, HWPX만 지원합니다. HWP는 한/글에서 HWPX·PDF·DOCX로 저장해 올려 주세요.`);
+
+  throw new Error(`${file.name}: ${REASON.unsupported} 지원 형식은 PDF·DOCX·TXT·HWPX·HWP입니다.`);
 }
 
 export async function extractFiles(files, onProgress) {

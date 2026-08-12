@@ -226,7 +226,7 @@ test('상단 독립 코칭 화면은 외부 파일·붙여넣기·보관함·재
   assert.ok(source.includes("['open-coaching', '계획서 검증·코칭'"), '작업 메뉴에 검증·코칭 항목이 있다');
   assert.ok(source.includes("querySelector('#open-coaching')"), '검증·코칭 처리기가 그대로 있다');
   assert.match(source, /계획서 검증·코칭/);
-  assert.match(source, /accept="\.pdf,\.docx,\.txt,\.hwpx"/);
+  assert.match(source, /accept="\.pdf,\.docx,\.txt,\.hwpx,\.hwp"/);
   assert.match(source, /id="coaching-text"/);
   assert.match(source, /data-coach-archive/);
   assert.match(source, /수정본 다시 검증/);
