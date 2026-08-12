@@ -247,3 +247,63 @@ test('화면 분기 규칙이 역할과 상태를 함께 본다', () => {
   assert.match(app, /function blockedView\(\)/);
   assert.match(app, /이용이 중지된 계정입니다/);
 });
+
+test('중지된 세션은 /api/auth에서도 me와 logout만 쓸 수 있다', async () => {
+  // signup은 중지된 채로 새 계정과 새 세션을 받아 가는 길이었다. 역할을 가리지 않고 막는다.
+  for (const role of ['admin', 'operator', 'customer']) {
+    const db = fakeDb();
+    await seedUser(db, { id: `s-${role}`, email: `${role}@block.test`, role, status: 'active' });
+    const cookie = await signIn(db, `${role}@block.test`);
+    db.tables.users.find(item => item.id === `s-${role}`).status = 'disabled';
+    const accounts = db.tables.users.length;
+
+    const blocked = [
+      { action: 'signup', email: `new-${role}@block.test`, password: PASSWORD, passwordConfirm: PASSWORD, terms: true, privacy: true, termsVersion: '1', privacyVersion: '1' },
+      { action: 'login', email: `${role}@block.test`, password: PASSWORD },
+      { action: 'recoverPassword', email: `${role}@block.test`, code: 'code', password: PASSWORD, passwordConfirm: PASSWORD },
+      { action: 'nonsense' }
+    ];
+    for (const body of blocked) {
+      const response = await through(db, post('/api/auth', body, { cookie }), 'auth');
+      assert.equal(response.status, 403, `${role} ${body.action}`);
+      assert.equal((await response.json()).suspended, true, `${role} ${body.action}`);
+      // 막힌 요청은 새 세션 쿠키를 내주지 않는다.
+      assert.doesNotMatch(response.headers.get('set-cookie') || '', /__Host-ms12_session=[a-f0-9]{64}/);
+    }
+    assert.equal(db.tables.users.length, accounts, `${role}: 중지된 세션에서 계정이 늘지 않는다`);
+
+    // 자기 상태 확인과 로그아웃은 남는다.
+    const me = await through(db, post('/api/auth', { action: 'me' }, { cookie }), 'auth');
+    assert.equal(me.status, 200);
+    assert.equal((await me.json()).user.status, 'disabled');
+    const out = await through(db, post('/api/auth', { action: 'logout' }, { cookie }), 'auth');
+    assert.equal(out.status, 200);
+    assert.equal(db.tables.sessions.filter(item => item.user_id === `s-${role}`).length, 0, `${role}: 로그아웃이 실제로 세션을 지운다`);
+  }
+});
+
+test('중지되지 않은 계정의 인증 흐름은 그대로다', async () => {
+  const db = fakeDb();
+  await seedUser(db, { id: 'a-1', email: 'active@ms12.test', role: 'customer', status: 'active' });
+  await seedUser(db, { id: 'p-1', email: 'pending@ms12.test', role: 'customer', status: 'pending' });
+  // 활성·대기 계정은 로그인된다.
+  for (const email of ['active@ms12.test', 'pending@ms12.test']) {
+    const login = await through(db, post('/api/auth', { action: 'login', email, password: PASSWORD }), 'auth');
+    assert.equal(login.status, 200, email);
+  }
+  // 대기 계정 세션으로도 가입은 여전히 열려 있다. 중지에만 걸리는 잠금이다.
+  const cookie = await signIn(db, 'pending@ms12.test');
+  const signup = await through(db, post('/api/auth', {
+    action: 'signup', email: 'fresh@ms12.test', password: PASSWORD, passwordConfirm: PASSWORD,
+    terms: true, privacy: true, termsVersion: '1', privacyVersion: '1'
+  }, { cookie }), 'auth');
+  assert.equal(signup.status, 200);
+  // 로그인하지 않은 사람의 가입·복구도 막히지 않는다.
+  const anonymous = await through(db, post('/api/auth', {
+    action: 'signup', email: 'anon@ms12.test', password: PASSWORD, passwordConfirm: PASSWORD,
+    terms: true, privacy: true, termsVersion: '1', privacyVersion: '1'
+  }), 'auth');
+  assert.equal(anonymous.status, 200);
+  const recovery = await through(db, post('/api/auth', { action: 'recoverPassword', email: 'active@ms12.test', code: 'wrong', password: PASSWORD, passwordConfirm: PASSWORD }), 'auth');
+  assert.equal(recovery.status, 401, '코드가 틀리면 401이지 403이 아니다');
+});

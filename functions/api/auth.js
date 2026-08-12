@@ -16,6 +16,8 @@ const SIGNUP_THROTTLED = '가입 시도가 많습니다. 잠시 후 다시 시�
 const RECOVERY_FAILED = '복구코드가 올바르지 않거나 사용 기한이 지났습니다. 운영관리자에게 새 코드를 요청해 주세요.';
 // 가입 화면에서만 이메일 사용 여부를 알려 준다. 대신 한 곳에서 여러 번 두드리지 못하게 막는다.
 const EMAIL_TAKEN = '이미 가입에 사용된 이메일입니다. 로그인하거나 다른 이메일을 사용해 주세요.';
+// 이용이 중지된 세션에 남겨 두는 작업. 왜 막혔는지 보고 나가는 것뿐이다.
+const SUSPENDED_ACTIONS = new Set(['me', 'logout']);
 
 export async function onRequest(context) {
   const { request, env, data } = context;
@@ -25,6 +27,13 @@ export async function onRequest(context) {
   }
   let body;
   try { body = await request.json(); } catch { return json({ error: '요청 JSON 형식이 올바르지 않습니다.' }, 400); }
+
+  // 이용이 중지된 세션은 자기 상태를 보고 나가는 것만 할 수 있다.
+  // 미들웨어는 경로만 보므로 이 엔드포인트 안의 작업은 여기서 가른다.
+  // 특히 signup은 중지된 채로 새 계정과 새 세션을 받아 가는 길이었다. 역할과 무관하게 막는다.
+  if (data.session?.suspended && !SUSPENDED_ACTIONS.has(body.action)) {
+    return json({ error: '이용이 중지된 계정입니다. 관리자에게 문의해 주세요.', suspended: true }, 403);
+  }
 
   if (body.action === 'signup') return signup(env.ARCHIVE_DB, request, body);
   if (body.action === 'login') return login(env.ARCHIVE_DB, request, body);
