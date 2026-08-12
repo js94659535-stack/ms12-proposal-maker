@@ -104,7 +104,9 @@ test('신청기관을 찾을 때 목록을 넘긴다', () => {
 });
 
 test('간단 시작은 신청기관 기록을 제대로 만든다', () => {
-  const fn = app.slice(app.indexOf('async function saveQuickOrg()'), app.indexOf('function applicantsToolView()'));
+  const at = app.indexOf('async function saveQuickOrg()');
+  assert.ok(at > 0, 'saveQuickOrg가 있다');
+  const fn = app.slice(at, at + 1000);
   // buildApplicantOrganization은 계획서에 넘길 자료를 만드는 함수라 여기 쓰면 빈 기관이 된다.
   assert.ok(!fn.includes('buildApplicantOrganization'), '기관 생성에는 normalizeApplicant를 쓴다');
   assert.match(fn, /normalizeApplicant\(\{ name: draft\.orgName, items \}\)/);
