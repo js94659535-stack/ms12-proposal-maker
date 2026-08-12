@@ -7,7 +7,13 @@ export const SESSION_COOKIE = '__Host-ms12_session';
 export const SESSION_HOURS = 12;
 const TOKEN_BYTES = 32;
 // 세션을 열어 줄 계정 상태. disabled는 어떤 경우에도 열지 않는다.
+// 로그인과 복구코드가 열리는 상태. 중지된 계정은 여기에 없으므로 새로 로그인할 수 없다.
 export const SESSION_STATUSES = new Set(['active', 'pending']);
+// 이미 있던 세션을 읽을 수 있는 상태. 중지된 계정도 세션은 읽히지만 미들웨어가 작업 경로를 모두 막는다.
+// 그래야 「이용이 중지되었습니다」를 화면에 알려 줄 수 있다. 로그인 자체는 위 목록이 막는다.
+export const SESSION_VIEW_STATUSES = new Set(['active', 'pending', 'disabled']);
+// DB의 disabled는 화면에서 「이용 중지」로 부른다.
+export const isSuspended = status => String(status) === 'disabled';
 const STATE_CHANGING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 export function newSessionToken() {
@@ -57,9 +63,11 @@ export async function loadSession(db, token, now = new Date()) {
     FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?`).bind(tokenHash).first();
   if (!row) return null;
   // pending은 가입 절차를 마치라고 붙여 둔 상태다. 세션은 열리지만 작업 API는 미들웨어가 막는다.
-  if (!SESSION_STATUSES.has(row.status) || !row.expires_at || row.expires_at <= now.toISOString()) return null;
+  if (!SESSION_VIEW_STATUSES.has(row.status) || !row.expires_at || row.expires_at <= now.toISOString()) return null;
   return {
     tokenHash, expiresAt: row.expires_at,
+    // 중지된 계정인지. 미들웨어가 이 값으로 작업 경로를 막는다.
+    suspended: isSuspended(row.status),
     // 세션이 언제 만들어졌는지. 되돌릴 수 없는 작업은 「방금 로그인했는가」를 함께 본다.
     createdAt: row.created_at || '',
     // 이용권은 요청마다 users 행에서 다시 읽는다. 관리자가 바꾸면 다시 로그인하지 않아도 곧바로 반영된다.

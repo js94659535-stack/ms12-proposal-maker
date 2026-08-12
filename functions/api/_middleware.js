@@ -7,6 +7,9 @@ import { loadSession, readSessionCookie, sameOriginRequest } from '../../server/
 const PUBLIC_PATHS = new Set(['/api/auth', '/api/oauth', '/api/public']);
 // 승인 대기(pending) 계정이 쓸 수 있는 곳. 가입 절차를 마치는 데 필요한 것만 연다.
 const PENDING_PATHS = new Set(['/api/auth', '/api/oauth', '/api/account']);
+// 이용이 중지된 계정이 쓸 수 있는 곳. 자기 상태를 확인하고 로그아웃하는 것뿐이다.
+// 역할이 관리자·운영관리자여도 마찬가지다.
+const SUSPENDED_PATHS = new Set(['/api/auth']);
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 
 export async function onRequest(context) {
@@ -18,6 +21,10 @@ export async function onRequest(context) {
 
   const session = await loadSession(env.ARCHIVE_DB, readSessionCookie(request));
   if (session) { data.session = session; data.user = session.user; }
+  // 중지된 계정은 공개 경로에서도 자료를 받지 못한다. 역할과 무관하다.
+  if (session?.suspended && !SUSPENDED_PATHS.has(url.pathname)) {
+    return json({ error: '이용이 중지된 계정입니다. 관리자에게 문의해 주세요.', suspended: true }, 403);
+  }
   if (PUBLIC_PATHS.has(url.pathname)) return next();
   if (!session) return json({ error: '로그인이 필요합니다.' }, 401);
   // 승인 전 계정은 로그인만 되고 작업 화면의 API는 쓰지 못한다.

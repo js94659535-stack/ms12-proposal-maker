@@ -151,12 +151,19 @@ function signOutLocally(message = '') { resetActivityDedupe(); setAuth({ status:
 // 로그아웃 상태에서 소개 대신 로그인 화면을 보여야 하는 때. 전할 말이 있으면 소개 화면에 묻히지 않게 반드시 로그인 화면에 띄운다.
 function showAuthForm() { return auth.view === 'auth' || Boolean(auth.error) || Boolean(auth.notice); }
 // 승인 전 계정은 가입 절차 화면만 본다.
-// 승인 대기 화면은 고객 계정만 본다.
-// 관리자·운영관리자는 고객 승인 절차의 대상이 아니므로 상태가 어떻든 이 화면으로 보내지 않는다.
+// 화면 분기는 역할과 승인 상태를 함께 본다.
+//   admin·operator + active   → 포털 선택
+//   누구든 status=중지        → 이용 중지 화면(작업 API는 서버가 막는다)
+//   customer + pending        → 가입정보·승인 대기
+//   customer + active         → 회원등급에 맞는 화면
+// 활성이 아닌 관리자·운영관리자도 작업 화면으로 들어가지 못한다.
+function suspendedAccount() { return auth.status === 'signedIn' && auth.user?.status === 'disabled'; }
+function inactiveStaff() {
+  return auth.status === 'signedIn' && ['admin', 'operator'].includes(auth.user?.role) && auth.user?.status !== 'active';
+}
+// 승인 대기 화면은 고객 계정만 본다. 운영 계정은 고객 승인 절차의 대상이 아니다.
 function pendingAccount() {
-  if (auth.status !== 'signedIn') return false;
-  if (['admin', 'operator'].includes(auth.user?.role)) return false;
-  return auth.user?.status === 'pending';
+  return auth.status === 'signedIn' && auth.user?.role === 'customer' && auth.user?.status === 'pending';
 }
 // 관리자 화면을 열 수 있는 사람. 실제 차단은 서버가 하고 화면은 그 결과를 따른다.
 function isAdmin() { return auth.status === 'signedIn' && auth.user?.role === 'admin' && auth.user?.status === 'active'; }
@@ -288,6 +295,21 @@ const SOCIAL_BUTTONS = [['google', 'Google'], ['kakao', '카카오']];
 function socialButtons(mode) {
   return SOCIAL_BUTTONS.map(([provider, label]) =>
     `<button class="button secondary" data-social="${provider}" data-social-mode="${mode}" ${auth.busy ? 'disabled' : ''}>${label}${mode === 'link' ? ' 계정 연결' : '로 시작하기'}</button>`).join('');
+}
+// 이용이 중지되었거나 아직 활성이 아닌 계정이 보는 화면. 작업 화면은 열리지 않는다.
+function blockedView() {
+  const suspended = suspendedAccount();
+  const role = { admin: '관리자', operator: '운영관리자', customer: '회원' }[auth.user?.role] || '회원';
+  return `<div class="layout home-layout"><main class="main"><div class="card" style="max-width:520px;margin:8vh auto">
+    <div class="card-title"><div><h3>${suspended ? '이용이 중지된 계정입니다' : '아직 이용할 수 없는 계정입니다'}</h3>
+      <span>${escapeHtml(accountEmail())} · ${escapeHtml(role)}</span></div>
+      <span class="status 확인-필요">${suspended ? '이용 중지' : '승인 대기'}</span></div>
+    <p class="muted">${suspended
+      ? '관리자가 이 계정의 이용을 중지했습니다. 작업 화면과 자료는 열리지 않습니다. 관리자에게 문의해 주세요.'
+      : '이 계정은 아직 활성 상태가 아닙니다. 관리자가 상태를 확인한 뒤에 열립니다.'}</p>
+    <p class="muted">이 상태에서는 계획서 작성·공모정보 검색·자료 조회가 모두 잠깁니다. 서버도 같은 기준으로 막습니다.</p>
+    <div class="actions"><span class="muted"></span><button class="button secondary" id="sign-out" type="button">로그아웃</button></div>
+  </div></main></div>`;
 }
 // 승인 전 계정이 채우는 최소 정보.
 function pendingView() {
@@ -3924,6 +3946,8 @@ function render() {
   // 로그아웃 상태의 첫 화면은 서비스 소개다. 두 버튼을 누르거나 전할 말이 생기면 위 줄에서 로그인 화면으로 바뀐다.
   if (auth.status !== 'signedIn') { app.innerHTML = landingView(); bindLanding(); return; }
   // 승인 전 계정은 가입 절차 화면만 본다. 실제 차단은 서버가 한다.
+  // 중지된 계정과 활성이 아닌 운영 계정은 어떤 작업 화면도 열지 않는다.
+  if (suspendedAccount() || inactiveStaff()) { app.innerHTML = blockedView(); bindLogin(); return; }
   if (pendingAccount()) { app.innerHTML = pendingView(); bindLogin(); return; }
   // 관리자·운영관리자는 어느 포털로 들어갈지 먼저 고른다. 회원 계정을 따로 만들지 않는다.
   if (isStaff() && !state.portal) { app.innerHTML = portalChoiceView(); bindPortalChoice(); return; }

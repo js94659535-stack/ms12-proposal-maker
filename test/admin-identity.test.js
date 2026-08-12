@@ -50,11 +50,12 @@ const signIn = async (db, email) => cookieOf(await through(db, post('/api/auth',
 
 test('활성 관리자·운영관리자는 기관 프로필이 없어도 승인 대기 화면으로 가지 않는다', () => {
   // 승인 대기 화면은 고객 계정만 본다.
-  assert.match(app, /function pendingAccount\(\) \{[\s\S]*?if \(\['admin', 'operator'\]\.includes\(auth\.user\?\.role\)\) return false;/);
+  assert.ok(app.includes("function pendingAccount() {\n  return auth.status === 'signedIn' && auth.user?.role === 'customer' && auth.user?.status === 'pending';\n}"));
   // 관리자·운영관리자는 로그인 후 포털 선택 화면으로 간다.
-  assert.match(app, /if \(isStaff\(\) && !state\.portal\) \{ app\.innerHTML = portalChoiceView\(\); bindPortalChoice\(\); return; \}/);
-  // 포털 선택은 승인 대기 판정보다 뒤에 있지만, 관리자는 애초에 승인 대기로 잡히지 않는다.
-  const render = app.slice(app.indexOf('function render() {'), app.indexOf('function render() {') + 1600);
+  assert.ok(app.includes('if (isStaff() && !state.portal) { app.innerHTML = portalChoiceView(); bindPortalChoice(); return; }'));
+  // 이용 중지·비활성 운영 계정은 그보다 먼저 걸러진다.
+  const render = app.slice(app.indexOf('function render() {'), app.indexOf('function render() {') + 1800);
+  assert.ok(render.indexOf('suspendedAccount() || inactiveStaff()') < render.indexOf('pendingAccount()'));
   assert.ok(render.indexOf('pendingAccount()') < render.indexOf('portalChoiceView()'));
 });
 
@@ -63,9 +64,9 @@ test('가입 정보 입력 화면은 고객 승인 대기 계정만 본다', () 
   const adminPending = { status: 'signedIn', user: { role: 'admin', status: 'pending' } };
   const operator = { status: 'signedIn', user: { role: 'operator', status: 'active' } };
   // 판정 규칙을 그대로 옮겨 확인한다.
-  const decide = auth => auth.status === 'signedIn' && !['admin', 'operator'].includes(auth.user?.role) && auth.user?.status === 'pending';
+  const decide = auth => auth.status === 'signedIn' && auth.user?.role === 'customer' && auth.user?.status === 'pending';
   assert.equal(decide(pending), true);
-  assert.equal(decide(adminPending), false, '관리자는 고객 승인 절차의 대상이 아니다');
+  assert.equal(decide(adminPending), false, '관리자는 고객 승인 절차의 대상이 아니다. 대신 활성이 아니므로 작업 화면도 열리지 않는다');
   assert.equal(decide(operator), false);
 });
 
@@ -176,4 +177,73 @@ test('관리자만 연결 가져오기 화면을 본다', () => {
   assert.match(app, /function identityTransferPanel\(\) \{\s*\n\s*if \(!isAdmin\(\)\) return '';/);
   assert.match(app, /data-transfer-identity/);
   assert.match(app, /소셜 로그인은 이메일이 같아도 관리자 계정에 붙지 않고 새 고객 계정을 만듭니다/);
+});
+
+// ---------- 이용 중지 계정 ----------
+
+test('중지된 관리자·운영관리자는 포털도 작업 API도 열지 못한다', async () => {
+  for (const role of ['admin', 'operator']) {
+    const db = fakeDb();
+    await seedUser(db, { id: `u-${role}`, email: `${role}@ms12.test`, role, status: 'active' });
+    const cookie = await signIn(db, `${role}@ms12.test`);
+    // 활성일 때는 열린다.
+    const before = await through(db, post('/api/auth', { action: 'me' }, { cookie }), 'auth');
+    assert.equal(before.status, 200, `${role} 활성 로그인`);
+
+    // 관리자가 중지하면 같은 세션으로도 아무것도 못 한다.
+    db.tables.users.find(item => item.id === `u-${role}`).status = 'disabled';
+    for (const [path, route] of [['/api/admin', 'admin'], ['/api/public', 'public']]) {
+      const response = await through(db, post(path, { action: path === '/api/admin' ? 'listUsers' : 'searchNotices' }, { cookie }), route);
+      assert.equal(response.status, 403, `${role} ${path}`);
+      assert.equal((await response.json()).suspended, true);
+    }
+    // 자기 상태 확인과 로그아웃만 열려 있다.
+    const me = await through(db, post('/api/auth', { action: 'me' }, { cookie }), 'auth');
+    assert.equal(me.status, 200);
+    assert.equal((await me.json()).user.status, 'disabled');
+    // 중지된 계정은 새로 로그인할 수도 없다.
+    const login = await through(db, post('/api/auth', { action: 'login', email: `${role}@ms12.test`, password: PASSWORD }), 'auth');
+    assert.equal(login.status, 401);
+  }
+});
+
+test('중지된 고객도 공개 검색과 작업 API가 모두 막힌다', async () => {
+  const db = fakeDb();
+  await seedUser(db, { id: 'c-1', email: 'c1@ms12.test', role: 'customer', status: 'active' });
+  const cookie = await signIn(db, 'c1@ms12.test');
+  db.tables.users.find(item => item.id === 'c-1').status = 'disabled';
+  const search = await through(db, post('/api/public', { action: 'searchNotices', query: '' }, { cookie }), 'public');
+  assert.equal(search.status, 403);
+  assert.equal((await search.json()).suspended, true);
+});
+
+test('화면 분기 규칙이 역할과 상태를 함께 본다', () => {
+  // 규칙을 그대로 옮겨 확인한다.
+  const suspended = auth => auth.status === 'signedIn' && auth.user?.status === 'disabled';
+  const inactiveStaff = auth => auth.status === 'signedIn' && ['admin', 'operator'].includes(auth.user?.role) && auth.user?.status !== 'active';
+  const pending = auth => auth.status === 'signedIn' && auth.user?.role === 'customer' && auth.user?.status === 'pending';
+  const signed = (role, status) => ({ status: 'signedIn', user: { role, status } });
+
+  // admin·operator + active → 포털(막는 화면 어느 것에도 걸리지 않는다)
+  for (const role of ['admin', 'operator']) {
+    assert.equal(suspended(signed(role, 'active')), false);
+    assert.equal(inactiveStaff(signed(role, 'active')), false);
+    assert.equal(pending(signed(role, 'active')), false);
+  }
+  // 누구든 중지 → 이용 중지 화면
+  for (const role of ['admin', 'operator', 'customer']) assert.equal(suspended(signed(role, 'disabled')), true, role);
+  // 활성이 아닌 운영 계정도 작업 화면으로 못 간다.
+  assert.equal(inactiveStaff(signed('admin', 'pending')), true);
+  assert.equal(inactiveStaff(signed('operator', 'pending')), true);
+  // customer + pending만 가입정보 화면
+  assert.equal(pending(signed('customer', 'pending')), true);
+  assert.equal(pending(signed('customer', 'active')), false);
+  assert.equal(pending(signed('admin', 'pending')), false);
+
+  // 화면과 서버가 같은 기준을 쓴다.
+  const middlewareSource = fs.readFileSync(new URL('../functions/api/_middleware.js', import.meta.url), 'utf8');
+  assert.match(middlewareSource, /session\?\.suspended && !SUSPENDED_PATHS\.has\(url\.pathname\)/);
+  assert.match(middlewareSource, /const SUSPENDED_PATHS = new Set\(\['\/api\/auth'\]\)/);
+  assert.match(app, /function blockedView\(\)/);
+  assert.match(app, /이용이 중지된 계정입니다/);
 });
