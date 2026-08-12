@@ -44,6 +44,7 @@ export const adminAccessOverview = (subjectId = '') => post('accessOverview', { 
 export const adminSaveGrant = grant => post('saveGrant', { grant });
 export const adminRevokeGrant = id => post('revokeGrant', { id });
 // 회원별 이용현황(메타정보)과 기존 보관자료 지정.
+export const adminOverviewCounts = () => post('overview');
 export const adminMemberUsage = () => post('memberUsage');
 export const adminProposalContent = id => post('proposalContent', { id });
 export const adminAssignProposal = (id, userId, note) => post('assignProposal', { id, userId, note });

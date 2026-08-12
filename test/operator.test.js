@@ -376,8 +376,10 @@ test('운영관리자에게만 운영 화면 진입점이 보이고 관리자만
   // 운영 화면 버튼과 처리기가 연결되어 있다.
   for (const attribute of ['data-operator-action', 'data-operator-detail', 'data-operator-tab']) assert.ok(app.includes(attribute), attribute);
   assert.match(app, /if \(kind === 'endSessions' && auth\.operator\.confirmEnd !== id\)/, '전체 세션 종료는 한 번 더 눌러야 한다');
-  // 운영관리자 지정·해제 버튼은 관리자 화면에만 있다.
-  assert.match(app, /data-admin-role="\$\{item\.role === 'operator' \? 'customer' : 'operator'\}"/);
+  // 역할 지정은 관리자 화면에만 있다. 일반회원·대행회원·운영관리자 중에서 고른다.
+  assert.match(app, /<select data-admin-role-id="\$\{item\.id\}"/);
+  assert.match(app, /ASSIGNABLE_ROLES\.map\(role =>/);
+  assert.match(app, /querySelectorAll\('select\[data-admin-role-id\]'\)\.forEach\(el => el\.onchange = \(\) => void runAdminAction\(el\.value, el\.dataset\.adminRoleId\)\)/);
   // 발급된 복구코드는 브라우저 저장소에 남기지 않는다.
   const persisted = app.slice(app.indexOf('function saveState()'), app.indexOf('function saveState()') + 2000);
   for (const word of ['operator:', 'recoveryCode', 'issued']) assert.ok(!persisted.includes(word), word);

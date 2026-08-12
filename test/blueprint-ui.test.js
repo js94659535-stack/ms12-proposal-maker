@@ -166,7 +166,8 @@ test('첫 화면과 상단 표시가 서비스용 한국어로 정리되어 있�
   // 홈은 작업 화면과 분리된 별도 화면으로 존재한다.
   assert.match(app, /function homeView\(\)/);
   assert.match(app, /const tools = \{ home: homeView/);
-  assert.match(app, /if \(state\.activeTool === 'home'\) return/);
+  // 홈은 단계 내비게이션 없이 자체 화면으로 나온다. 간편 화면이 홈 자리에 올 때만 머리띠를 유지한다.
+  assert.match(app, /if \(state\.activeTool === 'home' && !showSimpleHome\(\)\) return/);
   assert.match(app, /step: 0, activeTool: 'home'/);
   // 작업 화면(공고 준비)을 랜딩처럼 쓰지 않는다.
   assert.doesNotMatch(app, /startPanelView/);

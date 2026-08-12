@@ -15,12 +15,14 @@ import {
   PREMIUM_ADMIN_LABEL, SHOWCASE_LIMIT, contractState, findIdentifiers, publicShowcase, validateContract, validateShowcase
 } from '../../server/premium.js';
 import { membershipOf, membershipPlans } from '../../server/membership.js';
+import { ASSIGNABLE_ROLES, MEMBER_ROLES, roleLabel } from '../../server/roles.js';
+import { adminOverview } from '../../server/admin-overview.js';
 import { SUBSCRIPTION_LABELS, addMonth, remaining, validateSubscription } from '../../server/subscription.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 const SOCIAL_KEY_SUFFIX = '@social.ms12.invalid';
 // 관리자가 줄 수 있는 역할. 'admin'은 여기서 줄 수 없다. 관리자 계정은 스크립트로만 만든다.
-const ASSIGNABLE_ROLES = new Set(['customer', 'operator']);
+const ASSIGNABLE = new Set(ASSIGNABLE_ROLES);
 
 export async function onRequest(context) {
   const { request, env, data } = context;
@@ -36,6 +38,8 @@ export async function onRequest(context) {
   let body;
   try { body = await request.json(); } catch { return json({ error: '요청 JSON 형식이 올바르지 않습니다.' }, 400); }
 
+  // 관리자 랜딩 위쪽 운영 현황. 건수와 시각만 돌려준다.
+  if (body.action === 'overview') return json(await adminOverview(env.ARCHIVE_DB), 200);
   if (body.action === 'listUsers') return json({ users: await listUsers(env.ARCHIVE_DB) }, 200);
   if (body.action === 'approveUser') return mutate(env.ARCHIVE_DB, actor, body.id, approve);
   if (body.action === 'disableUser') return mutate(env.ARCHIVE_DB, actor, body.id, disable);
@@ -119,8 +123,9 @@ async function transferIdentity(db, actor, body, session) {
     await recordAudit(db, { actor, action: 'admin.transferIdentity', targetId: found.user_id, result: 'blocked', detail: `보존할 자료 ${kept.total}건` });
     return json({ error: '옮겨 올 계정에 보존할 자료가 있어 자동으로 옮기지 않았습니다.', conflict: true, footprint: kept }, 409);
   }
-  if (found.role !== 'customer') {
-    return json({ error: '고객 계정의 연결만 옮길 수 있습니다.', conflict: true }, 409);
+  // 회원 계정(일반회원·대행회원)의 연결만 옮긴다. 운영 계정은 옮기지 않는다.
+  if (!MEMBER_ROLES.includes(found.role)) {
+    return json({ error: '회원 계정의 연결만 옮길 수 있습니다.', conflict: true }, 409);
   }
 
   const now = new Date().toISOString();
@@ -391,7 +396,7 @@ async function disable(db, target) {
 // 운영관리자 지정·해제. 'admin'은 여기서 줄 수 없고 관리자 계정은 대상이 되지 않는다.
 async function setRole(db, target, role) {
   const next = String(role || '');
-  if (!ASSIGNABLE_ROLES.has(next)) return { error: '지정할 수 있는 역할은 고객·운영관리자뿐입니다.' };
+  if (!ASSIGNABLE.has(next)) return { error: `지정할 수 있는 역할은 ${ASSIGNABLE_ROLES.map(roleLabel).join('·')}뿐입니다.` };
   if (target.role === next) return { error: '이미 같은 역할입니다.' };
   await db.prepare('UPDATE users SET role = ?, updated_at = ? WHERE id = ?').bind(next, new Date().toISOString(), target.id).run();
   // 역할이 바뀌면 쓰던 세션을 끊어 새 권한으로 다시 로그인하게 한다.

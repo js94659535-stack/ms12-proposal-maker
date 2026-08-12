@@ -7,7 +7,11 @@ const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
 const css = fs.readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
 const page = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 // 소개 화면 본문만 잘라 낸다. 뒤에 붙는 로그인 화면과 섞이지 않게 한다.
-const landing = app.slice(app.indexOf('function landingView()'), app.indexOf('// ---------- 공모정보 검색 ----------'));
+// 소개 구역은 공개용·관리자용이 함께 쓰는 introSections()에 있다.
+// 공개 소개 화면은 introSections()와 landingView() 두 곳뿐이다. 관리자 랜딩은 여기에 넣지 않는다.
+const region = (from, to) => app.slice(app.indexOf(from), app.indexOf(to));
+const landing = region('function introSections(', '// ---------- 관리자 랜딩 ----------')
+  + region('function landingView()', '// ---------- 공모정보 검색 ----------');
 
 test('로그아웃 상태의 첫 화면은 로그인 창이 아니라 서비스 소개다', () => {
   assert.ok(landing.length > 1000, '소개 화면 본문을 찾지 못했다');

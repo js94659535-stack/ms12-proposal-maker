@@ -51,7 +51,10 @@ test('두 포털을 오가는 단추가 작업 화면과 홈 양쪽에 있다', 
   assert.match(app, /querySelector\('#close-operator'\)\?\.addEventListener\('click', \(\) => openPortal\('proposal'\)\)/);
   assert.match(app, /querySelectorAll\('\[data-portal\]'\)\.forEach\(el => el\.onclick = \(\) => openPortal\(el\.dataset\.portal\)\)/);
   // 관리자 포털을 고르면 역할에 맞는 화면이 열린다.
-  assert.match(block, /return isAdmin\(\) \? openAdmin\(\) : openOperator\(\);/);
+  // 최고관리자는 관리자 랜딩(홈)을 먼저 보고, 운영관리자는 허용된 운영 화면으로 바로 들어간다.
+  assert.match(block, /if \(isAdmin\(\)\) return setState\(\{ activeTool: 'home', notice: '', error: '' \}\);/);
+  assert.match(block, /return openOperator\(\);/);
+  assert.match(app, /if \(inAdminPortal\(\) && state\.activeTool === 'home'\) \{ app\.innerHTML = shell\(adminLandingView\(\)\); bindAdminLanding\(\); return; \}/);
   // 알 수 없는 값은 받지 않는다.
   assert.match(block, /if \(!PORTALS\.includes\(portal\)\) return;/);
 });

@@ -7,7 +7,7 @@ import { buildProposalPdfBlob, exportProposalPdf } from './pdf-export.js';
 import { MANIFEST_NAME, packageStale, planSubmissionZip, zipBytes } from './submission-zip.js';
 import { acknowledgePrivacyNotice, UNAUTHORIZED, accountProfile, clearOAuthCallback, currentUser, finishSocial, login, logout, readOAuthCallback, recoverPassword, saveAccountProfile, saveMemberInfo, signup as signupEmail, startSocial } from './auth.js';
 import { premiumNoticeHistory, premiumShowcase, premiumStatus } from './premium.js';
-import { adminSetNoticeSource, adminAccessOverview, adminAssignProposal, adminMemberUsage, adminProposalContent, adminRevokeGrant, adminSaveGrant, adminNoticeCollection, adminRunNoticeCollection, adminUsageReport, approveAccount, deleteShowcase, setAccountSubscription, transferSocialIdentity, disableAccount, listAccounts, listCollectedNotices, listShowcase, removeAccount, saveShowcase, setAccountPlan, setAccountPremium, setAccountRole, setNoticePublic, setShowcaseOrder, setShowcasePublic } from './admin.js';
+import { adminOverviewCounts, adminSetNoticeSource, adminAccessOverview, adminAssignProposal, adminMemberUsage, adminProposalContent, adminRevokeGrant, adminSaveGrant, adminNoticeCollection, adminRunNoticeCollection, adminUsageReport, approveAccount, deleteShowcase, setAccountSubscription, transferSocialIdentity, disableAccount, listAccounts, listCollectedNotices, listShowcase, removeAccount, saveShowcase, setAccountPlan, setAccountPremium, setAccountRole, setNoticePublic, setShowcaseOrder, setShowcasePublic } from './admin.js';
 import { fetchMembershipPlans, publicNoticeDetail, searchPublicNotices } from './notice-search.js';
 import { operatorNoticeCollection, operatorApprove, operatorDisable, operatorEndSessions, operatorIssueRecoveryCode, operatorOverview, operatorReactivate, operatorSetContractProgress, operatorUnlockLogin, operatorUsageReport, operatorUserDetail } from './operator.js';
 import { codeLabel, statusLabel, warningLabel } from '../server/notice-run.js';
@@ -16,6 +16,8 @@ import { BUSINESS_TYPES, SOURCE_GROUPS } from '../server/notice-sources.js';
 import { FITNESS_LABELS } from '../server/notice-classify.js';
 import { ORG_TYPES, QUICK_FIELDS, followUpQuestions, quickToApplicantItems, readyToDraft } from '../server/quick-org.js';
 import { ANSWER_CHOICES, HIDDEN_EXPERT, MAX_QUESTIONS as SIMPLE_MAX_QUESTIONS, RESULT_ACTIONS, SIMPLE_STEPS, answerValue, currentStep as simpleStep, viewModeFor } from '../server/simple-flow.js';
+import { ASSIGNABLE_ROLES, ROLE_DUTY, canHoldClients, roleLabel } from '../server/roles.js';
+import { ADMIN_SHORTCUTS } from '../server/admin-overview.js';
 import { REVISION_KINDS, canRevise, diffSections, keptFacts, newUnknowns, remainingOf, revisionSlot, settleRevision } from '../server/revision.js';
 import { CORE_AREAS, areaProgress, mergeProfileIntoApplicant } from '../server/org-profile.js';
 import { ASSET_KINDS, ASSET_STATUS, STATUS_LABELS as ASSET_STATUS_LABELS, assetSentence, suggestAssets, validateAsset } from '../server/idea-assets.js';
@@ -91,7 +93,7 @@ const initial = {
   // 간단 시작 입력과 뒤이은 확인 질문. 계획서 원문과 따로 둔다.
   quickOrg: {}, quickAnswers: {},
   // 간편·전문가 화면 전환과 한 번에 수정 요청. 계획서 원문과 따로 둔다.
-  viewMode: '', reviseOpen: false, reviseDraft: null, revisions: [], revisionBackup: null,
+  viewMode: '', expertDetail: false, reviseOpen: false, reviseDraft: null, revisions: [], revisionBackup: null,
   applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
   revisionPlan: null, draftReview: null, projectNarrative: '',
   // 서버가 붙여 준 근거 검증·평가자 검토. 화면은 판정하지 않고 그대로 보여 준다.
@@ -214,7 +216,9 @@ function openPortal(portal) {
   if (!PORTALS.includes(portal)) return;
   state.portal = portal;
   if (portal !== 'admin') return setState({ activeTool: 'home', notice: '', error: '' });
-  return isAdmin() ? openAdmin() : openOperator();
+  // 최고관리자는 관리자 랜딩을 먼저 본다. 운영관리자는 허용된 운영 화면으로 바로 들어간다.
+  if (isAdmin()) return setState({ activeTool: 'home', notice: '', error: '' });
+  return openOperator();
 }
 
 // 로그인 직후 어디로 들어갈지 고른다. 한 번 고르면 기억하고 언제든 위쪽 단추로 바꾼다.
@@ -924,7 +928,7 @@ async function runPremiumHistory() {
 }
 
 // ---------- 관리자 화면 ----------
-const ROLE_LABELS = { admin: '관리자', operator: '운영자', customer: '고객' };
+const ROLE_LABELS = { admin: roleLabel('admin'), operator: roleLabel('operator'), agency: roleLabel('agency'), customer: roleLabel('customer') };
 const STATUS_LABELS = { active: '이용 중', pending: '승인 대기', disabled: '중지' };
 const ADMIN_DONE = {
   approve: '계정을 승인했습니다. 이제 작업 화면을 쓸 수 있습니다.', disable: '계정 사용을 중지하고 로그인 상태를 해제했습니다.',
@@ -936,8 +940,8 @@ const ADMIN_DONE = {
 };
 const PLAN_LABELS = { full: '전체 이용권', trial: '무료 체험' };
 
-function openAdmin() {
-  auth = { ...auth, error: '', notice: '', confirmDelete: '', adminTab: 'accounts', notices: emptyAdminNotices(), collection: emptyCollection(), access: emptyAccess() };
+function openAdmin(tab = 'accounts') {
+  auth = { ...auth, error: '', notice: '', confirmDelete: '', adminTab: tab, notices: emptyAdminNotices(), collection: emptyCollection(), access: emptyAccess() };
   setState({ activeTool: 'admin', notice: '', error: '' });
   void loadAccounts();
 }
@@ -1289,7 +1293,7 @@ function accountRow(item) {
     <div class="actions">${locked ? '<span class="muted">이 화면에서 바꿀 수 없는 계정입니다.</span>' : `
       ${item.status === 'active' ? `<button class="button secondary" data-admin-disable="${item.id}" ${auth.busy ? 'disabled' : ''}>사용 중지</button>`
     : `<button class="button primary" data-admin-approve="${item.id}" ${auth.busy ? 'disabled' : ''}>승인</button>`}
-      <button class="button secondary" data-admin-role="${item.role === 'operator' ? 'customer' : 'operator'}" data-admin-role-id="${item.id}" ${auth.busy ? 'disabled' : ''}>${item.role === 'operator' ? '운영관리자 해제' : '운영관리자 지정'}</button>
+      <label class="inline-pick">역할 <select data-admin-role-id="${item.id}" ${auth.busy ? 'disabled' : ''}>${ASSIGNABLE_ROLES.map(role => `<option value="${role}" ${item.role === role ? 'selected' : ''}>${escapeHtml(roleLabel(role))}</option>`).join('')}</select></label>
       <button class="button secondary" data-admin-plan="${item.plan === 'full' ? 'trial' : 'full'}" data-admin-plan-id="${item.id}" ${auth.busy ? 'disabled' : ''}>${item.plan === 'full' ? '전체 이용권 회수' : '전체 이용권 부여'}</button>
       <button class="button secondary" data-admin-delete="${item.id}" ${auth.busy ? 'disabled' : ''}>${auth.confirmDelete === item.id ? '한 번 더 누르면 삭제' : '삭제'}</button>`}</div>
   </div></article>`;
@@ -1681,6 +1685,124 @@ const landingCta = extra => `<div class="landing-cta"><button class="button prim
 const landingCards = (items, plain = true) => items.map(([title, body]) =>
   `<article class="landing-card${plain ? ' plain' : ''}"><h3>${escapeHtml(title)}</h3><p>${escapeHtml(body)}</p></article>`).join('');
 
+// 서비스 소개 구역. 공개 랜딩과 관리자 랜딩이 같은 내용을 쓴다.
+// 한 곳에서만 고치면 두 화면이 같이 바뀐다. 따로 베껴 두지 않는다.
+function introSections({ forAdmin = false } = {}) {
+  return `
+    <div class="landing-section" id="landing-value">
+      <div class="landing-head"><h2>핵심 가치</h2><p>확인되지 않은 기관 사실은 만들지 않고, 확인이 필요한 내용은 사용자에게 남깁니다.</p></div>
+      <div class="landing-grid four">${landingCards(LANDING_VALUES)}</div>
+    </div>
+
+    <div class="landing-section" id="landing-flow">
+      <div class="landing-head"><h2>이용 흐름</h2><p>공고문 분석부터 사업계획서 완성까지 여섯 단계로 이어집니다.</p></div>
+      <div class="landing-grid three">${HOME_FLOW.map(step => `<article class="landing-card"><header><span class="landing-step">${escapeHtml(step.no)}</span><h3>${escapeHtml(step.title)}</h3></header><p>${escapeHtml(step.desc)}</p><ul>${step.items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul></article>`).join('')}</div>
+    </div>
+
+    <div class="landing-section" id="landing-notices">
+      <div class="landing-head"><h2>공모정보 검색</h2><p>회원가입 후 관리자의 승인을 받은 정식회원은 현재 모집 중인 공모정보를 검색할 수 있습니다. 프리미엄회원은 마감 공고를 포함한 전체 수집 이력을 확인할 수 있습니다.</p></div>
+      <div class="landing-grid three">
+        <article class="landing-card plain"><h3>맞춤검색</h3><p>공고 제목과 제목에 연결된 연관 키워드만 찾습니다. 기본으로 켜져 있고 결과가 정확합니다.</p></article>
+        <article class="landing-card plain"><h3>광역검색</h3><p>맞춤검색 범위에 공고 요약 내용까지 넓혀 찾습니다. 제목에 걸린 결과를 먼저 보여 줍니다.</p></article>
+        <article class="landing-card plain"><h3>좁혀 보기</h3><p>모집 중·마감 임박·마감, 지역, 대상, 분야, 주최기관으로 걸러 볼 수 있습니다.</p></article>
+      </div>
+      ${forAdmin ? '<div class="landing-cta"><button class="button primary" data-admin-go="notices">공고보관함 열기</button></div>' : '<div class="landing-cta"><button class="button primary" data-landing-notices="1">공모정보 검색 열기</button></div>'}
+    </div>
+
+    <div class="landing-section" id="landing-features">
+      <div class="landing-head"><h2>주요 기능</h2><p>공모사업 작성에 필요한 과정을 한 곳에서 관리합니다.</p></div>
+      <div class="landing-grid four">${landingCards(LANDING_FEATURES)}</div>
+    </div>
+
+    <div class="landing-section" id="landing-audience">
+      <div class="landing-head"><h2>이용 대상</h2><p>공모 신청서를 직접 쓰거나 대신 써 주는 분들을 위한 도구입니다.</p></div>
+      <div class="landing-grid three">${landingCards(LANDING_AUDIENCE, false)}</div>
+      <div class="landing-head" style="margin:22px 0 12px"><p>다루는 공모 유형</p></div>
+      <div class="landing-grid">${TYPES.map(([, name, kind]) => `<article class="landing-card plain"><h3>${escapeHtml(name)}</h3><p>${escapeHtml(kind)} 공모를 준비하는 기관·담당자</p></article>`).join('')}</div>
+    </div>
+
+    ${membershipGuideView()}
+
+    <div class="landing-section" id="landing-security">
+      <div class="landing-head"><h2>보안·승인 안내</h2><p>실제로 구현되어 있는 내용만 적었습니다.</p></div>
+      <div class="landing-grid">${landingCards(LANDING_SECURITY)}</div>
+    </div>
+
+`;
+}
+
+
+// ---------- 관리자 랜딩 ----------
+// 최고관리자가 관리자 포털에 들어오면 먼저 보는 화면.
+// 위쪽은 지금 처리할 운영 현황, 아래쪽은 공개 랜딩과 같은 서비스 소개다.
+// 소개 글은 introSections() 한 곳에서 가져오므로 공개용과 따로 낡지 않는다.
+const ADMIN_NAV = [['landing-value', '제품소개'], ['landing-flow', '이용방법'], ['landing-features', '주요기능'], ['landing-audience', '이용 대상'], ['landing-security', '보안·승인']];
+
+function adminLandingView() {
+  const overview = auth.adminOverview;
+  const cards = new Map((overview?.cards || []).map(card => [card.key, card]));
+  const badges = ADMIN_SHORTCUTS.map(item => {
+    const card = cards.get(item.key);
+    // 아직 못 읽었으면 숫자를 지어내지 않는다. 읽는 중이라고만 적는다.
+    const value = card ? (card.value === null || card.value === undefined ? String(card.text || '') : `${Number(card.value).toLocaleString('ko-KR')}${item.unit}`)
+      : (auth.adminOverviewError ? '확인 못 함' : '읽는 중');
+    const note = card?.note || (auth.adminOverviewError ? auth.adminOverviewError : '');
+    return `<button class="admin-shortcut" data-admin-go="${item.key}">
+      <span class="admin-shortcut-label">${escapeHtml(item.label)}</span>
+      <strong class="admin-shortcut-value">${escapeHtml(value)}</strong>
+      <small class="admin-shortcut-note">${escapeHtml(note)}</small>
+    </button>`;
+  }).join('');
+
+  return `<div class="home admin-landing">
+    <header class="home-header">
+      <div class="home-brand"><strong>관리자 포털</strong><span>${escapeHtml(accountEmail())} · ${escapeHtml(roleLabel(auth.user?.role))}</span></div>
+      <nav class="home-nav">${ADMIN_NAV.map(([id, label]) => `<button class="button ghost" data-landing-scroll="${id}">${label}</button>`).join('')}${portalLinks('button ghost')}<button class="button ghost" id="sign-out">로그아웃</button></nav>
+    </header>
+    <section class="landing">
+      <div class="landing-section admin-ops">
+        <div class="landing-head"><h2>운영 현황</h2><p>지금 처리할 일을 건수로만 보여 줍니다. 세부 내용은 눌러서 봅니다.${overview?.at ? ` 기준 ${escapeHtml(String(overview.at).slice(0, 16).replace('T', ' '))}` : ''}</p></div>
+        <div class="admin-shortcuts">${badges}</div>
+        ${auth.adminOverviewError ? `<p class="muted">운영 현황을 읽지 못했습니다: ${escapeHtml(auth.adminOverviewError)}</p>` : ''}
+      </div>
+      <div class="landing-hero compact">
+        <p class="landing-eyebrow">서비스 소개</p>
+        <h1>공고 한 건에서 제출본까지,<br>근거를 남기며 씁니다</h1>
+        <p class="landing-lead">회원에게 안내하는 내용과 같습니다. 공개 소개 화면과 한 곳에서 관리합니다.</p>
+      </div>
+      ${introSections({ forAdmin: true })}
+    </section>
+  </div>`;
+}
+
+// 관리자 랜딩 처리기. 바로가기와 구역 이동만 연결한다.
+function bindAdminLanding() {
+  document.querySelector('#sign-out')?.addEventListener('click', () => void submitLogout());
+  document.querySelectorAll('[data-portal]').forEach(el => el.onclick = () => openPortal(el.dataset.portal));
+  document.querySelectorAll('[data-portal-open]').forEach(el => el.onclick = () => (el.dataset.portalOpen === 'admin' ? openAdmin() : openOperator()));
+  document.querySelectorAll('[data-landing-scroll]').forEach(el => el.onclick = () => document.querySelector('#' + el.dataset.landingScroll)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  document.querySelectorAll('[data-admin-go]').forEach(el => el.onclick = () => openAdminShortcut(el.dataset.adminGo));
+  if (!auth.adminOverview && !auth.adminOverviewError) void loadAdminOverview();
+}
+
+// 바로가기. 없는 화면을 만들지 않고 이미 있는 관리 화면의 해당 갈래를 연다.
+function openAdminShortcut(key) {
+  const item = ADMIN_SHORTCUTS.find(entry => entry.key === key) || (key === 'notices' ? { tool: 'admin', tab: 'notices' } : null);
+  if (!item) return;
+  if (item.tool === 'coaching') return setState({ activeTool: 'coaching', notice: '관리자 도우미 화면입니다. 회원 화면과 같은 검토 도구를 씁니다.' });
+  openAdmin(item.tab || 'accounts');
+}
+
+async function loadAdminOverview() {
+  try {
+    const data = await adminOverviewCounts();
+    setAuth({ adminOverview: data, adminOverviewError: '' });
+  } catch (error) {
+    // 못 읽으면 못 읽었다고 적는다. 0으로 채우지 않는다.
+    setAuth({ adminOverviewError: String(error?.message || '알 수 없는 오류').slice(0, 80) });
+  }
+}
+
 function landingView() {
   return `<div class="layout home-layout"><main class="main"><div class="home">
     <header class="home-header">
@@ -1697,44 +1819,7 @@ function landingView() {
         <p class="landing-note">가입 후 관리자 승인을 받으면 <strong>계정당 한 번</strong> 원하는 쪽수에 맞춘 개인 맞춤 핵심제안서를 무료로 만들어 볼 수 있습니다. 전체 계획서 작성·검증·출력은 전체 이용권 기능이며, 결제는 아직 열려 있지 않아 「${CONTACT_LABEL}」로 안내합니다. 예시 계획서는 로그인 없이 바로 볼 수 있습니다.</p>
       </div>
 
-      <div class="landing-section" id="landing-value">
-        <div class="landing-head"><h2>핵심 가치</h2><p>확인되지 않은 기관 사실은 만들지 않고, 확인이 필요한 내용은 사용자에게 남깁니다.</p></div>
-        <div class="landing-grid four">${landingCards(LANDING_VALUES)}</div>
-      </div>
-
-      <div class="landing-section" id="landing-flow">
-        <div class="landing-head"><h2>이용 흐름</h2><p>공고문 분석부터 사업계획서 완성까지 여섯 단계로 이어집니다.</p></div>
-        <div class="landing-grid three">${HOME_FLOW.map(step => `<article class="landing-card"><header><span class="landing-step">${escapeHtml(step.no)}</span><h3>${escapeHtml(step.title)}</h3></header><p>${escapeHtml(step.desc)}</p><ul>${step.items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul></article>`).join('')}</div>
-      </div>
-
-      <div class="landing-section" id="landing-notices">
-        <div class="landing-head"><h2>공모정보 검색</h2><p>회원가입 후 관리자의 승인을 받은 정식회원은 현재 모집 중인 공모정보를 검색할 수 있습니다. 프리미엄회원은 마감 공고를 포함한 전체 수집 이력을 확인할 수 있습니다.</p></div>
-        <div class="landing-grid three">
-          <article class="landing-card plain"><h3>맞춤검색</h3><p>공고 제목과 제목에 연결된 연관 키워드만 찾습니다. 기본으로 켜져 있고 결과가 정확합니다.</p></article>
-          <article class="landing-card plain"><h3>광역검색</h3><p>맞춤검색 범위에 공고 요약 내용까지 넓혀 찾습니다. 제목에 걸린 결과를 먼저 보여 줍니다.</p></article>
-          <article class="landing-card plain"><h3>좁혀 보기</h3><p>모집 중·마감 임박·마감, 지역, 대상, 분야, 주최기관으로 걸러 볼 수 있습니다.</p></article>
-        </div>
-        <div class="landing-cta"><button class="button primary" data-landing-notices="1">공모정보 검색 열기</button></div>
-      </div>
-
-      <div class="landing-section" id="landing-features">
-        <div class="landing-head"><h2>주요 기능</h2><p>공모사업 작성에 필요한 과정을 한 곳에서 관리합니다.</p></div>
-        <div class="landing-grid four">${landingCards(LANDING_FEATURES)}</div>
-      </div>
-
-      <div class="landing-section" id="landing-audience">
-        <div class="landing-head"><h2>이용 대상</h2><p>공모 신청서를 직접 쓰거나 대신 써 주는 분들을 위한 도구입니다.</p></div>
-        <div class="landing-grid three">${landingCards(LANDING_AUDIENCE, false)}</div>
-        <div class="landing-head" style="margin:22px 0 12px"><p>다루는 공모 유형</p></div>
-        <div class="landing-grid">${TYPES.map(([, name, kind]) => `<article class="landing-card plain"><h3>${escapeHtml(name)}</h3><p>${escapeHtml(kind)} 공모를 준비하는 기관·담당자</p></article>`).join('')}</div>
-      </div>
-
-      ${membershipGuideView()}
-
-      <div class="landing-section" id="landing-security">
-        <div class="landing-head"><h2>보안·승인 안내</h2><p>실제로 구현되어 있는 내용만 적었습니다.</p></div>
-        <div class="landing-grid">${landingCards(LANDING_SECURITY)}</div>
-      </div>
+      ${introSections()}
 
       <div class="landing-section">
         <div class="landing-head"><h2>공고 하나로 시작해 제출본까지 완성하세요</h2><p>가입하고 승인받으면 공고문을 올리는 첫 단계부터 안내합니다.</p></div>
@@ -2383,7 +2468,8 @@ function bindTopMenus() {
 
 function shell(content) {
   // 홈은 작업용 단계 내비게이션 없이 자체 화면으로만 보여 준다.
-  if (state.activeTool === 'home') return `<div class="layout home-layout"><main class="main">${aiResultBanner()}${state.notice ? `<div class="alert success">${escapeHtml(state.notice)}</div>` : ''}${state.error ? `<div class="alert danger">${escapeHtml(state.error)}</div>` : ''}${content}${state.busy ? `<div class="busy"><div class="loader"></div><strong>${escapeHtml(state.busy)}</strong></div>` : ''}</main></div>`;
+  // 다만 간편 화면은 홈 자리에 오더라도 머리띠를 그대로 둔다. 보관함·계정·포털 이동이 사라지면 안 된다.
+  if (state.activeTool === 'home' && !showSimpleHome()) return `<div class="layout home-layout"><main class="main">${aiResultBanner()}${state.notice ? `<div class="alert success">${escapeHtml(state.notice)}</div>` : ''}${state.error ? `<div class="alert danger">${escapeHtml(state.error)}</div>` : ''}${content}${state.busy ? `<div class="busy"><div class="loader"></div><strong>${escapeHtml(state.busy)}</strong></div>` : ''}</main></div>`;
   return `
     <div class="layout">
       <main class="main">
@@ -2391,6 +2477,7 @@ function shell(content) {
           <div class="workflow-brand"><div class="brand"><span class="brand-mark">계</span><div><strong>사업계획서 작성 도우미</strong><small>공고 분석부터 제출본까지</small></div></div><span class="save-state">● 자동 저장 중</span><span class="mode">${escapeHtml(accountEmail())}</span><button class="history-button" id="open-account" aria-pressed="${state.activeTool === 'account'}">계정 설정</button>${portalLinks()}<button class="history-button" id="sign-out">로그아웃</button></div>
           <div class="workflow-row"><label class="type-select-label" for="business-type">사업 유형<select id="business-type">${TYPES.map(([id, name]) => `<option value="${id}" ${state.project.type === id ? 'selected' : ''}>${name}</option>`).join('')}</select></label>${stepMenu()}${toolMenu()}<nav class="workflow-history" aria-label="앱 작업 화면 이동"><button class="history-button" id="workflow-back" aria-label="직전 작업 화면으로 뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="history-button" id="workflow-home" aria-label="홈 화면으로 가기">⌂ 홈</button><button class="history-button" id="workflow-forward" aria-label="다음 작업 화면으로 앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button></nav></div>
         </header>
+        ${viewModeBadge()}
         ${aiResultBanner()}
         ${state.notice ? `<div class="alert success">${escapeHtml(state.notice)}</div>` : ''}
         ${state.error ? `<div class="alert danger">${escapeHtml(state.error)}</div>` : ''}
@@ -3933,6 +4020,16 @@ function questionsView() {
 // 일반회원에게는 네 걸음만 보인다. 공고 분석·사업 설계·사실검증은 없애지 않고
 // 「작성 과정 자세히 보기」 안에 그대로 둔다. 안에서는 예전과 똑같이 돈다.
 function viewMode() { return viewModeFor(auth.user, state.viewMode).mode; }
+// 지금 간편 화면을 그릴 때인가. 관리자 포털은 위에서 먼저 걸러진다.
+function showSimpleHome() { return viewMode() === 'simple' && !state.expertDetail && ['', 'home'].includes(state.activeTool); }
+// 화면 위쪽에 지금 무엇을 보고 있는지 적는다. 회원도 관리자도 같은 자리에서 본다.
+function viewModeBadge() {
+  const simple = showSimpleHome();
+  const label = simple ? '회원 화면(간편)' : '전문가 상세';
+  const back = !simple && !canToggleView() ? '<button class="button secondary" id="back-to-simple">간편 화면으로</button>' : '';
+  const toggle = canToggleView() ? `<button class="button secondary" id="toggle-view">${simple ? '전문가 상세 보기' : '회원 화면으로 보기'}</button>` : '';
+  return `<div class="view-mode-bar"><span class="view-mode-tag">지금 보는 화면</span><strong>${label}</strong>${back}${toggle}</div>`;
+}
 function canToggleView() { return viewModeFor(auth.user, state.viewMode).canToggle; }
 
 function simpleProgress(active) {
@@ -4027,9 +4124,9 @@ function simpleWriteView() {
   const chosen = Boolean(state.selectedNotice?.title || state.sourceText.trim());
   const step = simpleStep({ noticeChosen: chosen, requestWritten: Boolean(String(state.projectNarrative || '').trim()), sections: state.sections.length });
   const done = step === 'done';
-  return `<div class="page-heading"><div><h2>간편 계획서 작성</h2>
+  return `${viewModeBadge()}<div class="page-heading"><div><h2>간편 계획서 작성</h2>
     <p>공고를 고르고 하고 싶은 사업을 한두 문장으로 적으면 됩니다. 분석·설계·검증은 안에서 자동으로 돌아갑니다.</p></div>
-    ${canToggleView() ? `<button class="button secondary" id="toggle-view">전문가 상세 보기</button>` : ''}</div>
+    <button class="button secondary" id="open-expert-detail">작성 과정 자세히 보기</button></div>
     ${simpleProgress(step)}
     ${state.error ? `<div class="alert danger"><strong>${escapeHtml(state.error)}</strong></div>` : ''}
     ${state.notice ? `<div class="alert success"><strong>${escapeHtml(state.notice)}</strong></div>` : ''}
@@ -4051,7 +4148,7 @@ function simpleWriteView() {
     ${done ? `<div class="card"><div class="card-title"><div><h3>4 계획서 완성</h3><span>항목 ${state.sections.length}개</span></div>
       <span class="status 충족">완성</span></div>${simpleResultActions()}</div>` : ''}
     ${revisionPanel()}
-    ${done ? expertDetails() : ''}`;
+    ${chosen ? expertDetails() : ''}`;
 }
 
 function documentView() {
@@ -4667,11 +4764,14 @@ function render() {
   if (isStaff() && !state.portal) { app.innerHTML = portalChoiceView(); bindPortalChoice(); return; }
   // 계획서 포털에서는 관리 화면이 열리지 않는다. 저장된 화면 위치가 남아 있어도 되돌린다.
   if (isStaff() && state.portal === 'proposal' && ['admin', 'operator'].includes(state.activeTool)) state.activeTool = 'home';
+  // 관리자 포털의 홈은 관리자 랜딩이다. 계획서 포털에서 홈을 누르면 지금까지의 작성 홈이 그대로 열린다.
+  if (inAdminPortal() && state.activeTool === 'home') { app.innerHTML = shell(adminLandingView()); bindAdminLanding(); return; }
   // 전체 이용권이 없는 회원은 핵심제안서 화면만 본다. 생성·차단은 서버가 한다.
   if (trialAccount()) { app.innerHTML = coreProposalView(); bindCoreProposal(); return; }
   // 간편 화면. 일반회원의 기본이고 최고관리자·운영관리자는 전환해서 본다.
   // 화면만 단순해질 뿐 분석·검증·권한 차단은 서버에서 그대로 돈다.
-  if (viewMode() === 'simple' && !state.activeTool) { app.innerHTML = shell(simpleWriteView()); bind(); bindSimple(); return; }
+  // 홈도 간편 화면으로 연다. 「작성 과정 자세히 보기」로 들어가 있는 동안에만 전문 화면을 그린다.
+  if (showSimpleHome()) { app.innerHTML = shell(simpleWriteView()); bind(); bindSimple(); return; }
   const views = [noticeImportView, noticeConfirmView, applicantSelectView, businessSelectView, documentView, documentView];
   // 관리자 화면은 관리자에게만 열린다. 저장된 화면 위치가 남아 있어도 역할이 아니면 되돌린다.
   if (state.activeTool === 'admin' && !isAdmin()) state.activeTool = 'home';
@@ -5075,7 +5175,9 @@ function bind() {
   document.querySelectorAll('[data-type]').forEach(el => el.onclick = () => { state.project.type = el.dataset.type; saveState(); render(); });
   document.querySelector('#business-type')?.addEventListener('change', event => { state.project.type = event.target.value; saveState(); render(); });
   document.querySelectorAll('[data-step]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(Number(el.dataset.step), { notice: '', error: '' }); });
-  document.querySelector('#toggle-view')?.addEventListener('click', () => setState({ viewMode: viewMode() === 'simple' ? 'expert' : 'simple', activeTool: '', notice: '', error: '' }));
+  document.querySelector('#toggle-view')?.addEventListener('click', () => setState({ viewMode: viewMode() === 'simple' ? 'expert' : 'simple', expertDetail: false, activeTool: '', notice: '', error: '' }));
+  document.querySelector('#back-to-simple')?.addEventListener('click', () => setState({ expertDetail: false, activeTool: '', notice: '간편 화면으로 돌아왔습니다. 작성 내용은 그대로입니다.', error: '' }));
+  document.querySelector('#open-expert-detail')?.addEventListener('click', () => setState({ expertDetail: true, activeTool: '', notice: '작성 과정을 펼쳤습니다. 같은 공고·기관·계획서를 그대로 봅니다.', error: '' }));
   document.querySelector('#sign-out')?.addEventListener('click', () => void submitLogout());
   document.querySelector('#open-account')?.addEventListener('click', () => setState({ activeTool: 'account', notice: '', error: '' }));
   document.querySelector('#open-premium')?.addEventListener('click', () => setState({ activeTool: 'premium', notice: '', error: '' }));
@@ -5087,7 +5189,7 @@ function bind() {
   document.querySelectorAll('[data-admin-approve]').forEach(el => el.onclick = () => void runAdminAction('approve', el.dataset.adminApprove));
   document.querySelectorAll('[data-admin-disable]').forEach(el => el.onclick = () => void runAdminAction('disable', el.dataset.adminDisable));
   document.querySelectorAll('[data-admin-delete]').forEach(el => el.onclick = () => void runAdminAction('delete', el.dataset.adminDelete));
-  document.querySelectorAll('[data-admin-role]').forEach(el => el.onclick = () => void runAdminAction(el.dataset.adminRole, el.dataset.adminRoleId));
+  document.querySelectorAll('select[data-admin-role-id]').forEach(el => el.onchange = () => void runAdminAction(el.value, el.dataset.adminRoleId));
   document.querySelectorAll('[data-admin-plan]').forEach(el => el.onclick = () => void runAdminAction(el.dataset.adminPlan, el.dataset.adminPlanId));
   document.querySelector('#open-admin-notices')?.addEventListener('click', () => {
     const opening = auth.adminTab !== 'notices';
@@ -6726,9 +6828,7 @@ async function downloadProposalPdf() {
 
 // 간편 화면 처리기. 기존 처리기(bind)를 먼저 걸고 그 위에 얹는다.
 function bindSimple() {
-  document.querySelector('#toggle-view')?.addEventListener('click', () => setState({
-    viewMode: viewMode() === 'simple' ? 'expert' : 'simple', notice: '', error: ''
-  }));
+  // 보기 전환과 「작성 과정 자세히 보기」는 bind()에서 한 번만 연결한다. 두 번 걸면 서로 되돌린다.
   document.querySelector('#simple-find')?.addEventListener('click', () => setState({ activeTool: '', step: 0, notice: '공고를 고르면 분석은 자동으로 합니다.' }));
   document.querySelector('#simple-change-notice')?.addEventListener('click', () => setState({ activeTool: '', step: 0, notice: '' }));
   document.querySelector('#simple-idea')?.addEventListener('input', event => { state.projectNarrative = event.target.value; });
@@ -6739,8 +6839,8 @@ function bindSimple() {
     notice: event.target.value ? '저장해 둔 기관정보를 씁니다.' : ''
   }));
   document.querySelector('#simple-generate')?.addEventListener('click', () => void runSimpleGeneration());
-  document.querySelector('#simple-view')?.addEventListener('click', () => setState({ activeTool: '', step: 4, viewMode: 'expert', notice: '작성한 계획서를 펼쳤습니다.' }));
-  document.querySelector('#simple-expert')?.addEventListener('click', () => setState({ activeTool: 'coaching', notice: '' }));
+  document.querySelector('#simple-view')?.addEventListener('click', () => setState({ expertDetail: true, activeTool: '', step: 4, notice: '작성한 계획서를 펼쳤습니다.' }));
+  document.querySelector('#simple-expert')?.addEventListener('click', () => setState({ expertDetail: true, activeTool: 'coaching', notice: '' }));
   document.querySelector('#simple-revise')?.addEventListener('click', () => setState({ reviseOpen: true, reviseDraft: state.reviseDraft || { kind: 'add', text: '' } }));
   document.querySelector('#revise-cancel')?.addEventListener('click', () => setState({ reviseOpen: false }));
   document.querySelectorAll('[data-revise-kind]').forEach(el => el.onclick = () => setState({ reviseDraft: { ...(state.reviseDraft || {}), kind: el.dataset.reviseKind } }));
@@ -6777,6 +6877,9 @@ async function runSimpleGeneration() {
     approveDesign({ silent: true });
   }
   await generateCompleteProposal();
+  // 설계만 만들고 멈추면 회원 눈에는 아무 일도 안 일어난 것으로 보인다.
+  // 버튼 하나로 끝나야 하므로 남은 본문까지 이어서 만든다.
+  if (state.stagedGeneration?.master && !state.sections.length) await generateProposalParts();
 }
 
 // 한 번에 수정 요청. 요청한 곳만 고치고 나머지는 그대로 둔다.
