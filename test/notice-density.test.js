@@ -20,8 +20,8 @@ test('공고 준비 화면 전체가 밀도 정리 영역으로 묶인다', () =
   // 히어로와 하단 이동 단추는 밖에 두고 카드만 묶는다.
   assert.ok(importView.indexOf('stageHero(') < importView.indexOf('<div class="dense-step">'));
   assert.ok(importView.indexOf('${archiveView()}</div>') < importView.indexOf('${footer('));
-  assert.match(rule('.dense-step>.card'), /padding:14px 16px/);
-  assert.match(rule('.dense-step'), /gap:12px/);
+  assert.match(rule('.dense-step>.card'), /padding:12px 14px/);
+  assert.match(rule('.dense-step'), /gap:8px/);
 });
 
 test('내용이 없어도 큰 빈 상자가 생기지 않는다', () => {
@@ -29,9 +29,12 @@ test('내용이 없어도 큰 빈 상자가 생기지 않는다', () => {
   const dropzone = rule('.dense-step .dropzone');
   assert.match(dropzone, /min-height:0/);
   assert.match(dropzone, /padding:10px 12px/);
+  // 업로드 칸과 붙여넣기 칸의 높이를 서로 맞추지 않는다. 내용이 적은 쪽이 늘어나면 그게 빈 공간이다.
+  assert.match(rule('.dense-step .source-grid'), /align-items:start/);
+  assert.match(rule('.dense-step .source-grid>.card'), /align-self:start;height:auto/);
   // 붙여넣기 칸은 기본을 낮추고 넘치면 스크롤하거나 사용자가 늘린다.
   const textarea = rule('.dense-step .source-text');
-  assert.match(textarea, /height:150px/);
+  assert.match(textarea, /height:118px/);
   assert.match(textarea, /overflow:auto/);
   assert.match(textarea, /resize:vertical/);
   // 자료 유형 선택은 보통 입력칸 높이로 둔다.
@@ -51,7 +54,11 @@ test('현황 넷은 숫자가 먼저 보이는 작은 배지로 가로 나열된
   const badges = rule('.stat-badges');
   assert.match(badges, /display:flex/);
   assert.match(badges, /flex-wrap:wrap/);
-  assert.match(rule('.stat-badge strong'), /font-size:17px/);
+  assert.match(rule('.stat-badge strong'), /font-size:18px/);
+  // 큰 카드가 아니라 40~48px 소형 배지다.
+  assert.match(rule('.stat-badge'), /min-height:42px/);
+  // 긴 설명은 배지에서 빼고 도움말로만 남긴다.
+  assert.match(rule('.stat-badge small'), /display:none/);
   // 좁은 화면에서 접히는 설명은 배지 제목으로 남겨 둔다.
   assert.match(archive, /title="\$\{escapeHtml\(`\$\{label\} \$\{value\}건 · \$\{detail\}`\)\}"/);
 });
@@ -101,7 +108,7 @@ test('좁은 화면에서 한 열로 접히고 누를 수 있는 크기를 지�
   // 업로드와 붙여넣기는 넓은 화면에서 두 열, 980px 아래에서 한 열이 된다.
   assert.match(css, /\.two-col,\.three-col,\.source-grid\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
   assert.match(css, /@media\(max-width:980px\)\{[^@]*\.source-grid,\.two-col,\.three-col\{grid-template-columns:1fr\}/);
-  const narrow = css.slice(css.indexOf('@media(max-width:760px){\n  .dense-step{gap:10px}'));
+  const narrow = css.slice(css.indexOf('@media(max-width:760px){\n  .dense-step{gap:8px}'));
   assert.ok(narrow.length > 200, '좁은 화면 규칙을 찾지 못했다');
   assert.match(narrow, /\.dense-step \.button,\.inline-row \.button\{min-height:38px\}/);
   assert.match(narrow, /input:not\(\[type=checkbox\]\),\.inline-row input\{min-height:38px;font-size:14px\}/);
