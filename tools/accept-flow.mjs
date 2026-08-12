@@ -69,7 +69,7 @@ try {
   // ---------- 2. 공고 찾기: 결과 없음과 결과 있음 ----------
   await page.click('#simple-find', 3500);
   const finder = await page.run(`(() => JSON.stringify({
-    heading: (document.querySelector('h2')?.textContent || '').trim().slice(0, 30),
+    heading: (document.querySelector('h1, h2')?.textContent || '').trim().slice(0, 30),
     search: !!document.querySelector('#archive-search') || !!document.querySelector('#notice-search'),
     ids: [...document.querySelectorAll('input,button')].map(el => el.id).filter(Boolean).slice(0, 24)
   }))()`);
@@ -92,33 +92,31 @@ try {
   })()`);
   record(6, '검색 결과 없음도 오류가 아니다', emptySearch?.status === 200 && Number(emptySearch?.n) === 0, `HTTP ${emptySearch?.status} · ${emptySearch?.n}건`);
 
-  // 보관함에서 실제 공고를 골라 작업 목록에 열고, 그 목록에서 공고를 고른다. 모두 화면 클릭이다.
-  await page.click('#open-archive-box', 4000);
-  const expanded = await page.run(`(() => {
-    const el = document.querySelector('[data-archive-detail]');
-    if (!el) return JSON.stringify({ ok: false });
-    el.click();
-    return JSON.stringify({ ok: true, title: (el.textContent || '').trim().slice(0, 30) });
-  })()`, 2500);
-  const opened2 = await page.run(`(() => {
-    const el = document.querySelector('[data-archive-use]');
-    if (!el) return JSON.stringify({ ok: false });
-    el.click();
-    return JSON.stringify({ ok: true });
-  })()`, 3500);
-  record(7, '공고보관함에서 작업 목록에 열기', expanded?.ok === true && opened2?.ok === true, expanded?.title || '');
-
+  // 공고 준비 화면에서 실제로 공고를 조회하고 목록에서 고른다. 모두 화면 클릭이다.
+  await page.click('#simple-find', 3000);
+  await page.click('#fetch-notices', 4000);
+  await page.waitFor("!document.querySelector('.busy')", 180000, 4000);
   const listed = await page.run(`(() => {
     const el = document.querySelector('[data-view-notice]');
-    if (!el) return JSON.stringify({ ok: false, seen: [...document.querySelectorAll('button')].map(x => (x.textContent||'').trim()).slice(0, 10) });
+    if (!el) return JSON.stringify({ ok: false, seen: [...document.querySelectorAll('button')].map(x => (x.textContent || '').trim()).slice(0, 12) });
     el.click();
     return JSON.stringify({ ok: true, label: (el.textContent || '').trim().slice(0, 24) });
   })()`, 15000);
-  await page.waitFor("!document.querySelector('.busy')", 90000, 3000);
+  await page.waitFor("!document.querySelector('.busy')", 180000, 3000);
+  // 자세히 보기로 연 공고를 실제로 고른다. 세부사업이 여럿이면 첫 번째를 고른다.
+  const confirmed = await page.run(`(() => {
+    const el = document.querySelector('[data-select-notice]');
+    if (!el) return JSON.stringify({ ok: false, seen: [...document.querySelectorAll('button')].map(x => (x.textContent || '').trim()).slice(0, 12) });
+    el.click();
+    return JSON.stringify({ ok: true, label: (el.textContent || '').trim().slice(0, 24) });
+  })()`, 8000);
+  await page.waitFor("!document.querySelector('.busy')", 180000, 3000);
+  await page.run(`(() => { const el = document.querySelector('[data-select-subproject]'); if (el) el.click(); return '1'; })()`, 6000);
+  await page.waitFor("!document.querySelector('.busy')", 180000, 3000);
   let chosen = await readState("notice: (s.selectedNotice?.title || '').length, source: (s.sourceText || '').length");
   await shot('notice-picked');
-  record(7.5, '공고 선택 (화면 클릭)', Number(chosen?.notice || 0) > 0 && Number(chosen?.source || 0) > 0,
-    listed?.ok ? `${listed.label} · 근거 ${chosen?.source}자` : `선택 버튼 없음: ${(listed?.seen || []).join(',').slice(0, 60)}`);
+  record(7, '공고 조회·선택 (화면 클릭)', Number(chosen?.notice || 0) > 0 && Number(chosen?.source || 0) > 0,
+    listed?.ok && confirmed?.ok ? `${listed.label} → ${confirmed.label} · 근거 ${chosen?.source}자` : `선택 버튼 없음: ${(listed?.seen || []).join(',').slice(0, 70)}`);
 
   // ---------- 3. 기관 간단정보와 한 줄 요청 ----------
   await page.go(SITE, 4000);
