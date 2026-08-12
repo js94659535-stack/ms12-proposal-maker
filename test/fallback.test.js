@@ -97,10 +97,10 @@ test('계획서는 자유입력과 「전체 작성」 버튼 하나로 만든�
   assert.doesNotMatch(appSource, /data-generate-part|이 항목만 AI 생성|이 항목만 다시 생성/);
   assert.match(appSource, /async function generateProposalParts\(\) \{/);
   // 사용자는 한 번만 누르고, 남은 항목이 있으면 이어서 작성한다.
-  // 버튼은 하나이고, 설계 승인 전에는 비활성으로만 막는다.
+  // 버튼은 하나다. 설계 승인 전에도 눌리며, 누르면 설계 확인 화면으로 이어진다.
   // 신규 계획서는 승인된 설계안으로 한 번에 만들고, 이어쓰기 경로만 분할 버튼을 쓴다.
-  assert.ok(appSource.includes(`id="generate-proposal" ${'${'}generationPermission().allowed ? '' : 'disabled'}>AI와 함께 전체 계획서 작성`));
-  assert.ok(appSource.includes(`id="generate-parts" ${'${'}generationPermission().allowed ? '' : 'disabled'}>남은 내용 이어서 작성`));
+  assert.ok(appSource.includes(`id="generate-proposal" ${'${'}guard(generationPermission().allowed ? '' : generationPermission().reason, 'design')}>AI와 함께 전체 계획서 작성`));
+  assert.ok(appSource.includes(`id="generate-parts" ${'${'}guard(generationPermission().allowed ? '' : generationPermission().reason, 'design')}>남은 내용 이어서 작성`));
   assert.ok(appSource.includes('const completed = new Set(staged.completedGroupIds || []);'));
   // 자유입력은 선택이며 이번 사업에만 저장한다.
   assert.match(appSource, /id="proposal-freeform"/);

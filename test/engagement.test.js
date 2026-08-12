@@ -190,7 +190,8 @@ test('설계 승인 전에는 전체 계획서 작성을 막고 열람은 막지
 test('승인 흐름과 차단이 화면에 연결된다', () => {
   assert.match(app, /function generationPermission\(\)/);
   assert.match(app, /const permission = generationPermission\(\);\s*\n\s*if \(!permission\.allowed\) return setState\(\{ error: permission\.reason \}\);/);
-  assert.match(app, /id="generate-parts" \$\{generationPermission\(\)\.allowed \? '' : 'disabled'\}/);
+  // 회색으로 막지 않는다. 누를 수 있게 두고 설계 확인 화면으로 데려간다.
+  assert.match(app, /id="generate-parts" \$\{guard\(generationPermission\(\)\.allowed \? '' : generationPermission\(\)\.reason, 'design'\)\}/);
   assert.match(app, /function requestDesignReview\(\)/);
   assert.match(app, /function startDesignReview\(\)/);
   assert.match(app, /function approveDesign\(\)/);

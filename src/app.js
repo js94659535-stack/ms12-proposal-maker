@@ -14,6 +14,7 @@ import { codeLabel, statusLabel, warningLabel } from '../server/notice-run.js';
 import { ABILITIES, SCOPES } from '../server/permissions.js';
 import { BUSINESS_TYPES, SOURCE_GROUPS } from '../server/notice-sources.js';
 import { FITNESS_LABELS } from '../server/notice-classify.js';
+import { ORG_TYPES, QUICK_FIELDS, followUpQuestions, quickToApplicantItems, readyToDraft } from '../server/quick-org.js';
 import { CORE_AREAS, areaProgress, mergeProfileIntoApplicant } from '../server/org-profile.js';
 import { ASSET_KINDS, ASSET_STATUS, STATUS_LABELS as ASSET_STATUS_LABELS, assetSentence, suggestAssets, validateAsset } from '../server/idea-assets.js';
 import { MAX_QUESTIONS, UNKNOWN, checkNumbers, intakeState } from '../server/proposal-intake.js';
@@ -85,6 +86,8 @@ const initial = {
   coaching: { title: '', text: '', validatedText: '', criteriaText: '', officialEvaluationProvided: false, sourceProposalId: '', sourceNoticeKey: '', seriesId: '', currentArchiveId: '', result: null, workItems: [], pendingJob: null, version: 0, references: [], referenceType: REFERENCE_TYPES[0], referenceDraft: '', referenceNameDraft: '' },
   // 사업 아이디어·활용자산과 제안서 작성정보. 계획서 원문과 따로 둔다.
   ideaAssets: [], ideaAssetsLoaded: false, assetDraft: null, intakeAnswers: {},
+  // 간단 시작 입력과 뒤이은 확인 질문. 계획서 원문과 따로 둔다.
+  quickOrg: {}, quickAnswers: {},
   applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
   revisionPlan: null, draftReview: null, projectNarrative: '',
   // 서버가 붙여 준 근거 검증·평가자 검토. 화면은 판정하지 않고 그대로 보여 준다.
@@ -2864,7 +2867,7 @@ function blueprintView() {
       ? '<span class="status 충족">제출 문서 확정 단계로 진행 가능</span>'
       : `<span class="status 부분-충족">제출 전 확인이 필요한 항목이 있습니다 · ${blueprint.submissionChecklist.length}개</span>`;
   return `<div class="card" id="project-blueprint"><div class="card-title"><div><h3>사업 설계도</h3><span>공고 값·기관 값·이번 사업 값을 섞지 않습니다. 확정하지 않은 값은 [확인 필요]로 남깁니다.</span></div>
-      <button class="button primary" id="blueprint-draft" ${blueprint.canDraft ? '' : 'disabled'}>초안 작성</button></div>
+      <button class="button primary" id="blueprint-draft" ${guard(blueprint.canDraft ? '' : (draftHint || '초안을 만들 자료가 아직 없습니다. 공고를 먼저 분석해 주세요.'), 'notice')}>초안 작성</button></div>
     <p class="muted">${escapeHtml(blueprint.verdict)} · 신청기관 ${escapeHtml(blueprint.applicantName)}</p>
     <div style="margin-bottom:12px">${draftHint}</div>
     ${blueprintTypeView(blueprint)}
@@ -2981,6 +2984,35 @@ function currentDemandEvidence() {
 }
 
 // 전체 계획서 작성 권한. 승인 전에는 시작하지 않지만 이미 만든 계획서·버전·보관함 열람은 막지 않는다.
+
+// ---------- 막힌 기능은 회색으로 두지 않는다 ----------
+//
+// 회색 버튼은 왜 못 쓰는지 말해 주지 않는다. 그래서 처리 중일 때만 실제로 잠그고,
+// 그 밖의 경우에는 누를 수 있게 둔 채 무엇이 부족한지와 어디로 가면 되는지 알린다.
+// 권한이 없는 위험한 작업은 화면이 아니라 서버가 계속 막는다.
+
+// 버튼에 붙일 속성. reason이 있으면 눌렀을 때 안내가 뜬다.
+function guard(reason = '', goto = '') {
+  if (!reason) return '';
+  return `data-blocked="${escapeHtml(reason)}"${goto ? ` data-goto="${escapeHtml(goto)}"` : ''}`;
+}
+
+// 안내를 띄우고, 갈 곳이 있으면 그리로 옮긴다.
+function explainBlocked(reason, goto = '') {
+  const targets = {
+    design: () => { setState({ activeTool: 'engagement', notice: reason, error: '' }); },
+    applicants: () => { setState({ activeTool: 'applicants', notice: reason, error: '' }); },
+    notice: () => { setState({ activeTool: '', step: 0, notice: reason, error: '' }); },
+    blueprint: () => { setState({ activeTool: '', step: 3, notice: reason, error: '' }); },
+    write: () => { setState({ activeTool: '', step: 4, notice: reason, error: '' }); },
+    account: () => { setState({ activeTool: 'account', notice: reason, error: '' }); },
+    membership: () => { setState({ activeTool: 'account', notice: reason, error: '' }); document.querySelector('#membership-guide')?.scrollIntoView({ behavior: 'smooth' }); }
+  };
+  const move = targets[goto];
+  if (move) return move();
+  setState({ notice: reason, error: '' });
+}
+
 function generationPermission() {
   return canGenerateProposal({
     approval: state.engagement.design, sections: state.sections,
@@ -3274,8 +3306,8 @@ function submissionPackageView() {
     ${summary.checklist.length ? `<details><summary>제출 전 확인 목록 ${summary.checklist.length}건</summary><div class="requirement-list">${summary.checklist.map(item => `<article class="requirement"><div><span class="status 확인-필요">${escapeHtml(item.status)}</span><div><strong>${escapeHtml(item.area)}</strong><small>${escapeHtml(item.item)}</small></div></div></article>`).join('')}</div></details>` : ''}
     ${versionPickerView()}
     <div class="actions"><span class="muted">${escapeHtml(summary.canExport ? (exportBlock || '제출본을 출력할 수 있습니다.') : '위 사유를 해결해야 출력할 수 있습니다.')}</span><div>
-      <button class="button secondary" id="package-pdf" ${summary.canExport && !exportBlock ? '' : 'disabled'}>최종 PDF 내려받기</button>
-      <button class="button primary" id="package-docx" ${summary.canExport && !exportBlock ? '' : 'disabled'}>최종 DOCX 내려받기</button></div></div></div>`;
+      <button class="button secondary" id="package-pdf" ${guard(exportBlock || (summary.canExport ? '' : '아직 내려받을 내용이 없습니다. 계획서를 먼저 작성해 주세요.'), exportBlock ? 'membership' : 'write')}>최종 PDF 내려받기</button>
+      <button class="button primary" id="package-docx" ${guard(exportBlock || (summary.canExport ? '' : '아직 내려받을 내용이 없습니다. 계획서를 먼저 작성해 주세요.'), exportBlock ? 'membership' : 'write')}>최종 DOCX 내려받기</button></div></div></div>`;
 }
 
 // 정밀 검증 — 정밀형에서만 보이고, 운영자가 버튼으로 실행한다. 검증만으로 본문은 바뀌지 않는다.
@@ -3381,9 +3413,68 @@ function businessSelectView() {
 function applicantStatusTag(status) { return `<span class="status ${status === CONFIRMED_STATUS ? '충족' : status === '오래된 정보' ? '부분-충족' : '확인-필요'}">${escapeHtml(status)}</span>`; }
 function statusOptions(selected) { return APPLICANT_STATUSES.map(value => `<option value="${escapeHtml(value)}" ${value === selected ? 'selected' : ''}>${escapeHtml(value)}</option>`).join(''); }
 
+
+// ---------- 간단하게 시작하기 ----------
+// 기관정보 10개 영역을 다 채우게 하면 계획서를 쓰기도 전에 지친다.
+// 시작에 필요한 다섯 가지만 받고, 나머지는 초안을 만든 뒤 공고가 요구할 때만 묻는다.
+const quickDraft = () => state.quickOrg || {};
+function quickStartPanel() {
+  const draft = quickDraft();
+  const check = readyToDraft(draft);
+  const saved = state.applicants || [];
+  return `<div class="card" id="quick-start">
+    <div class="card-title"><div><h3>간단하게 시작하기</h3><span>다섯 가지만 적으면 AI가 공고와 합쳐 초안을 먼저 만듭니다.</span></div>
+      <span class="status ${check.ready ? '충족' : '확인-필요'}">${check.ready ? '시작 준비됨' : `${check.missing.length}가지 남음`}</span></div>
+    ${saved.length ? `<div class="inline-row"><label for="quick-pick">내 기관 선택</label>
+      <select id="quick-pick"><option value="">전에 저장한 기관 쓰기</option>${saved.map(item => `<option value="${escapeHtml(item.id)}" ${state.selectedApplicantId === item.id ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}</select>
+      <span class="muted">고르면 저장해 둔 정보를 그대로 씁니다.</span></div>` : ''}
+    <div class="two-col">${QUICK_FIELDS.map(field => `<div class="field">
+      <label for="quick-${field.key}">${escapeHtml(field.label)}${field.required ? '' : ' <span class="muted">(선택)</span>'}</label>
+      ${field.choices
+        ? `<select id="quick-${field.key}" data-quick-field="${field.key}"><option value="">고르세요</option>${ORG_TYPES.map(type => `<option value="${escapeHtml(type)}" ${draft[field.key] === type ? 'selected' : ''}>${escapeHtml(type)}</option>`).join('')}</select>`
+        : `<input id="quick-${field.key}" data-quick-field="${field.key}" value="${escapeHtml(draft[field.key] || '')}" placeholder="${escapeHtml(field.hint)}">`}
+    </div>`).join('')}</div>
+    <div class="field"><label for="quick-idea">하고 싶은 사업을 자유롭게 적기</label>
+      <textarea id="quick-idea" class="source-text" placeholder="예: 방과후 돌봄이 끊긴 초등 저학년을 위해 주 2회 학습·정서 프로그램을 하고 싶습니다." style="min-height:80px">${escapeHtml(draft.idea || '')}</textarea>
+      <small class="muted">적지 않은 인력·시설·실적·예산은 만들어 넣지 않고 <b>[확인 필요]</b>로 남깁니다.</small></div>
+    <div class="actions"><span class="muted">${check.ready ? '이대로 초안을 만들 수 있습니다. 부족한 정보는 초안을 만든 뒤 물어봅니다.' : `아직 ${check.missing.join(' · ')}가 비어 있습니다.`}</span>
+      <div><button class="button secondary" id="quick-save" ${state.busy ? 'disabled' : ''}>기관정보로 저장</button>
+        <button class="button primary" id="quick-draft" ${guard(check.ready ? '' : `${check.missing.join(' · ')}를 먼저 적어 주세요. 나머지는 나중에 물어봅니다.`)}>AI가 먼저 작성하기</button></div></div>
+    ${followUpPanel()}
+  </div>`;
+}
+
+// 초안을 만든 뒤 공고가 실제로 요구하는 것만 묻는다.
+function followUpPanel() {
+  const noticeText = [state.selectedNotice?.summary, state.selectedNotice?.eligibility, state.selectedNotice?.supportDetails, state.sourceText].filter(Boolean).join('\n');
+  const asked = followUpQuestions({ noticeText, answers: state.quickAnswers || {} });
+  if (!asked.length) return '';
+  return `<div class="alert"><strong>이 공고가 요구하는 것만 확인합니다</strong>
+    ${asked.map(item => `<div class="field"><label for="followup-${item.key}">${escapeHtml(item.ask)}</label>
+      <input id="followup-${item.key}" data-followup-field="${item.key}" value="${escapeHtml((state.quickAnswers || {})[item.key] || '')}" placeholder="모르면 비워 두세요"></div>`).join('')}
+    <p class="muted">비워 두면 계획서에 [확인 필요]로 남습니다. 없는 실적이나 인력을 만들지 않습니다.</p></div>`;
+}
+
+// 간단 입력을 신청기관 자료로 옮긴다. 옮긴 값은 확인 필요 상태로 들어간다.
+async function saveQuickOrg() {
+  const draft = quickDraft();
+  const check = readyToDraft(draft);
+  if (!check.ready) return setState({ notice: `${check.missing.join(' · ')}를 먼저 적어 주세요.` });
+  const items = quickToApplicantItems(draft).map(item => makeApplicantItem(item));
+  const existing = findApplicant(state, state.selectedApplicantId);
+  const applicant = existing
+    ? { ...existing, items: [...existing.items, ...items] }
+    : buildApplicantOrganization({ name: draft.orgName, items });
+  setState({
+    applicants: upsertApplicant(state.applicants, applicant), selectedApplicantId: applicant.id,
+    notice: '기관정보로 저장했습니다. 확인 필요 상태이니 내용을 보고 확인해 주세요.'
+  });
+  await saveArchivedApplicant(applicant).catch(() => null);
+}
+
 function applicantsToolView() {
   const editing = findApplicant(state.applicants, state.applicantEditingId);
-  return `<div class="page-heading"><div><h2>신청기관 정보</h2><p>이번 사업을 신청하는 기관의 정보를 등록·수정합니다. 공고 분석 정보와는 분리해 보관하며, 확인된 정보만 계획서 작성에 전달합니다.</p><div class="actions">${sampleButton('applicant', '[샘플] 기관 보기')}</div></div><button class="button secondary" id="close-applicants">작성 흐름으로 돌아가기</button></div>
+  return `${quickStartPanel()}<div class="page-heading"><div><h2>신청기관 정보</h2><p>이번 사업을 신청하는 기관의 정보를 등록·수정합니다. 공고 분석 정보와는 분리해 보관하며, 확인된 정보만 계획서 작성에 전달합니다.</p><div class="actions">${sampleButton('applicant', '[샘플] 기관 보기')}</div></div><button class="button secondary" id="close-applicants">작성 흐름으로 돌아가기</button></div>
     <div class="card"><div class="card-title"><div><h3>등록된 신청기관 ${state.applicants.length}곳</h3><span>마인드스토리도 등록기관 중 하나로만 취급합니다.</span></div><div><button class="button secondary" id="load-applicants">계획서보관함에서 불러오기</button></div></div>
     <div class="two-col"><div class="field"><label for="applicant-name-draft">새 신청기관명</label><input id="applicant-name-draft" value="${escapeHtml(state.applicantNameDraft)}" placeholder="예: 사단법인 ○○센터"></div><div class="field"><label>&nbsp;</label><button class="button primary" id="add-applicant">신청기관 추가</button></div></div>
     ${state.applicants.length ? `<div class="requirement-list">${state.applicants.map(applicant => {
@@ -4268,10 +4359,38 @@ function assemblyCheckView() {
     : `<div class="alert warning"><strong>완성 조립 확인 필요</strong><p>사실을 자동 보정하지 않았습니다. 다음 검토 단계에서 아래 항목을 확인하세요.</p>${check.issues.map(issue => `<p>· ${escapeHtml(issue)}</p>`).join('')}</div>`;
 }
 
+// 설계안이 없을 때 보는 시작 카드. 버튼은 언제나 눌린다.
+// 설계가 확정되어 있으면 곧바로 작성하고, 아니면 무엇이 필요한지 알리고 그 화면으로 데려간다.
+function startWritingView() {
+  const permission = generationPermission();
+  const applicant = findApplicant(state, state.selectedApplicantId);
+  const steps = [
+    { done: Boolean(state.selectedNotice?.title || state.sourceText.trim()), label: '공고 고르기', goto: 'notice',
+      reason: '먼저 공고를 고르거나 공고문을 붙여넣어 주세요. 공고 준비 화면으로 이동합니다.' },
+    { done: Boolean(applicant), label: '신청기관 정하기', goto: 'applicants',
+      reason: '어느 기관으로 신청할지 정해 주세요. 다섯 가지만 적으면 시작할 수 있습니다.' },
+    { done: permission.allowed, label: '사업 설계 확인', goto: 'design', reason: permission.reason }
+  ];
+  const next = steps.find(item => !item.done);
+  return `<div class="card" id="start-writing">
+    <div class="card-title"><div><h3>전체 계획서 작성</h3><span>공고와 신청기관 자료를 바탕으로 AI가 초안을 만듭니다.</span></div>
+      <span class="status ${permission.allowed ? '충족' : '확인-필요'}">${permission.allowed ? '작성 준비됨' : '확인 필요'}</span></div>
+    <div class="stat-badges">${steps.map(item => `<span class="stat-badge"><strong>${item.done ? '✓' : '·'}</strong><span>${escapeHtml(item.label)}</span></span>`).join('')}</div>
+    <p class="muted">${permission.allowed
+      ? '설계가 확정되어 있습니다. 바로 작성할 수 있습니다.'
+      : escapeHtml(next?.reason || permission.reason)}</p>
+    <p class="muted">확인되지 않은 인력·시설·실적·예산은 만들지 않고 <b>[확인 필요]</b>로 남깁니다.</p>
+    <div class="actions"><span class="muted">${next ? `다음: ${escapeHtml(next.label)}` : '모두 준비되었습니다.'}</span>
+      <button class="button primary" id="generate-proposal" ${guard(permission.allowed ? '' : (next?.reason || permission.reason), next?.goto || 'design')}>AI와 함께 전체 계획서 작성</button></div>
+  </div>`;
+}
+
 function stagedGenerationView() {
   const staged = state.stagedGeneration || initial.stagedGeneration;
   const master = staged.master;
-  if (!master) return '';
+  // 설계안이 아직 없으면 이 화면은 통째로 비어 있었다. 시작 버튼조차 없어서
+  // 「계획서 작성」에 와 놓고도 갈 곳이 없었다. 시작 카드를 대신 보여 준다.
+  if (!master) return startWritingView();
   const groups = master.sectionPlan || [];
   const logic = master.masterLogic || {};
   const completed = new Set(staged.completedGroupIds || []);
@@ -4294,8 +4413,8 @@ function stagedGenerationView() {
     ${(() => { const permission = generationPermission(); return permission.allowed ? '' : `<div class="alert warning"><strong>설계 승인 후에 작성합니다</strong><p>${escapeHtml(permission.reason)}</p><button class="button secondary" id="open-engagement-design">설계안 보러 가기</button></div>`; })()}
     <div class="actions"><span>확인되지 않은 값은 만들지 않고 [확인 필요]로 남깁니다. 제출 가능 여부는 마지막 검토 단계에서 판단합니다.</span>${done ? '<button class="button primary" id="assemble-proposal">계획서 완성하기</button>' : resumed
       // 이미 분할 작성을 시작한 기존 계획서만 이어쓰기 경로를 쓴다. 신규 계획서는 한 번에 작성한다.
-      ? `<button class="button primary" id="generate-parts" ${generationPermission().allowed ? '' : 'disabled'}>남은 내용 이어서 작성</button>`
-      : `<button class="button primary" id="generate-proposal" ${generationPermission().allowed ? '' : 'disabled'}>AI와 함께 전체 계획서 작성</button>`}</div></div>`;
+      ? `<button class="button primary" id="generate-parts" ${guard(generationPermission().allowed ? '' : generationPermission().reason, 'design')}>남은 내용 이어서 작성</button>`
+      : `<button class="button primary" id="generate-proposal" ${guard(generationPermission().allowed ? '' : generationPermission().reason, 'design')}>AI와 함께 전체 계획서 작성</button>`}</div></div>`;
 }
 
 const SECTION_TITLES = { necessity: '사업 필요성', purpose: '목적', goals: '목표', target: '대상', programs: '세부 프로그램', schedule: '추진 일정', roles: '운영 인력·역할', budget: '예산', indicators: '성과지표', outcomes: '기대효과' };
@@ -4829,6 +4948,12 @@ function bind() {
   });
   document.querySelector('#collection-reload')?.addEventListener('click', () => void loadCollection());
   document.querySelector('#collection-run')?.addEventListener('click', () => void runCollectionNow());
+  // 막힌 버튼은 눌리되 실행되지 않고 안내로 이어진다. 이 처리기가 다른 처리기보다 먼저 잡는다.
+  document.querySelectorAll('[data-blocked]').forEach(el => el.addEventListener('click', event => {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    explainBlocked(el.dataset.blocked, el.dataset.goto || '');
+  }, true));
   document.querySelectorAll('[data-source-toggle]').forEach(el => el.onclick = () => void toggleNoticeSource(el.dataset.sourceToggle, Boolean(el.dataset.sourceNext)));
   document.querySelector('#open-admin-showcase')?.addEventListener('click', () => setAuth({ adminTab: auth.adminTab === 'showcase' ? 'accounts' : 'showcase', error: '', notice: '' }));
   document.querySelector('#open-admin-usage')?.addEventListener('click', () => {
@@ -5198,6 +5323,14 @@ function bindApplicants() {
   });
   // 내 정보 → 신청기관. 덮어쓰지 않고 확인 필요 항목으로 넣는다.
   document.querySelector('#pull-profile-info')?.addEventListener('click', () => void pullProfileIntoApplicant());
+  // 간단 시작
+  document.querySelectorAll('[data-quick-field]').forEach(el => el.oninput = () => { state.quickOrg = { ...quickDraft(), [el.dataset.quickField]: el.value }; });
+  document.querySelectorAll('select[data-quick-field]').forEach(el => el.onchange = () => setState({ quickOrg: { ...quickDraft(), [el.dataset.quickField]: el.value } }));
+  document.querySelector('#quick-idea')?.addEventListener('input', event => { state.quickOrg = { ...quickDraft(), idea: event.target.value }; });
+  document.querySelector('#quick-pick')?.addEventListener('change', event => setState({ selectedApplicantId: event.target.value, applicantEditingId: event.target.value, notice: event.target.value ? '저장해 둔 기관정보를 씁니다.' : '' }));
+  document.querySelector('#quick-save')?.addEventListener('click', () => void saveQuickOrg());
+  document.querySelector('#quick-draft')?.addEventListener('click', () => void startQuickDraft());
+  document.querySelectorAll('[data-followup-field]').forEach(el => el.oninput = () => { state.quickAnswers = { ...(state.quickAnswers || {}), [el.dataset.followupField]: el.value }; });
   // 아이디어 자산은 신청기관 화면을 처음 열 때 한 번만 불러온다.
   if (document.querySelector('#idea-assets') && !state.ideaAssetsLoaded) void loadIdeaAssets();
   // 사업 아이디어·활용자산
@@ -6384,6 +6517,22 @@ async function analyze() {
 
 async function createDraft() {
   await generateCompleteProposal();
+}
+
+// 「AI가 먼저 작성하기」. 간단 입력 다섯 가지에서 곧바로 초안까지 간다.
+// 기관정보를 저장하고, 하고 싶은 사업을 자유입력으로 넘긴 뒤, 사업 설계 단계로 데려간다.
+// 적지 않은 인력·시설·실적·예산은 여기서도 만들지 않는다. [확인 필요]로 남는다.
+async function startQuickDraft() {
+  const check = readyToDraft(quickDraft());
+  if (!check.ready) return setState({ notice: `${check.missing.join(' · ')}를 먼저 적어 주세요. 나머지는 나중에 물어봅니다.` });
+  await saveQuickOrg();
+  const idea = String(quickDraft().idea || '').trim();
+  // 자유입력 칸은 사업 설계가 이미 쓰고 있다. 같은 곳에 넣어 흐름을 잇는다.
+  setState({
+    projectNarrative: idea ? `${idea}\n\n${state.projectNarrative || ''}`.trim() : state.projectNarrative,
+    activeTool: '', step: 3,
+    notice: '기관정보를 저장했습니다. 이어서 사업 설계를 확인하고 초안을 만듭니다.'
+  });
 }
 
 async function rewriteSection(index) {

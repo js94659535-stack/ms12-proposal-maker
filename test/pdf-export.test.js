@@ -164,5 +164,5 @@ test('PDF도 선택한 저장 버전만 쓰고 인쇄창을 거치지 않는다'
   // 기존 인쇄 기능은 그대로 남긴다.
   assert.match(app, /id="print"/);
   assert.match(app, /document\.querySelector\('#pdf'\)\?\.addEventListener\('click', \(\) => exportPdf\(state\.project, state\.sections\)/);
-  assert.match(app, /id="package-pdf"[\s\S]{0,120}최종 PDF 내려받기/);
+  assert.match(app, /id="package-pdf"[\s\S]{0,240}최종 PDF 내려받기/);
 });

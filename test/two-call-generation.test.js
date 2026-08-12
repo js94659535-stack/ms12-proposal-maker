@@ -34,7 +34,9 @@ test('승인되지 않은 설계안이면 전체 계획서 작성을 실행하�
   assert.equal(canGenerateProposal({}).allowed, false);
   // 실행 경로와 버튼 양쪽에서 막는다.
   assert.match(fullProposalFn, /const permission = generationPermission\(\);\s*\n\s*if \(!permission\.allowed\) return setState\(\{ error: permission\.reason \}\);/);
-  assert.match(app, /id="generate-proposal" \$\{generationPermission\(\)\.allowed \? '' : 'disabled'\}/);
+  // 버튼은 눌리되 실행되지 않고 설계 확인으로 이어진다. 실제 차단은 실행 경로와 서버가 맡는다.
+  assert.match(app, /id="generate-proposal" \$\{guard\(generationPermission\(\)\.allowed \? '' : generationPermission\(\)\.reason, 'design'\)\}/);
+  assert.match(app, /\[data-blocked\]/);
   // 승인된 설계안이 서버에서도 필수다.
   assert.match(api, /if \(!payload\.designPlan \|\| typeof payload\.designPlan !== 'object'\) return '승인된 설계안이 없습니다\.';/);
   // 기존 계획서 열람·이어쓰기는 막지 않는다.

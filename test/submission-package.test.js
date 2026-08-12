@@ -166,8 +166,10 @@ test('출력은 판정을 통과할 때만 나가고 기존 DOCX·PDF 경로를 
   assert.match(app, /const options = \{ forSubmission: true, tables: version\.tables \|\| \[\], applicantName, version: version\.version \};/);
   assert.match(app, /\? exportDocx\(state\.project, version\.sections, options\)/);
   // 판정을 통과해도 저장된 버전이 없거나 화면 내용이 다르면 버튼을 열지 않는다.
-  assert.match(app, /id="package-docx" \$\{summary\.canExport && !exportBlock \? '' : 'disabled'\}/);
-  assert.match(app, /id="package-pdf" \$\{summary\.canExport && !exportBlock \? '' : 'disabled'\}/);
+  // 회색으로 막지 않는다. 판정에 걸리면 눌렀을 때 무엇이 부족한지 알려 준다.
+  // 실제 차단은 출력 실행 경로와 서버가 맡는다.
+  assert.match(app, /id="package-docx" \$\{guard\(exportBlock \|\| \(summary\.canExport \? '' : '[^']+'\), exportBlock \? 'membership' : 'write'\)\}/);
+  assert.match(app, /id="package-pdf" \$\{guard\(exportBlock \|\| \(summary\.canExport \? '' : '[^']+'\), exportBlock \? 'membership' : 'write'\)\}/);
   // 기존 개별 출력 버튼은 그대로 둔다.
   assert.match(app, /document\.querySelector\('#docx'\)\?\.addEventListener\('click', \(\) => exportDocx\(state\.project, state\.sections\)\.catch\(showError\)\);/);
   // 검증 결과에 어느 본문을 봤는지 지문을 남긴다.
