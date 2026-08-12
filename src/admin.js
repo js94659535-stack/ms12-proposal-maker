@@ -34,3 +34,7 @@ export const deleteShowcase = id => post('deleteShowcase', { id });
 export const setAccountSubscription = (id, subscription) => post('setSubscription', { id, subscription });
 // 소셜 연결 이전. 관리자 비밀번호로 방금 로그인한 세션에서만 서버가 옮긴다.
 export const transferSocialIdentity = provider => post('transferIdentity', { provider });
+// 공고 자동수집 상태판. 읽기 전용이다.
+export const adminNoticeCollection = () => post('noticeCollection');
+// 수동 재수집. 자동 실행과 같은 잠금에 걸려 두 번 돌지 않는다.
+export const adminRunNoticeCollection = () => post('runNoticeCollection');

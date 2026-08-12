@@ -12,7 +12,8 @@ export const OPERATOR_ACTIONS = new Set([
   'endSessions',   // 전체 세션 종료
   'issueRecoveryCode', // 일회용 계정 복구코드 발급
   'usageReport',   // AI 사용량·비용 조회(읽기 전용)
-  'setContractProgress' // 수주 작업 진행상태 변경. 권한 자체는 건드리지 않는다
+  'setContractProgress', // 수주 작업 진행상태 변경. 권한 자체는 건드리지 않는다
+  'noticeCollection' // 공고 자동수집 상태 조회(읽기 전용). 실행은 관리자만 한다
 ]);
 
 // 운영관리자 권한으로는 서버에서 거절하는 동작. 화면에 버튼이 없더라도 여기서 다시 막는다.
@@ -44,7 +45,8 @@ export const BLOCKED_ACTIONS = new Map([
   ['setApiKey', 'API 키 변경'],
   ['setModel', '모델 변경'],
   ['updateSettings', '시스템 설정 변경'],
-  ['changeAdmin', '관리자 계정 변경']
+  ['changeAdmin', '관리자 계정 변경'],
+  ['runNoticeCollection', '공고 수동 재수집']
 ]);
 
 // 결제·이용량은 아직 어디에도 쌓이지 않는다. 지어내지 않고 「미연동」이라고만 알린다.

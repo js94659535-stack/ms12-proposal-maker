@@ -92,7 +92,9 @@ const CHANNELS = Object.freeze([
   Object.freeze({ id: 'board', label: '누리집 공지사항', collect: collectBoard })
 ]);
 
-async function listNotices(fetcher) {
+// 공식 출처를 훑어 공고 목록을 만든다. 화면 요청과 자동수집이 같은 이 함수를 쓴다.
+// 여기서는 저장하지 않는다. 저장은 부르는 쪽이 정한다.
+export async function collectNotices(fetcher = fetch) {
   const today = todayInSeoul();
   const jobs = [];
   for (const [source, config] of Object.entries(SOURCES)) {
@@ -101,10 +103,14 @@ async function listNotices(fetcher) {
   const outcomes = await Promise.all(jobs);
   const sources = outcomes.map(outcome => outcome.status);
   const notices = dedupeNotices(outcomes.flatMap(outcome => outcome.notices)).sort(byDeadlineThenDate);
-  const summary = summarizeCollection(sources, notices);
+  return { notices, sources, summary: summarizeCollection(sources, notices), collectedAt: new Date().toISOString() };
+}
+
+async function listNotices(fetcher) {
+  const { notices, sources, summary, collectedAt } = await collectNotices(fetcher);
   // 전부 실패한 것을 「공고 0건」으로 넘기지 않는다. 화면이 다른 문구를 쓸 수 있게 오류로 돌려준다.
   if (summary.allFailed) return json({ error: FAILURE.shape, collectFailed: true, sources }, 502);
-  return json({ notices, sources, collectedAt: new Date().toISOString(), ...summary });
+  return json({ notices, sources, collectedAt, ...summary });
 }
 
 function byDeadlineThenDate(left, right) {

@@ -1,6 +1,9 @@
 // 관리자 전용 계정 관리. 화면에서 숨기는 것이 아니라 여기서 실제로 막는다.
 // 비밀번호 열은 읽지도 내보내지도 않는다.
 import { recordAudit } from '../../server/audit.js';
+import { collectionStatus, runCollection } from '../../server/notice-collector.js';
+import { collectNotices } from './notices.js';
+import { syncNotices } from './archive.js';
 import { usageReport } from '../../server/ai-usage.js';
 import { RANK, adminNotice, findDuplicates, parseQuery, rankNotice, withDerived } from '../../server/notice-search.js';
 import { DEFAULT_PLAN, PLANS, effectivePlan } from '../../server/plan.js';
@@ -39,6 +42,10 @@ export async function onRequest(context) {
   // 전체 이용권 부여·회수는 관리자만 한다. 운영관리자 경로(/api/operator)에서는 언제나 거절된다.
   if (body.action === 'setPlan') return mutate(env.ARCHIVE_DB, actor, body.id, (db, target) => setPlan(db, target, body.plan));
   // 공모정보 관리. 공개 여부와 상관없이 모아 둔 자료 전체를 본다.
+  // 자동수집 상태판. 읽기만 한다.
+  if (body.action === 'noticeCollection') return json(await collectionStatus(env.ARCHIVE_DB), 200);
+  // 수동 재수집. 자동 실행과 같은 경로를 쓰고 같은 잠금에 걸린다.
+  if (body.action === 'runNoticeCollection') return runNoticeCollection(env.ARCHIVE_DB, actor);
   if (body.action === 'listNotices') return json(await listNotices(env.ARCHIVE_DB, body.query), 200);
   if (body.action === 'setNoticePublic') return setNoticePublic(env.ARCHIVE_DB, actor, body);
   // AI 사용량·비용. 회원별·계획서별·기간별로 본다.
@@ -429,4 +436,18 @@ async function remove(db, target) {
 
 function json(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), { status, headers: { ...JSON_HEADERS, ...headers } });
+}
+
+// 관리자가 직접 돌리는 재수집. 이미 돌고 있으면 두 번 돌리지 않는다.
+async function runNoticeCollection(db, actor) {
+  const result = await runCollection(db, {
+    collect: () => collectNotices(fetch),
+    sync: notices => syncNotices(db, notices),
+    trigger: 'manual'
+  });
+  if (result.skipped) {
+    return json({ error: '이미 수집이 진행 중입니다. 끝난 뒤에 다시 눌러 주세요.', running: true, ...await collectionStatus(db) }, 409);
+  }
+  await recordAudit(db, { actor, action: 'admin.runNoticeCollection', result: result.status, detail: `수동 재수집 · 발급 ${result.collected}건 · 신규 ${result.inserted}건 · 갱신 ${result.updated}건` });
+  return json({ run: result, ...await collectionStatus(db) }, 200);
 }

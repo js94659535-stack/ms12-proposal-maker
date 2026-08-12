@@ -10,6 +10,7 @@ import { PREMIUM_ADMIN_LABEL, PROGRESS_STEPS, contractState } from '../../server
 import { membershipOf } from '../../server/membership.js';
 import { SUBSCRIPTION_LABELS, remaining } from '../../server/subscription.js';
 import { issueRecoveryCode } from '../../server/recovery.js';
+import { collectionStatus } from '../../server/notice-collector.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 const SOCIAL_KEY_SUFFIX = '@social.ms12.invalid';
@@ -39,6 +40,8 @@ export async function onRequest(context) {
   if (!OPERATOR_ACTIONS.has(action)) return json({ error: '지원하지 않는 작업입니다.' }, 400);
 
   const db = env.ARCHIVE_DB;
+  // 공고 자동수집 상태는 운영관리자도 본다. 실행 단추는 주지 않는다.
+  if (action === 'noticeCollection') return json({ ...await collectionStatus(db), readOnly: true }, 200);
   if (action === 'overview') return json(await overview(db, body), 200);
   if (action === 'userDetail') return userDetail(db, body.id);
   // 사용량·비용은 읽기만 한다. 단가·상한을 바꾸는 동작은 이 경로에 없다.

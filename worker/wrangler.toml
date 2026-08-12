@@ -1,0 +1,16 @@
+# 공고 자동수집 Worker. Pages 프로젝트(ms12-proposal-maker)와 같은 D1을 본다.
+# 배포:  npx wrangler deploy --config worker/wrangler.toml
+name = "ms12-notice-collector"
+main = "notice-collector.js"
+compatibility_date = "2026-08-06"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+
+[triggers]
+# UTC 기준. 23:00 = 한국시간 08:00(다음 날), 09:00 = 한국시간 18:00.
+crons = ["0 23 * * *", "0 9 * * *"]
+
+[[d1_databases]]
+binding = "ARCHIVE_DB"
+database_name = "ms12-proposal-archive"
+database_id = "6bf8da36-9690-4577-8f55-ef316e875ef8"

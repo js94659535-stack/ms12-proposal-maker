@@ -21,3 +21,5 @@ export const operatorEndSessions = (id, query = '') => post('endSessions', { id,
 export const operatorIssueRecoveryCode = (id, query = '') => post('issueRecoveryCode', { id, query });
 // 수주 작업 진행상태만 바꾼다. 프리미엄 권한 부여·해제는 서버가 거절한다.
 export const operatorSetContractProgress = (id, progress, progressNote = '', query = '') => post('setContractProgress', { id, progress, progressNote, query });
+// 공고 자동수집 상태. 운영관리자는 보기만 한다. 실행은 서버가 거절한다.
+export const operatorNoticeCollection = () => post('noticeCollection');

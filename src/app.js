@@ -7,9 +7,10 @@ import { buildProposalPdfBlob, exportProposalPdf } from './pdf-export.js';
 import { MANIFEST_NAME, packageStale, planSubmissionZip, zipBytes } from './submission-zip.js';
 import { UNAUTHORIZED, accountProfile, clearOAuthCallback, currentUser, finishSocial, login, logout, readOAuthCallback, recoverPassword, saveAccountProfile, saveMemberInfo, signup as signupEmail, startSocial } from './auth.js';
 import { premiumNoticeHistory, premiumShowcase, premiumStatus } from './premium.js';
-import { adminUsageReport, approveAccount, deleteShowcase, setAccountSubscription, transferSocialIdentity, disableAccount, listAccounts, listCollectedNotices, listShowcase, removeAccount, saveShowcase, setAccountPlan, setAccountPremium, setAccountRole, setNoticePublic, setShowcaseOrder, setShowcasePublic } from './admin.js';
+import { adminNoticeCollection, adminRunNoticeCollection, adminUsageReport, approveAccount, deleteShowcase, setAccountSubscription, transferSocialIdentity, disableAccount, listAccounts, listCollectedNotices, listShowcase, removeAccount, saveShowcase, setAccountPlan, setAccountPremium, setAccountRole, setNoticePublic, setShowcaseOrder, setShowcasePublic } from './admin.js';
 import { fetchMembershipPlans, publicNoticeDetail, searchPublicNotices } from './notice-search.js';
-import { operatorApprove, operatorDisable, operatorEndSessions, operatorIssueRecoveryCode, operatorOverview, operatorReactivate, operatorSetContractProgress, operatorUnlockLogin, operatorUsageReport, operatorUserDetail } from './operator.js';
+import { operatorNoticeCollection, operatorApprove, operatorDisable, operatorEndSessions, operatorIssueRecoveryCode, operatorOverview, operatorReactivate, operatorSetContractProgress, operatorUnlockLogin, operatorUsageReport, operatorUserDetail } from './operator.js';
+import { codeLabel, statusLabel, warningLabel } from '../server/notice-run.js';
 import { reportError, reportStep, resetActivityDedupe } from './activity.js';
 import { fetchNoticeDetail, fetchNoticeList, importNoticeUrl, noticeBodyText } from './notices.js';
 import { deleteArchivedApplicant, getArchivedProposal, getArchiveRecoveryKey, listArchivedApplicants, listArchivedProposals, saveArchivedApplicant, saveArchivedProposal, searchArchivedNotices, syncArchivedNotices, useArchiveRecoveryKey } from './archive.js';
@@ -863,12 +864,80 @@ const ADMIN_DONE = {
 const PLAN_LABELS = { full: '전체 이용권', trial: '무료 체험' };
 
 function openAdmin() {
-  auth = { ...auth, error: '', notice: '', confirmDelete: '', adminTab: 'accounts', notices: emptyAdminNotices() };
+  auth = { ...auth, error: '', notice: '', confirmDelete: '', adminTab: 'accounts', notices: emptyAdminNotices(), collection: emptyCollection() };
   setState({ activeTool: 'admin', notice: '', error: '' });
   void loadAccounts();
 }
 // 관리자 공모정보 관리 자료. 공개 여부와 상관없이 모아 둔 자료 전체를 본다.
 function emptyAdminNotices() { return { loaded: false, list: [], total: 0, collected: 0, hidden: 0, duplicates: 0, query: '', queryDraft: '' }; }
+// 공고 자동수집 상태판. 관리자와 운영관리자가 같은 자료를 본다.
+function emptyCollection() { return { loaded: false, state: null, runs: [], archive: null, searchable: false, collectHealthy: false }; }
+async function loadCollection() {
+  const call = isAdmin() ? adminNoticeCollection : operatorNoticeCollection;
+  const result = await call().catch(() => ({ ok: false }));
+  if (!result.ok) return setAuth({ error: result.error || '자동수집 상태를 불러오지 못했습니다.', collection: { ...collectionState(), loaded: true } });
+  setAuth({ collection: { loaded: true, state: result.state, runs: result.runs || [], archive: result.archive, searchable: Boolean(result.searchable), collectHealthy: Boolean(result.collectHealthy) } });
+}
+// 수동 재수집은 관리자만. 이미 돌고 있으면 서버가 409로 막는다.
+async function runCollectionNow() {
+  if (auth.busy || !isAdmin()) return;
+  setAuth({ busy: true, error: '', notice: '' });
+  const result = await adminRunNoticeCollection().catch(() => ({ ok: false }));
+  if (!result.ok) {
+    return setAuth({
+      busy: false, error: result.error || '재수집을 실행하지 못했습니다.',
+      collection: result.state ? { loaded: true, state: result.state, runs: result.runs || [], archive: result.archive, searchable: Boolean(result.searchable), collectHealthy: Boolean(result.collectHealthy) } : collectionState()
+    });
+  }
+  const run = result.run || {};
+  setAuth({
+    busy: false,
+    notice: `재수집 ${statusLabel(run.status)} · 발급 ${run.collected || 0}건 · 신규 ${run.inserted || 0}건 · 갱신 ${run.updated || 0}건`,
+    collection: { loaded: true, state: result.state, runs: result.runs || [], archive: result.archive, searchable: Boolean(result.searchable), collectHealthy: Boolean(result.collectHealthy) }
+  });
+}
+const collectionState = () => auth.collection || emptyCollection();
+const runStamp = value => (value ? String(value).slice(0, 16).replace('T', ' ') : '기록 없음');
+
+// 상태판. 「공고 검색이 되는 것」과 「최신 공고가 들어오는 것」을 따로 보여 준다.
+function collectionPanel({ readOnly = false } = {}) {
+  const view = collectionState();
+  const state = view.state;
+  const archive = view.archive;
+  const last = view.runs[0];
+  if (!view.loaded) return '<div class="card-title" style="margin-top:18px"><div><h4>공고 자동수집</h4><span>상태를 불러오는 중입니다.</span></div></div>';
+  const failing = Number(state?.consecutiveFailures || 0);
+  const warning = last?.warning || '';
+  return `<div class="card-title" style="margin-top:18px"><div><h4>공고 자동수집</h4>
+      <span>한국시간 08:00·18:00 자동 실행 · 사랑의열매 중앙회·광주지회 공식 출처만 조회합니다.</span></div>
+      <span class="status ${view.collectHealthy ? '충족' : failing ? '부족' : '확인-필요'}">${view.collectHealthy ? '정상' : failing ? `연속 실패 ${failing}회` : '확인 필요'}</span></div>
+    ${failing ? `<div class="alert danger"><strong>자동수집이 ${failing}회 연속 실패했습니다.</strong><p>실패 코드 ${escapeHtml(state.lastFailureCode || '')}${codeLabel(state?.lastFailureCode) ? ` · ${escapeHtml(codeLabel(state.lastFailureCode))}` : ''}. 기존 공모정보는 지우지 않고 그대로 두었습니다.</p></div>` : ''}
+    ${warning ? `<div class="alert warning"><strong>${warning === 'drop' ? '수집량 급감' : '수집 0건'}</strong><p>${escapeHtml(warningLabel(warning))}</p></div>` : ''}
+    <div class="stat-badges">
+      <span class="stat-badge" title="자동·수동을 가리지 않은 마지막 실행 시각"><strong>${runStamp(state?.lastRunAt)}</strong><span>마지막 실행</span></span>
+      <span class="stat-badge" title="일부 실패·0건은 성공으로 세지 않습니다"><strong>${runStamp(state?.lastSuccessAt)}</strong><span>마지막 정상 성공</span></span>
+      <span class="stat-badge" title="검색 자료에 새 공고가 마지막으로 들어온 날"><strong>${runStamp(archive?.lastNewNoticeAt)}</strong><span>마지막 신규 유입</span></span>
+      <span class="stat-badge" title="검색 가능한 공모정보 수. 수집 성공과는 별개 상태입니다"><strong>${archive?.total ?? 0}</strong><span>검색 자료</span></span>
+    </div>
+    ${last ? `<div class="summary-grid">
+      <div><span>마지막 실행 상태</span><strong>${escapeHtml(statusLabel(last.status))}${last.trigger === 'manual' ? ' (수동)' : ''}</strong></div>
+      <div><span>조회 / 발급</span><strong>${last.listed} / ${last.collected}건</strong></div>
+      <div><span>신규 / 갱신</span><strong>${last.inserted} / ${last.updated}건</strong></div>
+      <div><span>보관함 반영</span><strong>${last.synced ? '반영함' : '반영 안 함'}</strong></div>
+    </div>
+    <div class="requirement-list">${(last.sources || []).map(source => `<article class="requirement"><div>
+      <div><strong>${escapeHtml(source.label)}</strong> <span class="status ${source.status === 'ok' ? '충족' : '부족'}">${source.status === 'ok' ? '성공' : `실패 ${escapeHtml(source.code)}`}</span></div>
+      <small class="muted">${escapeHtml(`조회 ${source.listed}건 · 공모 후보 ${source.candidates}건 · 발급 ${source.collected}건${source.status === 'ok' ? '' : ` · ${codeLabel(source.code)}`}`)}</small>
+    </div></article>`).join('')}</div>` : '<p class="muted">아직 실행 기록이 없습니다.</p>'}
+    <h4>최근 실행</h4>
+    <div class="requirement-list">${view.runs.map(run => `<article class="requirement"><div>
+      <div><strong>${runStamp(run.startedAt)}</strong> <span class="status ${run.status === 'ok' ? '충족' : run.status === 'failed' ? '부족' : '확인-필요'}">${escapeHtml(statusLabel(run.status))}</span> <span class="tag">${run.trigger === 'manual' ? '수동' : '자동'}</span></div>
+      <small class="muted">${escapeHtml(`조회 ${run.listed} · 발급 ${run.collected} · 신규 ${run.inserted} · 갱신 ${run.updated} · 그대로 ${run.unchanged}${run.failureCode ? ` · 실패 ${run.failureCode}` : ''}${run.warning ? ` · 경고 ${run.warning}` : ''}`)}</small>
+    </div></article>`).join('') || '<p class="muted">기록이 없습니다.</p>'}</div>
+    <div class="actions"><span class="muted">${readOnly ? '운영관리자는 상태를 보기만 합니다. 재수집은 관리자만 실행합니다.' : '재수집은 자동 실행과 같은 잠금을 씁니다. 겹치면 실행되지 않습니다.'}</span>
+      <div><button class="button secondary" id="collection-reload" ${auth.busy ? 'disabled' : ''}>상태 새로고침</button>${readOnly ? '' : `<button class="button primary" id="collection-run" ${auth.busy || state?.runningSince ? 'disabled' : ''}>${state?.runningSince ? '수집 진행 중' : '지금 재수집'}</button>`}</div></div>`;
+}
+
 async function loadAdminNotices(query = auth.notices.query) {
   const result = await listCollectedNotices(query).catch(() => ({ ok: false }));
   if (!result.ok) return setAuth({ error: result.error || '공모정보를 불러오지 못했습니다.', notices: { ...auth.notices, loaded: true } });
@@ -969,8 +1038,9 @@ function adminView() {
     <div class="requirement-list">${waiting.map(accountRow).join('') || '<p class="muted">승인을 기다리는 계정이 없습니다.</p>'}</div>
     <h4>이용 중·중지된 계정 ${rest.length}건</h4>
     <div class="requirement-list">${rest.map(accountRow).join('') || '<p class="muted">표시할 계정이 없습니다.</p>'}</div>
-    <div class="actions"><span class="muted">관리자 계정과 내 계정은 이 화면에서 바꿀 수 없습니다.</span><div><button class="button secondary" id="reload-admin" ${auth.busy ? 'disabled' : ''}>목록 새로고침</button><button class="button secondary" id="open-admin-notices" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'notices' ? '공모정보 접기' : '공모정보 관리'}</button><button class="button secondary" id="open-admin-usage" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'usage' ? '사용량 접기' : 'AI 사용량·비용'}</button><button class="button secondary" id="open-admin-showcase" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'showcase' ? '우수 제안서 접기' : '우수 제안서 관리'}</button><button class="button secondary" id="close-admin">계획서 포털로</button></div></div>
+    <div class="actions"><span class="muted">관리자 계정과 내 계정은 이 화면에서 바꿀 수 없습니다.</span><div><button class="button secondary" id="reload-admin" ${auth.busy ? 'disabled' : ''}>목록 새로고침</button><button class="button secondary" id="open-admin-notices" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'notices' ? '공모정보 접기' : '공모정보 관리'}</button><button class="button secondary" id="open-admin-collection" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'collection' ? '자동수집 접기' : '공고 자동수집'}</button><button class="button secondary" id="open-admin-usage" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'usage' ? '사용량 접기' : 'AI 사용량·비용'}</button><button class="button secondary" id="open-admin-showcase" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'showcase' ? '우수 제안서 접기' : '우수 제안서 관리'}</button><button class="button secondary" id="close-admin">계획서 포털로</button></div></div>
     ${auth.adminTab === 'notices' ? adminNoticesPanel() : ''}
+    ${auth.adminTab === 'collection' ? collectionPanel() : ''}
     ${auth.adminTab === 'usage' ? usagePanel() : ''}
     ${auth.adminTab === 'showcase' ? showcasePanel() : ''}
   </div>`;
@@ -1225,8 +1295,9 @@ function operatorView() {
       <button class="button ${view.tab === 'users' ? 'primary' : 'secondary'}" data-operator-tab="users" aria-pressed="${view.tab === 'users'}">회원 ${view.users.length}</button>
       <button class="button ${view.tab === 'audit' ? 'primary' : 'secondary'}" data-operator-tab="audit" aria-pressed="${view.tab === 'audit'}">감사기록 ${view.audit.length}</button>
       <button class="button ${view.tab === 'usage' ? 'primary' : 'secondary'}" data-operator-tab="usage" aria-pressed="${view.tab === 'usage'}">AI 사용량·비용</button>
+      <button class="button ${view.tab === 'collection' ? 'primary' : 'secondary'}" data-operator-tab="collection" aria-pressed="${view.tab === 'collection'}">공고 자동수집</button>
     </div>
-    ${view.tab === 'usage' ? usagePanel() : view.tab === 'audit' ? operatorAuditList(view.audit) : `<div class="requirement-list">${view.users.map(operatorRow).join('') || '<p class="muted">조건에 맞는 회원이 없습니다.</p>'}</div>`}
+    ${view.tab === 'collection' ? collectionPanel({ readOnly: true }) : view.tab === 'usage' ? usagePanel() : view.tab === 'audit' ? operatorAuditList(view.audit) : `<div class="requirement-list">${view.users.map(operatorRow).join('') || '<p class="muted">조건에 맞는 회원이 없습니다.</p>'}</div>`}
   </div>`;
 }
 
@@ -4376,6 +4447,13 @@ function bind() {
     setAuth({ adminTab: opening ? 'notices' : 'accounts', error: '', notice: '' });
     if (opening && !auth.notices.loaded) void loadAdminNotices();
   });
+  document.querySelector('#open-admin-collection')?.addEventListener('click', () => {
+    const opening = auth.adminTab !== 'collection';
+    setAuth({ adminTab: opening ? 'collection' : 'accounts', error: '', notice: '' });
+    if (opening && !collectionState().loaded) void loadCollection();
+  });
+  document.querySelector('#collection-reload')?.addEventListener('click', () => void loadCollection());
+  document.querySelector('#collection-run')?.addEventListener('click', () => void runCollectionNow());
   document.querySelector('#open-admin-showcase')?.addEventListener('click', () => setAuth({ adminTab: auth.adminTab === 'showcase' ? 'accounts' : 'showcase', error: '', notice: '' }));
   document.querySelector('#open-admin-usage')?.addEventListener('click', () => {
     const opening = auth.adminTab !== 'usage';
@@ -4394,6 +4472,7 @@ function bind() {
   document.querySelectorAll('[data-operator-tab]').forEach(el => el.onclick = () => {
     setOperator({ tab: el.dataset.operatorTab });
     if (el.dataset.operatorTab === 'usage' && !auth.usage.loaded) void loadUsage();
+    if (el.dataset.operatorTab === 'collection' && !collectionState().loaded) void loadCollection();
   });
   document.querySelectorAll('[data-operator-action]').forEach(el => el.onclick = () => void runOperatorAction(el.dataset.operatorAction, el.dataset.operatorId));
   document.querySelectorAll('[data-operator-detail]').forEach(el => el.onclick = () => void openOperatorDetail(el.dataset.operatorDetail));
