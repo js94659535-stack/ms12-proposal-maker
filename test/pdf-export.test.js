@@ -161,8 +161,12 @@ test('PDF도 선택한 저장 버전만 쓰고 인쇄창을 거치지 않는다'
   // 저장 안 된 화면 내용·잘못된 식별자는 앞에서 막는다.
   assert.match(app, /const \{ version, reason \} = selectedSavedVersion\(\);\s*\n\s*if \(!version\) return setState\(\{ error: reason \}\);/);
   assert.match(app, /if \(unsavedChanges\(\)\) return setState/);
-  // 기존 인쇄 기능은 그대로 남긴다.
+  // 기존 인쇄 기능은 그대로 남긴다. 인쇄를 원하는 사람은 이 버튼을 쓴다.
   assert.match(app, /id="print"/);
-  assert.match(app, /document\.querySelector\('#pdf'\)\?\.addEventListener\('click', \(\) => exportPdf\(state\.project, state\.sections\)/);
+  // PDF 버튼은 파일로 내려받는다. 인쇄 창은 팝업 차단에 걸리면 아무 일도 일어나지 않았다.
+  assert.match(app, /document\.querySelector\('#pdf'\)\?\.addEventListener\('click', \(\) => downloadProposalPdf\(\)\)/);
+  assert.match(app, /document\.querySelector\('#final-pdf-top'\)\?\.addEventListener\('click', \(\) => downloadProposalPdf\(\)\)/);
+  assert.match(app, /async function downloadProposalPdf\(\)/);
+  assert.match(app, /exportProposalPdf\(\{[\s\S]{0,200}fileName: `\$\{state\.project\.title \|\| '사업계획서'\}_검토용\.pdf`/);
   assert.match(app, /id="package-pdf"[\s\S]{0,240}최종 PDF 내려받기/);
 });

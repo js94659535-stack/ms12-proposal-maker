@@ -5133,7 +5133,7 @@ function bind() {
   // 환류 작업흐름: 완성본 → 수정 요청 → 검토 제출 → 버전 이력 → 최종 승인.
   document.querySelector('#open-full-proposal')?.addEventListener('click', () => document.querySelector('#final-submission, #result-pipeline')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   document.querySelector('#final-docx-top')?.addEventListener('click', () => exportDocx(state.project, state.sections));
-  document.querySelector('#final-pdf-top')?.addEventListener('click', () => exportPdf(state.project, state.sections));
+  document.querySelector('#final-pdf-top')?.addEventListener('click', () => downloadProposalPdf());
   document.querySelector('#open-revision-request')?.addEventListener('click', () => setProposalFlow({ requestOpen: !proposalFlow().requestOpen }));
   document.querySelector('#cancel-revision-request')?.addEventListener('click', () => setProposalFlow({ requestOpen: false }));
   document.querySelector('#revision-request-text')?.addEventListener('input', event => { state.proposalFlow = { ...proposalFlow(), requestText: event.target.value }; saveState(); });
@@ -5226,7 +5226,7 @@ function bind() {
   document.querySelector('#confirm-company-fact')?.addEventListener('click', confirmCompanyFactDraft);
   document.querySelector('#save-proposal-archive')?.addEventListener('click', () => archiveCurrentProposal(undefined, true).catch(showError));
   document.querySelector('#docx')?.addEventListener('click', () => exportDocx(state.project, state.sections).catch(showError));
-  document.querySelector('#pdf')?.addEventListener('click', () => exportPdf(state.project, state.sections).catch(showError));
+  document.querySelector('#pdf')?.addEventListener('click', () => downloadProposalPdf());
   // 제출 패키지에서 내려받는 최종본은 판정을 통과했을 때만 나간다. 출력 방식은 기존과 같다.
   document.querySelector('#package-docx')?.addEventListener('click', () => exportFinalPackage('docx'));
   document.querySelector('#package-pdf')?.addEventListener('click', () => exportFinalPackage('pdf'));
@@ -5238,7 +5238,7 @@ function bind() {
   document.querySelector('#print')?.addEventListener('click', printDocument);
   // 최종 제출본 카드의 출력 버튼. 상단 도구모음과 같은 현재 본문을 출력한다.
   document.querySelector('#final-docx')?.addEventListener('click', () => exportDocx(state.project, state.sections).catch(showError));
-  document.querySelector('#final-pdf')?.addEventListener('click', () => exportPdf(state.project, state.sections).catch(showError));
+  document.querySelector('#final-pdf')?.addEventListener('click', () => downloadProposalPdf());
   document.querySelector('#final-print')?.addEventListener('click', printDocument);
   document.querySelector('#proposal-review')?.addEventListener('click', () => runProposalReview(Boolean(state.reviewResult)));
   document.querySelectorAll('[data-apply-review]').forEach(el => el.onclick = () => applyReviewSection(Number(el.dataset.applyReview)));
@@ -6562,6 +6562,23 @@ async function analyze() {
   try { const result = await analyzeWithAI(payload); state.analysis = result.analysis; state.aiMode = 'ai'; }
   catch (error) { state.analysis = localAnalyze({ sourceText: state.sourceText, projectType: typeName(), title: state.project.title }); state.aiMode = 'local'; state.notice = `서버 AI를 사용할 수 없어 로컬 분석으로 계속합니다: ${error.message}`; }
   state.analysis.project = { ...state.project, ...state.analysis.project }; state.project = { ...state.project, ...state.analysis.project }; state.answers = state.analysis.questions || []; state.matches = buildMatches(); navigateToStep(2, { busy: '' });
+}
+
+// PDF는 파일로 내려받는다. 인쇄 창은 팝업 차단에 걸리면 아무 일도 일어나지 않는다.
+// 한글 글꼴을 넣어 만든 실제 PDF이며, 만들다 실패하면 빈 파일을 내려받지 않고 이유를 알린다.
+async function downloadProposalPdf() {
+  if (!state.sections.length) return setState({ error: 'PDF로 출력할 내용이 없습니다. 계획서를 먼저 작성해 주세요.' });
+  setState({ busy: 'PDF를 만드는 중...', error: '', notice: '' });
+  try {
+    await exportProposalPdf({
+      project: state.project, sections: state.sections,
+      tables: state.proposalTables || [], pageBreaks: state.stagedGeneration?.pageBreaks || [],
+      fileName: `${state.project.title || '사업계획서'}_검토용.pdf`
+    });
+    setState({ busy: '', notice: 'PDF를 내려받았습니다.' });
+  } catch (error) {
+    setState({ busy: '', error: String(error?.message || 'PDF를 만들지 못했습니다.') });
+  }
 }
 
 async function createDraft() {
