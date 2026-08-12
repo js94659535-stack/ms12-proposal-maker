@@ -11,6 +11,8 @@ import { membershipOf } from '../../server/membership.js';
 import { SUBSCRIPTION_LABELS, remaining } from '../../server/subscription.js';
 import { issueRecoveryCode } from '../../server/recovery.js';
 import { collectionStatus } from '../../server/notice-collector.js';
+import { listProposalMeta, loadGrants, recordAccess } from '../../server/access-store.js';
+import { decideAccess, proposalContentAccess, stripSecrets, todayInSeoul } from '../../server/permissions.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 const SOCIAL_KEY_SUFFIX = '@social.ms12.invalid';
@@ -40,6 +42,10 @@ export async function onRequest(context) {
   if (!OPERATOR_ACTIONS.has(action)) return json({ error: '지원하지 않는 작업입니다.' }, 400);
 
   const db = env.ARCHIVE_DB;
+  // 관리자가 지정해 준 범위만 본다. 지정이 없으면 아무것도 보이지 않는다.
+  if (action === 'assignedProposals') return json(stripSecrets(await assignedProposals(db, actor)), 200);
+  if (action === 'proposalContent') return operatorProposalContent(db, actor, body.id);
+
   // 공고 자동수집 상태는 운영관리자도 본다. 실행 단추는 주지 않는다.
   if (action === 'noticeCollection') return json({ ...await collectionStatus(db), readOnly: true }, 200);
   if (action === 'overview') return json(await overview(db, body), 200);
@@ -279,3 +285,45 @@ async function setStatus(db, id, status) {
 function json(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), { status, headers: { ...JSON_HEADERS, ...headers } });
 }
+
+// ---------- 관리자가 지정해 준 자료 ----------
+// 역할 하나로 전체를 열지 않는다. access_grants에 적힌 것만 본다.
+async function assignedProposals(db, actor) {
+  const grants = await loadGrants(db, actor.id);
+  const today = todayInSeoul();
+  const all = await listProposalMeta(db, { includeUnclaimed: true, limit: 200 });
+  const visible = all.filter(item => decideAccess({
+    actor: { ...actor, role: 'operator' }, grants, scope: 'proposals', ability: 'view',
+    targetKind: 'proposal', targetId: item.id, targetUserId: item.userId, today
+  }).allowed);
+  return {
+    proposals: visible,
+    // 무엇을 할 수 있는지도 함께 알려 준다. 화면이 임의로 정하지 않게 한다.
+    can: Object.fromEntries(['view', 'viewContent', 'edit', 'download'].map(ability => [ability,
+      visible.some(item => decideAccess({ actor: { ...actor, role: 'operator' }, grants, scope: 'proposals', ability, targetKind: 'proposal', targetId: item.id, targetUserId: item.userId, today }).allowed)])),
+    total: all.length
+  };
+}
+
+async function operatorProposalContent(db, actor, id) {
+  const key = String(id || '').trim().slice(0, 80);
+  const row = await db.prepare('SELECT id, user_id, title, stage, notice_key, created_at, updated_at, export_count, support_consent, proposal_json FROM archived_proposals WHERE id = ?').bind(key).first();
+  if (!row) return json({ error: '해당 계획서를 찾지 못했습니다.' }, 404);
+  const grants = await loadGrants(db, actor.id);
+  const contract = row.user_id ? await operatorContract(db, row.user_id) : null;
+  const decision = proposalContentAccess({ actor: { ...actor, role: 'operator' }, proposal: row, grants, contract, today: todayInSeoul() });
+  await recordAccess(db, {
+    actor, action: 'viewContent', scope: 'proposals', targetKind: 'proposal', targetId: key,
+    targetUserId: row.user_id || '', allowed: decision.allowed, reason: decision.reason || decision.error || ''
+  });
+  if (!decision.allowed) return json({ error: decision.error }, decision.status || 403);
+  return json({ id: key, reason: decision.reason, snapshot: safeJson(row.proposal_json) }, 200);
+}
+
+async function operatorContract(db, userId) {
+  const row = await db.prepare('SELECT status, started_on, ends_on FROM premium_contracts WHERE user_id = ?').bind(String(userId)).first();
+  return row ? contractState({ status: row.status, startedOn: row.started_on || '', endsOn: row.ends_on || '' }) : null;
+}
+
+// 저장된 계획서 원문을 객체로 되돌린다. 깨져 있으면 빈 객체로 둔다.
+function safeJson(value) { try { return JSON.parse(value); } catch { return {}; } }

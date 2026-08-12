@@ -257,14 +257,15 @@ export function fakeDb() {
     }
 
     // ---- 계획서 보관함(저장 권한 확인용 최소 대역) ----
-    if (/^SELECT created_at FROM archived_proposals WHERE id = \? AND owner_hash/.test(text)) {
+    if (/^SELECT created_at(?:, user_id)? FROM archived_proposals WHERE id = \? AND owner_hash/.test(text)) {
       return rows(tables.archived_proposals.filter(item => item.id === args[0] && item.owner_hash === args[1]));
     }
     if (/^INSERT INTO archived_proposals/.test(text)) {
-      const [id, owner_hash, notice_key, title, stage, proposal_json, created_at, updated_at] = args;
+      // 저장할 때 로그인 회원(user_id)을 함께 넣는다. 로그인 전이면 빈 값이다.
+      const [id, owner_hash, notice_key, title, stage, proposal_json, created_at, updated_at, user_id = ''] = args;
       const found = tables.archived_proposals.find(item => item.id === id);
-      if (found) Object.assign(found, { title, stage, notice_key, proposal_json, updated_at });
-      else tables.archived_proposals.push({ id, owner_hash, notice_key, title, stage, proposal_json, created_at, updated_at });
+      if (found) Object.assign(found, { title, stage, notice_key, proposal_json, updated_at, user_id });
+      else tables.archived_proposals.push({ id, owner_hash, notice_key, title, stage, proposal_json, created_at, updated_at, user_id, support_consent: 0, export_count: 0 });
       return rows([], 1);
     }
     // ---- 소셜 연결 이전 ----

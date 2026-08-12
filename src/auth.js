@@ -38,3 +38,6 @@ export function clearOAuthCallback() {
 }
 // 본인정보 수정. 역할·승인·이용권·프리미엄 상태는 서버가 받지 않는다.
 export const saveMemberInfo = value => post('/api/account', 'saveProfile', value);
+
+// 개인정보·업무자료 열람 안내 확인. 회원이 직접 누를 때만 부른다.
+export const acknowledgePrivacyNotice = version => post('/api/account', 'acknowledgeNotice', { version });

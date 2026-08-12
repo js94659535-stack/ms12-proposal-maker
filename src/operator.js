@@ -23,3 +23,7 @@ export const operatorIssueRecoveryCode = (id, query = '') => post('issueRecovery
 export const operatorSetContractProgress = (id, progress, progressNote = '', query = '') => post('setContractProgress', { id, progress, progressNote, query });
 // 공고 자동수집 상태. 운영관리자는 보기만 한다. 실행은 서버가 거절한다.
 export const operatorNoticeCollection = () => post('noticeCollection');
+
+// 관리자가 지정해 준 계획서만 본다. 지정이 없으면 목록이 비어 있다.
+export const operatorAssignedProposals = () => post('assignedProposals');
+export const operatorProposalContent = id => post('proposalContent', { id });

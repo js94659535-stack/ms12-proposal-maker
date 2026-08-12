@@ -496,3 +496,10 @@ select{max-width:100%}
 /* 작업 영역 위 여백. 머리말이 이미 배경으로 구분되므로 34px까지 띄울 이유가 없다. */
 .workspace{padding-top:20px}
 @media(max-width:980px){.workspace{padding-top:14px}}
+
+/* 360px 관리자 화면: 머리띠의 포털·계정 단추가 한 줄에 다 들어가지 못해 8px 넘쳤다. */
+/* 감추지 않고 줄바꿈과 축소를 허용한다. */
+@media(max-width:600px){
+  .workflow-brand{flex-wrap:wrap;row-gap:6px}
+  .workflow-brand .history-button{flex:0 1 auto;min-width:0;padding:6px 8px;font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+}

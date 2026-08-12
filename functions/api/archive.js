@@ -3,6 +3,8 @@ import { NEED_FULL, hasFullAccess } from '../../server/plan.js';
 import { LOCKED_NOTICE, MEMBER_READ_ONLY, membershipOf } from '../../server/membership.js';
 import { loadSubscription } from '../../server/subscription.js';
 import { contractState } from '../../server/premium.js';
+import { claimProposals, recordAccess } from '../../server/access-store.js';
+import { validateAsset } from '../../server/idea-assets.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 const MAX_NOTICE_BATCH = 100;
@@ -27,8 +29,37 @@ export async function onRequest(context) {
     if (body.action === 'saveProposal') {
       const refusal = await saveRefusal(context);
       if (refusal) return json(refusal.body, refusal.status);
-      return json(await saveProposal(context.env.ARCHIVE_DB, ownerHash, body.proposal));
+      return json(await saveProposal(context.env.ARCHIVE_DB, ownerHash, body.proposal, context.data?.session?.user?.id || ''));
     }
+    if (body.action === 'claimMine') {
+      const user = context.data?.session?.user;
+      if (!user?.id) return json({ error: '로그인이 필요합니다.' }, 401);
+      const moved = await claimProposals(context.env.ARCHIVE_DB, { userId: user.id, ownerHash, actor: user });
+      const orgs = await context.env.ARCHIVE_DB.prepare("UPDATE applicant_organizations SET user_id = ?, claimed_at = ? WHERE owner_hash = ? AND user_id = ''")
+        .bind(user.id, new Date().toISOString(), ownerHash).run();
+      return json({ claimed: moved.claimed, applicants: Number(orgs?.meta?.changes || 0) });
+    }
+    // 회원이 「운영지원 목적의 원문 열람」을 이 계획서에 한해 허락하거나 거둔다. 기본은 허락하지 않음이다.
+    if (body.action === 'setSupportConsent') {
+      const user = context.data?.session?.user;
+      if (!user?.id) return json({ error: '로그인이 필요합니다.' }, 401);
+      const allow = body.consent === true;
+      const changed = await context.env.ARCHIVE_DB.prepare('UPDATE archived_proposals SET support_consent = ?, support_consent_at = ? WHERE id = ? AND owner_hash = ? AND user_id = ?')
+        .bind(allow ? 1 : 0, allow ? new Date().toISOString() : '', clean(body.id, 80), ownerHash, user.id).run();
+      if (!Number(changed?.meta?.changes || 0)) return json({ error: '내 계정에 연결된 계획서만 바꿀 수 있습니다.' }, 404);
+      await recordAccess(context.env.ARCHIVE_DB, { actor: user, action: 'share', scope: 'proposals', targetKind: 'proposal', targetId: clean(body.id, 80), targetUserId: user.id, reason: allow ? '회원이 운영지원 열람에 동의' : '회원이 동의를 거둠' });
+      return json({ id: clean(body.id, 80), consent: allow });
+    }
+    // 내려받기 횟수만 센다. 무엇을 내려받았는지는 남기지 않는다.
+    if (body.action === 'countExport') {
+      await context.env.ARCHIVE_DB.prepare('UPDATE archived_proposals SET export_count = export_count + 1 WHERE id = ? AND owner_hash = ?')
+        .bind(clean(body.id, 80), ownerHash).run();
+      return json({ ok: true });
+    }
+    // 사업 아이디어·활용자산. 계획서와 같은 소유자 기준으로 보관한다.
+    if (body.action === 'listAssets') return json({ assets: await listAssets(context.env.ARCHIVE_DB, ownerHash) });
+    if (body.action === 'saveAsset') return saveAsset(context.env.ARCHIVE_DB, ownerHash, context.data?.session?.user?.id || '', body.asset);
+    if (body.action === 'deleteAsset') return json(await deleteAsset(context.env.ARCHIVE_DB, ownerHash, body.id));
     if (body.action === 'listProposals') return json({ proposals: await listProposals(context.env.ARCHIVE_DB, ownerHash) });
     if (body.action === 'getProposal') return json({ proposal: await getProposal(context.env.ARCHIVE_DB, ownerHash, body.id) });
     if (body.action === 'saveApplicant') return json(await saveApplicant(context.env.ARCHIVE_DB, ownerHash, body.applicant));
@@ -80,19 +111,21 @@ export async function searchNotices(db, filters = {}, ownerHash = '') {
   return (rows.results || []).map(row => ({ ...safeJson(row.notice_json), archiveNoticeKey: row.source_key, archivedAt: row.first_seen_at, archiveUpdatedAt: row.updated_at, linkedProposalCount: Number(row.linked_proposal_count || 0), linkedProposalId: row.linked_proposal_id || '' }));
 }
 
-export async function saveProposal(db, ownerHash, value) {
+export async function saveProposal(db, ownerHash, value, userId = '') {
   if (!value || typeof value !== 'object') throw new Error('invalid proposal');
   const id = clean(value.id, 80);
   const title = clean(value.title, 300);
   const stage = clean(value.stage, 40);
   const snapshot = JSON.stringify(value.snapshot || {});
   if (!id || !title || !stage || new TextEncoder().encode(snapshot).byteLength > MAX_PROPOSAL_BYTES) throw new Error('invalid proposal');
-  const existing = await db.prepare('SELECT created_at FROM archived_proposals WHERE id = ? AND owner_hash = ?').bind(id, ownerHash).first();
+  const existing = await db.prepare('SELECT created_at, user_id FROM archived_proposals WHERE id = ? AND owner_hash = ?').bind(id, ownerHash).first();
+  // 한 번 회원과 이어진 계획서의 주인은 바꾸지 않는다. 비어 있을 때만 채운다.
+  const owner = existing?.user_id || String(userId || '');
   const now = new Date().toISOString();
-  await db.prepare(`INSERT INTO archived_proposals (id, owner_hash, notice_key, title, stage, proposal_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET title=excluded.title, stage=excluded.stage, notice_key=excluded.notice_key, proposal_json=excluded.proposal_json, updated_at=excluded.updated_at WHERE archived_proposals.owner_hash=excluded.owner_hash`)
-    .bind(id, ownerHash, clean(value.noticeKey, 180), title, stage, snapshot, existing?.created_at || now, now).run();
-  return { id, updatedAt: now };
+  await db.prepare(`INSERT INTO archived_proposals (id, owner_hash, notice_key, title, stage, proposal_json, created_at, updated_at, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET title=excluded.title, stage=excluded.stage, notice_key=excluded.notice_key, proposal_json=excluded.proposal_json, updated_at=excluded.updated_at, user_id=excluded.user_id WHERE archived_proposals.owner_hash=excluded.owner_hash`)
+    .bind(id, ownerHash, clean(value.noticeKey, 180), title, stage, snapshot, existing?.created_at || now, now, owner).run();
+  return { id, updatedAt: now, userId: owner };
 }
 
 export async function listProposals(db, ownerHash) {
@@ -209,3 +242,48 @@ async function saveRefusal(context) {
 }
 
 function json(body, status = 200, headers = {}) { return new Response(JSON.stringify(body), { status, headers: { ...JSON_HEADERS, ...headers } }); }
+
+// ---------- 사업 아이디어·활용자산 ----------
+const ASSET_COLUMNS = 'id, user_id, applicant_id, name, kind, status, problem, audience, activities, duration, resources, experience, evidence, adaptable, evidence_confirmed, created_at, updated_at';
+
+export async function listAssets(db, ownerHash) {
+  const rows = await db.prepare(`SELECT ${ASSET_COLUMNS} FROM idea_assets WHERE owner_hash = ? ORDER BY updated_at DESC LIMIT 100`).bind(ownerHash).all();
+  return (rows.results || []).map(assetView);
+}
+
+async function saveAsset(db, ownerHash, userId, value) {
+  const checked = validateAsset(value || {});
+  if (!checked.ok) return json({ error: checked.errors.join(' ') }, 400);
+  const id = clean(value?.id, 80) || crypto.randomUUID();
+  const now = new Date().toISOString();
+  const existing = await db.prepare('SELECT created_at FROM idea_assets WHERE id = ? AND owner_hash = ?').bind(id, ownerHash).first();
+  const item = checked.value;
+  await db.prepare(`INSERT INTO idea_assets (id, user_id, owner_hash, applicant_id, name, kind, status, problem, audience, activities, duration, resources, experience, evidence, adaptable, evidence_confirmed, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET name=excluded.name, kind=excluded.kind, status=excluded.status, problem=excluded.problem, audience=excluded.audience,
+      activities=excluded.activities, duration=excluded.duration, resources=excluded.resources, experience=excluded.experience, evidence=excluded.evidence,
+      adaptable=excluded.adaptable, evidence_confirmed=excluded.evidence_confirmed, applicant_id=excluded.applicant_id, updated_at=excluded.updated_at
+    WHERE idea_assets.owner_hash = excluded.owner_hash`)
+    .bind(id, String(userId || ''), ownerHash, clean(value?.applicantId, 80), item.name, item.kind, item.status, item.problem, item.audience,
+      item.activities, item.duration, item.resources, item.experience, item.evidence, item.adaptable,
+      item.evidenceConfirmed ? 1 : 0, existing?.created_at || now, now).run();
+  return json({ id, assets: await listAssets(db, ownerHash) });
+}
+
+async function deleteAsset(db, ownerHash, id) {
+  const key = clean(id, 80);
+  if (!key) throw new Error('invalid asset');
+  await db.prepare('DELETE FROM idea_assets WHERE id = ? AND owner_hash = ?').bind(key, ownerHash).run();
+  return { id: key, deleted: true, assets: await listAssets(db, ownerHash) };
+}
+
+function assetView(row) {
+  return {
+    id: row.id, userId: row.user_id || '', applicantId: row.applicant_id || '', name: row.name, kind: row.kind || '',
+    status: row.status, problem: row.problem || '', audience: row.audience || '', activities: row.activities || '',
+    duration: row.duration || '', resources: row.resources || '', experience: row.experience || '',
+    evidence: row.evidence || '', adaptable: row.adaptable || '',
+    evidenceConfirmed: Number(row.evidence_confirmed || 0) === 1,
+    createdAt: row.created_at, updatedAt: row.updated_at
+  };
+}

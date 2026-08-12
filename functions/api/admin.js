@@ -2,6 +2,8 @@
 // 비밀번호 열은 읽지도 내보내지도 않는다.
 import { recordAudit } from '../../server/audit.js';
 import { collectionStatus, runCollection } from '../../server/notice-collector.js';
+import { listAccessLog, listGrants, listProposalMeta, proposalUsage, recordAccess, revokeGrant, saveGrant } from '../../server/access-store.js';
+import { REASON, SCOPES, ABILITIES, proposalContentAccess, stripSecrets, todayInSeoul } from '../../server/permissions.js';
 import { collectNotices } from './notices.js';
 import { syncNotices } from './archive.js';
 import { usageReport } from '../../server/ai-usage.js';
@@ -42,6 +44,16 @@ export async function onRequest(context) {
   // 전체 이용권 부여·회수는 관리자만 한다. 운영관리자 경로(/api/operator)에서는 언제나 거절된다.
   if (body.action === 'setPlan') return mutate(env.ARCHIVE_DB, actor, body.id, (db, target) => setPlan(db, target, body.plan));
   // 공모정보 관리. 공개 여부와 상관없이 모아 둔 자료 전체를 본다.
+  // ---------- 권한 관리 ----------
+  if (body.action === 'accessOverview') return json(stripSecrets(await accessOverview(env.ARCHIVE_DB, body.subjectId)), 200);
+  if (body.action === 'saveGrant') return applyGrant(env.ARCHIVE_DB, actor, body.grant);
+  if (body.action === 'revokeGrant') return dropGrant(env.ARCHIVE_DB, actor, body.id);
+  // 회원별 계획서는 메타정보만 본다. 원문은 따로 근거가 있어야 열린다.
+  if (body.action === 'memberUsage') return json(stripSecrets(await memberUsage(env.ARCHIVE_DB)), 200);
+  if (body.action === 'proposalContent') return readProposalContent(env.ARCHIVE_DB, actor, body.id);
+  // 기존 보관자료의 소유 회원을 관리자가 확인하고 지정한다. 짐작으로 붙이지 않는다.
+  if (body.action === 'assignProposal') return assignProposal(env.ARCHIVE_DB, actor, body);
+
   // 자동수집 상태판. 읽기만 한다.
   if (body.action === 'noticeCollection') return json(await collectionStatus(env.ARCHIVE_DB), 200);
   // 수동 재수집. 자동 실행과 같은 경로를 쓰고 같은 잠금에 걸린다.
@@ -451,3 +463,100 @@ async function runNoticeCollection(db, actor) {
   await recordAudit(db, { actor, action: 'admin.runNoticeCollection', result: result.status, detail: `수동 재수집 · 발급 ${result.collected}건 · 신규 ${result.inserted}건 · 갱신 ${result.updated}건` });
   return json({ run: result, ...await collectionStatus(db) }, 200);
 }
+
+// ---------- 권한 관리 ----------
+// 최고관리자만 여기까지 온다(위에서 역할을 이미 확인했다).
+async function accessOverview(db, subjectId = '') {
+  const users = await db.prepare("SELECT id, email, name, role, status FROM users WHERE role != 'admin' ORDER BY role, email").all();
+  return {
+    subjects: (users.results || []).map(row => ({ id: row.id, email: row.email, name: row.name || '', role: row.role, status: row.status })),
+    grants: await listGrants(db, String(subjectId || '')),
+    accessLog: await listAccessLog(db, { subjectId: String(subjectId || ''), limit: 50 }),
+    scopes: SCOPES, abilities: ABILITIES
+  };
+}
+
+async function applyGrant(db, actor, grant) {
+  const result = await saveGrant(db, actor, grant, { today: todayInSeoul() });
+  if (!result.ok) return json({ error: result.errors.join(' ') }, 400);
+  await recordAudit(db, { actor, action: 'admin.saveGrant', targetId: String(grant?.subjectId || ''), detail: `${grant?.scope} 권한 지정` });
+  return json({ id: result.id, ...stripSecrets(await accessOverview(db, String(grant?.subjectId || ''))) }, 200);
+}
+
+async function dropGrant(db, actor, id) {
+  const result = await revokeGrant(db, actor, id);
+  if (!result.ok) return json({ error: result.errors.join(' ') }, 400);
+  await recordAudit(db, { actor, action: 'admin.revokeGrant', targetId: String(id || ''), detail: '권한 회수' });
+  return json({ id: result.id, ...stripSecrets(await accessOverview(db)) }, 200);
+}
+
+// 회원별 이용현황. 편수·최근 수정일·출력 횟수 같은 메타정보만 모은다.
+async function memberUsage(db) {
+  const [users, usage, proposals] = await Promise.all([
+    db.prepare("SELECT id, email, name, role, status FROM users ORDER BY email").all(),
+    proposalUsage(db),
+    listProposalMeta(db, { includeUnclaimed: true, limit: 200 })
+  ]);
+  const byUser = new Map(usage.map(item => [item.userId, item]));
+  return {
+    members: (users.results || []).map(row => ({
+      id: row.id, email: row.email, name: row.name || '', role: row.role, status: row.status,
+      proposals: byUser.get(row.id)?.count || 0,
+      lastUpdatedAt: byUser.get(row.id)?.lastUpdatedAt || '',
+      exportCount: byUser.get(row.id)?.exportCount || 0
+    })),
+    // 회원과 아직 연결되지 않은 기존 보관자료. 관리자가 확인한 뒤에만 지정한다.
+    unclaimed: proposals.filter(item => !item.userId),
+    proposals
+  };
+}
+
+// 계획서 원문. 프리미엄 계약이나 회원 동의가 있어야 열리고, 열람은 반드시 기록에 남는다.
+async function readProposalContent(db, actor, id) {
+  const key = String(id || '').trim().slice(0, 80);
+  const row = await db.prepare('SELECT id, user_id, title, stage, notice_key, created_at, updated_at, export_count, support_consent, proposal_json FROM archived_proposals WHERE id = ?').bind(key).first();
+  if (!row) return json({ error: '해당 계획서를 찾지 못했습니다.' }, 404);
+  const contract = row.user_id ? await premiumContract(db, row.user_id) : null;
+  const decision = proposalContentAccess({ actor, proposal: row, grants: [], contract, today: todayInSeoul() });
+  await recordAccess(db, {
+    actor, action: 'viewContent', scope: 'proposals', targetKind: 'proposal', targetId: key,
+    targetUserId: row.user_id || '', allowed: decision.allowed, reason: decision.reason || decision.error || ''
+  });
+  if (!decision.allowed) return json({ error: decision.error, meta: metaOf(row) }, decision.status || 403);
+  return json({ meta: metaOf(row), reason: decision.reason, snapshot: safeJson(row.proposal_json) }, 200);
+}
+
+async function premiumContract(db, userId) {
+  const row = await db.prepare('SELECT status, started_on, ends_on FROM premium_contracts WHERE user_id = ?').bind(String(userId)).first();
+  return row ? contractState({ status: row.status, startedOn: row.started_on || '', endsOn: row.ends_on || '' }) : null;
+}
+
+function metaOf(row) {
+  return {
+    id: row.id, userId: row.user_id || '', title: row.title || '', stage: row.stage || '',
+    noticeKey: row.notice_key || '', createdAt: row.created_at || '', updatedAt: row.updated_at || '',
+    exportCount: Number(row.export_count || 0), supportConsent: Number(row.support_consent || 0) === 1
+  };
+}
+
+// 기존 보관자료를 특정 회원에게 지정한다. 이메일·기관명이 비슷하다는 이유로는 하지 않는다.
+async function assignProposal(db, actor, body) {
+  const id = String(body?.id || '').trim().slice(0, 80);
+  const userId = String(body?.userId || '').trim().slice(0, 80);
+  const note = String(body?.note || '').trim().slice(0, 200);
+  if (!id || !userId) return json({ error: '계획서와 회원을 모두 지정해 주세요.' }, 400);
+  if (!note) return json({ error: '어떤 근거로 지정하는지 사유를 적어 주세요.' }, 400);
+  const target = await db.prepare('SELECT id FROM users WHERE id = ?').bind(userId).first();
+  if (!target) return json({ error: '해당 회원을 찾지 못했습니다.' }, 404);
+  const row = await db.prepare('SELECT id, user_id FROM archived_proposals WHERE id = ?').bind(id).first();
+  if (!row) return json({ error: '해당 계획서를 찾지 못했습니다.' }, 404);
+  if (row.user_id) return json({ error: '이미 회원과 연결된 계획서입니다. 먼저 연결을 확인해 주세요.' }, 409);
+  await db.prepare('UPDATE archived_proposals SET user_id = ?, claimed_at = ?, claimed_by = ? WHERE id = ?')
+    .bind(userId, new Date().toISOString(), actor.id, id).run();
+  await recordAccess(db, { actor, action: 'claim', scope: 'proposals', targetKind: 'proposal', targetId: id, targetUserId: userId, reason: note });
+  await recordAudit(db, { actor, action: 'admin.assignProposal', targetId: id, detail: `보관자료를 회원에게 지정 · ${note}` });
+  return json({ id, userId, ...stripSecrets(await memberUsage(db)) }, 200);
+}
+
+// 저장된 계획서 원문을 객체로 되돌린다. 깨져 있으면 빈 객체로 둔다.
+function safeJson(value) { try { return JSON.parse(value); } catch { return {}; } }

@@ -38,3 +38,12 @@ export const transferSocialIdentity = provider => post('transferIdentity', { pro
 export const adminNoticeCollection = () => post('noticeCollection');
 // 수동 재수집. 자동 실행과 같은 잠금에 걸려 두 번 돌지 않는다.
 export const adminRunNoticeCollection = () => post('runNoticeCollection');
+
+// 권한 관리. 최고관리자만 쓴다.
+export const adminAccessOverview = (subjectId = '') => post('accessOverview', { subjectId });
+export const adminSaveGrant = grant => post('saveGrant', { grant });
+export const adminRevokeGrant = id => post('revokeGrant', { id });
+// 회원별 이용현황(메타정보)과 기존 보관자료 지정.
+export const adminMemberUsage = () => post('memberUsage');
+export const adminProposalContent = id => post('proposalContent', { id });
+export const adminAssignProposal = (id, userId, note) => post('assignProposal', { id, userId, note });

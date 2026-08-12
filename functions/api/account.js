@@ -24,12 +24,14 @@ export async function onRequest(context) {
   if (body.action === 'completeProfile') return completeProfile(env.ARCHIVE_DB, data.session.user, body);
   // 본인정보 수정. 승인 대기·정식·프리미엄 회원 모두 쓴다.
   if (body.action === 'saveProfile') return saveProfile(env.ARCHIVE_DB, data.session.user, body);
+  // 개인정보·열람 안내 확인. 회원이 직접 누를 때만 기록한다. 기존 계정을 자동 동의로 만들지 않는다.
+  if (body.action === 'acknowledgeNotice') return acknowledgeNotice(env.ARCHIVE_DB, data.session.user, body);
   return json({ error: '지원하지 않는 작업입니다.' }, 400);
 }
 
 async function profile(db, user) {
   const row = await db.prepare(`SELECT name, phone, org_name, is_contact, terms_version, privacy_version, consented_at,
-    profile_completed_at, plan, trial_used_at, profile_updated_at, profile_review_needed FROM users WHERE id = ?`)
+    profile_completed_at, plan, trial_used_at, profile_updated_at, profile_review_needed, privacy_notice_version, privacy_notice_at FROM users WHERE id = ?`)
     .bind(user.id).first();
   const member = await memberProfile(db, user.id);
   const contract = await ownContract(db, user.id);
@@ -44,7 +46,9 @@ async function profile(db, user) {
       contactLabel: CONTACT_LABEL,
       // 프리미엄 여부는 여기서 알려 주기만 한다. 실제 차단은 /api/premium이 다시 확인한다.
       premium: state.premium, premiumLabel: PREMIUM_LABEL, premiumStatus: state.status, premiumStatusLabel: state.label,
-      premiumReadOnly: state.readOnly
+      premiumReadOnly: state.readOnly,
+      // 어느 판 안내에 동의했는지. 비어 있으면 아직 확인하지 않은 것이다.
+      privacyNoticeVersion: row?.privacy_notice_version || '', privacyNoticeAt: row?.privacy_notice_at || ''
     },
     profile: {
       phone: row?.phone || '', orgName: row?.org_name || '', isContact: Boolean(row?.is_contact),
@@ -144,4 +148,13 @@ async function linkedIdentities(db, userId) {
 
 function json(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), { status, headers: { ...JSON_HEADERS, ...headers } });
+}
+
+// 개인정보·업무자료 열람 안내 확인. 판 번호와 시각만 남긴다.
+async function acknowledgeNotice(db, user, body) {
+  const version = String(body?.version || '').trim().slice(0, 20);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(version)) return json({ error: '안내 판 번호가 올바르지 않습니다.' }, 400);
+  const now = new Date().toISOString();
+  await db.prepare('UPDATE users SET privacy_notice_version = ?, privacy_notice_at = ? WHERE id = ?').bind(version, now, user.id).run();
+  return json({ privacyNoticeVersion: version, privacyNoticeAt: now }, 200);
 }

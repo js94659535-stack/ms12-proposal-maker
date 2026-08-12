@@ -28,3 +28,13 @@ export const getArchivedProposal = id => request('getProposal', { id });
 export const saveArchivedApplicant = applicant => request('saveApplicant', { applicant });
 export const listArchivedApplicants = () => request('listApplicants');
 export const deleteArchivedApplicant = id => request('deleteApplicant', { id });
+
+// 사업 아이디어·활용자산. 계획서와 같은 복구키 기준으로 보관한다.
+export const listIdeaAssets = () => post('listAssets');
+export const saveIdeaAsset = asset => post('saveAsset', { asset });
+export const deleteIdeaAsset = id => post('deleteAsset', { id });
+// 복구키로 보관하던 자료를 내 계정에 연결한다. 회원이 직접 누를 때만 실행된다.
+export const claimMyArchive = () => post('claimMine');
+// 이 계획서에 한해 운영지원 열람을 허락하거나 거둔다.
+export const setProposalSupportConsent = (id, consent) => post('setSupportConsent', { id, consent });
+export const countProposalExport = id => post('countExport', { id });
