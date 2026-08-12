@@ -3028,10 +3028,14 @@ function setDesignApproval(patch, notice) {
 }
 function requestDesignReview() {
   const engagement = currentEngagement();
-  if (!engagement.brief.blockingRules.length && !engagement.brief.coreValues.some(item => item.value !== '[확인 필요]')) {
-    return setState({ error: '아직 설계안에 담을 내용이 없습니다. 공고를 먼저 분석해 주세요.' });
-  }
-  setDesignApproval({ requestedAt: new Date().toISOString(), requestedBy: currentRole(), reviewStartedAt: '', approvedAt: '', approvedBy: '' }, '설계안 확인을 요청했습니다.');
+  // 값이 아직 비어 있어도 막지 않는다. 예전에는 여기서 거절해서, 공고를 고르고
+  // 하고 싶은 사업까지 적어 둔 사람이 설계 확인으로도 작성으로도 갈 수 없었다.
+  // 비어 있는 값은 [확인 필요]로 남긴 채 진행하고, 무엇이 비었는지만 알려 준다.
+  const missing = engagement.brief.coreValues.filter(item => item.value === '[확인 필요]').map(item => item.label);
+  const notice = missing.length
+    ? `설계안 확인을 요청했습니다. 아직 정하지 않은 ${missing.length}가지(${missing.slice(0, 3).join(' · ')}${missing.length > 3 ? ' 외' : ''})는 [확인 필요]로 남습니다.`
+    : '설계안 확인을 요청했습니다.';
+  setDesignApproval({ requestedAt: new Date().toISOString(), requestedBy: currentRole(), reviewStartedAt: '', approvedAt: '', approvedBy: '' }, notice);
 }
 function startDesignReview() {
   setDesignApproval({ reviewStartedAt: new Date().toISOString() }, '운영자 검토를 시작했습니다.');

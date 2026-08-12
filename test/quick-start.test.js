@@ -88,3 +88,25 @@ test('처리 중 중복 클릭 방지는 그대로 둔다', () => {
   assert.match(app, /\$\{auth\.busy \? 'disabled' : ''\}/);
   assert.match(app, /\$\{state\.busy \? 'disabled' : ''\}/);
 });
+
+test('설계안 확인 요청은 값이 비어 있어도 막지 않는다', () => {
+  // 예전에는 여기서 거절해 공고를 고르고도 작성으로 갈 수 없었다.
+  const fn = app.slice(app.indexOf('function requestDesignReview()'), app.indexOf('function startDesignReview()'));
+  assert.ok(!fn.includes('아직 설계안에 담을 내용이 없습니다'), '거절 경로를 없앤다');
+  assert.match(fn, /setDesignApproval\(\{ requestedAt/);
+  // 비어 있는 값은 [확인 필요]로 남는다고 알려 준다.
+  assert.match(fn, /\[확인 필요\]로 남습니다/);
+});
+
+test('신청기관을 찾을 때 목록을 넘긴다', () => {
+  // state를 통째로 넘기면 언제나 못 찾아 「기관을 정해 주세요」가 계속 떴다.
+  assert.ok(!app.includes('findApplicant(state, '), 'findApplicant에는 목록을 넘긴다');
+});
+
+test('간단 시작은 신청기관 기록을 제대로 만든다', () => {
+  const fn = app.slice(app.indexOf('async function saveQuickOrg()'), app.indexOf('function applicantsToolView()'));
+  // buildApplicantOrganization은 계획서에 넘길 자료를 만드는 함수라 여기 쓰면 빈 기관이 된다.
+  assert.ok(!fn.includes('buildApplicantOrganization'), '기관 생성에는 normalizeApplicant를 쓴다');
+  assert.match(fn, /normalizeApplicant\(\{ name: draft\.orgName, items \}\)/);
+  assert.match(fn, /selectedApplicantId: applicant\.id, applicantEditingId: applicant\.id/);
+});
