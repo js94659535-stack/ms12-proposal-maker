@@ -61,6 +61,10 @@ if (dry) { console.log('\n미리보기입니다. 실제로 지우려면 --apply�
 for (const command of [
   `DELETE FROM archived_proposals WHERE user_id = '${who.id}'`,
   `DELETE FROM applicant_organizations WHERE user_id = '${who.id}'`,
+  // 복구키로만 저장돼 계정에 붙지 않은 시험 기관정보. 이름의 E2E-TEST 표식으로만 고른다.
+  "DELETE FROM applicant_organizations WHERE name LIKE '%E2E-TEST%'",
+  // 표식이 붙은 시험 계획서. 표식 없는 운영 계획서는 건드리지 않는다.
+  "DELETE FROM archived_proposals WHERE title LIKE '%E2E-TEST%'",
   `DELETE FROM idea_assets WHERE user_id = '${who.id}'`,
   `DELETE FROM member_profiles WHERE user_id = '${who.id}'`,
   `DELETE FROM sessions WHERE user_id = '${who.id}'`,

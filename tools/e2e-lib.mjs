@@ -41,9 +41,11 @@ export async function attach(port = 9340) {
     const message = JSON.parse(event.data);
     if (message.id && pending.has(message.id)) { pending.get(message.id)(message); pending.delete(message.id); }
   });
-  const send = (method, params = {}) => new Promise(resolve => {
+  // 응답이 오지 않으면 영원히 매달린다. 시간제한을 둔다.
+  const send = (method, params = {}, timeoutMs = 30000) => new Promise(resolve => {
     const next = ++id;
-    pending.set(next, resolve);
+    const timer = setTimeout(() => { pending.delete(next); resolve({ timedOut: true }); }, timeoutMs);
+    pending.set(next, value => { clearTimeout(timer); resolve(value); });
     ws.send(JSON.stringify({ id: next, method, params }));
   });
   await send('Page.enable');
