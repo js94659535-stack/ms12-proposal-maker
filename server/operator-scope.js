@@ -51,7 +51,8 @@ export const BLOCKED_ACTIONS = new Map([
   ['runNoticeCollection', '공고 수동 재수집'],
   ['saveGrant', '권한 지정'],
   ['revokeGrant', '권한 회수'],
-  ['assignProposal', '보관자료 회원 지정']
+  ['assignProposal', '보관자료 회원 지정'],
+  ['setNoticeSource', '수집 출처 사용·중지']
 ]);
 
 // 결제·이용량은 아직 어디에도 쌓이지 않는다. 지어내지 않고 「미연동」이라고만 알린다.

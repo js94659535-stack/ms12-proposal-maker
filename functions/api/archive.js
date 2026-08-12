@@ -5,6 +5,7 @@ import { loadSubscription } from '../../server/subscription.js';
 import { contractState } from '../../server/premium.js';
 import { claimProposals, recordAccess } from '../../server/access-store.js';
 import { validateAsset } from '../../server/idea-assets.js';
+import { businessTypeOf, groupOf } from '../../server/notice-sources.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 const MAX_NOTICE_BATCH = 100;
@@ -82,11 +83,12 @@ export async function syncNotices(db, values) {
     const now = new Date().toISOString();
     // 검색용 문자열과 분류를 저장할 때 함께 채운다. 읽을 때 다시 만들 필요를 줄인다.
     const indexed = noticeIndex(normalized);
-    await db.prepare(`INSERT INTO archived_notices (source_key, source, source_label, list_sn, dstb_bsns_code, title, deadline, application_period, summary, eligibility, support_details, support_limit, content_hash, notice_json, first_seen_at, updated_at, region, audience, field, last_checked_at, search_title, search_keywords, search_summary)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(source_key) DO UPDATE SET source=excluded.source, source_label=excluded.source_label, list_sn=excluded.list_sn, dstb_bsns_code=excluded.dstb_bsns_code, title=excluded.title, deadline=excluded.deadline, application_period=excluded.application_period, summary=excluded.summary, eligibility=excluded.eligibility, support_details=excluded.support_details, support_limit=excluded.support_limit, content_hash=excluded.content_hash, notice_json=excluded.notice_json, updated_at=excluded.updated_at, region=excluded.region, audience=excluded.audience, field=excluded.field, last_checked_at=excluded.last_checked_at, search_title=excluded.search_title, search_keywords=excluded.search_keywords, search_summary=excluded.search_summary`)
+    await db.prepare(`INSERT INTO archived_notices (source_key, source, source_label, list_sn, dstb_bsns_code, title, deadline, application_period, summary, eligibility, support_details, support_limit, content_hash, notice_json, first_seen_at, updated_at, region, audience, field, last_checked_at, search_title, search_keywords, search_summary, source_id, source_group, business_type, fitness, fitness_reason, notice_no, source_links)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(source_key) DO UPDATE SET source=excluded.source, source_label=excluded.source_label, list_sn=excluded.list_sn, dstb_bsns_code=excluded.dstb_bsns_code, title=excluded.title, deadline=excluded.deadline, application_period=excluded.application_period, summary=excluded.summary, eligibility=excluded.eligibility, support_details=excluded.support_details, support_limit=excluded.support_limit, content_hash=excluded.content_hash, notice_json=excluded.notice_json, updated_at=excluded.updated_at, region=excluded.region, audience=excluded.audience, field=excluded.field, last_checked_at=excluded.last_checked_at, search_title=excluded.search_title, search_keywords=excluded.search_keywords, search_summary=excluded.search_summary, source_id=excluded.source_id, source_group=excluded.source_group, business_type=excluded.business_type, fitness=excluded.fitness, fitness_reason=excluded.fitness_reason, notice_no=excluded.notice_no, source_links=excluded.source_links`)
       .bind(normalized.sourceKey, normalized.source, normalized.sourceLabel, normalized.listSn, normalized.dstbBsnsCode, normalized.title, normalized.deadline, normalized.applicationPeriod, normalized.summary, normalized.eligibility, normalized.supportDetails, normalized.supportLimit, normalized.contentHash, normalized.noticeJson, now, now,
-        indexed.region, indexed.audience, indexed.field, now, indexed.search_title, indexed.search_keywords, indexed.search_summary).run();
+        indexed.region, indexed.audience, indexed.field, now, indexed.search_title, indexed.search_keywords, indexed.search_summary,
+        normalized.sourceId, normalized.sourceGroup, normalized.businessType, normalized.fitness, normalized.fitnessReason, normalized.noticeNo, normalized.sourceLinks).run();
     if (existing) result.updated += 1; else result.inserted += 1;
   }
   return result;
@@ -211,9 +213,15 @@ function normalizeNotice(value) {
   const dstbBsnsCode = clean(value.dstbBsnsCode, 80);
   const title = clean(value.title, 500);
   if (!source || !(listSn || dstbBsnsCode) || !title) return null;
-  const sourceKey = `${source}:${dstbBsnsCode || listSn}`;
+  // 어디서 왔는지. 기존 사랑의열매 자료는 sourceId가 없어 지금과 똑같이 다뤄진다.
+  const sourceId = clean(value.sourceId, 40);
+  const sourceKey = sourceId ? `${sourceId}:${listSn}` : `${source}:${dstbBsnsCode || listSn}`;
   const noticeJson = JSON.stringify(value);
-  return { sourceKey, source, sourceLabel: clean(value.sourceLabel, 100), listSn, dstbBsnsCode, title, deadline: date(value.deadline), applicationPeriod: clean(value.applicationPeriod, 200), summary: clean(value.summary, 2000), eligibility: clean(value.eligibility, 2000), supportDetails: clean(value.supportDetails, 4000), supportLimit: clean(value.supportLimit, 500), noticeJson, contentHash: simpleHash(noticeJson) };
+  return { sourceKey, source, sourceLabel: clean(value.sourceLabel, 100), listSn, dstbBsnsCode, title,
+    sourceId, sourceGroup: sourceId ? groupOf(sourceId) : 'chest', businessType: sourceId ? businessTypeOf(sourceId) : 'chest',
+    fitness: clean(value.fitness, 20), fitnessReason: clean(value.fitnessReason, 200), noticeNo: clean(value.noticeNo, 60),
+    // 확인된 출처 링크만 담는다. 본문·첨부 원문은 넣지 않는다.
+    sourceLinks: JSON.stringify((Array.isArray(value.sourceLinks) ? value.sourceLinks : []).slice(0, 6).map(link => ({ sourceId: clean(link?.sourceId, 40), label: clean(link?.label, 60), url: clean(link?.url, 400) })).filter(link => link.url)), deadline: date(value.deadline), applicationPeriod: clean(value.applicationPeriod, 200), summary: clean(value.summary, 2000), eligibility: clean(value.eligibility, 2000), supportDetails: clean(value.supportDetails, 4000), supportLimit: clean(value.supportLimit, 500), noticeJson, contentHash: simpleHash(noticeJson) };
 }
 
 async function owner(request) {

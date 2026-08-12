@@ -7,11 +7,13 @@ import { buildProposalPdfBlob, exportProposalPdf } from './pdf-export.js';
 import { MANIFEST_NAME, packageStale, planSubmissionZip, zipBytes } from './submission-zip.js';
 import { acknowledgePrivacyNotice, UNAUTHORIZED, accountProfile, clearOAuthCallback, currentUser, finishSocial, login, logout, readOAuthCallback, recoverPassword, saveAccountProfile, saveMemberInfo, signup as signupEmail, startSocial } from './auth.js';
 import { premiumNoticeHistory, premiumShowcase, premiumStatus } from './premium.js';
-import { adminAccessOverview, adminAssignProposal, adminMemberUsage, adminProposalContent, adminRevokeGrant, adminSaveGrant, adminNoticeCollection, adminRunNoticeCollection, adminUsageReport, approveAccount, deleteShowcase, setAccountSubscription, transferSocialIdentity, disableAccount, listAccounts, listCollectedNotices, listShowcase, removeAccount, saveShowcase, setAccountPlan, setAccountPremium, setAccountRole, setNoticePublic, setShowcaseOrder, setShowcasePublic } from './admin.js';
+import { adminSetNoticeSource, adminAccessOverview, adminAssignProposal, adminMemberUsage, adminProposalContent, adminRevokeGrant, adminSaveGrant, adminNoticeCollection, adminRunNoticeCollection, adminUsageReport, approveAccount, deleteShowcase, setAccountSubscription, transferSocialIdentity, disableAccount, listAccounts, listCollectedNotices, listShowcase, removeAccount, saveShowcase, setAccountPlan, setAccountPremium, setAccountRole, setNoticePublic, setShowcaseOrder, setShowcasePublic } from './admin.js';
 import { fetchMembershipPlans, publicNoticeDetail, searchPublicNotices } from './notice-search.js';
 import { operatorNoticeCollection, operatorApprove, operatorDisable, operatorEndSessions, operatorIssueRecoveryCode, operatorOverview, operatorReactivate, operatorSetContractProgress, operatorUnlockLogin, operatorUsageReport, operatorUserDetail } from './operator.js';
 import { codeLabel, statusLabel, warningLabel } from '../server/notice-run.js';
 import { ABILITIES, SCOPES } from '../server/permissions.js';
+import { BUSINESS_TYPES, SOURCE_GROUPS } from '../server/notice-sources.js';
+import { FITNESS_LABELS } from '../server/notice-classify.js';
 import { CORE_AREAS, areaProgress, mergeProfileIntoApplicant } from '../server/org-profile.js';
 import { ASSET_KINDS, ASSET_STATUS, STATUS_LABELS as ASSET_STATUS_LABELS, assetSentence, suggestAssets, validateAsset } from '../server/idea-assets.js';
 import { MAX_QUESTIONS, UNKNOWN, checkNumbers, intakeState } from '../server/proposal-intake.js';
@@ -44,6 +46,7 @@ import { SOURCE_KINDS, makeApplicantSource, APPLICANT_AREAS, APPLICANT_STATUSES,
 const TYPES = [
   ['chest', '사랑의열매', '복지·지원사업'], ['family', '가족센터', '가족지원사업'],
   ['edu', '학교·교육청', '교육기관'], ['g2b', '나라장터·학교장터', '공공조달'],
+  ['foundation', '민간재단·공익법인', '민간 배분사업'],
   ['general', '일반 창업·아이디어', '일반 사업']
 ];
 // 업무 흐름 6단계. 라벨만 정리하고 단계 번호·연결 로직은 그대로 둔다.
@@ -929,12 +932,12 @@ function openAdmin() {
 // 관리자 공모정보 관리 자료. 공개 여부와 상관없이 모아 둔 자료 전체를 본다.
 function emptyAdminNotices() { return { loaded: false, list: [], total: 0, collected: 0, hidden: 0, duplicates: 0, query: '', queryDraft: '' }; }
 // 공고 자동수집 상태판. 관리자와 운영관리자가 같은 자료를 본다.
-function emptyCollection() { return { loaded: false, state: null, runs: [], archive: null, searchable: false, collectHealthy: false }; }
+function emptyCollection() { return { loaded: false, state: null, runs: [], archive: null, sources: [], searchable: false, collectHealthy: false }; }
 async function loadCollection() {
   const call = isAdmin() ? adminNoticeCollection : operatorNoticeCollection;
   const result = await call().catch(() => ({ ok: false }));
   if (!result.ok) return setAuth({ error: result.error || '자동수집 상태를 불러오지 못했습니다.', collection: { ...collectionState(), loaded: true } });
-  setAuth({ collection: { loaded: true, state: result.state, runs: result.runs || [], archive: result.archive, searchable: Boolean(result.searchable), collectHealthy: Boolean(result.collectHealthy) } });
+  setAuth({ collection: { loaded: true, state: result.state, runs: result.runs || [], archive: result.archive, sources: result.sources || [], searchable: Boolean(result.searchable), collectHealthy: Boolean(result.collectHealthy) } });
 }
 // 수동 재수집은 관리자만. 이미 돌고 있으면 서버가 409로 막는다.
 async function runCollectionNow() {
@@ -951,11 +954,56 @@ async function runCollectionNow() {
   setAuth({
     busy: false,
     notice: `재수집 ${statusLabel(run.status)} · 발급 ${run.collected || 0}건 · 신규 ${run.inserted || 0}건 · 갱신 ${run.updated || 0}건`,
-    collection: { loaded: true, state: result.state, runs: result.runs || [], archive: result.archive, searchable: Boolean(result.searchable), collectHealthy: Boolean(result.collectHealthy) }
+    collection: { loaded: true, state: result.state, runs: result.runs || [], archive: result.archive, sources: result.sources || [], searchable: Boolean(result.searchable), collectHealthy: Boolean(result.collectHealthy) }
   });
 }
 const collectionState = () => auth.collection || emptyCollection();
 const runStamp = value => (value ? String(value).slice(0, 16).replace('T', ' ') : '기록 없음');
+
+
+// 수집 출처 제어. 사업 유형과 다른 축이라 따로 보여 준다.
+// 미연동 출처는 왜 못 켜는지 함께 적는다. 켜 두면 매번 실패로 쌓이기 때문이다.
+const SOURCE_BLOCK_LABELS = {
+  'not-connected': '미연동 · 공식 경로 확인 필요', disabled: '중지함', 'missing-secret': '인증키 미등록', unknown: '알 수 없음'
+};
+async function toggleNoticeSource(sourceId, enabled) {
+  if (auth.busy) return;
+  setAuth({ busy: true, error: '', notice: '' });
+  const result = await adminSetNoticeSource(sourceId, enabled).catch(() => ({ ok: false }));
+  if (!result.ok) return setAuth({ busy: false, error: result.error || '출처 설정을 바꾸지 못했습니다.' });
+  setAuth({
+    busy: false, notice: enabled ? '이 출처를 다음 수집부터 사용합니다.' : '이 출처를 중지했습니다. 기존 공고는 그대로 남습니다.',
+    collection: { loaded: true, state: result.state, runs: result.runs || [], archive: result.archive, sources: result.sources || [], searchable: Boolean(result.searchable), collectHealthy: Boolean(result.collectHealthy) }
+  });
+}
+
+function sourcePanel({ readOnly = false } = {}) {
+  const list = collectionState().sources || [];
+  if (!list.length) return '';
+  const last = (collectionState().runs || [])[0];
+  const statusOf = id => (last?.sources || []).find(item => item.source === id);
+  return `<h4>수집 출처 ${list.length}곳</h4>
+    <p class="muted">사업 유형(${BUSINESS_TYPES.map(type => escapeHtml(type.label)).join(' · ')})과 별개로 관리합니다. 한 곳이 멈춰도 나머지는 계속 모읍니다.</p>
+    <div class="requirement-list">${SOURCE_GROUPS.map(group => {
+      const members = list.filter(item => item.group === group.key);
+      if (!members.length) return '';
+      return `<article class="requirement"><div>
+        <div><strong>${escapeHtml(group.label)}</strong> <span class="tag">${escapeHtml(BUSINESS_TYPES.find(type => type.key === group.businessType)?.label || '')}</span></div>
+        ${members.map(item => {
+          const run = statusOf(item.id);
+          const skips = Object.entries(run?.skipped || {}).map(([key, count]) => `${FITNESS_LABELS[key] || key} ${count}`).join(', ');
+          return `<div style="margin-top:6px">
+            <div><span class="status ${item.blocked ? '확인-필요' : run?.status === 'failed' ? '부족' : '충족'}">${item.blocked ? escapeHtml(SOURCE_BLOCK_LABELS[item.blocked] || item.blocked) : run?.status === 'failed' ? '실패' : '사용 중'}</span> ${escapeHtml(item.label)}</div>
+            <small class="muted">${escapeHtml(`${item.kind === 'open-api' ? '공식 API' : item.kind === 'blocked' ? '연결 안 됨' : '공식 게시판'} · ${item.origin}`)}</small>
+            ${run ? `<small class="muted">최근 실행: 조회 ${run.listed} · 후보 ${run.candidates} · 발급 ${run.collected}${skips ? ` · 제외 [${escapeHtml(skips)}]` : ''}${run.reason ? ` · ${escapeHtml(run.reason)}` : ''}</small>` : ''}
+            ${item.note ? `<small class="muted">${escapeHtml(item.note)}</small>` : ''}
+            ${readOnly || item.blocked === 'not-connected' ? '' : `<button class="button secondary" data-source-toggle="${escapeHtml(item.id)}" data-source-next="${item.enabled ? '' : '1'}" ${auth.busy ? 'disabled' : ''}>${item.enabled ? '중지' : '사용'}</button>`}
+          </div>`;
+        }).join('')}
+      </div></article>`;
+    }).join('')}</div>
+    ${readOnly ? '<p class="muted">출처 사용·중지는 최고관리자만 바꿉니다.</p>' : ''}`;
+}
 
 // 상태판. 「공고 검색이 되는 것」과 「최신 공고가 들어오는 것」을 따로 보여 준다.
 function collectionPanel({ readOnly = false } = {}) {
@@ -987,6 +1035,7 @@ function collectionPanel({ readOnly = false } = {}) {
       <div><strong>${escapeHtml(source.label)}</strong> <span class="status ${source.status === 'ok' ? '충족' : '부족'}">${source.status === 'ok' ? '성공' : `실패 ${escapeHtml(source.code)}`}</span></div>
       <small class="muted">${escapeHtml(`조회 ${source.listed}건 · 공모 후보 ${source.candidates}건 · 발급 ${source.collected}건${source.status === 'ok' ? '' : ` · ${codeLabel(source.code)}`}`)}</small>
     </div></article>`).join('')}</div>` : '<p class="muted">아직 실행 기록이 없습니다.</p>'}
+    ${sourcePanel({ readOnly })}
     <h4>최근 실행</h4>
     <div class="requirement-list">${view.runs.map(run => `<article class="requirement"><div>
       <div><strong>${runStamp(run.startedAt)}</strong> <span class="status ${run.status === 'ok' ? '충족' : run.status === 'failed' ? '부족' : '확인-필요'}">${escapeHtml(statusLabel(run.status))}</span> <span class="tag">${run.trigger === 'manual' ? '수동' : '자동'}</span></div>
@@ -1691,7 +1740,7 @@ const SEARCH_MODE_HELP = {
   focused: '공고 제목과 제목에 연결된 연관 키워드만 찾습니다. 결과가 정확합니다.',
   broad: '맞춤검색 범위에 공고 요약 내용까지 넓혀 찾습니다. 제목에 걸린 결과를 먼저 보여 줍니다.'
 };
-const FACET_LABELS = { state: '모집 상태', region: '지역', audience: '대상', field: '분야', organizer: '주최기관' };
+const FACET_LABELS = { state: '모집 상태', region: '지역', audience: '대상', field: '분야', organizer: '주최기관' , businessType: '사업 유형', sourceGroup: '수집 출처' };
 
 function setSearch(patch) { setAuth({ search: { ...auth.search, ...patch } }); }
 function openNoticeSearch() {
@@ -1768,11 +1817,20 @@ function noticeSearchView() {
   </div></main></div>`;
 }
 
+// 면 이름표. 사업 유형과 수집 출처는 등록부의 말을 그대로 쓴다.
+function facetLabel(key, value) {
+  if (key === 'businessType') return BUSINESS_TYPES.find(item => item.key === value)?.label || value;
+  if (key === 'sourceGroup') return SOURCE_GROUPS.find(item => item.key === value)?.label || value;
+  return value;
+}
+
 function noticeFacets(view) {
   if (!view.facets) return '';
-  const groups = ['state', 'region', 'audience', 'field', 'organizer']
+  // 사업 유형과 수집 출처는 서로 다른 축이다. 둘을 따로 고른다.
+  const groups = ['businessType', 'sourceGroup', 'state', 'region', 'audience', 'field', 'organizer']
     .map(key => {
-      const items = (view.facets[key] || []).filter(item => item.total).slice(0, 8);
+      const items = (view.facets[key] || []).filter(item => item.total).slice(0, 8)
+        .map(item => ({ ...item, label: item.label || facetLabel(key, item.value) }));
       if (!items.length) return '';
       const current = view.filters[key] || '';
       return `<article class="landing-card plain"><h3>${FACET_LABELS[key]}</h3><div class="actions" style="flex-wrap:wrap;gap:6px;margin:0;justify-content:flex-start">
@@ -4771,6 +4829,7 @@ function bind() {
   });
   document.querySelector('#collection-reload')?.addEventListener('click', () => void loadCollection());
   document.querySelector('#collection-run')?.addEventListener('click', () => void runCollectionNow());
+  document.querySelectorAll('[data-source-toggle]').forEach(el => el.onclick = () => void toggleNoticeSource(el.dataset.sourceToggle, Boolean(el.dataset.sourceNext)));
   document.querySelector('#open-admin-showcase')?.addEventListener('click', () => setAuth({ adminTab: auth.adminTab === 'showcase' ? 'accounts' : 'showcase', error: '', notice: '' }));
   document.querySelector('#open-admin-usage')?.addEventListener('click', () => {
     const opening = auth.adminTab !== 'usage';

@@ -1,0 +1,234 @@
+// 사랑의열매 밖의 출처를 모은다. 출처마다 따로 돌고 따로 실패한다.
+// 한 곳이 죽어도 나머지는 계속 간다. AI는 부르지 않는다.
+import { FAILURE, extractPeriod, isCollectible, noticeStage, todayInSeoul } from './notice-collect.js';
+import { FITNESS, classifyNotice, searchable } from './notice-classify.js';
+import { SOURCES, allowedOrigin, runnable, sourceById } from './notice-sources.js';
+import { baboCategoryHint, cleanText, isSchoolNotice, parseBaboList, parseG2bPayload, parseKihfList } from './source-parsers.js';
+
+// 목록에서 훑는 글 수와 상세를 열어 볼 상한. 상세는 요청이 늘어나므로 아낀다.
+export const LIST_ROWS = 30;
+export const DETAIL_LIMIT = 12;
+// 같은 곳에 잇달아 요청하지 않는다.
+export const REQUEST_GAP_MS = 300;
+
+const UA = 'MS12-NoticeCollector/1.0 (+https://pro.ms12.org)';
+
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+async function request(fetcher, url, { accept = 'text/html' } = {}) {
+  if (!allowedOrigin(url)) throw new Error('origin not allowed');
+  const response = await fetcher(url, { headers: { 'User-Agent': UA, Accept: accept }, redirect: 'follow' });
+  if (!response.ok) throw new Error(`http ${response.status}`);
+  return accept.includes('json') ? response.json() : response.text();
+}
+
+// 상세 본문에서 글자만 뽑는다. 원문 전체를 저장하지 않고 판정에만 쓴다.
+// marker를 주면 그 자리부터 읽는다. 게시판 상세 페이지에는 다른 글 목록이 함께 실려 있어,
+// 페이지 전체를 읽으면 남의 글 제목이 이 글의 성격으로 잘못 잡힌다.
+export function bodyTextOf(html, marker = '') {
+  const source = String(html || '');
+  const at = marker ? source.indexOf(marker) : -1;
+  return plainText(at >= 0 ? source.slice(at) : source);
+}
+
+function plainText(html) {
+  return String(html || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, '\n')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')
+    .replace(/[ \t]+/g, ' ').replace(/\n{2,}/g, '\n').trim();
+}
+
+function baseStatus(source) {
+  return {
+    source: source.id, channel: source.kind, label: source.label, sourceLabel: source.label,
+    organization: source.organization, status: 'ok', reason: '',
+    listed: 0, candidates: 0, collected: 0, skipped: {}
+  };
+}
+
+function countSkip(status, fitness) {
+  status.skipped[fitness] = (status.skipped[fitness] || 0) + 1;
+}
+
+// ---------- 한국건강가정진흥원 ----------
+async function collectKihf(fetcher, source, today) {
+  const status = baseStatus(source);
+  const listUrl = `${source.origin}${source.path}?rows=${LIST_ROWS}&cpage=1`;
+  const html = await request(fetcher, listUrl);
+  const parsed = parseKihfList(html);
+  if (!parsed.ok) return { status: { ...status, status: 'failed', reason: parsed.reason }, notices: [] };
+  status.listed = parsed.rows.length;
+
+  // 제목으로 먼저 걸러 상세를 열 후보를 줄인다. 확정은 상세를 보고 한다.
+  const candidates = parsed.rows.filter(row => {
+    const head = classifyNotice({ title: row.title, sourceKind: source.id === 'kihf-bid' ? 'bid-board' : '' });
+    if (searchable(head.fitness) || head.fitness === FITNESS.unknown) return true;
+    countSkip(status, head.fitness);
+    return false;
+  }).slice(0, DETAIL_LIMIT);
+  status.candidates = candidates.length;
+
+  const notices = [];
+  for (const row of candidates) {
+    await wait(REQUEST_GAP_MS);
+    let body = '';
+    let attachments = [];
+    try {
+      const detail = await request(fetcher, `${source.origin}${source.detailPath}?article_seq=${encodeURIComponent(row.listSn)}`);
+      body = bodyTextOf(detail);
+      // 첨부는 이름과 개수만 남긴다. 파일 원문은 저장하지 않는다.
+      attachments = [...detail.matchAll(/download\.do\?uuid=[^"']*"[^>]*>([^<]{1,120})/g)]
+        .map(match => ({ name: cleanText(match[1]), fileType: '' })).slice(0, 10);
+    } catch { /* 한 건 실패는 출처 장애가 아니다 */ }
+    const period = extractPeriod(`${row.title}\n${body}`);
+    const verdict = classifyNotice({ title: row.title, body, sourceKind: source.id === 'kihf-bid' ? 'bid-board' : '' });
+    if (!searchable(verdict.fitness)) { countSkip(status, verdict.fitness); continue; }
+    const { stage, daysLeft } = noticeStage(period.deadline, today);
+    notices.push({
+      sourceId: source.id, sourceLabel: source.label, source: source.id,
+      organization: source.organization, sourceLabelShort: '건강가정진흥원',
+      listSn: row.listSn, title: row.title, registeredAt: row.registeredAt,
+      deadline: period.deadline, applicationPeriod: period.applicationPeriod, deadlineSource: period.deadlineSource,
+      deadlineKnown: Boolean(period.deadline), stage, daysLeft,
+      summary: body.slice(0, 300) || '상세 공고문 확인 필요', officialTextExtracted: body.length > 0,
+      attachments, fitness: verdict.fitness, fitnessReason: verdict.reason, fitnessConfirmed: verdict.confirmed,
+      sourceUrl: `${source.origin}${source.detailPath}?article_seq=${encodeURIComponent(row.listSn)}`,
+      references: [{ source: source.id, listSn: row.listSn, kind: 'board' }]
+    });
+  }
+  // 마감이 지난 것은 목록에 남기지 않는다.
+  const open = notices.filter(notice => isCollectible(notice, today));
+  status.collected = open.length;
+  return { status, notices: open };
+}
+
+// ---------- 바보의나눔 ----------
+async function collectBabo(fetcher, source, today) {
+  const status = baseStatus(source);
+  const html = await request(fetcher, `${source.origin}${source.path}`);
+  const parsed = parseBaboList(html);
+  if (!parsed.ok) return { status: { ...status, status: 'failed', reason: parsed.reason }, notices: [] };
+  status.listed = parsed.rows.length;
+
+  const candidates = parsed.rows.filter(row => {
+    // 게시판이 스스로 붙인 분류를 먼저 본다. 선정결과·양식은 계획서 대상이 아니다.
+    const hint = baboCategoryHint(row.category);
+    if (hint === 'result') { countSkip(status, FITNESS.result); return false; }
+    if (hint === 'form') { countSkip(status, FITNESS.briefing); return false; }
+    const head = classifyNotice({ title: row.title });
+    if (searchable(head.fitness) || head.fitness === FITNESS.unknown || hint === 'notice') return true;
+    countSkip(status, head.fitness);
+    return false;
+  }).slice(0, DETAIL_LIMIT);
+  status.candidates = candidates.length;
+
+  const notices = [];
+  for (const row of candidates) {
+    await wait(REQUEST_GAP_MS);
+    let body = '';
+    try {
+      const detail = await request(fetcher, `${source.origin}${source.detailPath}?bmode=view&idx=${encodeURIComponent(row.listSn)}&t=board`);
+      // 글 제목 자리부터 읽는다. 그 앞은 머리말이고 한참 뒤는 다른 글 목록이다.
+      body = bodyTextOf(detail, 'view_tit').slice(0, 4000);
+    } catch { /* 한 건 실패는 출처 장애가 아니다 */ }
+    const period = extractPeriod(`${row.title}\n${body}`);
+    const verdict = classifyNotice({ title: row.title, body });
+    if (!searchable(verdict.fitness)) { countSkip(status, verdict.fitness); continue; }
+    const { stage, daysLeft } = noticeStage(period.deadline, today);
+    notices.push({
+      sourceId: source.id, sourceLabel: source.label, source: source.id,
+      organization: source.organization, sourceLabelShort: '바보의나눔',
+      listSn: row.listSn, title: row.title, registeredAt: row.registeredAt, boardCategory: row.category,
+      deadline: period.deadline, applicationPeriod: period.applicationPeriod, deadlineSource: period.deadlineSource,
+      deadlineKnown: Boolean(period.deadline), stage, daysLeft,
+      summary: body.slice(0, 300) || '상세 공고문 확인 필요', officialTextExtracted: body.length > 0,
+      // 첨부는 링크만 센다. 파일 원문은 중복 저장하지 않는다.
+      attachments: [], fitness: verdict.fitness, fitnessReason: verdict.reason, fitnessConfirmed: verdict.confirmed,
+      sourceUrl: `${source.origin}${source.detailPath}?bmode=view&idx=${encodeURIComponent(row.listSn)}&t=board`,
+      references: [{ source: source.id, listSn: row.listSn, kind: 'board' }]
+    });
+  }
+  const open = notices.filter(notice => isCollectible(notice, today));
+  status.collected = open.length;
+  return { status, notices: open };
+}
+
+// ---------- 나라장터 (조달청 Open API) ----------
+// 인증키가 없으면 여기까지 오지 않는다. 값을 만들지도, 화면을 긁지도 않는다.
+async function collectG2b(fetcher, source, today, { serviceKey, days = 14, now = new Date() } = {}) {
+  const status = baseStatus(source);
+  const stamp = date => `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}0000`;
+  const from = new Date(now.getTime() - days * 86400000);
+  const url = `${source.origin}${source.path}?serviceKey=${encodeURIComponent(serviceKey)}&numOfRows=100&pageNo=1&type=json`
+    + `&inqryDiv=1&inqryBgnDt=${stamp(from)}&inqryEndDt=${stamp(now)}`;
+  const payload = await request(fetcher, url, { accept: 'application/json' });
+  const parsed = parseG2bPayload(payload);
+  if (!parsed.ok) return { status: { ...status, status: 'failed', reason: parsed.reason }, notices: [] };
+  status.listed = parsed.rows.length;
+
+  const notices = [];
+  for (const row of parsed.rows) {
+    // 학교·교육청 발주의 교육·상담·복지 용역만 본다.
+    if (!isSchoolNotice(row)) { countSkip(status, 'off-topic'); continue; }
+    const verdict = classifyNotice({ title: row.title, body: `${row.organization} ${row.demandOrganization}`, sourceKind: 'bid-board' });
+    if (!searchable(verdict.fitness)) { countSkip(status, verdict.fitness); continue; }
+    const { stage, daysLeft } = noticeStage(row.deadline, today);
+    notices.push({
+      sourceId: source.id, sourceLabel: source.label, source: source.id,
+      organization: row.organization || source.organization, sourceLabelShort: '나라장터',
+      demandOrganization: row.demandOrganization,
+      noticeNo: row.noticeNo, noticeOrder: row.noticeOrder,
+      listSn: `${row.noticeNo}-${row.noticeOrder || '00'}`, title: row.title, registeredAt: row.registeredAt,
+      deadline: row.deadline, applicationPeriod: '', deadlineSource: 'official',
+      deadlineKnown: Boolean(row.deadline), stage, daysLeft,
+      summary: [row.demandOrganization && `수요기관 ${row.demandOrganization}`, row.budget && `예산 ${row.budget}`].filter(Boolean).join(' · ') || '상세 공고문 확인 필요',
+      officialTextExtracted: false, attachments: [],
+      fitness: verdict.fitness, fitnessReason: verdict.reason, fitnessConfirmed: verdict.confirmed,
+      sourceUrl: row.sourceUrl,
+      references: [{ source: source.id, listSn: `${row.noticeNo}-${row.noticeOrder || '00'}`, kind: 'api' }]
+    });
+  }
+  status.candidates = notices.length;
+  const open = notices.filter(notice => isCollectible(notice, today));
+  status.collected = open.length;
+  return { status, notices: open };
+}
+
+const RUNNERS = { 'kihf-notice': collectKihf, 'kihf-bid': collectKihf, 'babo-notice': collectBabo, 'g2b-service': collectG2b };
+
+// 출처를 하나씩 돌린다. 한 곳의 실패가 다른 곳을 막지 않는다.
+export async function collectExtraSources(fetcher = fetch, { settings = {}, secrets = {}, now = new Date() } = {}) {
+  const today = todayInSeoul(now);
+  const sources = [];
+  const notices = [];
+  for (const source of SOURCES) {
+    const gate = runnable(source, { settings, secrets });
+    if (!gate.ok) {
+      // 돌리지 않은 것은 실패가 아니다. 따로 표시한다.
+      sources.push({ ...baseStatus(source), status: 'skipped', reason: gate.reason });
+      continue;
+    }
+    const runner = RUNNERS[source.id];
+    if (!runner) { sources.push({ ...baseStatus(source), status: 'skipped', reason: 'unknown' }); continue; }
+    try {
+      const outcome = await runner(fetcher, source, today, { serviceKey: secrets[source.needsSecret], now });
+      sources.push(outcome.status);
+      notices.push(...outcome.notices);
+    } catch (error) {
+      sources.push({ ...baseStatus(source), status: 'failed', reason: failureReason(error) });
+    }
+  }
+  return { sources, notices };
+}
+
+function failureReason(error) {
+  const message = String(error?.message || '');
+  if (error?.name === 'SyntaxError') return FAILURE.shape;
+  if (/^http \d+/.test(message)) return FAILURE.http;
+  if (message === 'origin not allowed') return '허용되지 않은 주소라 요청하지 않았습니다.';
+  return FAILURE.network;
+}
+
+export { collectKihf, collectBabo, collectG2b, sourceById };

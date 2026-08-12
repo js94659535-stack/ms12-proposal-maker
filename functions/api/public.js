@@ -14,7 +14,7 @@ const SCAN_LIMIT = 400;
 const SIGNUP_NOTICE = '상세 적합성 분석과 맞춤 사업설계는 회원가입 후 이용할 수 있습니다.';
 // 원문 본문을 뺀 공개 열만 읽는다.
 const COLUMNS = `source_key, source, source_label, list_sn, title, deadline, application_period,
-  summary, eligibility, support_limit, region, audience, field, source_url`;
+  summary, eligibility, support_limit, region, audience, field, source_url, source_id, source_group, business_type, fitness, notice_no, source_links`;
 
 export async function onRequest(context) {
   const { request, env, data } = context;

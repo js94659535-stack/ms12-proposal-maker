@@ -5,12 +5,23 @@
 // AI는 부르지 않는다. 회원·계획서·기관정보·사용량 표는 읽지도 쓰지도 않는다.
 import { collectNotices } from '../functions/api/notices.js';
 import { syncNotices } from '../functions/api/archive.js';
-import { runCollection } from '../server/notice-collector.js';
+import { readSourceSettings, runCollection } from '../server/notice-collector.js';
+import { collectExtraSources } from '../server/extra-collect.js';
 
 async function collect(env) {
   if (!env.ARCHIVE_DB) return { skipped: true, reason: 'no-db' };
+  const settings = await readSourceSettings(env.ARCHIVE_DB);
+  // 나라장터는 인증키가 있을 때만 돈다. 없으면 「인증키 미등록」으로 건너뛴다.
+  const secrets = { G2B_SERVICE_KEY: env.G2B_SERVICE_KEY || '' };
   return runCollection(env.ARCHIVE_DB, {
-    collect: () => collectNotices(fetch),
+    // 사랑의열매와 추가 출처를 각각 돌리고 결과만 합친다. 한쪽이 죽어도 다른 쪽은 간다.
+    collect: async () => {
+      const [chest, extra] = await Promise.all([
+        collectNotices(fetch).catch(() => ({ sources: [], notices: [] })),
+        collectExtraSources(fetch, { settings, secrets }).catch(() => ({ sources: [], notices: [] }))
+      ]);
+      return { sources: [...chest.sources, ...extra.sources], notices: [...chest.notices, ...extra.notices] };
+    },
     // 보관함에는 넣고 고치기만 한다. 지우는 경로는 여기에 없다.
     sync: notices => syncNotices(env.ARCHIVE_DB, notices),
     trigger: 'cron'

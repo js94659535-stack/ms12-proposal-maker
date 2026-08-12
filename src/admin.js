@@ -47,3 +47,6 @@ export const adminRevokeGrant = id => post('revokeGrant', { id });
 export const adminMemberUsage = () => post('memberUsage');
 export const adminProposalContent = id => post('proposalContent', { id });
 export const adminAssignProposal = (id, userId, note) => post('assignProposal', { id, userId, note });
+
+// 수집 출처 사용·중지. 최고관리자만 바꾼다.
+export const adminSetNoticeSource = (sourceId, enabled) => post('setNoticeSource', { sourceId, enabled });

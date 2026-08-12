@@ -82,25 +82,34 @@ test('기간이 지난 권한은 회수하지 않아도 닫힌다', () => {
   assert.equal(grantActive({ ...base, revoked_at: '2026-08-11T00:00:00.000Z' }, '2026-08-12'), false, '회수됨');
 });
 
-test('원문 열람은 등급이 아니라 근거로 정해진다', () => {
+test('최고관리자는 조건 없이 모든 계획서 원문을 연다', () => {
   const proposal = { id: 'p-1', user_id: 'mem-1', support_consent: 0 };
-  // 근거가 없으면 최고관리자도 원문을 열지 않는다.
-  const blocked = proposalContentAccess({ actor: admin, proposal, contract: null });
-  assert.equal(blocked.allowed, false);
-  assert.match(blocked.error, /메타정보만/);
-  // 프리미엄 계약이 있으면 열린다.
+  // 회원 동의도 프리미엄 계약도 없어도 연다. 대표자 운영정책이다.
+  const opened = proposalContentAccess({ actor: admin, proposal, contract: null });
+  assert.equal(opened.allowed, true);
+  assert.equal(opened.reason, REASON.admin);
+  // 소유 회원이 지정되지 않은 기존 보관자료도 연다.
+  assert.equal(proposalContentAccess({ actor: admin, proposal: { id: 'p-old', user_id: '', support_consent: 0 } }).allowed, true);
+  // 구독·프리미엄 여부와 무관하다.
   assert.equal(proposalContentAccess({ actor: admin, proposal, contract: { active: true } }).allowed, true);
-  // 회원이 지원 동의를 했으면 열린다.
-  assert.equal(proposalContentAccess({ actor: admin, proposal: { ...proposal, support_consent: 1 }, contract: null }).reason, REASON.consent);
   // 본인은 언제나 연다.
   assert.equal(proposalContentAccess({ actor: { ...member, id: 'mem-1' }, proposal, contract: null }).allowed, true);
+  // 중지된 관리자는 열지 못한다.
+  assert.equal(proposalContentAccess({ actor: { ...admin, status: 'disabled' }, proposal }).allowed, false);
 });
 
-test('운영관리자는 근거가 있어도 지정받지 않으면 원문을 못 연다', () => {
-  const proposal = { id: 'p-1', user_id: 'mem-1', support_consent: 1 };
+test('운영관리자는 지정받은 범위에서만 원문을 연다', () => {
+  const proposal = { id: 'p-1', user_id: 'mem-1', support_consent: 0 };
+  // 지정이 없으면 프리미엄 계약이 있어도 열리지 않는다.
   assert.equal(proposalContentAccess({ actor: operator, proposal, grants: [], contract: { active: true } }).allowed, false);
+  // 최고관리자가 지정하면 그 지정이 근거가 된다.
   const grants = [{ scope: 'proposals', target_kind: 'proposal', target_id: 'p-1', can_view_content: 1, revoked_at: '' }];
-  assert.equal(proposalContentAccess({ actor: operator, proposal, grants, contract: { active: true } }).allowed, true);
+  const opened = proposalContentAccess({ actor: operator, proposal, grants });
+  assert.equal(opened.allowed, true);
+  assert.equal(opened.reason, REASON.grant);
+  // 계약·동의가 있으면 그 사실을 사유로 남긴다.
+  assert.equal(proposalContentAccess({ actor: operator, proposal, grants, contract: { active: true } }).reason, REASON.premium);
+  assert.equal(proposalContentAccess({ actor: operator, proposal: { ...proposal, support_consent: 1 }, grants }).reason, REASON.consent);
 });
 
 test('내려받기·수정 권한은 원문 열람 없이 줄 수 없다', () => {
@@ -189,15 +198,16 @@ test('모든 원문 열람이 감사기록에 남고 기록에 원문은 없다'
   seedUsers(db);
   seedProposal(db, { user_id: member.id, support_consent: 1 });
   await send(adminRoute, db, admin, { action: 'proposalContent', id: 'p-1' });
-  // 막힌 열람도 남는다.
-  seedProposal(db, { id: 'p-2', user_id: member.id, support_consent: 0 });
-  await send(adminRoute, db, admin, { action: 'proposalContent', id: 'p-2' });
+  // 막힌 열람도 남는다. 지정받지 않은 운영관리자가 부르면 거절되고 그 사실이 기록된다.
+  await send(operatorRoute, db, operator, { action: 'proposalContent', id: 'p-1' });
 
   const log = db.tables.data_access_log;
   assert.equal(log.length, 2);
   assert.equal(log[0].action, 'viewContent');
-  assert.equal(log[0].allowed, 1);
+  assert.equal(log[0].allowed, 1, '최고관리자 열람은 허용되고 기록된다');
+  assert.equal(log[0].actor_role, 'admin');
   assert.equal(log[1].allowed, 0, '거절된 열람도 기록한다');
+  assert.equal(log[1].actor_role, 'operator');
   const text = JSON.stringify(log);
   assert.ok(!text.includes('원문 내용'), '기록에 계획서 원문이 없다');
   for (const secret of ['password', 'token', 'secret']) assert.ok(!text.toLowerCase().includes(secret), secret);
@@ -271,5 +281,82 @@ test('권한 판정을 거치지 않고 계획서 원문을 내보내는 경로�
     if (!reads.length) continue;
     assert.match(source, /proposalContentAccess\(/, file);
     assert.match(source, /recordAccess\(/, file);
+  }
+});
+
+// ---------- 대표자 운영정책: admin 전체 열람 ----------
+
+test('최고관리자는 회원 등급과 무관하게 모든 계획서 원문을 연다', async () => {
+  const db = accessDb();
+  seedUsers(db);
+  db.tables.users.push(
+    { id: 'sub-1', email: 'sub@ms12.test', name: '구독회원', role: 'customer', status: 'active' },
+    { id: 'pre-1', email: 'pre@ms12.test', name: '프리미엄회원', role: 'customer', status: 'active' }
+  );
+  db.tables.premium_contracts.push({ user_id: 'pre-1', status: 'active', started_on: '2026-01-01', ends_on: '2026-12-31' });
+  // 일반회원 · 구독회원 · 프리미엄회원 · 소유 회원 미지정 자료.
+  seedProposal(db, { id: 'p-basic', user_id: member.id, support_consent: 0 });
+  seedProposal(db, { id: 'p-sub', user_id: 'sub-1', support_consent: 0 });
+  seedProposal(db, { id: 'p-premium', user_id: 'pre-1', support_consent: 0 });
+  seedProposal(db, { id: 'p-unowned', user_id: '', owner_hash: 'hash-old' });
+
+  for (const id of ['p-basic', 'p-sub', 'p-premium', 'p-unowned']) {
+    const response = await send(adminRoute, db, admin, { action: 'proposalContent', id });
+    assert.equal(response.status, 200, id);
+    const body = await response.json();
+    assert.equal(body.reason, REASON.admin, id);
+    assert.ok(body.snapshot, `${id} 원문이 실제로 열린다`);
+  }
+  // 네 번의 열람이 모두 기록에 남는다.
+  const reads = db.tables.data_access_log.filter(row => row.action === 'viewContent' && row.actor_id === admin.id);
+  assert.equal(reads.length, 4);
+  assert.ok(reads.every(row => row.allowed === 1));
+  // 기록에 원문은 없다.
+  assert.ok(!JSON.stringify(db.tables.data_access_log).includes('원문 내용'));
+});
+
+test('역할별 원문 열람 결과가 서로 다르다', async () => {
+  const db = accessDb();
+  seedUsers(db);
+  seedProposal(db, { id: 'p-1', user_id: member.id, support_consent: 0 });
+
+  // 최고관리자: 열린다.
+  assert.equal((await send(adminRoute, db, admin, { action: 'proposalContent', id: 'p-1' })).status, 200);
+  // 운영관리자: 지정 전에는 막힌다.
+  assert.equal((await send(operatorRoute, db, operator, { action: 'proposalContent', id: 'p-1' })).status, 403);
+  // 원문 열람만 지정하면 열린다.
+  await send(adminRoute, db, admin, {
+    action: 'saveGrant',
+    grant: grant({ abilities: { view: true, viewContent: true, edit: false, download: false, manage: false, progress: false } })
+  });
+  assert.equal((await send(operatorRoute, db, operator, { action: 'proposalContent', id: 'p-1' })).status, 200);
+  // 열람만 받았으므로 수정·내려받기는 여전히 없다.
+  const list = await (await send(operatorRoute, db, operator, { action: 'assignedProposals' })).json();
+  assert.equal(list.can.edit, false);
+  assert.equal(list.can.download, false);
+  // 회수하면 다음 요청부터 곧바로 막힌다.
+  await send(adminRoute, db, admin, { action: 'revokeGrant', id: db.tables.access_grants[0].id });
+  assert.equal((await send(operatorRoute, db, operator, { action: 'proposalContent', id: 'p-1' })).status, 403);
+  // 회원은 관리자 경로 자체가 막힌다.
+  assert.equal((await send(adminRoute, db, member, { action: 'proposalContent', id: 'p-1' })).status, 403);
+});
+
+test('어떤 응답에도 비밀값이 실리지 않는다', async () => {
+  const db = accessDb();
+  seedUsers(db);
+  // 대역이지만 실제 users 행에 있는 비밀 열을 흉내 내 넣어 둔다.
+  Object.assign(db.tables.users[2], { password_hash: 'HASH', password_salt: 'SALT', token_hash: 'TOKEN', provider_subject: 'SUBJECT' });
+  seedProposal(db, { id: 'p-1', user_id: member.id });
+
+  const responses = await Promise.all([
+    send(adminRoute, db, admin, { action: 'accessOverview' }),
+    send(adminRoute, db, admin, { action: 'memberUsage' }),
+    send(adminRoute, db, admin, { action: 'proposalContent', id: 'p-1' })
+  ]);
+  for (const response of responses) {
+    const text = await response.text();
+    for (const secret of ['HASH', 'SALT', 'TOKEN', 'SUBJECT', 'password_hash', 'provider_subject']) {
+      assert.ok(!text.includes(secret), secret);
+    }
   }
 });

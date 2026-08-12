@@ -1,7 +1,8 @@
 // 관리자 전용 계정 관리. 화면에서 숨기는 것이 아니라 여기서 실제로 막는다.
 // 비밀번호 열은 읽지도 내보내지도 않는다.
 import { recordAudit } from '../../server/audit.js';
-import { collectionStatus, runCollection } from '../../server/notice-collector.js';
+import { collectionStatus, readSourceSettings, runCollection, setSourceEnabled } from '../../server/notice-collector.js';
+import { collectExtraSources } from '../../server/extra-collect.js';
 import { listAccessLog, listGrants, listProposalMeta, proposalUsage, recordAccess, revokeGrant, saveGrant } from '../../server/access-store.js';
 import { REASON, SCOPES, ABILITIES, proposalContentAccess, stripSecrets, todayInSeoul } from '../../server/permissions.js';
 import { collectNotices } from './notices.js';
@@ -57,7 +58,14 @@ export async function onRequest(context) {
   // 자동수집 상태판. 읽기만 한다.
   if (body.action === 'noticeCollection') return json(await collectionStatus(env.ARCHIVE_DB), 200);
   // 수동 재수집. 자동 실행과 같은 경로를 쓰고 같은 잠금에 걸린다.
-  if (body.action === 'runNoticeCollection') return runNoticeCollection(env.ARCHIVE_DB, actor);
+  if (body.action === 'runNoticeCollection') return runNoticeCollection(env.ARCHIVE_DB, actor, env);
+  // 출처별 켜고 끄기. 최고관리자만 바꾼다.
+  if (body.action === 'setNoticeSource') {
+    const result = await setSourceEnabled(env.ARCHIVE_DB, { sourceId: body.sourceId, enabled: body.enabled === true, actor, note: body.note });
+    if (!result.ok) return json({ error: result.error }, 400);
+    await recordAudit(env.ARCHIVE_DB, { actor, action: 'admin.setNoticeSource', targetId: String(body.sourceId || ''), detail: result.enabled ? '수집 출처 사용' : '수집 출처 중지' });
+    return json(await collectionStatus(env.ARCHIVE_DB), 200);
+  }
   if (body.action === 'listNotices') return json(await listNotices(env.ARCHIVE_DB, body.query), 200);
   if (body.action === 'setNoticePublic') return setNoticePublic(env.ARCHIVE_DB, actor, body);
   // AI 사용량·비용. 회원별·계획서별·기간별로 본다.
@@ -451,9 +459,17 @@ function json(body, status = 200, headers = {}) {
 }
 
 // 관리자가 직접 돌리는 재수집. 이미 돌고 있으면 두 번 돌리지 않는다.
-async function runNoticeCollection(db, actor) {
+async function runNoticeCollection(db, actor, env = {}) {
+  const settings = await readSourceSettings(db);
+  const secrets = { G2B_SERVICE_KEY: env.G2B_SERVICE_KEY || '' };
   const result = await runCollection(db, {
-    collect: () => collectNotices(fetch),
+    collect: async () => {
+      const [chest, extra] = await Promise.all([
+        collectNotices(fetch).catch(() => ({ sources: [], notices: [] })),
+        collectExtraSources(fetch, { settings, secrets }).catch(() => ({ sources: [], notices: [] }))
+      ]);
+      return { sources: [...chest.sources, ...extra.sources], notices: [...chest.notices, ...extra.notices] };
+    },
     sync: notices => syncNotices(db, notices),
     trigger: 'manual'
   });

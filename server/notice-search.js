@@ -149,6 +149,9 @@ export function scoreNotice(row, terms, mode = DEFAULT_MODE, now = new Date()) {
 }
 
 // 필터. 값이 없으면 거르지 않는다.
+// 기본 검색에 나오는 적합성. notice-classify와 같은 값을 쓴다.
+const SEARCHABLE_FITNESS = ['proposal', 'bid'];
+
 export function passesFilters(row, filters = {}, now = new Date()) {
   const state = filters.state ? String(filters.state) : '';
   if (state && deadlineState(row.deadline, now) !== state) return false;
@@ -158,6 +161,15 @@ export function passesFilters(row, filters = {}, now = new Date()) {
   }
   const organizer = clean(filters.organizer, 100);
   if (organizer && !compactText(`${row.source_label} ${row.source}`).includes(compactText(organizer))) return false;
+  // 사업 유형과 수집 출처. 기존 사랑의열매 자료는 값이 비어 있어 chest로 본다.
+  const businessType = clean(filters.businessType, 40);
+  if (businessType && (clean(row.business_type, 40) || 'chest') !== businessType) return false;
+  const sourceGroup = clean(filters.sourceGroup, 40);
+  if (sourceGroup && (clean(row.source_group, 40) || 'chest') !== sourceGroup) return false;
+  // 기본 공모검색에는 제안·지원 가능과 입찰·위탁 참여 가능만 나온다.
+  // 값이 비어 있는 기존 자료는 지금까지처럼 그대로 보여 준다.
+  const fitness = clean(row.fitness, 20);
+  if (fitness && !SEARCHABLE_FITNESS.includes(fitness) && filters.includeAll !== true) return false;
   return true;
 }
 
@@ -221,16 +233,22 @@ export function findDuplicates(rows) {
 export function facetsOf(rows, now = new Date()) {
   const count = (list, value) => { if (!value) return; list.set(value, (list.get(value) || 0) + 1); };
   const regions = new Map(); const audiences = new Map(); const fields = new Map(); const organizers = new Map(); const states = new Map();
+  // 사업 유형과 수집 출처는 다른 축이다. 각각 센다.
+  const businessTypes = new Map(); const sourceGroups = new Map();
   for (const row of rows) {
     for (const value of String(row.region || '').split(',')) count(regions, value);
     for (const value of String(row.audience || '').split(',')) count(audiences, value);
     for (const value of String(row.field || '').split(',')) count(fields, value);
     count(organizers, clean(row.source_label, 100) || clean(row.source, 100));
     count(states, deadlineState(row.deadline, now));
+    // 기존 사랑의열매 자료는 값이 비어 있어 chest로 본다.
+    count(businessTypes, clean(row.business_type, 40) || 'chest');
+    count(sourceGroups, clean(row.source_group, 40) || 'chest');
   }
   const list = map => [...map.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([value, total]) => ({ value, total }));
   return {
     region: list(regions), audience: list(audiences), field: list(fields), organizer: list(organizers),
+    businessType: list(businessTypes), sourceGroup: list(sourceGroups),
     state: ['open', 'closing', 'closed'].map(value => ({ value, label: DEADLINE_LABELS[value], total: states.get(value) || 0 }))
   };
 }

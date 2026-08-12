@@ -86,27 +86,19 @@ export function proposalContentAccess({ actor, proposal, grants = [], contract =
 
   const consented = Number(proposal?.support_consent ?? proposal?.supportConsent ?? 0) === 1;
   const premium = contract?.active === true;
-  if (isActiveAdmin(actor)) {
-    // 최고관리자도 근거가 있어야 원문을 연다. 열람 자체는 감사기록에 남는다.
-    if (premium) return { allowed: true, reason: REASON.premium };
-    if (consented) return { allowed: true, reason: REASON.consent };
-    return {
-      allowed: false, status: 403,
-      error: '이 계획서는 프리미엄 계약이나 회원의 지원 동의가 없어 원문을 열 수 없습니다. 메타정보만 확인할 수 있습니다.'
-    };
-  }
+  // 최고관리자는 업무자료를 모두 연다. 회원 동의·프리미엄 계약·별도 권한을 요구하지 않는다.
+  // 소유 회원이 지정되지 않은 기존 보관자료도 마찬가지다. 열람 사실은 반드시 기록에 남는다.
+  if (isActiveAdmin(actor)) return { allowed: true, reason: REASON.admin };
   // 운영관리자는 위 근거에 더해 관리자가 지정한 원문 열람 권한까지 있어야 한다.
   const decision = decideAccess({
     actor, grants, scope: 'proposals', ability: 'viewContent',
     targetKind: 'proposal', targetId: String(proposal?.id || ''), targetUserId: ownerId, today
   });
   if (!decision.allowed) return { allowed: false, status: decision.status, error: decision.error };
-  if (premium) return { allowed: true, reason: REASON.premium };
-  if (consented) return { allowed: true, reason: REASON.consent };
-  return {
-    allowed: false, status: 403,
-    error: '원문 열람 권한은 있으나 프리미엄 계약이나 회원 동의가 없습니다. 메타정보만 확인할 수 있습니다.'
-  };
+  // 운영관리자는 최고관리자가 지정한 범위만 쓴다. 그 지정이 곧 근거다.
+  // 프리미엄 계약·회원 동의는 기록에 남길 사유로만 쓰고, 여기서 다시 막지 않는다.
+  const reason = premium ? REASON.premium : consented ? REASON.consent : REASON.grant;
+  return { allowed: true, reason };
 }
 
 // 계획서에서 원문을 뺀 메타정보만 남긴다. 관리자·운영관리자 목록은 이것만 본다.
