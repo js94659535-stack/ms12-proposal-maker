@@ -39,8 +39,9 @@ export function trimSources(sources = []) {
     source: String(source?.source || ''),
     channel: String(source?.channel || ''),
     label: String(source?.label || ''),
-    status: source?.status === 'ok' ? 'ok' : 'failed',
-    code: source?.status === 'ok' ? '' : failureCodeOf(source?.reason),
+    // 돌리지 않은 출처(인증키 없음·미연동·관리자 중지)는 실패가 아니다.
+    status: source?.status === 'ok' ? 'ok' : source?.status === 'skipped' ? 'skipped' : 'failed',
+    code: source?.status === 'ok' ? '' : source?.status === 'skipped' ? String(source?.reason || '') : failureCodeOf(source?.reason),
     listed: Number(source?.listed || 0),
     candidates: Number(source?.candidates || 0),
     collected: Number(source?.collected || 0)
@@ -58,11 +59,13 @@ export function droppedSharply(collected, baseline) {
 // 통로 결과와 직전 성공 기록을 보고 이번 실행의 상태를 정한다.
 export function decideRun({ sources = [], collected = 0, baseline = 0 } = {}) {
   const trimmed = trimSources(sources);
-  const failed = trimmed.filter(source => source.status !== 'ok');
+  // 건너뛴 출처는 성공에도 실패에도 넣지 않는다.
+  const ran = trimmed.filter(source => source.status !== 'skipped');
+  const failed = ran.filter(source => source.status !== 'ok');
   const codes = [...new Set(failed.map(source => source.code))];
   const failureCode = !failed.length ? '' : codes.length === 1 ? codes[0] : FAILURE_CODE.mixed;
 
-  const status = !trimmed.length || failed.length === trimmed.length ? RUN_STATUS.failed
+  const status = !ran.length || failed.length === ran.length ? RUN_STATUS.failed
     : failed.length ? RUN_STATUS.partial
       : collected > 0 ? RUN_STATUS.ok : RUN_STATUS.empty;
 
@@ -74,6 +77,7 @@ export function decideRun({ sources = [], collected = 0, baseline = 0 } = {}) {
     status, failureCode, warning, sources: trimmed,
     listed: trimmed.reduce((sum, source) => sum + source.listed, 0),
     candidates: trimmed.reduce((sum, source) => sum + source.candidates, 0),
+    skippedSources: trimmed.filter(source => source.status === 'skipped').length,
     collected: Number(collected || 0),
     // 받아온 공고가 있고 전부 실패한 것이 아닐 때만 보관함에 반영한다.
     // 일부 실패라도 살아 있는 출처의 신규·변경은 반영한다. 넣기만 하고 지우지 않으므로 안전하다.

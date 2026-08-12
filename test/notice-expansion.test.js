@@ -258,3 +258,24 @@ test('자동수집은 AI를 부르지 않고 개별 학교를 훑지 않는다',
   assert.match(collect, /REQUEST_GAP_MS/);
   assert.match(collect, /allowedOrigin\(url\)/);
 });
+
+test('돌리지 않은 출처는 실패로 세지 않는다', async () => {
+  const { decideRun, RUN_STATUS } = await import('../server/notice-run.js');
+  const ok = { source: 'kihf-notice', status: 'ok', listed: 30, candidates: 5, collected: 2 };
+  const skipped = { source: 'g2b-service', status: 'skipped', reason: 'missing-secret' };
+  const notConnected = { source: 'edu-gwangju', status: 'skipped', reason: 'not-connected' };
+
+  const decision = decideRun({ sources: [ok, skipped, notConnected], collected: 2, baseline: 2 });
+  // 인증키가 없어 돌리지 않은 것은 실패가 아니다. 정상 성공으로 남아야 한다.
+  assert.equal(decision.status, RUN_STATUS.ok);
+  assert.equal(decision.failureCode, '');
+  assert.equal(decision.healthy, true);
+  assert.equal(decision.skippedSources, 2);
+  // 기록에는 건너뛴 이유를 그대로 남긴다.
+  const g2b = decision.sources.find(item => item.source === 'g2b-service');
+  assert.equal(g2b.status, 'skipped');
+  assert.equal(g2b.code, 'missing-secret');
+  // 실제로 돈 출처가 모두 실패하면 그때는 실패다.
+  const allFailed = decideRun({ sources: [{ ...ok, status: 'failed', reason: '연결 실패' }, skipped], collected: 0 });
+  assert.equal(allFailed.status, RUN_STATUS.failed);
+});

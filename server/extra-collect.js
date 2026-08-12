@@ -11,13 +11,13 @@ export const DETAIL_LIMIT = 12;
 // 같은 곳에 잇달아 요청하지 않는다.
 export const REQUEST_GAP_MS = 300;
 
-const UA = 'MS12-NoticeCollector/1.0 (+https://pro.ms12.org)';
+const UA = 'Mozilla/5.0 (compatible; MS12NoticeBot/1.0; +https://pro.ms12.org)';
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 async function request(fetcher, url, { accept = 'text/html' } = {}) {
   if (!allowedOrigin(url)) throw new Error('origin not allowed');
-  const response = await fetcher(url, { headers: { 'User-Agent': UA, Accept: accept }, redirect: 'follow' });
+  const response = await fetcher(url, { headers: { 'User-Agent': UA, Accept: accept, 'Accept-Language': 'ko-KR,ko;q=0.9' }, redirect: 'follow' });
   if (!response.ok) throw new Error(`http ${response.status}`);
   return accept.includes('json') ? response.json() : response.text();
 }

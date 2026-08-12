@@ -31,7 +31,11 @@ async function collect(env) {
 export default {
   // 한국시간 08:00·18:00 = UTC 23:00·09:00. wrangler.toml의 crons와 짝이다.
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(collect(env));
+    // 예약 실행은 이 약속이 끝날 때까지 기다린다. waitUntil만 걸면
+    // 응답이 먼저 끝나는 환경에서 수집이 중간에 잘린다.
+    const running = collect(env);
+    ctx.waitUntil(running);
+    await running;
   },
   // 예약 실행을 그대로 확인할 때만 쓴다(wrangler dev --test-scheduled).
   // 공개 경로는 열어 두지 않는다. 수동 실행은 로그인한 관리자만 /api/admin으로 한다.
