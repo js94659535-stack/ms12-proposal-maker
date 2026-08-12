@@ -3072,9 +3072,11 @@ function startDesignReview() {
   setDesignApproval({ reviewStartedAt: new Date().toISOString() }, '운영자 검토를 시작했습니다.');
 }
 // 승인 시점의 설계안을 그대로 남긴다. 이후 설계가 바뀌어도 무엇을 승인했는지 남는다.
-function approveDesign() {
+// silent를 주면 되묻지 않는다. 간편 작성에서는 부족한 값이 있어도 멈추지 않고
+// [확인 필요]로 남긴 채 진행한다. 전문가 화면에서는 예전처럼 한 번 확인한다.
+function approveDesign({ silent = false } = {}) {
   const engagement = currentEngagement();
-  if (engagement.brief.openFacts.length && !window.confirm(`확인이 필요한 항목 ${engagement.brief.openFacts.length}건이 남아 있습니다. 그래도 설계를 승인할까요? 확인 전 값은 계획서에 [확인 필요]로 남습니다.`)) return;
+  if (!silent && engagement.brief.openFacts.length && !window.confirm(`확인이 필요한 항목 ${engagement.brief.openFacts.length}건이 남아 있습니다. 그래도 설계를 승인할까요? 확인 전 값은 계획서에 [확인 필요]로 남습니다.`)) return;
   setDesignApproval({ approvedAt: new Date().toISOString(), approvedBy: currentRole(), snapshot: structuredClone(engagement.brief) }, `${currentRole()} 역할로 사업 설계를 승인했습니다. 이제 전체 계획서를 작성할 수 있습니다.`);
 }
 function reopenDesign() {
@@ -6730,6 +6732,8 @@ function bindSimple() {
   document.querySelector('#simple-find')?.addEventListener('click', () => setState({ activeTool: '', step: 0, notice: '공고를 고르면 분석은 자동으로 합니다.' }));
   document.querySelector('#simple-change-notice')?.addEventListener('click', () => setState({ activeTool: '', step: 0, notice: '' }));
   document.querySelector('#simple-idea')?.addEventListener('input', event => { state.projectNarrative = event.target.value; });
+  // 입력이 끝나면 저장까지 한다. 저장하지 않으면 새로고침에 한 줄 요청이 사라진다.
+  document.querySelector('#simple-idea')?.addEventListener('change', event => setState({ projectNarrative: event.target.value }));
   document.querySelector('#simple-org-pick')?.addEventListener('change', event => setState({
     selectedApplicantId: event.target.value, applicantEditingId: event.target.value,
     notice: event.target.value ? '저장해 둔 기관정보를 씁니다.' : ''
@@ -6769,7 +6773,8 @@ async function runSimpleGeneration() {
   if (!generationPermission().allowed) {
     requestDesignReview();
     startDesignReview();
-    approveDesign();
+    // 간편 화면에서는 되묻지 않는다. 부족한 값은 [확인 필요]로 남는다.
+    approveDesign({ silent: true });
   }
   await generateCompleteProposal();
 }

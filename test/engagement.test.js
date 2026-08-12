@@ -194,7 +194,11 @@ test('승인 흐름과 차단이 화면에 연결된다', () => {
   assert.match(app, /id="generate-parts" \$\{guard\(generationPermission\(\)\.allowed \? '' : generationPermission\(\)\.reason, 'design'\)\}/);
   assert.match(app, /function requestDesignReview\(\)/);
   assert.match(app, /function startDesignReview\(\)/);
-  assert.match(app, /function approveDesign\(\)/);
+  assert.match(app, /function approveDesign\(\{ silent = false \} = \{\}\)/);
+  // 간편 작성에서는 되묻지 않고 [확인 필요]로 남긴 채 진행한다.
+  // 예전에는 window.confirm이 떠서 작성이 그 자리에서 멈췄다.
+  assert.match(app, /approveDesign\(\{ silent: true \}\)/);
+  assert.match(app, /if \(!silent && engagement\.brief\.openFacts\.length/);
   assert.match(app, /function reopenDesign\(\)/);
   // 승인 시점·역할·설계 snapshot을 함께 남긴다.
   assert.match(app, /approvedAt: new Date\(\)\.toISOString\(\), approvedBy: currentRole\(\), snapshot: structuredClone\(engagement\.brief\)/);
