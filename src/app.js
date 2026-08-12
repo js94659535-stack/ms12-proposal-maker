@@ -3462,11 +3462,13 @@ async function saveQuickOrg() {
   if (!check.ready) return setState({ notice: `${check.missing.join(' · ')}를 먼저 적어 주세요.` });
   const items = quickToApplicantItems(draft).map(item => makeApplicantItem(item));
   const existing = findApplicant(state, state.selectedApplicantId);
+  // 새 신청기관은 normalizeApplicant로 만든다. buildApplicantOrganization은 계획서에 넘길
+  // 자료를 만드는 함수라 여기에 쓰면 항목이 사라진 빈 기관이 만들어진다.
   const applicant = existing
-    ? { ...existing, items: [...existing.items, ...items] }
-    : buildApplicantOrganization({ name: draft.orgName, items });
+    ? normalizeApplicant({ ...existing, items: [...existing.items, ...items] })
+    : normalizeApplicant({ name: draft.orgName, items });
   setState({
-    applicants: upsertApplicant(state.applicants, applicant), selectedApplicantId: applicant.id,
+    applicants: upsertApplicant(state.applicants, applicant), selectedApplicantId: applicant.id, applicantEditingId: applicant.id,
     notice: '기관정보로 저장했습니다. 확인 필요 상태이니 내용을 보고 확인해 주세요.'
   });
   await saveArchivedApplicant(applicant).catch(() => null);
