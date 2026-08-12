@@ -53,13 +53,15 @@ export async function createSession(db, userId, now = new Date()) {
 export async function loadSession(db, token, now = new Date()) {
   if (!/^[a-f0-9]{64}$/.test(String(token || ''))) return null;
   const tokenHash = await sha256Hex(token);
-  const row = await db.prepare(`SELECT s.token_hash, s.expires_at, u.id AS user_id, u.email, u.role, u.org_id, u.name, u.status, u.plan, u.trial_used_at
+  const row = await db.prepare(`SELECT s.token_hash, s.expires_at, s.created_at, u.id AS user_id, u.email, u.role, u.org_id, u.name, u.status, u.plan, u.trial_used_at
     FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?`).bind(tokenHash).first();
   if (!row) return null;
   // pending은 가입 절차를 마치라고 붙여 둔 상태다. 세션은 열리지만 작업 API는 미들웨어가 막는다.
   if (!SESSION_STATUSES.has(row.status) || !row.expires_at || row.expires_at <= now.toISOString()) return null;
   return {
     tokenHash, expiresAt: row.expires_at,
+    // 세션이 언제 만들어졌는지. 되돌릴 수 없는 작업은 「방금 로그인했는가」를 함께 본다.
+    createdAt: row.created_at || '',
     // 이용권은 요청마다 users 행에서 다시 읽는다. 관리자가 바꾸면 다시 로그인하지 않아도 곧바로 반영된다.
     user: {
       id: row.user_id, email: row.email, role: row.role, orgId: row.org_id || '', name: row.name || '', status: row.status,

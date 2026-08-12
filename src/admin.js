@@ -32,3 +32,5 @@ export const setShowcaseOrder = order => post('setShowcaseOrder', { order });
 export const deleteShowcase = id => post('deleteShowcase', { id });
 // 시험용 월간 구독 부여·중지. 관리자만 할 수 있고 서버가 다시 확인한다.
 export const setAccountSubscription = (id, subscription) => post('setSubscription', { id, subscription });
+// 소셜 연결 이전. 관리자 비밀번호로 방금 로그인한 세션에서만 서버가 옮긴다.
+export const transferSocialIdentity = provider => post('transferIdentity', { provider });

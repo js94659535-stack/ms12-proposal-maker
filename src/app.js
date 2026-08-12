@@ -7,7 +7,7 @@ import { buildProposalPdfBlob, exportProposalPdf } from './pdf-export.js';
 import { MANIFEST_NAME, packageStale, planSubmissionZip, zipBytes } from './submission-zip.js';
 import { UNAUTHORIZED, accountProfile, clearOAuthCallback, currentUser, finishSocial, login, logout, readOAuthCallback, recoverPassword, saveAccountProfile, saveMemberInfo, signup as signupEmail, startSocial } from './auth.js';
 import { premiumNoticeHistory, premiumShowcase, premiumStatus } from './premium.js';
-import { adminUsageReport, approveAccount, deleteShowcase, setAccountSubscription, disableAccount, listAccounts, listCollectedNotices, listShowcase, removeAccount, saveShowcase, setAccountPlan, setAccountPremium, setAccountRole, setNoticePublic, setShowcaseOrder, setShowcasePublic } from './admin.js';
+import { adminUsageReport, approveAccount, deleteShowcase, setAccountSubscription, transferSocialIdentity, disableAccount, listAccounts, listCollectedNotices, listShowcase, removeAccount, saveShowcase, setAccountPlan, setAccountPremium, setAccountRole, setNoticePublic, setShowcaseOrder, setShowcasePublic } from './admin.js';
 import { fetchMembershipPlans, publicNoticeDetail, searchPublicNotices } from './notice-search.js';
 import { operatorApprove, operatorDisable, operatorEndSessions, operatorIssueRecoveryCode, operatorOverview, operatorReactivate, operatorSetContractProgress, operatorUnlockLogin, operatorUsageReport, operatorUserDetail } from './operator.js';
 import { reportError, reportStep, resetActivityDedupe } from './activity.js';
@@ -76,7 +76,9 @@ const initial = {
   step: 0, activeTool: 'home', homeSeen: false, portal: '', project: { type: 'g2b', title: '', issuer: '', deadline: '' }, sourceText: '', files: [],
   coaching: { title: '', text: '', validatedText: '', criteriaText: '', officialEvaluationProvided: false, sourceProposalId: '', sourceNoticeKey: '', seriesId: '', currentArchiveId: '', result: null, workItems: [], pendingJob: null, version: 0, references: [], referenceType: REFERENCE_TYPES[0], referenceDraft: '', referenceNameDraft: '' },
   applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
-  revisionPlan: null, draftReview: null, projectNarrative: '', proposalVersions: [], proposalFlow: { status: '', baselineVersion: 0, reviewTarget: null, rounds: [], requests: [], requestOpen: false, requestText: '', requestScope: [], openVersion: 0, compareVersion: 0, approvedVersion: 0, approvedAt: '' }, coachingSelection: [], applicantSkipped: false, noticeLogic: null, redesignForContract: false,
+  revisionPlan: null, draftReview: null, projectNarrative: '',
+  // 서버가 붙여 준 근거 검증·평가자 검토. 화면은 판정하지 않고 그대로 보여 준다.
+  serverGuard: null, serverEvidence: null, evaluatorReview: null, proposalVersions: [], proposalFlow: { status: '', baselineVersion: 0, reviewTarget: null, rounds: [], requests: [], requestOpen: false, requestText: '', requestScope: [], openVersion: 0, compareVersion: 0, approvedVersion: 0, approvedAt: '' }, coachingSelection: [], applicantSkipped: false, noticeLogic: null, redesignForContract: false,
   // 「사업계획서 의뢰 건」 한 건의 고객 담당자와 공고 요청서. 기관 영구정보와 섞지 않는다.
   engagement: { client: makeClient(), request: makeNoticeRequest(), design: makeDesignApproval(), view: 'customer', mode: '표준형' }, proposalTables: [], preciseReview: null, submissionIncluded: [], currentVersionId: '', attachmentLinks: {}, submissionZip: null,
   analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveTable: { query: '', sortKey: 'collectedAt', sortDir: 'desc', page: 1, pageSize: 20, selected: [], expandedKey: '', applicantPickerKey: '', filters: { collected: '', institution: '', field: '', status: '', applicant: '', deadline: '' } }, archiveNoticeLinks: {}, archiveHiddenNotices: [], archiveOpenProposal: '', sampleStage: '', sampleReturn: '', aiResult: null, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeSources: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
@@ -104,7 +106,7 @@ let auth = {
   // 관리자 화면 자료. 로그인 상태와 함께만 살아 있고 localStorage에 저장하지 않는다.
   accounts: [], accountsLoaded: false, confirmDelete: '', adminTab: 'accounts', notices: emptyAdminNotices(), usage: emptyUsage(),
   // 정식 수주계약 편집과 공개용 우수 제안서. 화면에만 두고 저장하지 않는다.
-  premiumDraft: {}, showcase: null, showcaseDraft: {}, showcaseEditing: '', progressDraft: {}, subscriptionDraft: {},
+  premiumDraft: {}, showcase: null, showcaseDraft: {}, showcaseEditing: '', progressDraft: {}, subscriptionDraft: {}, transferNotice: '',
   // 운영관리자 화면 자료. 발급한 복구코드는 화면에만 잠시 두고 저장하지 않는다.
   operator: emptyOperator(),
   // 핵심제안서 화면. 입력과 결과는 화면에만 두고 브라우저 저장소에 넣지 않는다.
@@ -122,7 +124,7 @@ let auth = {
 };
 // 검색 기본값은 결과 정확도가 높은 맞춤검색이다.
 function emptySearch() {
-  return { mode: 'focused', queryDraft: '', query: '', loaded: false, busy: false, notices: [], total: 0, facets: null, filters: {}, selected: '', detail: null, signupNotice: '' };
+  return { mode: 'focused', queryDraft: '', query: '', loaded: false, busy: false, notices: [], total: 0, facets: null, filters: {}, selected: '', detail: null, signupNotice: '', scopeLabel: '', locked: '', needsSignup: false, needsApproval: false };
 }
 // 결제 기능이 아직 없다. 전체 이용권이 없는 사람에게는 이 문구로만 안내한다.
 const CONTACT_LABEL = '이용권 문의';
@@ -149,7 +151,13 @@ function signOutLocally(message = '') { resetActivityDedupe(); setAuth({ status:
 // 로그아웃 상태에서 소개 대신 로그인 화면을 보여야 하는 때. 전할 말이 있으면 소개 화면에 묻히지 않게 반드시 로그인 화면에 띄운다.
 function showAuthForm() { return auth.view === 'auth' || Boolean(auth.error) || Boolean(auth.notice); }
 // 승인 전 계정은 가입 절차 화면만 본다.
-function pendingAccount() { return auth.status === 'signedIn' && auth.user?.status === 'pending'; }
+// 승인 대기 화면은 고객 계정만 본다.
+// 관리자·운영관리자는 고객 승인 절차의 대상이 아니므로 상태가 어떻든 이 화면으로 보내지 않는다.
+function pendingAccount() {
+  if (auth.status !== 'signedIn') return false;
+  if (['admin', 'operator'].includes(auth.user?.role)) return false;
+  return auth.user?.status === 'pending';
+}
 // 관리자 화면을 열 수 있는 사람. 실제 차단은 서버가 하고 화면은 그 결과를 따른다.
 function isAdmin() { return auth.status === 'signedIn' && auth.user?.role === 'admin' && auth.user?.status === 'active'; }
 // 운영관리자 화면을 열 수 있는 사람. 관리자도 같은 화면을 쓸 수 있다.
@@ -308,12 +316,34 @@ function pendingView() {
 }
 const CONSENT_TERMS = '2026-08-10';
 const CONSENT_PRIVACY = '2026-08-10';
+// 소셜 로그인이 만든 별도 계정의 연결을 관리자 계정으로 가져온다.
+// 이메일이 같다는 이유만으로 옮기지 않는다. 서버가 방금 로그인한 관리자 세션인지, 옮겨 올 계정이 비어 있는지 다시 본다.
+function identityTransferPanel() {
+  if (!isAdmin()) return '';
+  return `<details class="card org-details" id="identity-transfer">
+    <summary><b>소셜 로그인 연결 가져오기</b> <small>구글·카카오로 들어갔더니 승인 대기 화면이 나올 때</small></summary>
+    <p class="muted">소셜 로그인은 이메일이 같아도 관리자 계정에 붙지 않고 새 고객 계정을 만듭니다. 관리자 비밀번호로 방금 로그인한 상태에서 아래를 누르면 그 연결을 이 관리자 계정으로 가져옵니다. 옮겨 올 계정에 기관정보·구독·계약이 있으면 옮기지 않고 알려 드립니다.</p>
+    <div class="actions"><span class="muted">${escapeHtml(auth.transferNotice || '')}</span>
+      <div>${SOCIAL_BUTTONS.map(([provider, label]) => `<button class="button secondary" data-transfer-identity="${provider}" ${auth.busy ? 'disabled' : ''}>${escapeHtml(label)} 연결 가져오기</button>`).join('')}</div></div>
+  </details>`;
+}
+
+async function runIdentityTransfer(provider) {
+  setAuth({ busy: true, error: '', notice: '', transferNotice: '' });
+  const result = await transferSocialIdentity(provider).catch(() => ({ ok: false }));
+  if (!result.ok) {
+    return setAuth({ busy: false, error: result.error || '연결을 옮기지 못했습니다.', transferNotice: result.conflict ? '옮겨 올 계정에 자료가 있어 그대로 두었습니다.' : '' });
+  }
+  setAuth({ busy: false, notice: result.alreadyLinked ? '이미 이 관리자 계정에 연결되어 있습니다.' : '소셜 연결을 관리자 계정으로 가져왔습니다. 다음부터는 소셜 로그인으로도 관리자로 들어옵니다.', transferNotice: '' });
+}
+
 // 로그인한 사람의 계정 설정 화면.
 function accountView() {
   return `<div class="card"><div class="card-title"><div><h3>계정 설정</h3><span>${escapeHtml(accountEmail())} · ${escapeHtml(auth.user?.role || '')}${auth.user?.premium ? ` · ${escapeHtml(auth.user.premiumLabel || '프리미엄회원')}(${escapeHtml(auth.user.premiumStatusLabel || '')})` : ''}</span></div><span class="status 충족">${escapeHtml(auth.user?.status || '')}</span></div>
     ${auth.error ? `<div class="alert danger"><strong>${escapeHtml(auth.error)}</strong></div>` : ''}
     ${auth.notice ? `<div class="alert success"><strong>${escapeHtml(auth.notice)}</strong></div>` : ''}
     ${membershipStatusPanel()}
+    ${identityTransferPanel()}
     ${memberProfileForm()}
     ${accountLinkPanel()}</div>`;
 }
@@ -324,10 +354,78 @@ function accountLinkPanel() {
     <div class="requirement-list">${auth.identities.map(item => `<article class="requirement"><div><span class="status 충족">${escapeHtml(item.label)}</span><div><strong>${escapeHtml(item.email || '이메일 없음')}</strong><small class="muted">${escapeHtml(String(item.linkedAt).slice(0, 10))} 연결</small></div></div></article>`).join('') || '<p class="muted">아직 연결된 소셜 계정이 없습니다.</p>'}</div>
     <div class="actions"><span class="muted">같은 계정에 Google과 카카오를 함께 연결할 수 있습니다.</span><div>${SOCIAL_BUTTONS.filter(([provider]) => !linked.has(provider)).map(([provider, label]) => `<button class="button secondary" data-social="${provider}" data-social-mode="link" ${auth.busy ? 'disabled' : ''}>${label} 계정 연결</button>`).join('') || '<span class="muted">두 공급자가 모두 연결되어 있습니다.</span>'}</div></div></details>`;
 }
+// ---------- 근거 확인·확인 필요 항목·평가자 검토 ----------
+// 서버가 붙여 준 검증 결과를 그대로 보여 준다. 화면이 따로 판정하지 않는다.
+const EVIDENCE_KIND_LABELS = { official: '공식 근거', organization: '기관 확인정보', analysis: '분석 결과', proposal: '제안 아이디어' };
+const GUARD_KIND_LABELS = {
+  amount: '금액', budget: '예산', quota: '건수', headcount: '인원', staff: '인력', facility: '시설',
+  achievement: '실적', partner: '협력기관', statistic: '통계', satisfaction: '만족도', survey: '조사',
+  period: '기간', law: '법령', research: '연구', quote: '인용'
+};
+
+// 근거 없이 들어온 값 목록. 무엇을 확인해야 하는지 그대로 보여 준다.
+function guardPanel(guard) {
+  if (!guard) return '';
+  const claims = guard.claims || [];
+  const repetition = guard.repetition || null;
+  if (!claims.length && !guard.injectionCount && !repetition?.padded) {
+    return '<div class="alert success"><strong>확인이 필요한 값이 발견되지 않았습니다.</strong><p>자료에 없는 숫자·기관·법령이 본문에 들어오지 않았습니다.</p></div>';
+  }
+  return `<details class="card org-details" id="guard-panel" open>
+    <summary><b>확인 필요 항목 ${claims.length}건</b> <small>자료에 없는 값에는 본문에 표시를 붙였습니다</small></summary>
+    ${guard.injectionCount ? `<div class="alert warning"><strong>업로드한 자료 안의 명령형 문장 ${guard.injectionCount}건을 자료로만 처리했습니다.</strong><p>문서에 적힌 지시는 시스템 명령으로 실행하지 않습니다.</p></div>` : ''}
+    ${repetition?.padded ? `<div class="alert warning"><strong>같은 문장이 ${repetition.repeatedCount}번 반복됩니다.</strong><p>분량을 채우기 위한 반복인지 확인해 주세요.</p></div>` : ''}
+    ${claims.length ? `<div class="requirement-list">${claims.map(claim => `<article class="requirement"><div>
+      <div><strong>${escapeHtml(claim.value)}</strong> <span class="status 확인-필요">${escapeHtml(GUARD_KIND_LABELS[claim.kind] || claim.kind)}</span> <span class="muted">${escapeHtml(claim.mark || '')}</span></div>
+      ${claim.sectionTitle ? `<small class="muted">${escapeHtml(claim.sectionTitle)}</small>` : ''}
+      <small class="muted">${escapeHtml(claim.context || '')}</small>
+    </div></article>`).join('')}</div>` : ''}
+    <p class="muted">확인한 값은 「내 정보 수정」이나 공고문에서 근거를 채운 뒤 다시 만들어 주세요. 서버는 확인되지 않은 값을 확정 사실로 저장하지 않습니다.</p>
+  </details>`;
+}
+
+// 문장의 근거를 확인하는 표. 네 종류로 갈라 보여 준다.
+function evidencePanel(evidence) {
+  if (!evidence?.counts) return '';
+  const counts = evidence.counts;
+  const total = Object.values(counts).reduce((sum, value) => sum + Number(value || 0), 0);
+  if (!total) return '';
+  return `<details class="card org-details" id="evidence-panel">
+    <summary><b>근거 확인</b> <small>공식 근거 · 기관 확인정보 · 분석 결과 · 제안 아이디어</small></summary>
+    <div class="stat-badges">${Object.entries(EVIDENCE_KIND_LABELS).map(([key, label]) => `<span class="stat-badge"><strong>${Number(counts[key] || 0)}</strong><span>${escapeHtml(label)}</span></span>`).join('')}
+      <span class="stat-badge"><strong>${evidence.assertable || 0}</strong><span>확인된 사실</span></span>
+      <span class="stat-badge"><strong>${evidence.needsCheck || 0}</strong><span>확인 필요</span></span></div>
+    <p class="muted">분석 결과와 제안 아이디어는 확인된 사실로 표시하지 않습니다. 확정하려면 담당자가 근거를 확인해야 합니다.</p>
+  </details>`;
+}
+
+// 평가자 관점 검토. 점수 하나가 아니라 고칠 항목으로 보여 준다.
+const REVIEW_TONE = { '치명적 문제': '미충족', '중요 보완': '확인-필요', '권장 개선': '충족' };
+function evaluatorPanel(review) {
+  if (!review?.findings) return '';
+  const groups = ['치명적 문제', '중요 보완', '권장 개선'];
+  return `<details class="card org-details" id="evaluator-panel" ${review.submitReady ? '' : 'open'}>
+    <summary><b>평가자 관점 검토</b> <small>${escapeHtml(review.verdict || '')}</small></summary>
+    <div class="stat-badges">${groups.map(level => `<span class="stat-badge"><strong>${Number(review.counts?.[level] || 0)}</strong><span>${escapeHtml(level)}</span></span>`).join('')}
+      <span class="stat-badge"><strong>${review.submitReady ? '○' : '×'}</strong><span>제출 준비</span></span></div>
+    ${groups.map(level => {
+      const items = review.findings.filter(item => item.severity === level);
+      if (!items.length) return '';
+      return `<h4>${escapeHtml(level)} ${items.length}건</h4><div class="requirement-list">${items.map(item => `<article class="requirement"><div>
+        <div><strong>${escapeHtml(item.area)}</strong> <span class="status ${REVIEW_TONE[level]}">${escapeHtml(level)}</span></div>
+        <small class="muted">${escapeHtml(item.finding || item.message || '')}</small>
+        <small class="muted">→ ${escapeHtml(item.action || '')}</small>
+      </div></article>`).join('')}</div>`;
+    }).join('')}
+    ${review.finalChecks?.length ? `<h4>제출 전 마지막 확인</h4><ul>${review.finalChecks.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}
+    ${review.submitReady ? '' : '<p class="muted">치명적 문제가 남아 있어 제출 준비 완료로 표시하지 않습니다.</p>'}
+  </details>`;
+}
+
 // ---------- 선정 가능성 진단서 ----------
 // 구독회원 기능. 계획서를 쓰지 않고 지원 여부 판단에 필요한 것만 정리한다.
 function emptyDiagnosis() {
-  return { noticeTitle: '', noticeText: '', organizationText: '', result: null, busy: false, error: '', remaining: null };
+  return { noticeTitle: '', noticeText: '', organizationText: '', result: null, guard: null, busy: false, error: '', remaining: null };
 }
 function diagnosisState() { return auth.diagnosis || emptyDiagnosis(); }
 function setDiagnosis(patch, extra = {}) { setAuth({ diagnosis: { ...diagnosisState(), ...patch }, ...extra }); }
@@ -375,7 +473,9 @@ function diagnosisResultView(result) {
     ${result.missingEvidence.length ? block('부족 증빙', list(result.missingEvidence.map(item => `<article class="requirement"><div>
       <div><strong>${escapeHtml(item.item)}</strong></div><small class="muted">${escapeHtml(item.why)}</small></div></article>`).join(''))) : ''}
     ${result.questions.length ? block('확인 질문', `<ul>${result.questions.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`) : ''}
+    ${result.qualificationBlock?.blocked ? `<div class="alert warning"><strong>필수 자격 확인이 먼저입니다.</strong><p>${escapeHtml(result.qualificationBlock.items.join(' · '))}</p></div>` : ''}
     ${block('지원 판단', `<p>${escapeHtml(result.judgementReason)}</p>`)}
+    ${guardPanel(diagnosisState().guard)}
   </div>`;
 }
 
@@ -397,7 +497,7 @@ async function runDiagnosis() {
   setDiagnosis({ busy: true }, { error: '', notice: '' });
   try {
     const result = await diagnoseWithAI({ noticeTitle: view.noticeTitle, noticeText: view.noticeText, organizationText });
-    setDiagnosis({ busy: false, result: result.diagnosis, remaining: result.remaining, organizationText });
+    setDiagnosis({ busy: false, result: result.diagnosis, guard: result.guard || null, remaining: result.remaining, organizationText });
     // 남은 편수는 서버가 준 값으로 다시 맞춘다.
     if (result.remaining && auth.membership?.subscription) {
       setAuth({ membership: { ...auth.membership, subscription: { ...auth.membership.subscription, remaining: result.remaining } } });
@@ -423,19 +523,62 @@ async function loadMembershipPlans() {
   if (plans?.pricing && Array.isArray(plans.tiers)) setAuth({ plans });
 }
 
+// 회원 안내는 카드 넷을 나란히 두지 않고 가로 비교표로 보여 준다.
+// 좁은 화면에서 칸이 눌리면 한글이 한 글자씩 끊기므로, 표는 자기 상자 안에서만 좌우로 움직인다.
+const COMPARE_COLUMNS = [
+  ['pending', '승인 대기 회원'], ['member', '정식회원'], ['subscriber', '구독회원'], ['premium', '프리미엄회원']
+];
+// 편수·쪽수·가격은 서버 상품표에서 가져온다. 화면에 숫자를 따로 적어 두지 않는다.
+// 공개 우수 제안서 편수도 서버 값을 따른다.
+function showcaseLimit(plans) { return plans?.showcaseLimit || 5; }
+function compareRows(plans) {
+  const quota = plans?.quotas?.subscriber || {};
+  const core = quota.coreProposal ? `월 ${quota.coreProposal}편` : '월 정해진 편수';
+  const pages = quota.maxPages ? `편당 최대 ${quota.maxPages}쪽` : '편당 정해진 쪽수';
+  const diagnosis = quota.diagnosis ? `월 ${quota.diagnosis}편` : '월 정해진 편수';
+  const price = plans?.pricing?.priceLabel || '구독 신청';
+  const freePages = plans?.quotas?.member?.maxPages;
+  const freeCore = freePages ? `${freePages}쪽 · 계정당 1회 읽기` : '계정당 1회 읽기';
+  return [
+    ['승인 상태', { pending: '관리자 승인 대기', member: '승인 완료', subscriber: '승인 완료', premium: '정식 수주계약 회원' }],
+    ['기관정보', { pending: '기관정보 입력·수정', member: '기관정보 관리', subscriber: '기관정보 관리', premium: '기관정보 관리' }],
+    ['핵심제안서', { pending: '기능 이름만 확인', member: freeCore, subscriber: `${core} · ${pages}`, premium: '구독회원과 같음' }],
+    ['선정 가능성 진단', { pending: '잠금', member: '잠금', subscriber: diagnosis, premium: diagnosis }],
+    ['편집·저장·출력', { pending: '잠금', member: '잠금', subscriber: '생성·편집·저장·DOCX·PDF', premium: '생성·편집·저장·DOCX·PDF' }],
+    ['공모정보 검색', {
+      pending: '메뉴만 보임 · 결과 잠금', member: '현재 모집 중인 공개 공고',
+      subscriber: '현재 모집 중인 공개 공고', premium: '마감 공고를 포함한 전체 공개 수집 이력'
+    }],
+    ['전문 전체 계획서', { pending: '잠금', member: '잠금', subscriber: '포함되지 않음', premium: '계약한 전문 전체 사업계획서 작성·검토·수행' }],
+    ['이용방법', {
+      pending: '실제 자료·AI 생성 잠금', member: '가입 후 관리자 승인',
+      subscriber: price, premium: `우수 사업제안서 ${showcaseLimit(plans)}편 · 계약 문의`
+    }]
+  ];
+}
+// 지금 로그인한 사람의 등급. 강조할 열을 정한다.
+function currentTierColumn() {
+  const tier = auth.membership?.tier;
+  if (tier === 'legacy') return 'subscriber';
+  return COMPARE_COLUMNS.some(([id]) => id === tier) ? tier : '';
+}
+
 function membershipGuideView({ compact = false } = {}) {
   const plans = membershipPlansState();
-  if (!plans) return '';
+  const current = currentTierColumn();
   return `<section class="home-section" id="membership-guide">
-    <div class="home-head"><h2>회원 안내</h2><p>${escapeHtml(plans.pricing.billingNote)}</p></div>
-    <div class="home-grid four">${plans.tiers.map(tier => `<article class="home-card membership-card">
-      <h3>${escapeHtml(tier.label)}</h3>
-      <strong class="membership-price">${escapeHtml(tier.price || '')}</strong>
-      <p>${escapeHtml(tier.summary)}</p>
-      <ul>${tier.features.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>
-      ${compact ? '' : `<ul class="membership-limits">${tier.limits.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`}
-    </article>`).join('')}</div>
-    <p class="muted">운영관리자·관리자는 고객등급이 아니라 내부 역할이므로 이 표에 넣지 않습니다.</p>
+    <div class="home-head"><h2>회원 안내</h2><p>${escapeHtml(plans?.pricing?.billingNote || '정기결제는 아직 연결되지 않았습니다. 신청하시면 관리자가 확인 후 열어 드립니다.')}</p></div>
+    <div class="compare-scroll" tabindex="0" role="region" aria-label="회원등급 비교표">
+      <table class="compare-table">
+        <thead><tr><th scope="col" class="compare-head">구분</th>
+          ${COMPARE_COLUMNS.map(([id, label]) => `<th scope="col" class="${current === id ? 'compare-current' : ''}">${escapeHtml(label)}${current === id ? '<small>지금 내 등급</small>' : ''}</th>`).join('')}
+        </tr></thead>
+        <tbody>${compareRows(plans).map(([label, values]) => `<tr><th scope="row" class="compare-head">${escapeHtml(label)}</th>
+          ${COMPARE_COLUMNS.map(([id]) => `<td class="${current === id ? 'compare-current' : ''}">${escapeHtml(values[id] || '-')}</td>`).join('')}
+        </tr>`).join('')}</tbody>
+      </table>
+    </div>
+    ${compact ? '' : '<p class="muted">운영관리자·관리자는 고객 회원등급이 아니므로 이 표에 넣지 않습니다.</p>'}
   </section>`;
 }
 
@@ -550,6 +693,7 @@ function bindMemberProfile() {
   });
   document.querySelector('#member-reset')?.addEventListener('click', () => setAuth({ memberDraft: {}, memberOpen: true, notice: '', error: '' }));
   document.querySelector('#member-save')?.addEventListener('click', saveMemberProfile);
+  document.querySelectorAll('[data-transfer-identity]').forEach(el => el.onclick = () => void runIdentityTransfer(el.dataset.transferIdentity));
   document.querySelector('#member-profile')?.addEventListener('toggle', event => { auth.memberOpen = event.target.open; });
 }
 
@@ -1250,7 +1394,7 @@ function landingView() {
       </div>
 
       <div class="landing-section" id="landing-notices">
-        <div class="landing-head"><h2>공모정보 검색</h2><p>회원가입 없이 지금 열려 있는 공모를 찾아볼 수 있습니다. 이미 모아 둔 공모정보에서만 찾으며 검색에는 AI를 쓰지 않습니다.</p></div>
+        <div class="landing-head"><h2>공모정보 검색</h2><p>회원가입 후 관리자의 승인을 받은 정식회원은 현재 모집 중인 공모정보를 검색할 수 있습니다. 프리미엄회원은 마감 공고를 포함한 전체 수집 이력을 확인할 수 있습니다.</p></div>
         <div class="landing-grid three">
           <article class="landing-card plain"><h3>맞춤검색</h3><p>공고 제목과 제목에 연결된 연관 키워드만 찾습니다. 기본으로 켜져 있고 결과가 정확합니다.</p></article>
           <article class="landing-card plain"><h3>광역검색</h3><p>맞춤검색 범위에 공고 요약 내용까지 넓혀 찾습니다. 제목에 걸린 결과를 먼저 보여 줍니다.</p></article>
@@ -1306,8 +1450,14 @@ async function runNoticeSearch(patch = {}) {
   const next = { ...auth.search, ...patch };
   setSearch({ ...patch, busy: true });
   const result = await searchPublicNotices(next.query, next.mode, next.filters).catch(() => ({ ok: false }));
-  if (!result.ok) return setAuth({ error: result.error || '공모정보를 불러오지 못했습니다.', search: { ...auth.search, busy: false, loaded: true } });
-  setSearch({ busy: false, loaded: true, notices: result.notices || [], total: result.total || 0, facets: result.facets || null, signupNotice: result.signupNotice || '', selected: '', detail: null });
+  if (!result.ok) {
+    // 잠긴 이유를 그대로 보여 준다. 화면을 채우려고 가짜 공고를 만들지 않는다.
+    return setAuth({
+      error: '',
+      search: { ...auth.search, busy: false, loaded: true, notices: [], total: 0, facets: null, locked: result.error || '공모정보를 불러오지 못했습니다.', needsSignup: Boolean(result.needsSignup), needsApproval: Boolean(result.needsApproval) }
+    });
+  }
+  setSearch({ busy: false, loaded: true, notices: result.notices || [], total: result.total || 0, facets: result.facets || null, signupNotice: result.signupNotice || '', scopeLabel: result.scopeLabel || '', locked: '', needsSignup: false, needsApproval: false, selected: '', detail: null });
 }
 async function openNoticeDetail(key) {
   if (auth.search.selected === key) return setSearch({ selected: '', detail: null });
@@ -1318,6 +1468,15 @@ async function openNoticeDetail(key) {
 }
 const activeFilters = () => Object.entries(auth.search.filters).filter(([, value]) => value);
 
+// 지금 이 사람에게 열려 있는 검색 범위를 알린다. 결과가 막혀도 이유를 감추지 않는다.
+function searchScopeNotice() {
+  const view = auth.search;
+  if (view.locked) {
+    return `<div class="alert warning"><strong>${escapeHtml(view.locked)}</strong>${view.needsSignup ? '<p>회원가입 후 관리자의 승인을 받으면 현재 모집 중인 공모정보를 검색할 수 있습니다.</p>' : ''}${view.needsApproval ? '<p>승인 후 정식회원이 되면 열립니다.</p>' : ''}</div>`;
+  }
+  if (view.scopeLabel) return `<p class="muted">검색 범위: ${escapeHtml(view.scopeLabel)}</p>`;
+  return '';
+}
 function noticeSearchView() {
   const view = auth.search;
   const signedIn = auth.status === 'signedIn';
@@ -1333,7 +1492,7 @@ function noticeSearchView() {
       <div class="landing-hero">
         <p class="landing-eyebrow">공모정보 검색</p>
         <h1>어떤 공모가 열려 있는지 먼저 보세요</h1>
-        <p class="landing-lead">회원가입 없이 검색할 수 있습니다. 이미 모아 둔 공모정보에서만 찾으며 검색에는 AI를 쓰지 않습니다.</p>
+        <p class="landing-lead">회원가입 후 관리자의 승인을 받은 정식회원은 현재 모집 중인 공모정보를 검색할 수 있습니다. 프리미엄회원은 마감 공고를 포함한 전체 수집 이력을 확인할 수 있습니다.</p>${searchScopeNotice()}
         <div class="actions" style="justify-content:stretch;gap:8px;margin-top:18px">
           ${['focused', 'broad'].map(mode => `<button class="button ${view.mode === mode ? 'primary' : 'secondary'}" data-search-mode="${mode}" aria-pressed="${view.mode === mode}">${mode === 'focused' ? '맞춤검색' : '광역검색'}</button>`).join('')}
         </div>
@@ -1533,6 +1692,8 @@ function coreResultView(result) {
   return `<div class="landing-section" id="core-result">
     <div class="landing-head"><h2>2단계 · ${escapeHtml(result.title || '핵심제안서')}</h2><p>${escapeHtml(result.audience || '')} 제출용 · 목표 ${result.targetPages}쪽 · 실제 구성 ${pages.length}쪽. 확인되지 않은 값은 [확인 필요]로 남깁니다.</p></div>
     ${result.summary ? `<div class="alert"><strong>한 줄 요약</strong><p>${escapeHtml(result.summary)}</p></div>` : ''}
+    ${guardPanel(result.guard)}
+    ${evidencePanel(result.evidence)}
     <div class="actions"><span class="muted">저장되지 않습니다. 필요하면 내려받아 두세요.</span><div><button class="button secondary" id="core-docx" ${auth.busy ? 'disabled' : ''}>DOCX 내려받기</button><button class="button secondary" id="core-pdf" ${auth.busy ? 'disabled' : ''}>PDF 내려받기</button></div></div>
     ${pages.map(([page, sections]) => `<article class="landing-card"><header><span class="landing-step">${page}</span><h3>${page}쪽</h3></header>
       ${sections.map(section => `<div><strong>${escapeHtml(section.title)}</strong><p style="white-space:pre-wrap">${escapeHtml(section.content)}</p><small class="muted">${section.content.length}자 / 계획 ${section.plannedChars}자</small></div>`).join('')}
@@ -3632,8 +3793,9 @@ function draftBlueprintCheckView() {
   const stateClass = { PASS: '충족', 주의: '부분-충족', FAIL: '부족' };
   const draftState = state.draftReview || null;
   const annotated = annotateDraftSections({ blueprint, sections: state.sections });
+  const serverChecks = `${guardPanel(state.serverGuard)}${evidencePanel(state.serverEvidence)}${evaluatorPanel(state.evaluatorReview)}`;
   const unresolvedSections = annotated.filter(section => section.unresolved);
-  return `<div class="card" id="result-draft-check" tabindex="-1"><div class="card-title"><div><h3>설계도 대비 V1 자동 점검</h3><span>V1 원문은 그대로 두고 설계도와 비교만 합니다. 점수를 만들지 않습니다.</span></div><strong>${escapeHtml(report.verdict)}</strong></div>
+  return `${serverChecks}<div class="card" id="result-draft-check" tabindex="-1"><div class="card-title"><div><h3>설계도 대비 V1 자동 점검</h3><span>V1 원문은 그대로 두고 설계도와 비교만 합니다. 점수를 만들지 않습니다.</span></div><strong>${escapeHtml(report.verdict)}</strong></div>
     <div class="summary-grid"><div><span>신청유형</span><strong>${escapeHtml(report.applicationType || '구분 없음')}</strong><small>선택한 유형만 사용</small></div>
     <div><span>통과</span><strong>${report.byState.PASS}</strong><small>설계도와 일치</small></div>
     <div><span>보완 확인</span><strong>${report.byState['주의']}</strong><small>사람이 확인 필요</small></div>
@@ -5882,6 +6044,10 @@ async function generateFullProposal() {
     const sections = (result.sections || []).map((item, index) => ({ ...item, title: item.title || sectionTitle(item.id) || `${index + 1}번 항목` }));
     if (sections.length < 8) throw new Error('계획서 본문이 충분히 만들어지지 않았습니다. 다시 시도해 주세요.');
     state.sections = sections;
+    // 서버가 붙여 준 근거 검증·평가자 검토를 그대로 담는다. 화면이 따로 판정하지 않는다.
+    state.serverGuard = result.guard || null;
+    state.serverEvidence = result.evidence || null;
+    state.evaluatorReview = result.evaluatorReview || null;
     state.proposalTables = result.tables || [];
     state.missingInformation = (result.missingInformation || []).slice(0, 5);
     state.assemblyCheck = null;

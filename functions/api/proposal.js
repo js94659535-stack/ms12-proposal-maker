@@ -5,6 +5,9 @@ import { DIAGNOSIS_ACTION, QUOTA_SPENT, corePagesFor, membershipOf, membershipRe
 import { consumeQuota, loadSubscription, releaseQuota } from '../../server/subscription.js';
 import { DIAGNOSIS_SCHEMA, OUTPUT_TOKENS as DIAGNOSIS_TOKENS, diagnosisPrompt, normalizeDiagnosis, validateDiagnosisInput } from '../../server/diagnosis.js';
 import { contractState } from '../../server/premium.js';
+import { MARKS, guardSections, guardText, repetitionReport, sanitizeSourceText } from '../../server/fact-guard.js';
+import { claimTable, claimsFromGuard } from '../../server/evidence.js';
+import { evaluatorReview } from '../../server/evaluator-review.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 // 무료 생성은 공고 원문과 메모를 짧게만 받는다. 비용을 계정 단위로 묶어 두기 위해서다.
@@ -35,6 +38,48 @@ async function loadPremiumContract(db, userId) {
   return { status: state.status, canStartWork: state.canStartWork, progress: row.progress || '접수' };
 }
 
+// 요청에 들어온 원문을 자료로만 취급한다. 명령형 문장은 인용으로 바꾸고 몇 건이었는지 센다.
+function sanitizeInputs(payload) {
+  let injections = 0;
+  for (const key of ['sourceText', 'organizationText', 'noticeText', 'proposalText', 'analysisText']) {
+    if (typeof payload?.[key] !== 'string') continue;
+    const cleaned = sanitizeSourceText(payload[key]);
+    payload[key] = cleaned.text;
+    injections += cleaned.injectionCount;
+  }
+  if (payload?.core && typeof payload.core === 'object') {
+    for (const key of ['coreIdea', 'proposer', 'purpose', 'sourceText']) {
+      if (typeof payload.core[key] !== 'string') continue;
+      const cleaned = sanitizeSourceText(payload.core[key]);
+      payload.core[key] = cleaned.text;
+      injections += cleaned.injectionCount;
+    }
+  }
+  if (payload?.diagnosis && typeof payload.diagnosis === 'object') {
+    for (const key of ['noticeText', 'organizationText', 'noticeTitle']) {
+      if (typeof payload.diagnosis[key] !== 'string') continue;
+      const cleaned = sanitizeSourceText(payload.diagnosis[key]);
+      payload.diagnosis[key] = cleaned.text;
+      injections += cleaned.injectionCount;
+    }
+  }
+  return injections;
+}
+
+// 이 요청이 근거로 삼을 수 있는 글 전부. 여기 없는 숫자·기관·법령은 근거가 없는 것이다.
+function evidenceSources(payload) {
+  return [
+    payload?.sourceText, payload?.analysisText, payload?.organizationText, payload?.noticeText,
+    payload?.core && Object.values(payload.core), payload?.diagnosis && Object.values(payload.diagnosis),
+    payload?.organization && JSON.stringify(payload.organization),
+    payload?.analysis && JSON.stringify(payload.analysis),
+    payload?.master && JSON.stringify(payload.master),
+    payload?.notice && JSON.stringify(payload.notice),
+    payload?.blueprint && JSON.stringify(payload.blueprint),
+    Array.isArray(payload?.sections) && JSON.stringify(payload.sections)
+  ].filter(Boolean);
+}
+
 export async function onRequest(context) {
   try {
     if (context.request.method !== 'POST') return json({ error: 'POST 요청만 허용됩니다.' }, 405, { Allow: 'POST' });
@@ -63,6 +108,8 @@ export async function onRequest(context) {
     if (gated) return json({ error: gated.error, locked: gated.locked, needsSubscription: gated.needsSubscription, needsPremium: gated.needsPremium }, gated.status);
     // 회원등급이 열어 주지 않은 작업은 예전 이용권 규칙으로 한 번 더 본다.
     if (legacyGate && !membership.canExpertWork) return json({ error: legacyGate.error, needsPlan: true }, legacyGate.status);
+    // 업로드·붙여넣은 글 안의 명령형 문장을 먼저 무력화한다. 자료는 자료로만 쓴다.
+    const injectionCount = sanitizeInputs(body.payload);
     const validation = validate(body.action, body.payload);
     if (validation) return json({ error: validation }, 400);
     // 쪽수는 등급이 정한다. 정식회원은 5쪽 고정, 구독·프리미엄은 편당 최대 20쪽이다.
@@ -155,17 +202,42 @@ export async function onRequest(context) {
       // 화면과 출력이 목표 쪽수를 알아야 쪽 나눔을 맞출 수 있다.
       const plan = body.payload.plan;
       const after = countsQuota ? await loadSubscription(context.env.ARCHIVE_DB, user.id) : membership.subscription;
+      // 모델이 지어낸 숫자·기관·법령을 확정 사실로 내보내지 않는다.
+      const aligned = alignSections(result.sections, plan);
+      const sources = evidenceSources(body.payload);
+      const guarded = guardSections(aligned, sources);
+      const summaryGuard = guardText(result.summary, sources);
+      const repetition = repetitionReport(guarded.sections);
       return json({
-        ...result, targetPages: plan.pages, audience: plan.audience.label, sections: alignSections(result.sections, plan),
+        ...result, summary: summaryGuard.text, targetPages: plan.pages, audience: plan.audience.label, sections: guarded.sections,
+        guard: { claims: [...guarded.claims, ...summaryGuard.claims.map(claim => ({ ...claim, sectionId: '' }))], injectionCount, repetition, marks: MARKS },
+        evidence: claimTable(claimsFromGuard(guarded.claims)),
         trialUsed: trialRun, oneTime: trialRun, tier: membership.tier, readOnly: membership.coreReadOnly,
         remaining: after ? { coreProposal: Math.max(0, 3 - Number(after.coreUsed || 0)), diagnosis: Math.max(0, 5 - Number(after.diagnosisUsed || 0)) } : null
       });
     }
     if (body.action === DIAGNOSIS_ACTION) {
       const after = countsQuota ? await loadSubscription(context.env.ARCHIVE_DB, user.id) : membership.subscription;
+      const sources = evidenceSources(body.payload);
+      const diagnosis = guardDiagnosis(normalizeDiagnosis(result), sources);
       return json({
-        diagnosis: normalizeDiagnosis(result), tier: membership.tier,
+        diagnosis: diagnosis.value, guard: { claims: diagnosis.claims, injectionCount, marks: MARKS }, tier: membership.tier,
         remaining: after ? { coreProposal: Math.max(0, 3 - Number(after.coreUsed || 0)), diagnosis: Math.max(0, 5 - Number(after.diagnosisUsed || 0)) } : null
+      });
+    }
+    // 본문을 만드는 작업은 모두 같은 검사를 지난다. 결과에 무엇을 확인해야 하는지 함께 돌려준다.
+    if (Array.isArray(result?.sections) && ['draft', 'draftPart', 'fullProposal', 'patchSections', 'rewrite', 'finalize'].includes(body.action)) {
+      const sources = evidenceSources(body.payload);
+      const guarded = guardSections(result.sections, sources);
+      result.sections = guarded.sections;
+      result.guard = { claims: guarded.claims, injectionCount, repetition: repetitionReport(guarded.sections), marks: MARKS };
+      result.evidence = claimTable(claimsFromGuard(guarded.claims));
+      // 평가자 관점 검토를 함께 붙인다. 점수 하나가 아니라 고칠 항목으로 돌려준다.
+      result.evaluatorReview = evaluatorReview({
+        notice: body.payload?.notice || {}, applicant: body.payload?.applicantState || {},
+        sections: guarded.sections, chain: body.payload?.chain || {}, budget: body.payload?.budget || null,
+        headcount: body.payload?.headcount || null, documents: body.payload?.documents || [],
+        criteria: body.payload?.criteria || [], attachments: body.payload?.attachments || null, sources
       });
     }
     if (body.action === 'analyze') result.analysis.mode = 'ai';
@@ -916,6 +988,36 @@ async function sha256(value) {
   const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
   return [...new Uint8Array(bytes)].map(v => v.toString(16).padStart(2, '0')).join('');
 }
+// 진단서에 담긴 숫자·기관도 근거가 있어야 한다. 필수 자격이 확인되지 않으면 판단을 낮춘다.
+function guardDiagnosis(value, sources) {
+  const claims = [];
+  const pass = text => {
+    const result = guardText(text, sources);
+    claims.push(...result.claims);
+    return result.text;
+  };
+  const guarded = {
+    ...value,
+    fitSummary: pass(value.fitSummary),
+    requirements: value.requirements.map(item => ({ ...item, evidence: pass(item.evidence) })),
+    strengths: value.strengths.map(item => ({ ...item, point: pass(item.point) })),
+    risks: value.risks.map(item => ({ ...item, risk: pass(item.risk), mitigation: pass(item.mitigation) })),
+    missingEvidence: value.missingEvidence.map(item => ({ ...item, why: pass(item.why) })),
+    judgementReason: pass(value.judgementReason)
+  };
+  // 필수 자격이 미충족·확인 필요면 문장 품질과 관계없이 권고 등급을 낮춘다.
+  const blocking = guarded.requirements.filter(item => ['미충족', '확인 필요'].includes(item.status));
+  if (blocking.length) {
+    const unmet = blocking.some(item => item.status === '미충족');
+    guarded.judgement = unmet ? '지원 비권장' : '지원 보류';
+    guarded.qualificationBlock = { blocked: true, unmet, items: blocking.map(item => item.requirement) };
+    guarded.judgementReason = `${unmet ? '필수 자격이 충족되지 않았습니다' : '필수 자격을 확인해야 합니다'}: ${blocking.map(item => item.requirement).join(' · ')}. ${guarded.judgementReason}`.slice(0, 800);
+  } else {
+    guarded.qualificationBlock = { blocked: false, unmet: false, items: [] };
+  }
+  return { value: guarded, claims };
+}
+
 function json(body, status = 200, extraHeaders = {}) { return new Response(JSON.stringify(body), { status, headers: { ...JSON_HEADERS, ...extraHeaders } }); }
 function configError(name) { return json({ error: `서버 설정이 완료되지 않았습니다. 관리자에게 ${name} 설정을 요청하세요.` }, 503); }
 function limitError(field) { return json({ error: `${field} 허용 크기를 초과했습니다.` }, 413); }

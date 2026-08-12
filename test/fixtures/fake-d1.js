@@ -267,6 +267,36 @@ export function fakeDb() {
       else tables.archived_proposals.push({ id, owner_hash, notice_key, title, stage, proposal_json, created_at, updated_at });
       return rows([], 1);
     }
+    // ---- 소셜 연결 이전 ----
+    if (/^SELECT i\.id, i\.user_id, i\.email, u\.role, u\.status, u\.profile_completed_at, u\.consented_at FROM user_identities i JOIN users u ON u\.id = i\.user_id WHERE i\.provider/.test(text)) {
+      return rows(tables.user_identities.filter(item => item.provider === args[0]).map(item => {
+        const user = tables.users.find(row => row.id === item.user_id) || {};
+        return {
+          id: item.id, user_id: item.user_id, email: item.email || '',
+          role: user.role, status: user.status, profile_completed_at: user.profile_completed_at || '', consented_at: user.consented_at || ''
+        };
+      }));
+    }
+    if (/^UPDATE user_identities SET user_id = \?, linked_at = \? WHERE id/.test(text)) {
+      const found = tables.user_identities.find(item => item.id === args[2]);
+      if (found) { found.user_id = args[0]; found.linked_at = args[1]; }
+      return rows([], found ? 1 : 0);
+    }
+    if (/^SELECT\s+\(SELECT COUNT\(\*\) FROM member_profiles WHERE user_id = \?1\) AS profiles/.test(text)) {
+      const id = args[0];
+      const user = tables.users.find(row => row.id === id) || {};
+      return rows([{
+        profiles: tables.member_profiles.filter(row => row.user_id === id).length,
+        subscriptions: tables.subscriptions.filter(row => row.user_id === id).length,
+        contracts: tables.premium_contracts.filter(row => row.user_id === id).length,
+        profileDone: user.profile_completed_at || user.consented_at ? 1 : 0
+      }]);
+    }
+    if (/^SELECT id, email, role, status FROM users WHERE id/.test(text)) {
+      return rows(tables.users.filter(item => item.id === args[0])
+        .map(item => ({ id: item.id, email: item.email, role: item.role, status: item.status })));
+    }
+
     // ---- 월간 구독 ----
     if (/FROM subscriptions WHERE user_id/.test(text)) {
       return rows(tables.subscriptions.filter(item => item.user_id === args[0]));

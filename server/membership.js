@@ -36,6 +36,8 @@ export const QUOTAS = Object.freeze({
 });
 export const MEMBER_FREE_PAGES = QUOTAS.member.maxPages;
 
+// 공개용 우수 제안서 편수는 server/premium.js가 정한다. 여기서는 상품표에 실어 나르기만 한다.
+export const SHOWCASE_LIMIT = 5;
 export const CORE_ACTION = 'coreProposal';
 export const DIAGNOSIS_ACTION = 'diagnosis';
 // 전문 전체 계획서 작업. 프리미엄 진행 중 계약이나 레거시 전체 이용권에서만 열린다.
@@ -56,6 +58,8 @@ export function membershipPlans() {
   return {
     pricing: PRICING,
     quotas: QUOTAS,
+    // 공개 우수 제안서 편수. 화면이 숫자를 따로 적어 두지 않게 함께 내려 준다.
+    showcaseLimit: SHOWCASE_LIMIT,
     tiers: [
       {
         id: 'pending', label: TIER_LABELS.pending, price: '',

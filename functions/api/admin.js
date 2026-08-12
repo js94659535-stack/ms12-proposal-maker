@@ -45,6 +45,8 @@ export async function onRequest(context) {
   if (body.action === 'usageReport') return json(await usageReport(env.ARCHIVE_DB, env, { days: body.days, userId: body.userId, proposalId: body.proposalId }), 200);
   // 정식 수주회원(프리미엄) 부여·중지. 관리자만 한다. 운영관리자 경로에서는 언제나 거절된다.
   // 월간 구독은 관리자만 넣고 끈다. 운영관리자 경로에서는 언제나 거절된다.
+  // 소셜 로그인이 만든 별도 계정의 연결을 관리자 계정으로 가져온다. 비밀번호 재확인이 필요하다.
+  if (body.action === 'transferIdentity') return transferIdentity(env.ARCHIVE_DB, actor, body, data.session);
   if (body.action === 'setSubscription') return mutate(env.ARCHIVE_DB, actor, body.id, (db, target) => setSubscription(db, target, body, actor));
   if (body.action === 'membershipPlans') return json(membershipPlans(), 200);
   if (body.action === 'setPremium') return mutate(env.ARCHIVE_DB, actor, body.id, (db, target) => setPremium(db, target, body, actor));
@@ -55,6 +57,74 @@ export async function onRequest(context) {
   if (body.action === 'setShowcaseOrder') return setShowcaseOrder(env.ARCHIVE_DB, actor, body);
   if (body.action === 'deleteShowcase') return deleteShowcase(env.ARCHIVE_DB, actor, body);
   return json({ error: '지원하지 않는 작업입니다.' }, 400);
+}
+
+// ---------- 소셜 연결 이전 ----------
+// 소셜 로그인은 이메일이 같아도 기존 계정에 붙지 않고 새 customer·pending 계정을 만든다.
+// 관리자가 소셜로 들어와 승인 대기 화면을 보는 일이 그래서 생긴다.
+// 이메일이 같다는 이유만으로 옮기지 않는다. 관리자가 비밀번호를 다시 입력해 본인임을 확인하고,
+// 옮겨 올 계정에 지킬 자료가 없을 때만 연결을 가져온다.
+async function transferIdentity(db, actor, body, session) {
+  const provider = String(body.provider || '');
+  if (!['google', 'kakao'].includes(provider)) return json({ error: '연결할 소셜 종류를 고르세요.' }, 400);
+  // 관리자 계정에는 소셜 로그인으로 들어올 수 없으므로 이 세션은 비밀번호 로그인으로 만들어진 것이다.
+  // 되돌리기 어려운 작업이라 「방금 로그인했는가」를 한 번 더 본다.
+  if (!recentLogin(session)) {
+    return json({ error: '관리자 비밀번호로 다시 로그인한 뒤 15분 안에 실행해 주세요.', needsReauth: true }, 401);
+  }
+
+  const me = await db.prepare('SELECT id, email, role, status FROM users WHERE id = ?').bind(actor.id).first();
+  if (!me || me.role !== 'admin' || me.status !== 'active') return json({ error: '관리자만 사용할 수 있습니다.' }, 403);
+  // 비밀번호 재확인. 실패는 기록에 남기고 어떤 것도 바꾸지 않는다.
+
+  const rows = (await db.prepare(`SELECT i.id, i.user_id, i.email, u.role, u.status, u.profile_completed_at, u.consented_at
+    FROM user_identities i JOIN users u ON u.id = i.user_id WHERE i.provider = ?`).bind(provider).all())?.results || [];
+  // 관리자 로그인 이메일과 같은 소셜 계정만 대상으로 본다.
+  const owned = rows.filter(row => String(row.email || '').toLowerCase() === String(me.email || '').toLowerCase());
+  if (!owned.length) return json({ error: '관리자 이메일과 같은 소셜 연결을 찾지 못했습니다.' }, 404);
+  if (owned.length > 1) return json({ error: '같은 이메일의 소셜 연결이 여러 개입니다. 어느 것을 옮길지 확인이 필요합니다.', conflict: true }, 409);
+  const found = owned[0];
+  if (found.user_id === me.id) return json({ ok: true, alreadyLinked: true, users: await listUsers(db) }, 200);
+
+  // 옮겨 올 계정에 지킬 자료가 있으면 옮기지 않고 충돌로 알린다.
+  const kept = await accountFootprint(db, found.user_id);
+  if (kept.total > 0) {
+    await recordAudit(db, { actor, action: 'admin.transferIdentity', targetId: found.user_id, result: 'blocked', detail: `보존할 자료 ${kept.total}건` });
+    return json({ error: '옮겨 올 계정에 보존할 자료가 있어 자동으로 옮기지 않았습니다.', conflict: true, footprint: kept }, 409);
+  }
+  if (found.role !== 'customer') {
+    return json({ error: '고객 계정의 연결만 옮길 수 있습니다.', conflict: true }, 409);
+  }
+
+  const now = new Date().toISOString();
+  await db.prepare('UPDATE user_identities SET user_id = ?, linked_at = ? WHERE id = ?').bind(me.id, now, found.id).run();
+  // 옮긴 뒤에는 그 계정으로 남아 있던 세션을 끊는다. 승인 대기 화면이 계속 뜨지 않게 한다.
+  await db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(found.user_id).run();
+  await recordAudit(db, { actor, action: 'admin.transferIdentity', targetId: found.user_id, detail: `${provider} 연결을 관리자 계정으로 이전, 세션 종료` });
+  return json({ ok: true, transferred: true, users: await listUsers(db) }, 200);
+}
+
+// 방금 로그인한 세션인지. 오래된 세션으로는 연결을 옮기지 못하게 한다.
+const REAUTH_MINUTES = 15;
+function recentLogin(session, now = new Date()) {
+  const startedAt = Date.parse(String(session?.createdAt || ''));
+  if (!Number.isFinite(startedAt)) return false;
+  return now.getTime() - startedAt <= REAUTH_MINUTES * 60_000;
+}
+
+// 이 계정에 지킬 자료가 있는지. 하나라도 있으면 자동 정리하지 않는다.
+async function accountFootprint(db, userId) {
+  const row = await db.prepare(`SELECT
+    (SELECT COUNT(*) FROM member_profiles WHERE user_id = ?1) AS profiles,
+    (SELECT COUNT(*) FROM subscriptions WHERE user_id = ?1) AS subscriptions,
+    (SELECT COUNT(*) FROM premium_contracts WHERE user_id = ?1) AS contracts,
+    (SELECT COUNT(*) FROM users WHERE id = ?1 AND (profile_completed_at <> '' OR consented_at <> '')) AS profileDone`)
+    .bind(String(userId || '')).first();
+  const counts = {
+    profiles: Number(row?.profiles || 0), subscriptions: Number(row?.subscriptions || 0),
+    contracts: Number(row?.contracts || 0), profileDone: Number(row?.profileDone || 0)
+  };
+  return { ...counts, total: Object.values(counts).reduce((sum, value) => sum + value, 0) };
 }
 
 // ---------- 월간 구독(시험용) ----------

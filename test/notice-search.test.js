@@ -53,7 +53,40 @@ async function through(db, request, route) {
   if (blocked) return blocked;
   return ROUTES[route]({ request, env, data });
 }
-const search = (db, query, mode, filters) => through(db, post('/api/public', { action: 'searchNotices', query, mode, filters }), 'public');
+// 공모정보 검색은 이제 로그인해야 열린다. 등급별로 범위가 다르므로 시험용 계정을 만들어 쓴다.
+async function seedMember(db, { id, email, status = 'active', premium = false }) {
+  db.tables.users.push({
+    id, email, role: 'customer', status, org_id: '', name: '', ...(await createPasswordRecord(PASSWORD)),
+    plan: 'trial', trial_used_at: '', phone: '', org_name: '', is_contact: 0,
+    terms_version: '', privacy_version: '', consented_at: '', profile_completed_at: '',
+    profile_updated_at: '', profile_review_needed: 0,
+    created_at: '2026-08-10T00:00:00.000Z', updated_at: '2026-08-10T00:00:00.000Z'
+  });
+  if (premium) {
+    db.tables.premium_contracts.push({
+      user_id: id, status: 'active', started_on: '2026-01-01', ends_on: '2099-12-31', progress: '접수',
+      progress_note: '', contract_name: '계약', granted_by: 'admin-1',
+      created_at: '2026-08-10T00:00:00.000Z', updated_at: '2026-08-10T00:00:00.000Z'
+    });
+  }
+  return cookieOf(await through(db, post('/api/auth', { action: 'login', email, password: PASSWORD }), 'auth'));
+}
+
+// 정식회원 세션으로 검색한다. 등급 확인이 목적인 시험은 따로 계정을 만든다.
+async function memberDb(rows) {
+  const db = fakeDb();
+  seedNotices(db, rows);
+  const cookie = await seedMember(db, { id: 'member-1', email: 'member@ms12.test' });
+  return { db, cookie };
+}
+
+let sharedMember = null;
+async function sharedSearch(db, query, mode, filters) {
+  // 순위·필터 시험은 범위 제한과 무관해야 하므로 전체를 볼 수 있는 프리미엄 세션으로 돈다.
+  if (!sharedMember || sharedMember.db !== db) sharedMember = { db, cookie: await seedMember(db, { id: `m-${db.tables.users.length}`, email: `m${db.tables.users.length}@ms12.test`, premium: true }) };
+  return through(db, post('/api/public', { action: 'searchNotices', query, mode, filters }, { cookie: sharedMember.cookie }), 'public');
+}
+const search = (db, query, mode, filters) => sharedSearch(db, query, mode, filters);
 const keysOf = async response => (await response.json()).notices.map(item => item.key);
 
 async function withAdmin() {
@@ -142,8 +175,8 @@ test('공고 원문 전체는 검색 범위에도 응답에도 들어가지 않�
   for (const table of ['archived_proposals', 'applicant_organizations', 'users', 'sessions', 'coaching_jobs']) {
     assert.doesNotMatch(publicSource, new RegExp(`(FROM|INTO|UPDATE|JOIN)\\s+${table}\\b`), table);
   }
-  // 읽는 표는 archived_notices 하나뿐이다.
-  assert.deepEqual([...new Set([...publicSource.matchAll(/FROM\s+(\w+)/g)].map(match => match[1]))], ['archived_notices']);
+  // 공고 표와, 등급을 판정할 계약 표만 읽는다. 회원 계획서·기관 자료는 읽지 않는다.
+  assert.deepEqual([...new Set([...publicSource.matchAll(/FROM\s+(\w+)/g)].map(match => match[1]))].sort(), ['archived_notices', 'premium_contracts']);
   // 검색은 AI·외부 호출을 하지 않는다.
   assert.doesNotMatch(publicSource, /openai|fetch\(/i);
 });
@@ -165,11 +198,12 @@ test('비회원에게는 공개 항목만 나가고 회원가입 안내가 함�
   }
 });
 
-test('비공개로 표시한 자료는 비회원 검색에 나오지 않는다', async () => {
+test('비공개로 표시한 자료는 어느 등급에게도 나오지 않는다', async () => {
   const db = fakeDb();
   seedNotices(db, [{ ...NOTICES[0], isPublic: 0 }, NOTICES[1]]);
+  // 전체 이력을 볼 수 있는 프리미엄 세션에도 비공개 자료는 나오지 않는다.
   assert.deepEqual(await keysOf(await search(db, '', 'broad')), ['b']);
-  const detail = await through(db, post('/api/public', { action: 'noticeDetail', key: 'a' }), 'public');
+  const detail = await through(db, post('/api/public', { action: 'noticeDetail', key: 'a' }, { cookie: sharedMember.cookie }), 'public');
   assert.equal(detail.status, 404);
 });
 
@@ -266,4 +300,50 @@ test('검색 화면은 두 방식을 고르게 하고 크롤링이라는 말을 
   assert.doesNotMatch(app, /크롤링/);
   // 검색 화면은 AI 경로를 부르지 않는다.
   assert.doesNotMatch(view, /coreProposalWithAI|analyzeWithAI|fullProposalWithAI/);
+});
+
+test('검색 범위는 회원등급이 정하고 서버가 막는다', async () => {
+  const db = fakeDb();
+  seedNotices(db);
+  // 비회원은 실제 자료를 받지 못한다. 결과·건수·필터 후보가 모두 없다.
+  const anonymous = await through(db, post('/api/public', { action: 'searchNotices', query: '' }), 'public');
+  assert.equal(anonymous.status, 401);
+  const refused = await anonymous.json();
+  assert.equal(refused.needsSignup, true);
+  assert.equal(refused.notices, undefined);
+  assert.equal(refused.total, undefined);
+  assert.equal(refused.facets, undefined);
+  // 회원 안내는 로그인 없이도 열린다.
+  const plans = await through(db, post('/api/public', { action: 'membershipPlans' }), 'public');
+  assert.equal(plans.status, 200);
+
+  // 승인 대기 회원은 403.
+  const pending = await seedMember(db, { id: 'p-1', email: 'p1@ms12.test', status: 'pending' });
+  const blocked = await through(db, post('/api/public', { action: 'searchNotices', query: '' }, { cookie: pending }), 'public');
+  assert.equal(blocked.status, 403);
+  assert.equal((await blocked.json()).needsApproval, true);
+
+  // 정식회원은 현재 모집 중인 공고만 본다. 마감 공고 d는 나오지 않는다.
+  const member = await seedMember(db, { id: 'm-9', email: 'm9@ms12.test' });
+  const open = await through(db, post('/api/public', { action: 'searchNotices', query: '' }, { cookie: member }), 'public');
+  const openBody = await open.json();
+  assert.deepEqual(openBody.notices.map(item => item.key).sort(), ['a', 'b', 'c']);
+  assert.equal(openBody.scope, 'open');
+  // 마감 공고 상세도 열리지 않는다.
+  const closed = await through(db, post('/api/public', { action: 'noticeDetail', key: 'd' }, { cookie: member }), 'public');
+  assert.equal(closed.status, 403);
+
+  // 프리미엄회원은 마감 공고까지 본다.
+  const premium = await seedMember(db, { id: 'pm-9', email: 'pm9@ms12.test', premium: true });
+  const all = await through(db, post('/api/public', { action: 'searchNotices', query: '' }, { cookie: premium }), 'public');
+  const allBody = await all.json();
+  assert.deepEqual(allBody.notices.map(item => item.key).sort(), ['a', 'b', 'c', 'd']);
+  assert.equal(allBody.scope, 'all');
+  assert.equal((await (await through(db, post('/api/public', { action: 'noticeDetail', key: 'd' }, { cookie: premium }), 'public')).json()).notice.key, 'd');
+});
+
+test('공개 화면 문구가 새 회원계약을 따른다', () => {
+  assert.match(app, /회원가입 후 관리자의 승인을 받은 정식회원은 현재 모집 중인 공모정보를 검색할 수 있습니다/);
+  assert.doesNotMatch(app, /회원가입 없이 지금 열려 있는 공모/);
+  assert.doesNotMatch(app, /회원가입 없이 검색할 수 있습니다/);
 });
