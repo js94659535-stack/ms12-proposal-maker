@@ -17,8 +17,21 @@ function record(no, label, ok, detail = '') {
   if (!step(no, label, ok, detail)) failures += 1;
 }
 
+const shots = scratch('accept-shots');
+fs.mkdirSync(shots, { recursive: true });
+
 const chrome = launch(scratch('accept'), 9420);
 const page = await attach(9420);
+// 단계마다 화면을 남긴다. 보고에 붙일 실제 증거다.
+let shotNo = 0;
+async function shot(name) {
+  const result = await page.send('Page.captureScreenshot', { format: 'png' });
+  const data = result?.result?.data;
+  if (!data) return '';
+  const file = path.join(shots, `${String(++shotNo).padStart(2, '0')}-${name}.png`);
+  fs.writeFileSync(file, Buffer.from(data, 'base64'));
+  return path.basename(file);
+}
 const readState = keys => page.run(`(() => { const s = JSON.parse(localStorage.getItem('ms12_project_v3')||'{}');
   return JSON.stringify({ ${keys} }); })()`);
 
@@ -49,6 +62,7 @@ try {
     archive: !!document.querySelector('#open-archive-box'),
     detail: !!document.querySelector('#open-expert-detail')
   }))()`);
+  await shot('entry-simple');
   record(2, '기본 진입 화면은 간편 작성', home?.simple === true, `${home?.badge} · 단계 ${(home?.steps || []).join('→')}`);
   record(3, '간편 화면에도 머리띠와 보관함이 남아 있다', home?.header === true && home?.archive === true, `머리띠 ${home?.header} · 보관함 ${home?.archive}`);
 
@@ -102,6 +116,7 @@ try {
   })()`, 15000);
   await page.waitFor("!document.querySelector('.busy')", 90000, 3000);
   let chosen = await readState("notice: (s.selectedNotice?.title || '').length, source: (s.sourceText || '').length");
+  await shot('notice-picked');
   record(7.5, '공고 선택 (화면 클릭)', Number(chosen?.notice || 0) > 0 && Number(chosen?.source || 0) > 0,
     listed?.ok ? `${listed.label} · 근거 ${chosen?.source}자` : `선택 버튼 없음: ${(listed?.seen || []).join(',').slice(0, 60)}`);
 
@@ -117,6 +132,7 @@ try {
   }
   await page.fill('#simple-idea', '방과후 돌봄이 끊긴 초등 저학년을 위해 주 2회 학습·정서 프로그램을 운영하고 싶습니다.', 800);
   const ready = await readState("orgs: (s.applicants||[]).length, idea: (s.projectNarrative||'').length");
+  await shot('org-and-idea');
   record(9, '기관 간단정보·한 줄 요청 입력', Number(ready?.orgs || 0) > 0 && Number(ready?.idea || 0) > 10, `기관 ${ready?.orgs}곳 · 요청 ${ready?.idea}자`);
 
   // ---------- 4. 중복 클릭 방지와 생성 ----------
@@ -138,6 +154,7 @@ try {
     // ---------- 5. 결과 화면 ----------
     await page.go(SITE, 4000);
     const actions = await page.run("(() => JSON.stringify({ ids: ['simple-view','simple-revise','save-proposal-archive','final-docx-top','final-pdf-top','simple-expert'].filter(id => document.querySelector('#'+id)) }))()");
+    await shot('result-actions');
     record(13, '결과 화면 큰 단추', (actions?.ids || []).length >= 5, (actions?.ids || []).join(', '));
 
     // 저장
@@ -153,6 +170,7 @@ try {
     await page.click('#revise-run', 5000);
     const done1 = await page.waitFor("!document.querySelector('.busy')", 420000, 8000);
     const after1 = await readState("rounds: (s.revisions||[]).length, counted: (s.revisions||[]).filter(r=>r.counted).length, changed: (s.revisions||[]).slice(-1)[0]?.diff?.changed?.length ?? 0, kept: (s.revisions||[]).slice(-1)[0]?.diff?.kept?.length ?? 0, note: (s.revisions||[]).slice(-1)[0]?.note || ''");
+    await shot('revision-1');
     record(15, '방향 수정 1회', done1 && Number(after1?.rounds || 0) > 0, `바뀐 ${after1?.changed}개 · 유지 ${after1?.kept}개 · 차감 ${after1?.counted}회${after1?.note ? ' · ' + after1.note : ''}`);
 
     await page.go(SITE, 3500);
@@ -192,6 +210,7 @@ try {
       body: (document.body.innerText || '').length
     }))()`);
     const keptState = await readState("n: (s.sections||[]).length, notice: (s.selectedNotice?.title||'').length, org: s.selectedApplicantId || '', step: s.step");
+    await shot('expert-detail');
     record(19, '작성 과정 자세히 보기', expert?.back === true && Number(keptState?.n || 0) > 0, `${expert?.badge} · 항목 ${keptState?.n}개 · 공고 ${keptState?.notice > 0} · 기관 ${Boolean(keptState?.org)}`);
     await page.click('#back-to-simple', 3000);
     const backState = await readState("n: (s.sections||[]).length, notice: (s.selectedNotice?.title||'').length, org: s.selectedApplicantId || '', counted: (s.revisions||[]).filter(r=>r.counted).length");
@@ -237,6 +256,7 @@ try {
     await page.size(width, height);
     await page.go(SITE, 3500);
     const view = await page.snapshot();
+    await shot('size-' + width);
     record(26, `간편 화면 ${width}×${height}`, view?.overflow === false, view?.overflow ? '가로 넘침' : '정상');
   }
 } catch (error) {

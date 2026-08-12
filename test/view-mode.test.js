@@ -76,7 +76,8 @@ test('공고 찾기는 기존 공고 준비 화면을 열고 고르면 간편 �
   assert.match(app, /#simple-find'\)\?\.addEventListener\('click', \(\) => setState\(\{ expertDetail: true, activeTool: '', step: 0/);
   assert.match(app, /#simple-change-notice'\)\?\.addEventListener\('click', \(\) => setState\(\{ expertDetail: true, activeTool: '', step: 0/);
   // 공고를 고르면 제자리로 돌아온다. 고른 공고와 본문은 그대로다.
-  assert.match(app, /setState\(\{ busy: '', pendingNoticeChoice: null, expertDetail: false, notice: '선택한 공고 본문을/);
-  // 보관함에서 연 목록도 실제로 보인다.
-  assert.match(app, /navigateToStep\(1, \{ noticeResults, expertDetail: true,/);
+  assert.match(app, /setState\(\{ busy: '', pendingNoticeChoice: null, expertDetail: false, activeTool: '', notice: '선택한 공고 본문을/);
+  // 보관함에서 연 목록도 실제로 보인다. 열어 둔 보관함 화면을 닫아야 보인다.
+  assert.match(app, /navigateToStep\(1, \{ noticeResults, expertDetail: true, activeTool: '',/);
+  assert.match(app, /navigateToStep\(1, \{ noticeResults: state\.noticeResults, activeTool: '', expertDetail: true,/);
 });

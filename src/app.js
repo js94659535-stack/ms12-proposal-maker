@@ -6613,7 +6613,7 @@ function useArchivedNotice(index) {
   if (!notice) return;
   const existing = state.noticeResults.findIndex(item => archiveNoticeKey(item) === archiveNoticeKey(notice));
   const noticeResults = existing >= 0 ? state.noticeResults : [...state.noticeResults, notice];
-  navigateToStep(1, { noticeResults, expertDetail: true, notice: '공고보관함(D1)에 보관된 공고를 이번 작업 임시 목록에 열었습니다. 공고보관함 원본은 그대로 남습니다.' });
+  navigateToStep(1, { noticeResults, expertDetail: true, activeTool: '', notice: '공고보관함(D1)에 보관된 공고를 이번 작업 임시 목록에 열었습니다. 공고보관함 원본은 그대로 남습니다.' });
 }
 
 async function viewArchivedNotice(index) {
@@ -6621,7 +6621,8 @@ async function viewArchivedNotice(index) {
   if (!notice) return;
   let noticeIndex = state.noticeResults.findIndex(item => archiveNoticeKey(item) === archiveNoticeKey(notice));
   if (noticeIndex < 0) { state.noticeResults = [...state.noticeResults, notice]; noticeIndex = state.noticeResults.length - 1; }
-  navigateToStep(1, { noticeResults: state.noticeResults, notice: '보관된 공고의 상세 내용을 확인합니다.' });
+  // 보관함 화면을 닫고 실제 단계 화면으로 옮긴다. 열어 놓은 보관함이 위에 남아 있으면 아무 일도 없어 보인다.
+  navigateToStep(1, { noticeResults: state.noticeResults, activeTool: '', expertDetail: true, notice: '보관된 공고의 상세 내용을 확인합니다.' });
   await previewOfficialNotice(noticeIndex);
 }
 
@@ -6740,7 +6741,7 @@ function applyNoticeSelection(notice, subproject = null) {
   state.sourceText = `${title}\n\n${bodyText}`;
   state.selectedNotice = { title, selectedSubproject: subproject?.title || '', registeredAt: notice.registeredAt, references: notice.references, sourceLabels: notice.sourceLabels, attachments: notice.attachments, applicationPeriod: primary.applicationPeriod, performancePeriod: primary.performancePeriod, supportLimit: primary.supportLimit, detailText: bodyText, officialTextExtracted: false, extractedAttachmentKeys: [] };
   // 간편 화면을 쓰는 회원은 공고를 고른 뒤 제자리로 돌아온다. 고른 공고와 본문은 그대로 남는다.
-  setState({ busy: '', pendingNoticeChoice: null, expertDetail: false, notice: '선택한 공고 본문을 사업계획서 입력으로 가져왔습니다.' });
+  setState({ busy: '', pendingNoticeChoice: null, expertDetail: false, activeTool: '', notice: '선택한 공고 본문을 사업계획서 입력으로 가져왔습니다.' });
   requestAnimationFrame(() => document.querySelector('#selected-notice-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
 }
 
