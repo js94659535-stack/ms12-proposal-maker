@@ -59,7 +59,7 @@ try {
   record(1, '로그인', await signIn(), account.email);
 
   // ---------- 1. 공고문·신청서 업로드 ----------
-  await page.run("(() => { const s = JSON.parse(localStorage.getItem('ms12_project_v3')||'{}'); s.expertDetail = true; s.activeTool=''; s.step = 0; localStorage.setItem('ms12_project_v3', JSON.stringify(s)); return '1'; })()");
+  await page.run("(() => { const s = JSON.parse(localStorage.getItem('ms12_project_v3')||'{}'); s.homeSeen = true; s.expertDetail = true; s.activeTool=''; s.step = 0; localStorage.setItem('ms12_project_v3', JSON.stringify(s)); return '1'; })()");
   await page.go(SITE, 4000);
   const noticeFile = path.join(downloads, `${MARK}-공고문.txt`);
   const formFile = path.join(downloads, `${MARK}-배분신청서.txt`);
