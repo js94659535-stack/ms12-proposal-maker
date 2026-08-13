@@ -234,8 +234,11 @@ test('상단 독립 코칭 화면은 외부 파일·붙여넣기·보관함·재
   assert.match(source, /parentProposalId/);
   assert.match(source, /coachingSeriesId/);
   assert.match(source, /id="coaching-official-evaluation"/);
-  assert.match(source, /합격확률을 추정하지 않으며/);
-  assert.match(source, /평가기준 대응표/);
+  // 총론 판정 안내에 같은 뜻을 적는다. 점수·확률을 만들지 않는다.
+  const digest = fs.readFileSync(new URL('../server/review-digest.js', import.meta.url), 'utf8');
+  assert.match(digest, /합격 확률을 계산하지 않습니다/);
+  assert.match(source, /escapeHtml\(view\.verdict\.note\)/, '총론이 그 안내를 화면에 적어야 한다');
+  assert.match(digest, /title: '평가기준 대응표'/);
   assert.match(source, /해결된 문제/);
   assert.match(source, /남은 문제/);
   assert.match(source, /새로 생긴 문제/);

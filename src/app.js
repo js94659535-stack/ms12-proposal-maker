@@ -22,6 +22,7 @@ import { ANSWER_CHOICES, HIDDEN_EXPERT, MAX_QUESTIONS as SIMPLE_MAX_QUESTIONS, R
 import { ASSIGNABLE_ROLES, ROLE_DUTY, canHoldClients, roleLabel } from '../server/roles.js';
 import { ADMIN_SHORTCUTS } from '../server/admin-overview.js';
 import { AGENCY_STATUS_LABEL, DEFAULT_LIMITS, LIMIT_FIELDS, remainingFor } from '../server/agency.js';
+import { buildOverview, detailPanels, mergeReviewIssues } from '../server/review-digest.js';
 import { REVISION_KINDS, canRevise, diffSections, keptFacts, newUnknowns, remainingOf, revisionSlot, settleRevision } from '../server/revision.js';
 import { CORE_AREAS, areaProgress, mergeProfileIntoApplicant } from '../server/org-profile.js';
 import { ASSET_KINDS, ASSET_STATUS, STATUS_LABELS as ASSET_STATUS_LABELS, assetSentence, suggestAssets, validateAsset } from '../server/idea-assets.js';
@@ -97,7 +98,9 @@ const initial = {
   // 간단 시작 입력과 뒤이은 확인 질문. 계획서 원문과 따로 둔다.
   quickOrg: {}, quickAnswers: {},
   // 간편·전문가 화면 전환과 한 번에 수정 요청. 계획서 원문과 따로 둔다.
-  viewMode: '', expertDetail: false, workspace: 'personal', markDraft: {}, markOpen: false, reviseOpen: false, reviseDraft: null, revisions: [], revisionBackup: null,
+  viewMode: '', expertDetail: false, workspace: 'personal', markDraft: {}, markOpen: false,
+  // 검증 결과 화면. 총론을 먼저 보고 각론은 눌렀을 때만 편다.
+  reviewDetail: false, reviewPanels: [], reviewFocus: false, reviseOpen: false, reviseDraft: null, revisions: [], revisionBackup: null,
   applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
   revisionPlan: null, draftReview: null, projectNarrative: '',
   // 서버가 붙여 준 근거 검증·평가자 검토. 화면은 판정하지 않고 그대로 보여 준다.
@@ -5300,19 +5303,108 @@ function referenceWarningView(review) {
   return `<div class="alert warning"><strong>참고자료 판정 · 공식 근거 ${review.officialCount}건 / 확인 필요 ${review.cautionCount}건</strong>${notices.map(notice => `<p>${escapeHtml(notice)}</p>`).join('')}</div>`;
 }
 
+// 검증 결과 총론. 각론의 긴 근거를 되풀이하지 않고 전체를 한눈에 둔다.
+// 점수·합격확률은 만들지 않는다. 확인한 것과 확인하지 못한 것을 나눠 적는다.
+function coachingOverviewView(result, issues) {
+  const view = buildOverview({
+    result, issues, references: state.coaching.references || [], sectionCount: state.sections.length
+  });
+  const priorityTag = { '최우선 경고': '부족', '주요 개선': '확인-필요', '일반 개선': 'tag' };
+  return `<section class="card" id="coaching-overview" tabindex="-1">
+    <div class="card-title"><div><h3>종합소견서</h3><span>먼저 전체를 봅니다. 자세한 근거는 아래에서 펼쳐 봅니다.</span></div>
+      <span class="status ${view.verdict.status === '주요 문제 없음' ? '충족' : '확인-필요'}">${escapeHtml(view.verdict.status)}</span></div>
+
+    <div class="alert success"><strong>잘된 점</strong>${view.strengths.map(line => `<p>· ${escapeHtml(line)}</p>`).join('')}</div>
+
+    <div class="summary-grid">
+      <div><span>검증 범위</span><strong>${view.scope.areas.length}개 영역</strong><small>${escapeHtml(view.scope.areas.join(' · ') || '확인 필요')}</small></div>
+      <div><span>사용한 기준</span><strong>${view.scope.officialProvided ? '공식 평가기준' : '공통 심사 기준'}</strong><small>${escapeHtml(view.scope.basisLabel)}</small></div>
+      <div><span>내부 종합판정</span><strong>${escapeHtml(view.verdict.status)}</strong><small>${escapeHtml(String(view.verdict.summary).slice(0, 60))}</small></div>
+      <div><span>검증 가능 범위</span><strong>계획서 ${view.scope.sectionCount}항목</strong><small>참고자료 ${view.scope.referenceCount}건${view.coverage.limit ? ' · 제한 있음' : ''}</small></div>
+    </div>
+    ${view.coverage.limit ? `<p class="muted">${escapeHtml(view.coverage.limit)}</p>` : ''}
+
+    <h4>핵심 문제 ${view.top.length}건${issues.length > view.top.length ? ` (전체 ${issues.length}건 중)` : ''}</h4>
+    ${view.top.length ? `<div class="requirement-list">${view.top.map(item => `<article class="requirement">
+      <div><span class="status ${priorityTag[item.priority] || 'tag'}">${escapeHtml(item.priority)}</span>
+        <div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.locations.join(' · ') || '위치 확인 필요')}</small></div></div>
+      <p class="muted">${escapeHtml(String(item.risk).slice(0, 120))}</p></article>`).join('')}</div>`
+      : '<p class="muted">먼저 고쳐야 할 문제를 찾지 못했습니다.</p>'}
+
+    ${view.order.length ? `<h4>제출 전에 먼저 할 일</h4><ol class="muted">${view.order.map(line => `<li>${escapeHtml(line)}</li>`).join('')}</ol>` : ''}
+
+    <div class="two-col">
+      <div><h4>확인된 내용</h4><ul class="muted">${(view.confirmed.length ? view.confirmed : ['아직 없습니다']).map(line => `<li>${escapeHtml(line)}</li>`).join('')}</ul></div>
+      <div><h4>확인할 수 없는 내용</h4><ul class="muted">${(view.unconfirmed.length ? view.unconfirmed : ['없습니다']).map(line => `<li>${escapeHtml(line)}</li>`).join('')}</ul></div>
+    </div>
+
+    <p class="muted">${escapeHtml(view.verdict.note)}</p>
+    <div class="actions"><span class="muted">권장 다음 행동: <b>${escapeHtml(view.next)}</b></span>
+      <div><button class="button primary" id="coaching-fix-first">우선 문제부터 수정하기</button>
+      <button class="button secondary" id="coaching-detail-toggle">${state.coaching.detailOpen ? '세부 검증 결과 접기' : '세부 검증 결과 보기'}</button></div></div>
+  </section>`;
+}
+
+// 검증 결과. 총론을 먼저 그리고 각론은 눌렀을 때만 편다.
+// 판정·근거·수정 상태는 예전 그대로다. 접고 펴는 것으로 AI를 다시 부르지 않는다.
 function coachingResultView(result) {
+  const merged = mergeReviewIssues(result, state.coaching.workItems || []);
+  return `${coachingOverviewView(result, merged.issues)}
+    ${state.coaching.detailOpen ? coachingDetailView(result, merged) : ''}`;
+}
+
+// 각론 한 영역. 기본은 접혀 있고 제목에 상태별 건수가 붙는다.
+function detailPanel(key, label, open, inner) {
+  if (!String(inner).trim()) return '';
+  return `<details class="review-panel" data-review-panel="${key}"${open(key)}><summary>${escapeHtml(label(key))}</summary>${inner}</details>`;
+}
+
+// 항목별 검증 결과. 합친 검증 이슈를 목록으로만 보여 준다. 근거 원문은 아래 영역에서 본다.
+function issueListView(issues) {
+  if (!issues.length) return '<p class="muted">항목별로 걸린 문제가 없습니다.</p>';
+  const tag = { '최우선 경고': '부족', '주요 개선': '확인-필요', '일반 개선': 'tag' };
+  return `<div class="requirement-list">${issues.map(issue => `<article class="requirement">
+    <div><span class="status ${tag[issue.priority] || 'tag'}">${escapeHtml(issue.priority)}</span>
+      <div><strong>${escapeHtml(issue.name)}</strong><small>${escapeHtml(issue.locations.join(' · ') || '위치 확인 필요')} · ${escapeHtml(issue.status)}</small></div></div>
+    <p class="muted">${escapeHtml(String(issue.risk || '').slice(0, 160))}</p>
+    ${issue.criteria.length ? `<small class="muted">해당 평가기준: ${escapeHtml(issue.criteria.join(' · '))}</small>` : ''}</article>`).join('')}</div>`;
+}
+
+// 근거 원문. 합친 이슈에 모아 둔 원문을 한자리에서 본다. 같은 문장을 두 번 담지 않는다.
+function evidenceListView(issues) {
+  const withEvidence = issues.filter(issue => issue.evidence.length);
+  if (!withEvidence.length) return '<p class="muted">입력 원문에서 직접 확인된 근거가 없습니다.</p>';
+  return withEvidence.map(issue => `<div class="requirement"><div><strong>${escapeHtml(issue.name)}</strong>
+    <small>${escapeHtml(issue.from.join(' · '))}</small></div>
+    ${issue.evidence.map(ref => `<blockquote><b>${escapeHtml(ref.sourceName || '계획서')}</b>
+      ${ref.pageOrSection ? `<small>${escapeHtml(ref.pageOrSection)}</small>` : ''}
+      <p>${escapeHtml(String(ref.excerpt || '').slice(0, 300))}</p>
+      <small class="muted">${ref.verified ? '원문에서 확인함' : '[확인 필요] 원문에서 확인하지 못함'}</small></blockquote>`).join('')}</div>`).join('');
+}
+
+function coachingDetailView(result, merged) {
+  const panels = detailPanels({ result, issues: merged.issues, references: state.coaching.references || [] });
+  const counts = Object.fromEntries(panels.map(item => [item.key, item]));
+  const label = key => (counts[key] ? `${counts[key].title} · 확인 ${counts[key].count}건 / 전체 ${counts[key].total}건` : '');
+  const open = key => ((state.reviewPanels || []).includes(key) ? ' open' : '');
   const priorityOrder = { '최우선 경고': 0, '주요 개선': 1, '일반 개선': 2 };
-  const issues = [...result.issues].sort((left, right) => (priorityOrder[left.priority] ?? 9) - (priorityOrder[right.priority] ?? 9));
+  const sorted = [...result.issues].sort((left, right) => (priorityOrder[left.priority] ?? 9) - (priorityOrder[right.priority] ?? 9));
+  // 「우선 문제부터 수정하기」로 들어오면 중요도가 높은 것만 먼저 보여 준다. 나머지는 버리지 않는다.
+  const focused = state.reviewFocus ? sorted.filter(item => item.priority !== '일반 개선') : sorted;
+  const issues = focused.length ? focused : sorted;
   const comparison = result.comparison || { previousVersion: 0, resolvedIssues: [], remainingIssues: [], newIssues: [], improvedAreas: [] };
   if (state.coaching.workItems?.length !== result.issues.length) state.coaching.workItems = makeCoachingWorkItems(result);
   const workItems = state.coaching.workItems;
   const submission = coachingSubmissionDecision(result, workItems);
-  return `<div class="card" id="result-coaching" tabindex="-1"><div class="card-title"><div><h3>검증·코칭 결과 · ${escapeHtml(result.overallStatus)}</h3><span>합격확률을 추정하지 않으며, 수정안은 자동 적용되지 않습니다.</span></div><div><span class="tag">${result.basis === 'official-evaluation' ? '공식 평가표 우선' : '공통 검증 기준'}</span><button class="button secondary" id="print-coaching-report">코칭 보고서 PDF 인쇄·저장</button></div></div><p>${escapeHtml(result.summary)}</p>
-    ${submissionCheckView(result, submission)}
-    ${(state.coaching.references || []).length ? `<details open><summary>이번 검증에 사용한 참고자료 판정 ${state.coaching.references.length}건</summary>${referenceWarningView(assessReferences(state.coaching.references, coachingContext()))}<div class="cap-grid">${assessReferences(state.coaching.references, coachingContext()).assessments.map(item => `<div><span>${escapeHtml(item.referenceType)}</span><strong>${escapeHtml(item.fileName)}</strong><small>${escapeHtml(item.usage)}</small></div>`).join('')}</div></details>` : ''}
-    ${result.evaluationMatrix?.length ? `<details open><summary>평가기준 대응표</summary><div class="requirement-list">${result.evaluationMatrix.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(item.status)}</span><div><strong>${escapeHtml(item.criterion)}${item.officialPoints ? ` · ${escapeHtml(item.officialPoints)}` : ''}</strong><small>${escapeHtml(item.requirement)}</small></div></div><p><b>계획서 대응 위치</b> ${escapeHtml(item.proposalLocations.join(' · ') || '연결 위치 없음')}</p>${coachingEvidenceView(item.evidenceRefs)}</article>`).join('')}</div></details>` : ''}
+  return `<div class="card" id="result-coaching" tabindex="-1"><div class="card-title"><div><h3>세부 검증 결과</h3><span>같은 문제를 여러 곳에 다시 만들지 않습니다. 합치기 전 ${merged.before}건 → 합친 뒤 ${merged.after}건</span></div><div><button class="button secondary" id="coaching-expand-all">모두 펼치기</button><button class="button secondary" id="coaching-collapse-all">모두 접기</button><button class="button secondary" id="print-coaching-report">코칭 보고서 PDF 인쇄·저장</button></div></div>
+    ${detailPanel('checks', label, open, submissionCheckView(result, submission))}
+    ${detailPanel('sections', label, open, issueListView(merged.issues))}
+    ${detailPanel('evidence', label, open, evidenceListView(merged.issues))}
+    ${detailPanel('matrix', label, open, result.evaluationMatrix?.length ? `<div class="requirement-list">${result.evaluationMatrix.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(item.status)}</span><div><strong>${escapeHtml(item.criterion)}${item.officialPoints ? ` · ${escapeHtml(item.officialPoints)}` : ''}</strong><small>${escapeHtml(item.requirement)}</small></div></div><p><b>계획서 대응 위치</b> ${escapeHtml(item.proposalLocations.join(' · ') || '연결 위치 없음')}</p>${coachingEvidenceView(item.evidenceRefs)}</article>`).join('')}</div>` : '')}
+    ${detailPanel('references', label, open, (state.coaching.references || []).length ? `${referenceWarningView(assessReferences(state.coaching.references, coachingContext()))}<div class="cap-grid">${assessReferences(state.coaching.references, coachingContext()).assessments.map(item => `<div><span>${escapeHtml(item.referenceType)}</span><strong>${escapeHtml(item.fileName)}</strong><small>${escapeHtml(item.usage)}</small></div>`).join('')}</div>` : '')}
     ${comparison.previousVersion ? `<details open><summary>v${comparison.previousVersion} 대비 재검증 결과</summary><div class="summary-grid"><div><span>해결된 문제</span><strong>${comparison.resolvedIssues.length}건</strong><small>${escapeHtml(comparison.resolvedIssues.join(' · ') || '없음')}</small></div><div><span>남은 문제</span><strong>${comparison.remainingIssues.length}건</strong><small>${escapeHtml(comparison.remainingIssues.join(' · ') || '없음')}</small></div><div><span>새로 생긴 문제</span><strong>${comparison.newIssues.length}건</strong><small>${escapeHtml(comparison.newIssues.join(' · ') || '없음')}</small></div><div><span>실제 개선 항목</span><strong>${comparison.improvedAreas.length}건</strong><small>${escapeHtml(comparison.improvedAreas.join(' · ') || '없음')}</small></div></div></details>` : ''}
-    <h3>개선 작업판</h3><div class="actions"><span>수정이 필요한 문제를 골라 「계획서 쓰기」로 보냅니다. 검증코치는 계획서를 직접 다시 쓰지 않습니다.</span><span><button class="button secondary" id="select-all-issues">전체 선택</button><button class="button primary" id="send-issues-to-writer" ${state.sections.length ? '' : 'disabled'}>계획서 쓰기에서 수정</button></span></div>${state.sections.length ? '' : `<div class="actions"><span class="muted">작성 중인 계획서 본문이 없습니다. 업로드한 외부 계획서를 원본 그대로 두고 수정 가능한 작업본으로 전환하면 같은 왕복 흐름을 사용할 수 있습니다.</span><button class="button primary" id="adopt-external-proposal" ${state.coaching.text.trim().length >= 30 ? '' : 'disabled'}>외부 계획서를 작업본으로 전환</button></div>`}<div class="requirement-list">${issues.length ? issues.map(item => { const originalIndex = result.issues.indexOf(item); const work = workItems[originalIndex] || { status: '미수정' }; return `<article class="requirement"><div><span class="tag mandatory">${escapeHtml(item.priority)}</span><div><strong><label><input type="checkbox" data-coaching-select="${originalIndex}" ${(state.coachingSelection || []).includes(originalIndex) ? 'checked' : ''}> ${escapeHtml(item.location)}</label></strong><small>${escapeHtml(item.category)}</small></div><select data-coaching-status="${originalIndex}" aria-label="${escapeHtml(item.location)} 상태"><option ${work.status === '미수정' ? 'selected' : ''}>미수정</option><option ${work.status === '수정중' ? 'selected' : ''}>수정중</option><option ${work.status === '해결' ? 'selected' : ''}>해결</option><option ${work.status === '확인필요' ? 'selected' : ''}>확인필요</option><option ${work.status === '유지' ? 'selected' : ''}>유지</option></select></div><p><b>위험 이유</b> ${escapeHtml(item.reason)}</p><p><b>개선 방향</b> ${escapeHtml(item.direction)}</p>${coachingEvidenceView(item.evidenceRefs)}<details><summary>기존 수정 예시${item.requiresConfirmation ? ' · 확인 필요' : ''}</summary><blockquote>${escapeHtml(item.example)}</blockquote></details><div class="actions"><span>상태: ${escapeHtml(work.status)}</span><div><button class="button secondary" data-coaching-revise="${originalIndex}">AI에게 수정 요청</button><button class="button secondary" data-coaching-manual="${originalIndex}">직접 수정</button><button class="button secondary" data-coaching-confirm="${originalIndex}">확인정보 입력</button><button class="button secondary" data-coaching-keep="${originalIndex}">현재 유지</button></div></div>${work.revision ? `<div class="two-col"><details open><summary>원문</summary><blockquote>${escapeHtml(work.revision.originalExcerpt)}</blockquote></details><details open><summary>AI 수정안${work.revision.requiresConfirmation ? ' · 확인 필요' : ''}</summary><blockquote>${escapeHtml(work.revision.revisedText)}</blockquote><small>${escapeHtml(work.revision.explanation)}</small></details></div><div class="actions"><span>자동 적용되지 않습니다.</span>${work.applied ? `<button class="button secondary" data-coaching-undo="${originalIndex}">적용 되돌리기</button>` : `<button class="button primary" data-coaching-apply="${originalIndex}">수정안 적용</button>`}</div>` : ''}</article>`; }).join('') : '<p class="muted">현재 기준에서 발견된 주요 문제가 없습니다.</p>'}</div></div>`;
+    ${detailPanel('work', label, open, `<div class="actions"><span>수정이 필요한 문제를 골라 「계획서 쓰기」로 보냅니다. 검증코치는 계획서를 직접 다시 쓰지 않습니다.</span><span><button class="button secondary" id="select-all-issues">전체 선택</button><button class="button primary" id="send-issues-to-writer" ${state.sections.length ? '' : 'disabled'}>계획서 쓰기에서 수정</button></span></div>${state.sections.length ? '' : `<div class="actions"><span class="muted">작성 중인 계획서 본문이 없습니다. 업로드한 외부 계획서를 원본 그대로 두고 수정 가능한 작업본으로 전환하면 같은 왕복 흐름을 사용할 수 있습니다.</span><button class="button primary" id="adopt-external-proposal" ${state.coaching.text.trim().length >= 30 ? '' : 'disabled'}>외부 계획서를 작업본으로 전환</button></div>`}<div class="requirement-list">${issues.length ? issues.map(item => { const originalIndex = result.issues.indexOf(item); const work = workItems[originalIndex] || { status: '미수정' }; return `<article class="requirement"><div><span class="tag mandatory">${escapeHtml(item.priority)}</span><div><strong><label><input type="checkbox" data-coaching-select="${originalIndex}" ${(state.coachingSelection || []).includes(originalIndex) ? 'checked' : ''}> ${escapeHtml(item.location)}</label></strong><small>${escapeHtml(item.category)}</small></div><select data-coaching-status="${originalIndex}" aria-label="${escapeHtml(item.location)} 상태"><option ${work.status === '미수정' ? 'selected' : ''}>미수정</option><option ${work.status === '수정중' ? 'selected' : ''}>수정중</option><option ${work.status === '해결' ? 'selected' : ''}>해결</option><option ${work.status === '확인필요' ? 'selected' : ''}>확인필요</option><option ${work.status === '유지' ? 'selected' : ''}>유지</option></select></div><p><b>위험 이유</b> ${escapeHtml(item.reason)}</p><p><b>개선 방향</b> ${escapeHtml(item.direction)}</p>${coachingEvidenceView(item.evidenceRefs)}<details><summary>기존 수정 예시${item.requiresConfirmation ? ' · 확인 필요' : ''}</summary><blockquote>${escapeHtml(item.example)}</blockquote></details><div class="actions"><span>상태: ${escapeHtml(work.status)}</span><div><button class="button secondary" data-coaching-revise="${originalIndex}">AI에게 수정 요청</button><button class="button secondary" data-coaching-manual="${originalIndex}">직접 수정</button><button class="button secondary" data-coaching-confirm="${originalIndex}">확인정보 입력</button><button class="button secondary" data-coaching-keep="${originalIndex}">현재 유지</button></div></div>${work.revision ? `<div class="two-col"><details open><summary>원문</summary><blockquote>${escapeHtml(work.revision.originalExcerpt)}</blockquote></details><details open><summary>AI 수정안${work.revision.requiresConfirmation ? ' · 확인 필요' : ''}</summary><blockquote>${escapeHtml(work.revision.revisedText)}</blockquote><small>${escapeHtml(work.revision.explanation)}</small></details></div><div class="actions"><span>자동 적용되지 않습니다.</span>${work.applied ? `<button class="button secondary" data-coaching-undo="${originalIndex}">적용 되돌리기</button>` : `<button class="button primary" data-coaching-apply="${originalIndex}">수정안 적용</button>`}</div>` : ''}</article>`; }).join('') : '<p class="muted">현재 기준에서 발견된 주요 문제가 없습니다.</p>'}</div>`)}
+  </div>`;
 }
 
 function coachingEvidenceView(refs = []) {
@@ -5776,6 +5868,25 @@ function bind() {
   document.querySelectorAll('[data-coaching-undo]').forEach(el => el.onclick = () => undoCoachingRevision(Number(el.dataset.coachingUndo)));
   document.querySelector('#print-coaching-report')?.addEventListener('click', printCoachingReport);
   document.querySelectorAll('[data-coaching-select]').forEach(el => el.onchange = () => toggleCoachingSelection(Number(el.dataset.coachingSelect), el.checked));
+  // 총론·각론 전환. 화면 값만 바꾼다. 검증을 다시 돌리지 않고 이용 횟수도 깎지 않는다.
+  document.querySelector('#coaching-detail-toggle')?.addEventListener('click', () => setState({
+    coaching: { ...state.coaching, detailOpen: !state.coaching.detailOpen }, notice: '', error: ''
+  }));
+  // 우선 문제부터 수정하기. 각론을 열고 개선 작업판만 펴서 중요도 순으로 보여 준다.
+  document.querySelector('#coaching-fix-first')?.addEventListener('click', () => setState({
+    coaching: { ...state.coaching, detailOpen: true }, reviewPanels: ['work'], reviewFocus: true,
+    notice: '중요도가 높은 문제부터 보여 줍니다. 나머지는 「모두 펼치기」로 볼 수 있습니다.', error: ''
+  }));
+  document.querySelector('#coaching-expand-all')?.addEventListener('click', () => setState({ reviewPanels: ['checks', 'sections', 'evidence', 'matrix', 'references', 'work'], reviewFocus: false }));
+  document.querySelector('#coaching-collapse-all')?.addEventListener('click', () => setState({ reviewPanels: [], reviewFocus: false }));
+  // 어떤 영역을 폈는지 기억한다. 총론으로 갔다 와도 그대로다.
+  document.querySelectorAll('[data-review-panel]').forEach(el => el.addEventListener('toggle', () => {
+    const key = el.dataset.reviewPanel;
+    const open = new Set(state.reviewPanels || []);
+    if (el.open) open.add(key); else open.delete(key);
+    state.reviewPanels = [...open];
+    saveState();
+  }));
   document.querySelector('#select-all-issues')?.addEventListener('click', () => setState({ coachingSelection: (state.coaching.result?.issues || []).map((_, index) => index), notice: '모든 문제를 선택했습니다.' }));
   document.querySelector('#send-issues-to-writer')?.addEventListener('click', sendIssuesToWriter);
   document.querySelector('#adopt-external-proposal')?.addEventListener('click', adoptExternalProposal);

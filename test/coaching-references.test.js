@@ -89,7 +89,10 @@ test('클릭 업로드와 드래그앤드롭이 같은 처리 경로를 쓰고 �
   assert.match(appSource, /#reference-file'\)\?\.addEventListener\('change', event => addCoachingReferenceFiles/);
   assert.match(appSource, /function coachingReferenceView\(coaching\)/);
   assert.match(appSource, /\.\.\.referencePayload\(state\.coaching\.references \|\| \[\], coachingContext\(\)\)/);
-  assert.match(appSource, /이번 검증에 사용한 참고자료 판정/);
+  // 참고자료 판정은 각론 한 영역으로 들어갔다. 제목에 건수가 함께 붙는다.
+  assert.match(appSource, /detailPanel\('references', label, open,/);
+  const digest = fs.readFileSync(new URL('../server/review-digest.js', import.meta.url), 'utf8');
+  assert.match(digest, /key: 'references', title: '참고자료 판정'/);
   const referenceSource = fs.readFileSync(new URL('../src/reference-materials.js', import.meta.url), 'utf8');
   assert.doesNotMatch(referenceSource, /fetch\(|openai/i);
 });
