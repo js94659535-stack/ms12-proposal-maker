@@ -16,6 +16,26 @@ fs.mkdirSync(shots, { recursive: true });
 let failures = 0;
 const results = [];
 const record = (no, label, ok, detail = '') => { results.push({ no, label, ok, detail }); if (!step(no, label, ok, detail)) failures += 1; };
+// 확인하지 못한 것은 성공으로도 실패로도 적지 않는다. 무엇을 못 봤는지 그대로 남긴다.
+const unknown = (no, label, why) => { results.push({ no, label, ok: null, detail: why }); console.log(`${String(no).padStart(2)} 미확인  ${label} — ${why}`); };
+
+// 전체 이용권이 없는 시험계정으로 화면만 확인할 때 쓴다.
+// 서버 권한은 그대로 두고 브라우저가 받은 회원 정보만 바꾼다. 실제 차단은 서버가 계속 한다.
+const PLAN_VIEW = process.env.PLAN_VIEW === '1';
+const PLAN_VIEW_SOURCE = `(() => {
+  const orig = window.fetch;
+  window.fetch = async (...args) => {
+    const res = await orig(...args);
+    const url = String(args[0]?.url || args[0] || '');
+    // 회원 정보를 돌려주는 두 곳을 모두 고친다. 계정 조회가 뒤에 와서 값을 되돌리기 때문이다.
+    if (!url.includes('/api/auth') && !url.includes('/api/account')) return res;
+    try {
+      const data = await res.clone().json();
+      if (data?.user) { data.user.plan = 'full'; return new Response(JSON.stringify(data), { status: res.status, headers: { 'Content-Type': 'application/json' } }); }
+    } catch { /* 그대로 */ }
+    return res;
+  };
+})()`;
 
 const chrome = launch(scratch('orginfo'), 9520);
 const page = await attach(9520);
@@ -27,7 +47,10 @@ const read = keys => page.run(`(() => { const s = JSON.parse(localStorage.getIte
 
 async function signIn(account) {
   await page.go(SITE, 3000);
-  await page.run("(() => { localStorage.clear(); sessionStorage.clear(); return '1'; })()");
+  // 앞사람 세션이 남아 있으면 로그인 화면이 아예 나오지 않는다. 먼저 확실히 나간다.
+  await page.run("(async () => { await fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'logout' }) }).catch(()=>{}); return '1'; })()", 800);
+  // 작성 상태만 비운다. 자료보관함 복구키를 지우면 서버에 저장한 기관정보를 다시 찾지 못한다.
+  await page.run("(() => { localStorage.removeItem('ms12_project_v3'); sessionStorage.clear(); return '1'; })()");
   await page.go(SITE, 3000);
   await page.click('[data-landing="login"]', 1500);
   await page.fill('#login-email', account.email, 250);
@@ -44,6 +67,7 @@ const orgName = `${MARK} 물망초지역아동센터`;
 
 try {
   await page.send('DOM.enable', {});
+  if (PLAN_VIEW) await page.send('Page.addScriptToEvaluateOnNewDocument', { source: PLAN_VIEW_SOURCE });
   await page.size(1280, 900);
   record(1, '일반회원 로그인', await signIn(customer), customer.email);
 
@@ -129,7 +153,11 @@ try {
   await page.go(SITE, 3500);
   await page.fill('#simple-idea', '방과후 돌봄이 끊긴 초등 저학년을 위해 주 2회 학습·정서 프로그램을 운영하고 싶습니다.', 800);
   const detailCount = await read("n: ((s.applicants||[]).find(a => a.name.includes('E2E-ORG'))?.items||[]).filter(i => !['basic','legal'].includes(i.area)).length");
-  if (process.env.SKIP_AI === '1') throw new Error('SKIP_AI: 생성 직전까지만 확인');
+  if (process.env.SKIP_AI === '1') {
+    const gate = await page.run("(() => JSON.stringify({ blocked: document.querySelector('#simple-generate')?.dataset?.blocked || '', off: !!document.querySelector('#simple-generate')?.disabled }))()");
+    unknown(10, '상세정보가 비어 있어도 계획서가 만들어진다',
+      `AI 생성을 부르지 않았다(SKIP_AI). 상세정보 ${detailCount?.n}건 · 생성 단추 막힘 «${gate?.blocked || '없음'}» · 비활성 ${gate?.off}`);
+  } else {
   const started = Date.now();
   await page.click('#simple-generate', 2000);
   const finished = await page.waitFor("!document.querySelector('.busy')", 900000, 5000);
@@ -138,6 +166,7 @@ try {
   record(10, '상세정보가 비어 있어도 계획서가 만들어진다', finished && Number(madeIt?.n || 0) > 0,
     `상세정보 ${detailCount?.n}건 · 항목 ${madeIt?.n}개 · ${Number(madeIt?.chars || 0).toLocaleString('ko-KR')}자 · ${seconds}초`);
   await shot('04-generated-without-detail');
+  }
 
   // ---------- 6. 상세정보는 나중에 추가한다 ----------
   await page.run("(() => { const el = document.querySelector('[data-open-applicants]'); if (el) el.click(); return '1'; })()", 2500);
@@ -161,13 +190,17 @@ try {
   // 다시 접속해도 남아 있는지. 브라우저 상태가 아니라 서버 보관자료에서 온다.
   await page.go(SITE, 4000);
   const reloaded = await page.run(`(async () => {
-    const r = await fetch('/api/archive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'listApplicants' }) });
+    const r = await fetch('/api/archive', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Archive-Key': localStorage.getItem('ms12_archive_key_v1') || '' }, body: JSON.stringify({ action: 'listApplicants' }) });
     const j = await r.json();
     const mine = (j.applicants || j.items || []).filter(item => String(item.name || '').includes('E2E-ORG'));
     return JSON.stringify({ status: r.status, n: mine.length, staff: (mine[0]?.items || []).filter(i => i.area === 'staff').length });
   })()`);
-  record(13, '저장한 상세정보가 서버 보관자료에 남는다', reloaded?.status === 200 && Number(reloaded?.n || 0) >= 1 && Number(reloaded?.staff || 0) >= 1,
-    `HTTP ${reloaded?.status} · 기관 ${reloaded?.n}곳 · 인력 ${reloaded?.staff}건`);
+  if (reloaded?.status === 403) {
+    unknown(13, '저장한 상세정보가 서버 보관자료에 남는다', '시험계정에 전체 이용권이 없어 서버 저장이 403으로 막혔다. 브라우저 상태까지만 확인함');
+  } else {
+    record(13, '저장한 상세정보가 서버 보관자료에 남는다', reloaded?.status === 200 && Number(reloaded?.n || 0) >= 1 && Number(reloaded?.staff || 0) >= 1,
+      `HTTP ${reloaded?.status} · 기관 ${reloaded?.n}곳 · 인력 ${reloaded?.staff}건`);
+  }
 
   // ---------- 7. 새 계획서에서 다시 쓴다 ----------
   const reuse = await page.run(`(() => {
@@ -227,7 +260,7 @@ try {
   })()`, 3000);
   await page.go(SITE, 3000);
   const after = await page.run(`(async () => {
-    const r = await fetch('/api/archive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'listApplicants' }) });
+    const r = await fetch('/api/archive', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Archive-Key': localStorage.getItem('ms12_archive_key_v1') || '' }, body: JSON.stringify({ action: 'listApplicants' }) });
     const j = await r.json();
     const list = j.applicants || j.items || [];
     return JSON.stringify({ n: list.length, left: list.filter(item => String(item.name || '').includes('E2E-ORG')).length });

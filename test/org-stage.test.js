@@ -106,6 +106,17 @@ test('상세정보 안내 문구를 그대로 띄우고 구역을 한 번에 펼
   assert.match(app, /id="close-all-details"/);
 });
 
+test('상세정보를 고치면 보관자료에도 저장한다', () => {
+  // 이 브라우저에만 남으면 다음 계획서에서 다시 쓰지 못한다.
+  assert.match(app, /function queueApplicantSave\(delay = 1500\) \{/);
+  assert.match(app, /void persistApplicant\(focusedApplicantId\(\), false\);/);
+  const add = app.slice(app.indexOf('function addApplicantItem('), app.indexOf('async function loadApplicantDocument('));
+  assert.match(add, /persistApplicant\(focusedApplicantId\(\), false\)/);
+  // 직접 저장하는 단추도 남겨 둔다.
+  assert.match(app, /id="save-applicant"/);
+  assert.match(app, /#save-applicant'\)\?\.addEventListener\('click', \(\) => persistApplicant\(focusedApplicantId\(\), true\)\)/);
+});
+
 test('첫 화면 안내 배너는 기존 기관정보 페이지로 연결한다', () => {
   const panel = app.slice(app.indexOf('function simpleOrgPanel()'), app.indexOf('function simpleQuestionsPanel()'));
   assert.match(panel, /기관정보를 한 번 등록해 두면 계획서마다 다시 적지 않습니다/);

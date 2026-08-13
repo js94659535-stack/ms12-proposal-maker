@@ -4078,7 +4078,8 @@ function applicantDetailView(applicant) {
   return `<div class="card" id="applicant-detail">
     <div class="card-title"><div><h3>2단계 상세정보 <span class="muted">(선택)</span></h3>
       <span>여덟 구역 중 ${filled}구역에 자료가 있습니다. 지금 적지 않아도 계획서는 만들어집니다.</span></div>
-      <div><button class="button secondary" id="open-all-details">모두 펼치기</button><button class="button secondary" id="close-all-details">모두 접기</button></div></div>
+      <div><button class="button secondary" id="open-all-details">모두 펼치기</button><button class="button secondary" id="close-all-details">모두 접기</button>
+        <button class="button secondary" id="save-applicant">이 기관 정보 저장</button></div></div>
     <div class="alert"><strong>상세정보를 등록하면 계획서가 달라집니다</strong><p>${DETAIL_INTRO}</p></div>
     <div class="stat-badges">${groups.map(group => `<span class="stat-badge" title="${escapeHtml(group.hint)}"><strong>${group.confirmed}/${group.total}</strong><span>${escapeHtml(group.title)}</span></span>`).join('')}</div>
     ${groups.map(group => detailGroupPanel(applicant, group)).join('')}
@@ -6129,19 +6130,22 @@ function bindApplicants() {
   // 신청기관 정보가 없어도 계획서 작성을 막지 않는다.
   document.querySelector('#skip-applicant')?.addEventListener('click', () => navigateToStep(3, { applicantSkipped: true, notice: '신청기관 없이 진행합니다. 확인되지 않은 기관 사실은 만들지 않고 [확인 필요]로 남깁니다.', error: '' }));
   document.querySelectorAll('[data-delete-applicant]').forEach(el => el.onclick = () => removeApplicant(el.dataset.deleteApplicant));
-  document.querySelector('#save-applicant')?.addEventListener('click', () => persistApplicant(state.applicantEditingId, true));
+  document.querySelector('#save-applicant')?.addEventListener('click', () => persistApplicant(focusedApplicantId(), true));
   document.querySelector('#applicant-name')?.addEventListener('input', event => { updateEditingApplicant(applicant => { applicant.name = event.target.value; }); });
   document.querySelector('#applicant-note')?.addEventListener('input', event => { updateEditingApplicant(applicant => { applicant.note = event.target.value; }); });
   document.querySelectorAll('[data-applicant-field]').forEach(el => el.oninput = () => {
     const [itemId, field] = el.dataset.applicantField.split('|');
     updateEditingApplicant(applicant => { const item = applicant.items.find(value => value.id === itemId); if (item) { item[field] = el.value; item.updatedAt = new Date().toISOString(); } });
+    queueApplicantSave();
   });
   document.querySelectorAll('[data-applicant-status]').forEach(el => el.onchange = () => {
     updateEditingApplicant(applicant => { const item = applicant.items.find(value => value.id === el.dataset.applicantStatus); if (item) { item.status = el.value; item.updatedAt = new Date().toISOString(); } });
-    setState({ applicants: state.applicants, notice: '항목 상태를 변경했습니다. 저장 버튼으로 신청기관 정보에도 반영하세요.' });
+    queueApplicantSave();
+    setState({ applicants: state.applicants, notice: '항목 상태를 변경했습니다. 이 기관 정보에 함께 저장합니다.' });
   });
   document.querySelectorAll('[data-remove-applicant-item]').forEach(el => el.onclick = () => {
     updateEditingApplicant(applicant => { applicant.items = applicant.items.filter(item => item.id !== el.dataset.removeApplicantItem); });
+    queueApplicantSave();
     setState({ applicants: state.applicants, notice: '항목을 삭제했습니다.' });
   });
   // 내 정보 → 신청기관. 덮어쓰지 않고 확인 필요 항목으로 넣는다.
@@ -6238,7 +6242,9 @@ function addApplicantItem(areaKey) {
   const item = makeApplicantItem({ area: areaKey, label: draft.label, value: draft.value, status: draft.status, source: draft.source });
   updateEditingApplicant(applicant => { applicant.items = [...applicant.items, item]; });
   state.applicantItemDrafts[areaKey] = { label: '', value: '', status: '확인 필요', source: '' };
-  setState({ applicants: state.applicants, applicantItemDrafts: state.applicantItemDrafts, notice: `${areaTitle(areaKey)} 항목을 추가했습니다.`, error: '' });
+  // 보관자료에도 바로 저장한다. 다음 계획서에서 다시 쓰려면 이 브라우저 밖에도 남아야 한다.
+  void persistApplicant(focusedApplicantId(), false);
+  setState({ applicants: state.applicants, applicantItemDrafts: state.applicantItemDrafts, notice: `${areaTitle(areaKey)} 항목을 추가했습니다. 기관정보에 함께 저장했습니다.`, error: '' });
 }
 
 async function loadApplicantDocument(event) {
@@ -6382,6 +6388,16 @@ function addProjectValue() {
   const entry = { id: `project-value-${Date.now().toString(36)}`, label, value, applicantItemId: source?.id || '' };
   state.projectValueDraft = { label: '', value: '', applicantItemId: '' };
   setState({ projectValues: [...state.projectValues, entry], projectValueDraft: state.projectValueDraft, notice: '이번 사업 전용 값을 추가했습니다. 신청기관 원본은 변경되지 않습니다.', error: '' });
+}
+
+// 상세정보를 고치면 곧 보관자료에도 저장한다. 글자마다 보내지 않으려고 잠깐 모았다가 한 번 보낸다.
+// 이것이 없으면 상세정보가 이 브라우저에만 남아 다음 계획서에서 다시 쓰지 못한다.
+let applicantSaveTimer = null;
+function queueApplicantSave(delay = 1500) {
+  const id = focusedApplicantId();
+  if (!id) return;
+  if (applicantSaveTimer) clearTimeout(applicantSaveTimer);
+  applicantSaveTimer = setTimeout(() => { applicantSaveTimer = null; void persistApplicant(id, false); }, delay);
 }
 
 async function persistApplicant(id, announce) {
