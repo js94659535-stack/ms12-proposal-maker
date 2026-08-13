@@ -4345,6 +4345,37 @@ function finalConfirmView() {
   </div>`;
 }
 
+// 작성 중 화면. 끝난 항목을 순서대로 보여 주고, 남은 묶음이 몇 개인지 함께 적는다.
+function designSoFarView() {
+  const design = state.stagedGeneration?.master?.projectDesign;
+  if (!design) return '';
+  const rows = [
+    ['사업명', design.projectName], ['한 문장 전략', design.oneSentenceStrategy], ['대상', design.target],
+    ['참여 인원', design.participantCount], ['사업 기간', design.projectPeriod], ['핵심 개입', design.coreIntervention]
+  ].filter(([, value]) => String(value || '').trim());
+  if (!rows.length) return '';
+  return `<div class="summary-grid">${rows.map(([label, value]) =>
+    `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value).slice(0, 60))}</strong></div>`).join('')}</div>
+    <p class="muted">설계가 먼저 나왔습니다. 방향이 다르면 지금 멈추고 한 줄 요청을 고쳐 다시 시작해도 됩니다.</p>`;
+}
+
+function writingProgressView() {
+  const staged = state.stagedGeneration || {};
+  const all = (staged.master?.sectionPlan || []).length;
+  const done = (staged.completedGroupIds || []).length;
+  return `<div class="card" id="writing-progress">
+    <div class="card-title"><div><h3>지금까지 쓴 계획서</h3>
+      <span>${all ? `${done} / ${all} 묶음 끝남` : '설계를 먼저 만드는 중'} · 항목 ${state.sections.length}개 · 아래로 계속 이어집니다</span></div>
+      <span class="status 확인-필요">작성 중</span></div>
+    <p class="muted">끝난 항목부터 바로 읽을 수 있습니다. 다 끝나면 한 편으로 다듬어 정리합니다. 창을 닫으면 결과를 받지 못합니다.</p>
+    ${designSoFarView()}
+    ${state.sections.map(section => `<details class="card org-details">
+      <summary><b>${escapeHtml(section.title || '항목')}</b> <small>${String(section.content || '').length.toLocaleString('ko-KR')}자</small></summary>
+      <p style="white-space:pre-wrap">${escapeHtml(String(section.content || '').slice(0, 1200))}${String(section.content || '').length > 1200 ? '…' : ''}</p>
+    </details>`).join('')}
+  </div>`;
+}
+
 function simpleResultActions() {
   const saved = Boolean(state.archiveProposalId);
   const left = remainingOf(state.revisions || []);
@@ -4401,7 +4432,9 @@ function expertDetails() {
 function simpleWriteView() {
   const chosen = Boolean(state.selectedNotice?.title || state.sourceText.trim());
   const step = simpleStep({ noticeChosen: chosen, requestWritten: Boolean(String(state.projectNarrative || '').trim()), sections: state.sections.length });
-  const done = step === 'done';
+  // 아직 쓰는 중이면 완성으로 보지 않는다. 지금까지 쓴 것은 아래에서 바로 읽을 수 있다.
+  const writing = Boolean(state.busy) && (state.sections.length > 0 || Boolean(state.stagedGeneration?.master));
+  const done = step === 'done' && !writing;
   // 지금 보는 화면 표시는 머리띠 아래에 한 번만 나온다. 여기서 또 그리면 두 줄이 된다.
   return `<div class="page-heading"><div><h2>간편 계획서 작성</h2>
     <p>공고를 고르고 하고 싶은 사업을 한두 문장으로 적으면 됩니다. 분석·설계·검증은 안에서 자동으로 돌아갑니다.</p></div>
@@ -4424,7 +4457,8 @@ function simpleWriteView() {
     </div>
     ${done ? `<div class="card"><div class="card-title"><div><h3>4 계획서 완성</h3><span>항목 ${state.sections.length}개</span></div>
       <span class="status 충족">완성</span></div>${simpleResultActions()}</div>` : ''}
-    ${state.sections.length ? openMarksPanel() : ''}
+    ${writing ? writingProgressView() : ''}
+    ${state.sections.length && !writing ? openMarksPanel() : ''}
     ${revisionPanel()}
     ${chosen ? expertDetails() : ''}`;
 }
@@ -7725,7 +7759,12 @@ async function generateProposalParts() {
       completed.add(group.id);
       state.stagedGeneration.completedGroupIds = [...completed];
       state.stagedGeneration.phase = completed.size === all.length ? 'parts-ready' : 'parts-generating';
-      setState({ stagedGeneration: state.stagedGeneration, busy: completed.size === all.length ? '' : `전체 계획서 작성 중 · ${completed.size} / ${all.length}` });
+      // 끝난 묶음을 바로 본문에 붙인다. 나머지가 끝나기를 기다리지 않는다.
+      state.sections = sectionsSoFar();
+      setState({
+        stagedGeneration: state.stagedGeneration, sections: state.sections,
+        busy: completed.size === all.length ? '' : `전체 계획서 작성 중 · ${completed.size} / ${all.length} 묶음 · 지금까지 ${state.sections.length}항목`
+      });
     }
     setState({ busy: '', stagedGeneration: state.stagedGeneration, notice: '전체 계획서 초안을 작성했습니다. 확인되지 않은 값은 [확인 필요]로 남겼습니다.' });
     // 항목이 모두 끝나면 사용자가 다시 누르지 않아도 하나의 계획서로 합친다.
@@ -7742,6 +7781,25 @@ const SECTION_DEPENDENCIES = { necessity: [], purpose: ['necessity'], goals: ['p
 function relevantPreviousSections(group, parts) {
   const needed = new Set((group.sectionKeys || []).flatMap(key => SECTION_DEPENDENCIES[key] || []));
   return (parts || []).flatMap(part => part.sections || []).filter(section => needed.has(section.id)).map(section => ({ id: section.id, title: section.title, content: String(section.content || '').slice(0, 3000), citations: section.citations || [] }));
+}
+
+// 지금까지 끝난 묶음만으로 본문을 만든다. 마지막 조립과 같은 순서를 쓴다.
+// 아직 안 끝난 항목은 자리를 만들지 않는다. 빈 항목을 지어내지 않으려는 것이다.
+function sectionsSoFar() {
+  const staged = state.stagedGeneration;
+  const groups = staged?.master?.sectionPlan || [];
+  const done = new Set(staged?.completedGroupIds || []);
+  const bySectionId = new Map((staged?.parts || []).flatMap(part => part.sections || []).map(section => [section.id, section]));
+  const entries = groups.filter(group => done.has(group.id))
+    .flatMap(group => (group.sectionKeys || []).map(key => ({ key, groupTitle: group.title })));
+  return entries.map((entry, index) => {
+    const source = bySectionId.get(entry.key);
+    if (!source) return null;
+    return {
+      ...source,
+      title: `${index + 1}. ${entry.groupTitle} · ${String(source.title || sectionTitle(entry.key)).replace(/^\d+[.)]?\s*/, '')}`
+    };
+  }).filter(Boolean);
 }
 
 function assembleProposal(startedAt = Date.now()) {

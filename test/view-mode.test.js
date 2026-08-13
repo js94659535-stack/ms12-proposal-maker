@@ -132,3 +132,20 @@ test('초안을 만들 때 설계 기록을 늘 남긴다', () => {
   // 사용자가 누를 필요는 없다. 화면에는 확정 단추가 마지막에 하나뿐이다.
   assert.match(app, /approveDesign\(\{ silent: true \}\);/);
 });
+
+test('쓰는 동안 끝난 묶음을 바로 보여 준다', () => {
+  // 7분을 빈 화면으로 기다리지 않는다. 안에서는 이미 묶음마다 결과가 나오고 있었다.
+  assert.match(app, /function sectionsSoFar\(\) \{/);
+  assert.match(app, /state\.sections = sectionsSoFar\(\);/);
+  // 아직 안 끝난 항목은 자리를 만들지 않는다. 빈 항목을 지어내지 않는다.
+  assert.match(app, /groups\.filter\(group => done\.has\(group\.id\)\)/);
+  // 진행 표시에 남은 묶음과 지금까지 항목 수를 함께 적는다.
+  assert.match(app, /묶음 · 지금까지 \$\{state\.sections\.length\}항목/);
+  // 쓰는 중에는 완성으로 보지 않는다. 결과 단추를 미리 열지 않는다.
+  assert.match(app, /const writing = Boolean\(state\.busy\) && \(state\.sections\.length > 0 \|\| Boolean\(state\.stagedGeneration\?\.master\)\);/);
+  assert.match(app, /const done = step === 'done' && !writing;/);
+  // 설계가 먼저 끝나면 본문 전에도 방향을 확인할 수 있다.
+  assert.match(app, /function designSoFarView\(\) \{/);
+  assert.match(app, /\['한 문장 전략', design\.oneSentenceStrategy\]/);
+  assert.match(app, /function writingProgressView\(\) \{/);
+});
