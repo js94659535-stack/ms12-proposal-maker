@@ -2420,7 +2420,8 @@ function withMigratedApplicants(value) {
   return { ...value, applicants, selectedApplicantId, projectValues: Array.isArray(value.projectValues) ? value.projectValues : [] };
 }
 function saveState() {
-  const safe = { ...state, companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [], archiveNotices: [], archiveProposals: [], noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', applicantComparison: null, applicantDocDraft: '', applicantExtraction: null, files: state.files.map(({ text, ...meta }) => meta),
+  // 각론을 폈는지·어디에 집중했는지는 이번 화면에서만 쓴다. 저장하면 다음에 들어와도 펼쳐진 채로 나온다.
+  const safe = { ...state, reviewDetail: false, reviewPanels: [], reviewFocus: false, companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [], archiveNotices: [], archiveProposals: [], noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', applicantComparison: null, applicantDocDraft: '', applicantExtraction: null, files: state.files.map(({ text, ...meta }) => meta),
     // 첨부 원본은 브라우저 메모리에만 있다. 새로고침 뒤에 파일이 있다고 잘못 말하지 않도록 연결 기록도 저장하지 않는다.
     attachmentLinks: {}, submissionZip: null };
   // 참고자료처럼 큰 원문이 들어오면 브라우저 저장 한도를 넘을 수 있다. 저장 실패가 화면을 멈추지 않게 한다.
@@ -5341,7 +5342,7 @@ function coachingOverviewView(result, issues) {
     <p class="muted">${escapeHtml(view.verdict.note)}</p>
     <div class="actions"><span class="muted">권장 다음 행동: <b>${escapeHtml(view.next)}</b></span>
       <div><button class="button primary" id="coaching-fix-first">우선 문제부터 수정하기</button>
-      <button class="button secondary" id="coaching-detail-toggle">${state.coaching.detailOpen ? '세부 검증 결과 접기' : '세부 검증 결과 보기'}</button></div></div>
+      <button class="button secondary" id="coaching-detail-toggle">${state.reviewDetail ? '세부 검증 결과 접기' : '세부 검증 결과 보기'}</button></div></div>
   </section>`;
 }
 
@@ -5350,7 +5351,7 @@ function coachingOverviewView(result, issues) {
 function coachingResultView(result) {
   const merged = mergeReviewIssues(result, state.coaching.workItems || []);
   return `${coachingOverviewView(result, merged.issues)}
-    ${state.coaching.detailOpen ? coachingDetailView(result, merged) : ''}`;
+    ${state.reviewDetail ? coachingDetailView(result, merged) : ''}`;
 }
 
 // 각론 한 영역. 기본은 접혀 있고 제목에 상태별 건수가 붙는다.
@@ -5876,11 +5877,11 @@ function bind() {
   document.querySelectorAll('[data-coaching-select]').forEach(el => el.onchange = () => toggleCoachingSelection(Number(el.dataset.coachingSelect), el.checked));
   // 총론·각론 전환. 화면 값만 바꾼다. 검증을 다시 돌리지 않고 이용 횟수도 깎지 않는다.
   document.querySelector('#coaching-detail-toggle')?.addEventListener('click', () => setState({
-    coaching: { ...state.coaching, detailOpen: !state.coaching.detailOpen }, notice: '', error: ''
+    reviewDetail: !state.reviewDetail, notice: '', error: ''
   }));
   // 우선 문제부터 수정하기. 각론을 열고 개선 작업판만 펴서 중요도 순으로 보여 준다.
   document.querySelector('#coaching-fix-first')?.addEventListener('click', () => setState({
-    coaching: { ...state.coaching, detailOpen: true }, reviewPanels: ['work'], reviewFocus: true,
+    reviewDetail: true, reviewPanels: ['work'], reviewFocus: true,
     notice: '중요도가 높은 문제부터 보여 줍니다. 나머지는 「모두 펼치기」로 볼 수 있습니다.', error: ''
   }));
   document.querySelector('#coaching-expand-all')?.addEventListener('click', () => setState({ reviewPanels: ['checks', 'sections', 'evidence', 'matrix', 'references', 'work'], reviewFocus: false }));
@@ -6381,13 +6382,13 @@ async function completeProposalCoaching(result) {
     // 재검증이면 이전 결과와 비교해 해결·남은·새 문제를 알려준다.
     const rounds = state.coaching.result ? compareCoachingRounds(state.coaching.result, result) : null;
     // 새 검증 결과는 총론부터 보여 준다. 지난번에 펼쳐 둔 각론을 그대로 열지 않는다.
-    state.coaching = { ...state.coaching, result, workItems: makeCoachingWorkItems(result), pendingJob: null, detailOpen: false, version, seriesId, validatedText: state.coaching.text, lastComparison: rounds };
+    state.coaching = { ...state.coaching, result, workItems: makeCoachingWorkItems(result), pendingJob: null, version, seriesId, validatedText: state.coaching.text, lastComparison: rounds };
     const id = `${seriesId}-coaching-v${version}`.slice(0, 80);
     state.coaching.currentArchiveId = id;
     await saveArchivedProposal({ id, noticeKey: state.coaching.sourceNoticeKey, title: `${state.coaching.title || '외부 계획서'} · 코칭 v${version}`, stage: `coaching-v${version}`, snapshot: { coaching: structuredClone(state.coaching), parentProposalId: state.coaching.sourceProposalId || '', coachingSeriesId: seriesId } });
     // 검토 회차를 환류 이력에 기록한다. 검증 결과 구조는 그대로 둔다.
     recordReviewRound({ ...result, comparison: rounds ? { resolvedIssues: rounds.resolved } : null });
-    setState({ busy: '', coaching: state.coaching, coachingSelection: [], reviewPanels: [], reviewFocus: false, notice: `검증·코칭 v${version} 결과를 계획서보관함에 저장했습니다.${rounds ? ` 해결 ${rounds.resolved.length}건 · 남은 문제 ${rounds.remaining.length}건 · 새 문제 ${rounds.added.length}건` : ''}` });
+    setState({ busy: '', coaching: state.coaching, coachingSelection: [], reviewDetail: false, reviewPanels: [], reviewFocus: false, notice: `검증·코칭 v${version} 결과를 계획서보관함에 저장했습니다.${rounds ? ` 해결 ${rounds.resolved.length}건 · 남은 문제 ${rounds.remaining.length}건 · 새 문제 ${rounds.added.length}건` : ''}` });
   } catch (error) {
     state.coaching.pendingJob = null;
     setState({ busy: '', coaching: state.coaching, error: error.message });

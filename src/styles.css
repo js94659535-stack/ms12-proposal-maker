@@ -557,3 +557,16 @@ select{max-width:100%}
 @media(max-width:420px){
   .source-text.auto-grow{min-height:calc(2 * 1.7em + 22px)}
 }
+
+/* 검증 각론. 좁은 화면에서 단추와 고르기가 가로로 밀려 나가지 않게 한다. */
+.review-panel{border:1px solid var(--line,#e8dfd4);border-radius:10px;padding:10px 14px;margin:8px 0;background:var(--card,#fff)}
+.review-panel > summary{cursor:pointer;font-weight:600;word-break:keep-all;overflow-wrap:anywhere}
+.review-panel .requirement{min-width:0}
+.review-panel .actions{flex-wrap:wrap;gap:8px;min-width:0}
+.review-panel .actions > div{display:flex;flex-wrap:wrap;gap:6px;min-width:0}
+.review-panel blockquote{margin:8px 0;overflow-wrap:anywhere;word-break:keep-all}
+@media(max-width:600px){
+  .review-panel{padding:8px 10px}
+  .review-panel .actions .button{flex:1 1 auto;min-width:0;font-size:12.5px;padding:6px 8px}
+  .review-panel select{max-width:100%}
+}

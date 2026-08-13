@@ -124,7 +124,9 @@ test('화면은 총론을 먼저 그리고 각론은 눌러야 편다', () => {
   assert.match(app, /id="coaching-fix-first"/);
   assert.match(app, /id="coaching-detail-toggle"/);
   // 각론은 상태가 켜졌을 때만 그린다.
-  assert.match(app, /state\.coaching\.detailOpen \? coachingDetailView\(/);
+  assert.match(app, /state\.reviewDetail \? coachingDetailView\(/);
+  // 각론을 폈는지는 저장하지 않는다. 다음에 들어와도 총론부터 본다.
+  assert.match(app, /const safe = \{ \.\.\.state, reviewDetail: false, reviewPanels: \[\], reviewFocus: false,/);
   // 펼치기·접기는 화면 값만 바꾼다. AI를 다시 부르지 않는다.
   const handler = app.match(/#coaching-detail-toggle'\)[^\n]*\n/)?.[0] || '';
   assert.ok(handler.includes('setState'), handler);
