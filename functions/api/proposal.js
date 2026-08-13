@@ -30,7 +30,7 @@ const LIMITS = Object.freeze({
   timeoutMs: 300_000,
   outputTokens: Object.freeze({ analyze: 6_000, master: 12_000, masterDesign: 8_000, masterPlan: 7_000, draftPart: 7_000, draft: 12_000, fullProposal: 20_000, preciseReview: 8_000, patchSections: 10_000, rewrite: 4_000, finalize: 9_000, coreProposal: 5_000 })
 });
-const ACTIONS = ['analyze', 'master', 'draftPart', 'draft', 'fullProposal', 'preciseReview', 'patchSections', 'rewrite', 'finalize', CORE_PROPOSAL_ACTION, DIAGNOSIS_ACTION];
+const ACTIONS = ['analyze', 'master', 'masterDesign', 'masterPlan', 'draftPart', 'draft', 'fullProposal', 'preciseReview', 'patchSections', 'rewrite', 'finalize', CORE_PROPOSAL_ACTION, DIAGNOSIS_ACTION];
 
 // 프리미엄 계약을 읽어 전문 작업 가능 여부만 본다. users.plan = 'full' 하나로 판정하지 않는다.
 async function loadPremiumContract(db, userId) {

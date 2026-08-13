@@ -28,6 +28,11 @@ test('두 걸음은 앞단으로 돌고, 끊길 때만 배경으로 옮긴다', 
   assert.match(api, /masterDesign: 8_000, masterPlan: 7_000/);
 });
 
+test('새 걸음이 허용 목록에 있다', () => {
+  // 목록에 없으면 서버가 400 「지원하지 않는 작업입니다」로 막는다.
+  assert.match(api, /const ACTIONS = \['analyze', 'master', 'masterDesign', 'masterPlan', 'draftPart',/);
+});
+
 test('2걸음은 1걸음 결과 없이는 돌지 않는다', () => {
   assert.match(api, /if \(action === 'masterPlan' && \(!payload\.design\?\.projectDesign \|\| !payload\.design\?\.sponsorIntent\)\) return '목차 분할에는 확정된 설계 1걸음 결과가 필요합니다\.';/);
   // 1걸음은 공고 원문을 받고, 2걸음은 앞 걸음 결과만 받는다(같은 원문을 두 번 보내지 않는다).
