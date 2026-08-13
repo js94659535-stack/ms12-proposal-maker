@@ -6150,7 +6150,7 @@ function bindApplicants() {
   document.querySelectorAll('[data-quick-field]').forEach(el => el.oninput = () => { state.quickOrg = { ...quickDraft(), [el.dataset.quickField]: el.value }; });
   document.querySelectorAll('select[data-quick-field]').forEach(el => el.onchange = () => setState({ quickOrg: { ...quickDraft(), [el.dataset.quickField]: el.value } }));
   document.querySelector('#quick-idea')?.addEventListener('input', event => { state.quickOrg = { ...quickDraft(), idea: event.target.value }; });
-  document.querySelector('#quick-pick')?.addEventListener('change', event => setState({ selectedApplicantId: event.target.value, applicantEditingId: event.target.value, notice: event.target.value ? '저장해 둔 기관정보를 씁니다.' : '' }));
+  document.querySelector('#quick-pick')?.addEventListener('change', event => setState({ selectedApplicantId: event.target.value, applicantEditingId: event.target.value, quickOrg: { ...quickDraft(), ...draftFromApplicant(findApplicant(state.applicants, event.target.value)) }, notice: event.target.value ? '저장해 둔 기관정보를 씁니다.' : '' }));
   document.querySelector('#quick-save')?.addEventListener('click', () => void saveQuickOrg());
   document.querySelector('#quick-draft')?.addEventListener('click', () => void startQuickDraft());
   document.querySelectorAll('[data-followup-field]').forEach(el => el.oninput = () => { state.quickAnswers = { ...(state.quickAnswers || {}), [el.dataset.followupField]: el.value }; });
@@ -6227,7 +6227,8 @@ function addApplicant() {
   const applicant = normalizeApplicant({ name });
   state.applicants = upsertApplicant(state.applicants, applicant);
   state.applicantNameDraft = '';
-  setState({ applicants: state.applicants, applicantNameDraft: '', applicantEditingId: applicant.id, notice: `${name} 신청기관을 추가했습니다. 항목을 등록하세요.`, error: '' });
+  // 새 기관에는 앞서 열어 둔 기관의 담당자·유형이 따라오지 않는다. 기관명만 물려준다.
+  setState({ applicants: state.applicants, applicantNameDraft: '', applicantEditingId: applicant.id, openOrgGroups: [], quickOrg: { orgName: applicant.name }, notice: `${name} 신청기관을 추가했습니다. 기본정보부터 적어 주세요.`, error: '' });
   void persistApplicant(applicant.id, false);
 }
 
@@ -6338,7 +6339,8 @@ function selectApplicantForProject(id) {
   if (!applicant) return setState({ error: '선택한 신청기관을 찾지 못했습니다.' });
   const confirmed = confirmedItems(applicant).length;
   state.activeTool = 'workflow';
-  navigateToStep(2, { selectedApplicantId: applicant.id, applicantComparison: null, applicantSkipped: false, notice: `${applicant.name}의 확인된 정보 ${confirmed}건을 이번 사업에 불러왔습니다.`, error: '' });
+  // 고른 기관의 기본정보를 입력칸에 그대로 채운다. 계획서마다 같은 것을 다시 적지 않게 한다.
+  navigateToStep(2, { selectedApplicantId: applicant.id, applicantComparison: null, applicantSkipped: false, quickOrg: { ...quickDraft(), ...draftFromApplicant(applicant) }, notice: `${applicant.name}의 확인된 정보 ${confirmed}건을 이번 사업에 불러왔습니다.`, error: '' });
 }
 
 function removeApplicant(id) {
@@ -7438,6 +7440,8 @@ function bindSimple() {
   document.querySelector('#simple-idea')?.addEventListener('change', event => setState({ projectNarrative: event.target.value }));
   document.querySelector('#simple-org-pick')?.addEventListener('change', event => setState({
     selectedApplicantId: event.target.value, applicantEditingId: event.target.value,
+    // 고른 기관의 기본정보를 입력칸에 그대로 채운다. 같은 것을 다시 적지 않게 한다.
+    quickOrg: { ...quickDraft(), ...draftFromApplicant(findApplicant(state.applicants, event.target.value)) },
     notice: event.target.value ? '저장해 둔 기관정보를 씁니다.' : ''
   }));
   document.querySelector('#simple-generate')?.addEventListener('click', () => void runSimpleGeneration());
