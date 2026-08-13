@@ -203,6 +203,8 @@ try {
   }
 
   // ---------- 7. 새 계획서에서 다시 쓴다 ----------
+  // 작성 화면으로 나가서 본다. 기관정보 페이지에 머무르면 첫 화면 배너가 보이지 않는다.
+  await page.click('#basic-to-writing', 3000);
   const reuse = await page.run(`(() => {
     const el = [...document.querySelectorAll('.alert')].find(item => (item.textContent || '').includes('기관정보를 한 번 등록해 두면'));
     return JSON.stringify({ text: (el?.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 120) });
@@ -250,6 +252,8 @@ try {
   // ---------- 10. 시험자료 정리 ----------
   record(18, '일반회원 재로그인', await signIn(customer), customer.email);
   await page.run("(() => { const el = document.querySelector('[data-open-applicants]'); if (el) el.click(); return '1'; })()", 2500);
+  // 브라우저 상태를 비우고 다시 들어오면 목록은 비어 있다. 보관함에서 불러온 뒤 지운다.
+  await page.click('#load-applicants', 4000);
   const removed = await page.run(`(async () => {
     const ids = [...document.querySelectorAll('[data-delete-applicant]')]
       .filter(el => (el.closest('.requirement')?.textContent || '').includes('E2E-ORG'))
