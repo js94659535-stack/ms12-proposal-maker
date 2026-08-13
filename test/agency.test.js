@@ -160,7 +160,15 @@ test('자격을 거두면 로그인은 남고 역할만 일반회원으로 돌�
   const block = admin.slice(admin.indexOf('async function setAgency'), admin.indexOf('// 자료 인계'));
   assert.ok(!/DELETE FROM users/.test(block));
   assert.ok(!/status = 'disabled'/.test(block));
-  assert.match(block, /DELETE FROM sessions WHERE user_id = \?/, '역할이 바뀌면 다시 로그인한다');
+  // 로그인은 그대로 둔다. 역할은 임명 기록으로 요청마다 다시 읽으므로 다음 요청부터 곧바로 바뀐다.
+  assert.ok(!/DELETE FROM sessions/.test(block), '자격을 거둬도 로그인은 끊지 않는다');
+  const session = fs.readFileSync(new URL('../server/session.js', import.meta.url), 'utf8');
+  assert.match(session, /function roleWithAgency\(row\) \{/);
+  assert.match(session, /return live \? 'agency' : row\.role;/);
+  // 운영 계정의 역할은 임명 기록이 바꾸지 못한다.
+  assert.match(session, /if \(row\.role === 'admin' \|\| row\.role === 'operator'\) return row\.role;/);
+  // users.role에는 'agency'를 넣지 않는다. 기존 CHECK 제약을 건드리지 않으려는 것이다.
+  assert.ok(!/UPDATE users SET role = 'agency'/.test(admin));
 });
 
 test('대행회원은 요금 없이 최고관리자가 연 자격으로 전문 작업을 쓴다', () => {

@@ -56,11 +56,24 @@ export async function createSession(db, userId, now = new Date()) {
 }
 
 // 만료·비활성 계정은 세션이 있어도 통과시키지 않는다.
+// 임명이 살아 있는 동안만 대행회원으로 읽는다. 운영 계정의 역할은 바꾸지 않는다.
+function roleWithAgency(row) {
+  if (row.role === 'admin' || row.role === 'operator') return row.role;
+  const today = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const live = row.agency_status === 'active'
+    && (!row.agency_starts_on || today >= row.agency_starts_on)
+    && (!row.agency_ends_on || today <= row.agency_ends_on);
+  return live ? 'agency' : row.role;
+}
+
 export async function loadSession(db, token, now = new Date()) {
   if (!/^[a-f0-9]{64}$/.test(String(token || ''))) return null;
   const tokenHash = await sha256Hex(token);
-  const row = await db.prepare(`SELECT s.token_hash, s.expires_at, s.created_at, u.id AS user_id, u.email, u.role, u.org_id, u.name, u.status, u.plan, u.trial_used_at
-    FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?`).bind(tokenHash).first();
+  const row = await db.prepare(`SELECT s.token_hash, s.expires_at, s.created_at, u.id AS user_id, u.email, u.role, u.org_id, u.name, u.status, u.plan, u.trial_used_at,
+      g.status AS agency_status, g.starts_on AS agency_starts_on, g.ends_on AS agency_ends_on
+    FROM sessions s JOIN users u ON u.id = s.user_id
+    LEFT JOIN agency_grants g ON g.user_id = u.id
+    WHERE s.token_hash = ?`).bind(tokenHash).first();
   if (!row) return null;
   // pending은 가입 절차를 마치라고 붙여 둔 상태다. 세션은 열리지만 작업 API는 미들웨어가 막는다.
   if (!SESSION_VIEW_STATUSES.has(row.status) || !row.expires_at || row.expires_at <= now.toISOString()) return null;
@@ -72,7 +85,7 @@ export async function loadSession(db, token, now = new Date()) {
     createdAt: row.created_at || '',
     // 이용권은 요청마다 users 행에서 다시 읽는다. 관리자가 바꾸면 다시 로그인하지 않아도 곧바로 반영된다.
     user: {
-      id: row.user_id, email: row.email, role: row.role, orgId: row.org_id || '', name: row.name || '', status: row.status,
+      id: row.user_id, email: row.email, role: roleWithAgency(row), orgId: row.org_id || '', name: row.name || '', status: row.status,
       plan: row.plan || DEFAULT_PLAN, trialUsedAt: row.trial_used_at || ''
     }
   };

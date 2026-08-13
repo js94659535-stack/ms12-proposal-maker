@@ -25,8 +25,9 @@ test('대행회원은 회원 쪽이고 고객 기관을 여럿 둔다', () => {
   assert.ok(!canHoldClients('customer'), '일반회원은 자기 기관만 쓴다');
 });
 
-test('관리자는 일반회원·대행회원·운영관리자만 지정할 수 있다', () => {
-  assert.deepEqual(ASSIGNABLE_ROLES, ['customer', 'agency', 'operator']);
+test('관리자 화면의 역할 목록에는 대행회원이 없다', () => {
+  // 대행회원은 역할 목록이 아니라 임명 기록으로 정해진다. 「대행회원 관리」에서 다룬다.
+  assert.deepEqual(ASSIGNABLE_ROLES, ['customer', 'operator']);
   assert.ok(!ASSIGNABLE_ROLES.includes('admin'), '최고관리자는 화면에서 넘겨주지 않는다');
   // 서버가 같은 목록으로 막는다. 화면 목록만 늘려도 통과하지 않는다.
   assert.match(admin, /const ASSIGNABLE = new Set\(ASSIGNABLE_ROLES\);/);

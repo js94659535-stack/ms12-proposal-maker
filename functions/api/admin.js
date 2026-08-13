@@ -121,13 +121,9 @@ async function setAgency(db, actor, body) {
     startsOn: body.startsOn || '', endsOn: body.endsOn || '', note: body.note || ''
   });
 
-  // 자격이 살아 있으면 역할도 대행회원으로, 거두면 일반회원으로 되돌린다. 로그인은 그대로 유지된다.
+  // users.role은 그대로 둔다. 대행회원은 임명 기록으로 읽는 역할이고, 로그인 계정은 일반회원 그대로다.
+  // 자격을 거두면 다음 요청부터 곧바로 일반회원으로 돌아간다. 세션을 끊지 않는다.
   const nextRole = status === 'revoked' ? 'customer' : 'agency';
-  if (target.role !== nextRole) {
-    await db.prepare('UPDATE users SET role = ?, updated_at = ? WHERE id = ?').bind(nextRole, new Date().toISOString(), targetId).run();
-    // 역할이 바뀌면 쓰던 세션을 끊어 새 권한으로 다시 로그인하게 한다.
-    await db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(targetId).run();
-  }
 
   await recordAudit(db, {
     actor, action: `admin.agency.${status}`, targetId,

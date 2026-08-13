@@ -31,7 +31,9 @@ const call = (path, body) => page.run(`(async () => {
 })()`, 800);
 
 const archiveCall = (action, body = {}) => page.run(`(async () => {
-  const key = localStorage.getItem('ms12_archive_key_v1') || '';
+  // 보관함 키가 없으면 만든다. 화면이 처음 쓸 때 만드는 것과 같은 값이다.
+  let key = localStorage.getItem('ms12_archive_key_v1');
+  if (!key) { key = crypto.randomUUID(); localStorage.setItem('ms12_archive_key_v1', key); }
   const r = await fetch('/api/archive', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Archive-Key': key },
     body: JSON.stringify({ action: ${JSON.stringify(action)}, ...${JSON.stringify(body)} }) });
   const text = await r.text();
@@ -81,9 +83,19 @@ try {
   }))()`);
   record(9, '대행회원 화면에 남은 편수·작업공간 전환 표시', view?.quota === true && view?.toggle === true, `표시 ${view?.quota} · 전환 ${view?.toggle}`);
 
-  // 한도를 넘긴 상태에서 AI 호출은 부르기 전에 막혀야 한다.
-  const blocked = await call('/api/proposal', { action: 'master', payload: { proposalId: 'e2e-agency', sourceText: 'E2E-AGENCY 한도 확인용 자료입니다. '.repeat(6) } });
-  record(10, '한도 초과 시 AI 호출 전에 차단', blocked?.status === 403 && /한도|상한/.test(blocked?.error || ''), `HTTP ${blocked?.status} · ${blocked?.error}`);
+  // 토큰 상한을 1로 두었으므로 첫 호출은 통과하고(사용량 0), 그 호출이 남긴 토큰 때문에 다음 호출이 막힌다.
+  // 가짜 사용기록을 만들지 않고 실제 사용량으로 확인한다.
+  const source = 'E2E-AGENCY 한도 확인용 시험 공고문입니다. 대상은 지역아동센터 아동이며 기간은 확인 필요입니다. '.repeat(3);
+  const firstCall = await page.run(`(async () => {
+    const r = await fetch('/api/proposal', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'analyze', payload: { proposalId: 'e2e-agency-limit', sourceText: ${JSON.stringify(source)} } }) });
+    let data = {}; try { data = await r.json(); } catch { data = {}; }
+    return JSON.stringify({ status: r.status, error: String(data.error || '').slice(0, 80) });
+  })()`, 120000);
+  record(10, '요금 없이 자격만으로 AI 사용', firstCall?.status === 200, `HTTP ${firstCall?.status} ${firstCall?.error || ''}`);
+  const blocked = await call('/api/proposal', { action: 'master', payload: { proposalId: 'e2e-agency-limit', sourceText: source } });
+  record(10.5, '한도 초과 시 AI 호출 전에 차단', blocked?.status === 403 && /상한|한도|모두 썼습니다/.test(blocked?.error || ''),
+    `HTTP ${blocked?.status} · ${blocked?.error}`);
 
   // 대행 업무 자료를 하나 만든다.
   const madeClient = await archiveCall('saveApplicant', {

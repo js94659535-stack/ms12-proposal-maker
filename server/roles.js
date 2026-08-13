@@ -19,7 +19,8 @@ export const ROLE_DUTY = Object.freeze({
 });
 
 // 관리자가 바꿔 줄 수 있는 역할. 최고관리자는 화면에서 넘겨주지 않는다.
-export const ASSIGNABLE_ROLES = Object.freeze(['customer', 'agency', 'operator']);
+// 대행회원(agency)은 여기에 없다. 임명 기록으로 정해지므로 「대행회원 관리」에서 다룬다.
+export const ASSIGNABLE_ROLES = Object.freeze(['customer', 'operator']);
 
 // 회원 쪽 역할. 자기 자료만 보고 쓴다.
 export const MEMBER_ROLES = Object.freeze(['customer', 'agency']);
