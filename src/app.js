@@ -4,6 +4,7 @@ import { extractFile, extractFiles } from './files.js';
 import { localAnalyze } from './fallback.js';
 import { buildDocxBlob, downloadBlob, exportDocx, exportPdf, printDocument, submissionFileName } from './export.js';
 import { buildProposalPdfBlob, exportProposalPdf } from './pdf-export.js';
+import { buildHwpxBlob } from './hwpx-export.js';
 import { MANIFEST_NAME, packageStale, planSubmissionZip, zipBytes } from './submission-zip.js';
 import { agencyMe, acknowledgePrivacyNotice, UNAUTHORIZED, accountProfile, clearOAuthCallback, currentUser, finishSocial, login, logout, readOAuthCallback, recoverPassword, saveAccountProfile, saveMemberInfo, signup as signupEmail, startSocial } from './auth.js';
 import { premiumNoticeHistory, premiumShowcase, premiumStatus } from './premium.js';
@@ -4269,6 +4270,7 @@ function simpleResultActions() {
     <button class="button primary" id="simple-revise" ${guard(left.total ? '' : `이 계획서의 AI 수정 2회를 모두 썼습니다. 직접 편집은 계속할 수 있습니다.`)}>한 번에 수정 요청 ${left.total ? `(${left.total}회 남음)` : '(소진)'}</button>
     <button class="button secondary" id="save-proposal-archive">저장${saved ? ' 완료' : ''}</button>
     <button class="button secondary" id="final-docx-top">DOCX 받기</button>
+    <button class="button secondary" id="final-hwpx-top">한글(HWPX) 받기</button>
     <button class="button secondary" id="final-pdf-top">PDF 받기</button>
     <button class="button secondary" id="simple-expert">전문 검토 보기</button>
   </div>`;
@@ -5577,6 +5579,7 @@ function bind() {
   // 환류 작업흐름: 완성본 → 수정 요청 → 검토 제출 → 버전 이력 → 최종 승인.
   document.querySelector('#open-full-proposal')?.addEventListener('click', () => document.querySelector('#final-submission, #result-pipeline')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   document.querySelector('#final-docx-top')?.addEventListener('click', () => exportDocx(state.project, state.sections));
+  document.querySelector('#final-hwpx-top')?.addEventListener('click', () => downloadProposalHwpx());
   document.querySelector('#final-pdf-top')?.addEventListener('click', () => downloadProposalPdf());
   document.querySelector('#open-revision-request')?.addEventListener('click', () => setProposalFlow({ requestOpen: !proposalFlow().requestOpen }));
   document.querySelector('#cancel-revision-request')?.addEventListener('click', () => setProposalFlow({ requestOpen: false }));
@@ -7012,6 +7015,19 @@ async function analyze() {
 
 // PDF는 파일로 내려받는다. 인쇄 창은 팝업 차단에 걸리면 아무 일도 일어나지 않는다.
 // 한글 글꼴을 넣어 만든 실제 PDF이며, 만들다 실패하면 빈 파일을 내려받지 않고 이유를 알린다.
+// 한글 파일로 내보내기. 한글 2014 이상에서 열린다.
+// 표는 칸을 나눈 글줄로 들어간다. 표 서식 그대로가 필요하면 DOCX·PDF를 쓴다.
+function downloadProposalHwpx() {
+  if (!state.sections.length) return setState({ error: '먼저 계획서를 만들어 주세요.' });
+  try {
+    const blob = buildHwpxBlob({ project: state.project, sections: state.sections, tables: state.proposalTables || [] });
+    downloadBlob(blob, `${String(state.project.title || '사업계획서').replace(/[\/:*?"<>|]/g, ' ').trim().slice(0, 80)}_검토용.hwpx`);
+    setState({ notice: '한글 파일(HWPX)을 내려받았습니다. 한글 2014 이상에서 열립니다. 표 서식이 그대로 필요하면 DOCX를 쓰세요.', error: '' });
+  } catch (error) {
+    setState({ error: `한글 파일을 만들지 못했습니다. ${String(error?.message || '').slice(0, 60)}` });
+  }
+}
+
 async function downloadProposalPdf() {
   if (!state.sections.length) return setState({ error: 'PDF로 출력할 내용이 없습니다. 계획서를 먼저 작성해 주세요.' });
   setState({ busy: 'PDF를 만드는 중...', error: '', notice: '' });
