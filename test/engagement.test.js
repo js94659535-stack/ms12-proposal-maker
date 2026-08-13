@@ -167,7 +167,7 @@ test('설계안은 강제조건·유형·핵심값·수행모델·확인사항·
   assert.ok(brief.targetTotalChars > 0);
 });
 
-test('설계 승인 전에는 전체 계획서 작성을 막고 열람은 막지 않는다', () => {
+test('설계 확인은 선택이고 초안 작성을 막지 않는다', () => {
   assert.deepEqual(DESIGN_STATES, ['설계 준비 중', '확인 요청', '운영자 검토', '설계 승인', '계획서 작성 완료']);
   assert.deepEqual(APPROVAL_ROLES, ['고객', '운영자']);
   assert.equal(designStatus({}), '설계 준비 중');
@@ -176,8 +176,11 @@ test('설계 승인 전에는 전체 계획서 작성을 막고 열람은 막지
   assert.equal(designStatus({ approval: { approvedAt: 'z', approvedBy: '운영자' } }), '설계 승인');
   assert.equal(designStatus({ approval: { approvedAt: 'z' }, sections: [{ id: 'necessity' }] }), '계획서 작성 완료');
 
-  assert.equal(canGenerateProposal({}).allowed, false);
-  assert.match(canGenerateProposal({}).reason, /설계 승인 후에 전체 계획서를 작성합니다/);
+  // 항목마다 확정을 눌러야 시작할 수 있으면 사용자가 지친다. 초안을 먼저 만들고 확정은 마지막 한 번이다.
+  assert.equal(canGenerateProposal({}).allowed, true);
+  assert.match(canGenerateProposal({}).reason, /확정은 마지막에 한 번 합니다/);
+  // 설계 상태 기록은 그대로 남는다. 확인 절차 자체를 없애지 않았다.
+  assert.equal(designStatus({ approval: { approvedAt: 'z' } }), '설계 승인');
   assert.equal(canGenerateProposal({ approval: { approvedAt: 'z', approvedBy: '고객' } }).allowed, true);
   // 이미 시작한 작성의 이어쓰기와 기존 계획서 열람은 막지 않는다.
   assert.equal(canGenerateProposal({ startedParts: 2 }).allowed, true);

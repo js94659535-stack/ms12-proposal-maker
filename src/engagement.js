@@ -97,10 +97,12 @@ export function designSnapshotStale(approval, brief) {
 }
 
 // 승인 전에는 전체 계획서 작성을 실행하지 않는다. 이미 시작한 작성의 이어쓰기와 열람은 막지 않는다.
+// 초안 작성은 막지 않는다. 항목마다 확정을 눌러야 시작할 수 있으면 사용자가 지친다.
+// 설계 확인은 선택이고, 확정은 마지막에 「전체 최종확정」 한 번으로 한다.
 export function canGenerateProposal({ approval, sections = [], startedParts = 0 } = {}) {
   if (makeDesignApproval(approval).approvedAt) return { allowed: true, reason: '' };
   if (sections.length || startedParts) return { allowed: true, reason: '이미 시작한 작성을 이어서 진행합니다.' };
-  return { allowed: false, reason: '사업 설계 승인 후에 전체 계획서를 작성합니다. 「의뢰 건」 화면에서 설계안을 확인하고 승인해 주세요.' };
+  return { allowed: true, reason: '설계 확인 없이 초안을 먼저 만듭니다. 확정은 마지막에 한 번 합니다.' };
 }
 
 // 승인 전에 보여 줄 설계안 한 장. 공고 강제조건과 이번 사업 값, 확인된 사실을 한자리에 모은다.

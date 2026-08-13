@@ -30,8 +30,9 @@ test('전체 계획서 작성 요청은 정확히 한 번만 만들어진다', (
   assert.match(app, /이 경로는 이미 분할 작성을 시작한 기존 계획서의 이어쓰기 전용이다/);
 });
 
-test('승인되지 않은 설계안이면 전체 계획서 작성을 실행하지 않는다', () => {
-  assert.equal(canGenerateProposal({}).allowed, false);
+test('설계 확인 없이도 초안을 만들고, 서버는 설계안을 그대로 요구한다', () => {
+  // 화면에서는 항목별 확정을 요구하지 않는다. 초안을 먼저 받고 확정은 마지막 한 번이다.
+  assert.equal(canGenerateProposal({}).allowed, true);
   // 실행 경로와 버튼 양쪽에서 막는다.
   assert.match(fullProposalFn, /const permission = generationPermission\(\);\s*\n\s*if \(!permission\.allowed\) return setState\(\{ error: permission\.reason \}\);/);
   // 버튼은 눌리되 실행되지 않고 설계 확인으로 이어진다. 실제 차단은 실행 경로와 서버가 맡는다.

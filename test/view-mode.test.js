@@ -105,3 +105,23 @@ test('검증·코칭 입력칸은 빈칸이면 세 줄, 내용만큼만 늘어�
   assert.match(app, /function fitAutoGrow\(\) \{/);
   assert.match(app, /el\.addEventListener\('input', \(\) => fitTextarea\(el\)\);/);
 });
+
+test('확정은 마지막에 한 번이고 항목마다 누르지 않는다', () => {
+  // 초안 작성을 설계 승인으로 막지 않는다.
+  const engagement = fs.readFileSync(new URL('../server/../src/engagement.js', import.meta.url), 'utf8');
+  assert.match(engagement, /초안 작성은 막지 않는다/);
+  assert.doesNotMatch(engagement, /allowed: false, reason: '사업 설계 승인 후에/);
+  // 결과 화면에 최종확정이 하나 있다.
+  assert.match(app, /function finalConfirmView\(\) \{/);
+  assert.match(app, /id="run-final-confirm"/);
+  assert.equal((app.match(/id="run-final-confirm"/g) || []).length, 1);
+  // 한 번 누르면 요청·검토·승인을 함께 기록한다. 확인 절차 자체를 없애지 않았다.
+  const handler = app.slice(app.indexOf("#run-final-confirm'"), app.indexOf("#undo-final-confirm'"));
+  for (const step of ['requestDesignReview();', 'startDesignReview();', 'approveDesign({ silent: true });']) {
+    assert.ok(handler.includes(step), step);
+  }
+  // 확정해도 되돌릴 수 있다.
+  assert.match(app, /id="undo-final-confirm"/);
+  // 확인 필요가 남아 있어도 막지 않고 무엇이 남는지 알려 준다.
+  assert.match(app, /그대로 확정하면 \[확인 필요\] 표시가 제출본에 남습니다/);
+});

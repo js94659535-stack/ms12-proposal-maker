@@ -4296,6 +4296,22 @@ function openMarksPanel() {
   </details>`;
 }
 
+// 전체 최종확정. 항목마다 확정을 누르지 않고 마지막에 한 번 한다.
+// 확정하면 이 판을 제출본으로 굳히고 설계 확인 기록도 함께 남긴다. 되돌릴 수 있다.
+function finalConfirmView() {
+  const open = openMarkCount();
+  const confirmed = Boolean(state.engagement?.design?.approvedAt);
+  return `<div class="card" id="final-confirm">
+    <div class="card-title"><div><h3>전체 최종확정</h3>
+      <span>${confirmed ? '이 판을 제출본으로 확정했습니다.' : '다 보고 나서 한 번만 누르면 됩니다. 항목마다 확정할 필요가 없습니다.'}</span></div>
+      <span class="status ${confirmed ? '충족' : '확인-필요'}">${confirmed ? '확정됨' : '확정 전'}</span></div>
+    ${open ? `<p class="muted">확인이 필요한 값 ${open}곳이 남아 있습니다. 그대로 확정하면 [확인 필요] 표시가 제출본에 남습니다.</p>` : ''}
+    <div class="actions"><span class="muted">확정해도 계속 고칠 수 있습니다. 고치면 확정을 다시 누르면 됩니다.</span>
+      <div>${confirmed ? '<button class="button secondary" id="undo-final-confirm">확정 풀기</button>' : ''}
+      <button class="button primary" id="run-final-confirm" ${auth.busy ? 'disabled' : ''}>${confirmed ? '다시 확정' : '전체 최종확정'}</button></div></div>
+  </div>`;
+}
+
 function simpleResultActions() {
   const saved = Boolean(state.archiveProposalId);
   const left = remainingOf(state.revisions || []);
@@ -4308,7 +4324,8 @@ function simpleResultActions() {
     ${currentFormSpec() ? '<button class="button primary" id="final-form-docx">올린 서식대로 받기(DOCX)</button>' : ''}
     <button class="button secondary" id="final-pdf-top">PDF 받기</button>
     <button class="button secondary" id="simple-expert">전문 검토 보기</button>
-  </div>`;
+  </div>
+  ${finalConfirmView()}`;
 }
 
 // 한 번에 수정 요청. 항목별로 고르게 하지 않는다.
@@ -7283,6 +7300,24 @@ function bindSimple() {
     notice: event.target.value ? '저장해 둔 기관정보를 씁니다.' : ''
   }));
   document.querySelector('#simple-generate')?.addEventListener('click', () => void runSimpleGeneration());
+  document.querySelector('#run-final-confirm')?.addEventListener('click', () => {
+    if (!state.sections.length) return setState({ error: '먼저 계획서를 만들어 주세요.' });
+    const open = openMarkCount();
+    // 설계 확인 절차를 없애지 않는다. 한 번 누른 것으로 요청·검토·승인을 함께 기록한다.
+    requestDesignReview();
+    startDesignReview();
+    approveDesign({ silent: true });
+    setState({
+      notice: open
+        ? `이 판을 제출본으로 확정했습니다. 확인 필요 ${open}곳은 표시가 남습니다.`
+        : '이 판을 제출본으로 확정했습니다. 확인 필요 표시가 없습니다.',
+      error: ''
+    });
+    if (state.archiveProposalId) void archiveCurrentProposal('final').catch(() => {});
+  });
+  document.querySelector('#undo-final-confirm')?.addEventListener('click', () => {
+    setDesignApproval({ approvedAt: '', approvedBy: '', reviewStartedAt: '', requestedAt: '' }, '확정을 풀었습니다. 계속 고칠 수 있습니다.');
+  });
   document.querySelectorAll('[data-mark-key]').forEach(el => el.onchange = () => {
     state.markDraft = { ...(state.markDraft || {}), [el.dataset.markKey]: el.value };
   });
