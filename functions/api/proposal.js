@@ -413,7 +413,8 @@ function validate(action, payload) {
     if (jsonLength(payload.designPlan) > 200_000) return '설계안이 허용 길이를 초과했습니다.';
     return '';
   }
-  if (action !== 'analyze' && !payload.analysis && !includesSource) return '확정된 분석 결과가 없습니다.';
+  // 설계 2걸음은 앞 걸음 결과(design)가 분석 결과 노릇을 한다. 위에서 이미 확인했다.
+  if (action !== 'analyze' && action !== 'masterPlan' && !payload.analysis && !includesSource) return '확정된 분석 결과가 없습니다.';
   return '';
 }
 

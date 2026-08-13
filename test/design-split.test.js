@@ -37,6 +37,8 @@ test('2걸음은 1걸음 결과 없이는 돌지 않는다', () => {
   assert.match(api, /if \(action === 'masterPlan' && \(!payload\.design\?\.projectDesign \|\| !payload\.design\?\.sponsorIntent\)\) return '목차 분할에는 확정된 설계 1걸음 결과가 필요합니다\.';/);
   // 1걸음은 공고 원문을 받고, 2걸음은 앞 걸음 결과만 받는다(같은 원문을 두 번 보내지 않는다).
   assert.match(api, /const includesSource = action === 'analyze' \|\| action === 'master' \|\| action === 'masterDesign'/);
+  // 2걸음은 앞 걸음 결과가 분석 결과 노릇을 한다. 「확정된 분석 결과가 없습니다」로 막히지 않는다.
+  assert.match(api, /if \(action !== 'analyze' && action !== 'masterPlan' && !payload\.analysis && !includesSource\)/);
 });
 
 test('화면은 예전처럼 한 번 부르고, 안에서 두 걸음으로 나뉜다', () => {
