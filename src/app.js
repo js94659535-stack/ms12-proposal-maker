@@ -4298,6 +4298,28 @@ function openMarksPanel() {
 
 // 전체 최종확정. 항목마다 확정을 누르지 않고 마지막에 한 번 한다.
 // 확정하면 이 판을 제출본으로 굳히고 설계 확인 기록도 함께 남긴다. 되돌릴 수 있다.
+function formPreviewView() {
+  const laid = currentFormLayout();
+  if (!laid.ok) return `<div class="card"><p class="muted">${escapeHtml(laid.reason)}</p></div>`;
+  const rows = laid.sections.map(item => `<article class="requirement">
+    <div><span class="status ${item.content.startsWith('[확인 필요') ? '확인-필요' : '충족'}">${item.fromForm ? '서식 항목' : '서식 외'}</span>
+      <div><strong>${escapeHtml(item.title)}</strong>
+        <small>${item.limitChars ? `제한 ${item.limitChars.toLocaleString('ko-KR')}자${item.over ? ` · ${item.over}자 초과` : ''}` : '분량 제한 없음'}</small></div></div>
+    <p class="muted">${escapeHtml(String(item.content).slice(0, 160))}${String(item.content).length > 160 ? '…' : ''}</p></article>`).join('');
+  const tables = laid.tables.map(table => `<article class="requirement">
+    <div><span class="status ${table.matched ? '충족' : '확인-필요'}">${table.fromForm ? '서식 표' : '추가 표'}</span>
+      <div><strong>${escapeHtml(table.title || '표')}</strong><small>${(table.rows[0] || []).map(cell => escapeHtml(String(cell))).join(' · ')}</small></div></div>
+    ${table.note ? `<p class="muted">${escapeHtml(table.note)}</p>` : ''}</article>`).join('');
+  return `<details class="card" id="form-preview">
+    <summary><b>원본 서식 미리보기</b> <small>${escapeHtml(fillSummary(laid))}</small></summary>
+    <p class="muted">올린 신청서의 항목 이름·순서·표 칸을 그대로 씁니다. 쓰지 않은 항목은 지어내지 않고 [확인 필요]로 남깁니다.</p>
+    <div class="requirement-list">${rows}</div>
+    ${tables ? `<h4>표 ${laid.tables.length}개</h4><div class="requirement-list">${tables}</div>` : ''}
+    <div class="actions"><span class="muted">이 배치 그대로 내려받습니다.</span>
+      <button class="button primary" id="preview-form-docx">올린 서식대로 받기(DOCX)</button></div>
+  </details>`;
+}
+
 function finalConfirmView() {
   const open = openMarkCount();
   const confirmed = Boolean(state.engagement?.design?.approvedAt);
@@ -4325,6 +4347,7 @@ function simpleResultActions() {
     <button class="button secondary" id="final-pdf-top">PDF 받기</button>
     <button class="button secondary" id="simple-expert">전문 검토 보기</button>
   </div>
+  ${currentFormSpec() ? formPreviewView() : ''}
   ${finalConfirmView()}`;
 }
 
@@ -5752,6 +5775,7 @@ function bind() {
   document.querySelector('#final-docx-top')?.addEventListener('click', () => exportDocx(state.project, state.sections));
   document.querySelector('#final-hwpx-top')?.addEventListener('click', () => downloadProposalHwpx());
   document.querySelector('#final-form-docx')?.addEventListener('click', () => void downloadFormFilled());
+  document.querySelector('#preview-form-docx')?.addEventListener('click', () => void downloadFormFilled());
   // 제출 판정에 막혀도 지금까지 쓴 내용은 검토본으로 받는다.
   document.querySelector('#package-review-docx')?.addEventListener('click', () => exportDocx(state.project, state.sections, { tables: state.proposalTables || [] }).catch(showError));
   document.querySelector('#package-review-pdf')?.addEventListener('click', () => void downloadProposalPdf());
