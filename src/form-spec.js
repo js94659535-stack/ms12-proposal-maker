@@ -245,3 +245,32 @@ export function mergeFormTables(planTables = [], formSpec) {
   const rest = planTables.filter(table => !formTables.some(entry => entry.kind === table.kind));
   return [...formTables, ...rest];
 }
+
+// 올린 서식의 작성 항목 전체를 문서 뼈대로 만든다.
+//
+// 왜 필요한가. 우리 표준 10항목만 배치하면 서식의 나머지 항목은 빈칸으로 남고, 사용자가
+// 결국 신청서에 옮겨 적게 된다. 제출하는 문서는 기관 서식이므로 그 항목 전부를 자리로 둔다.
+// 생성은 지금처럼 표준 10항목으로 하고, 배치만 서식 순서를 따른다.
+export function formItemSkeleton(formSpec, outline = []) {
+  const items = formSpec?.items || [];
+  if (!items.length) return [];
+  // 우리 항목이 어느 서식 항목에 붙었는지 먼저 확인한다(이름이 같으면 그 자리로 간다).
+  const byName = new Map();
+  for (const entry of outline) {
+    if (entry.formItem) byName.set(entry.formItem, entry.key);
+  }
+  return items.map((item, index) => {
+    // 이름으로 못 찾으면 뜻으로 찾는다. 그래도 없으면 빈 자리로 두고 지어내지 않는다.
+    const guessed = Object.entries(OUTLINE_MATCH).find(([, pattern]) => pattern.test(item.name))?.[0] || '';
+    return {
+      key: byName.get(item.name) || guessed,
+      title: item.name,
+      formItem: item.name,
+      order: index + 1,
+      limitChars: item.limitChars || 0,
+      limitPages: item.limitPages || 0,
+      limitSource: item.limitChars || item.limitPages ? '신청서 서식' : '기본값',
+      evidence: item.evidence, location: item.location
+    };
+  });
+}

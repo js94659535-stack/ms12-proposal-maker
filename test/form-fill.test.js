@@ -119,3 +119,44 @@ test('사용자 화면에서 내부 용어를 쓰지 않는다', () => {
   assert.match(app, /제출서류 한 벌/);
   assert.match(app, /아직 제출본으로 굳힐 수 없습니다/);
 });
+
+test('서식 항목 전체를 자리로 두고 같은 글을 여러 번 붙이지 않는다', async () => {
+  const { SHARED } = await import('../src/form-fill.js');
+  const plan = {
+    skeleton: [
+      { key: '', title: '1. 사업명', formItem: '1. 사업명' },
+      { key: 'target', title: '참여 대상 및 인원', formItem: '참여 대상 및 인원' },
+      { key: 'target', title: '참여자 선정 기준', formItem: '참여자 선정 기준' },
+      { key: 'budget', title: '예산 편성', formItem: '예산 편성' }
+    ],
+    outline: [{ key: 'target', title: '대상', formItem: '' }],
+    tables: []
+  };
+  const sections = [{ id: 'target', title: '대상', content: '초등 저학년 30명입니다.' }];
+  const result = fillFormLayout({ plan, sections, tables: [] });
+  // 서식 항목 네 자리가 모두 남는다. 우리 항목만 쓰지 않는다.
+  assert.equal(result.sections.filter(item => item.fromForm).length, 4);
+  assert.equal(result.sections[1].content, '초등 저학년 30명입니다.');
+  // 같은 본문을 두 번째 자리에 다시 붙이지 않고, 나눠 적으라고 알린다.
+  assert.equal(result.sections[2].content, SHARED);
+  assert.equal(result.shared, 1);
+  // 쓰지 않은 자리는 지어내지 않는다.
+  assert.equal(result.sections[0].content, UNFILLED);
+  assert.equal(result.sections[3].content, UNFILLED);
+  assert.match(fillSummary(result), /앞 항목과 함께 쓴 자리 1개 · 아직 안 쓴 자리 2개/);
+});
+
+test('실제 신청서 23개 항목이 모두 자리로 남는다', async () => {
+  const { buildFormSpec, formItemSkeleton, applyFormSpecToOutline } = await import('../src/form-spec.js');
+  const { PROPOSAL_OUTLINE } = await import('../src/engagement.js');
+  const form = fs.readFileSync(new URL('./fixtures/form-chest-2027-application.txt', import.meta.url), 'utf8');
+  const spec = buildFormSpec([{ id: 'f', fileName: '배분신청서.txt', sourceType: '공모신청서', extractionStatus: 'success', extractedText: form }]);
+  const outline = applyFormSpecToOutline(PROPOSAL_OUTLINE, spec);
+  const skeleton = formItemSkeleton(spec, outline);
+  assert.equal(skeleton.length, spec.items.length);
+  assert.ok(skeleton.length >= 20, `자리 ${skeleton.length}개`);
+  // 이름은 서식이 쓴 그대로다.
+  assert.equal(skeleton[0].title, spec.items[0].name);
+  // 대부분의 자리가 우리 본문과 이어진다. 이어지지 않은 자리도 버리지 않는다.
+  assert.ok(skeleton.filter(item => item.key).length >= 15, `이어진 자리 ${skeleton.filter(item => item.key).length}개`);
+});

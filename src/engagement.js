@@ -1,7 +1,7 @@
 // 「사업계획서 의뢰 건」 한 건의 경계를 정한다. 규칙 기반 로컬 처리만 하고 외부 API를 호출하지 않는다.
 // 기관 영구정보(신청기관에 계속 남는 사실)와 이번 사업 정보(이 의뢰 건에서만 쓰는 값)를 절대 자동으로 섞지 않는다.
 import { CONFIRMED_STATUS, splitApplicantProfile } from './applicants.js';
-import { applyFormSpecToOutline, mergeFormTables } from './form-spec.js';
+import { applyFormSpecToOutline, formItemSkeleton, mergeFormTables } from './form-spec.js';
 
 // 고객이 보는 단계. 내부 6단계 작업 화면과 별개이며 고객에게는 이 4단계만 보여 준다.
 export const ENGAGEMENT_STAGES = ['공고 요청', '정보 확인', '설계 승인', '결과 확인'];
@@ -59,6 +59,8 @@ export function buildDocumentPlan(contract, formSpec = null) {
   const outline = applyFormSpecToOutline(PROPOSAL_OUTLINE, formSpec);
   return {
     outline,
+    // 배치용 뼈대. 생성은 표준 목차로 하고, 내보낼 때는 서식 항목 전체를 자리로 둔다.
+    skeleton: formItemSkeleton(formSpec, outline),
     targetTotalChars: outline.reduce((sum, item) => sum + item.targetChars, 0),
     tables: mergeFormTables(fromContract, formSpec),
     attachments: formSpec?.attachments || [],

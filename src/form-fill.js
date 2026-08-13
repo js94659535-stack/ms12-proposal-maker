@@ -9,6 +9,8 @@
 
 const text = value => String(value ?? '').trim();
 export const UNFILLED = '[확인 필요: 이 항목은 아직 작성하지 않았습니다]';
+// 서식이 한 내용을 여러 항목으로 나눠 물을 때. 앞 자리에 쓴 글을 이 항목에 맞춰 나눠 적어야 한다.
+export const SHARED = '[확인 필요: 앞 항목에 함께 썼습니다. 이 항목에 맞춰 나눠 적어 주세요]';
 
 // 서식 항목 하나에 들어갈 본문을 찾는다. outline이 이미 서식 항목과 우리 항목을 이어 두었다.
 function contentFor(item, sections) {
@@ -47,7 +49,8 @@ export function alignTableColumns(formTable, table) {
 
 // 서식대로 배치한 문서. 화면과 출력이 같은 결과를 쓴다.
 export function fillFormLayout({ plan = null, sections = [], tables = [] } = {}) {
-  const outline = plan?.outline || [];
+  // 서식 항목 전체를 자리로 둔다. 우리 표준 항목만 쓰면 나머지 서식 칸이 비어 결국 옮겨 적게 된다.
+  const outline = (plan?.skeleton?.length ? plan.skeleton : plan?.outline) || [];
   const formTables = plan?.tables || [];
   if (!outline.length) {
     return { ok: false, reason: '올린 신청서 서식에서 작성 항목을 읽지 못했습니다.', sections: [], tables: [], filled: 0, unfilled: [], extra: [] };
@@ -55,8 +58,12 @@ export function fillFormLayout({ plan = null, sections = [], tables = [] } = {})
 
   const used = new Set();
   const unfilled = [];
+  // 서식이 한 내용을 여러 항목으로 나눠 물으면 첫 자리에만 넣는다. 같은 글을 네 번 붙이지 않는다.
+  const placedKeys = new Set();
   const laid = outline.map((item, position) => {
-    const content = contentFor(item, sections);
+    const repeated = item.key && placedKeys.has(item.key);
+    const content = repeated ? '' : contentFor(item, sections);
+    if (content) placedKeys.add(item.key);
     const source = sections.find(section => section.id === item.key);
     if (source) used.add(source.id);
     if (!content) unfilled.push(item.formItem || item.title);
@@ -66,7 +73,7 @@ export function fillFormLayout({ plan = null, sections = [], tables = [] } = {})
       id: item.key,
       // 제목은 서식이 쓴 이름을 그대로 쓴다. 심사자가 보는 이름과 같아야 한다.
       title: `${position + 1}. ${item.formItem || item.title}`,
-      content: content || UNFILLED,
+      content: content || (repeated ? SHARED : UNFILLED),
       limitChars: limit || 0,
       over: limit ? Math.max(0, chars - limit) : 0,
       fromForm: Boolean(item.formItem)
@@ -93,6 +100,7 @@ export function fillFormLayout({ plan = null, sections = [], tables = [] } = {})
     sections: [...laid, ...extraBlocks],
     tables: [...laidTables, ...extraTables],
     filled: laid.length - unfilled.length,
+    shared: laid.filter(item => item.content === SHARED).length,
     unfilled, extra: extraBlocks.map(item => item.title),
     over: laid.filter(item => item.over > 0).map(item => ({ title: item.title, over: item.over }))
   };
@@ -105,7 +113,9 @@ export function fillSummary(result) {
   const laid = result.sections.length - result.extra.length;
   const fromForm = result.sections.filter(item => item.fromForm).length;
   const parts = [`작성 항목 ${laid}개 중 ${result.filled}개 채움`, `서식 이름 적용 ${fromForm}개`];
-  if (result.unfilled.length) parts.push(`빈 항목 ${result.unfilled.length}개`);
+  if (result.shared) parts.push(`앞 항목과 함께 쓴 자리 ${result.shared}개`);
+  const blank = result.unfilled.length - result.shared;
+  if (blank > 0) parts.push(`아직 안 쓴 자리 ${blank}개`);
   if (result.over.length) parts.push(`분량 초과 ${result.over.length}개`);
   if (result.extra.length) parts.push(`서식 외 ${result.extra.length}개는 뒤에 붙임`);
   return parts.join(' · ');
