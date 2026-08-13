@@ -8,7 +8,7 @@ const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
 
 test('일반회원의 기본 화면은 홈 자리에서도 간편 작성이다', () => {
   assert.match(app, /function showSimpleHome\(\) \{ return viewMode\(\) === 'simple' && !state\.expertDetail && \['', 'home'\]\.includes\(state\.activeTool\); \}/);
-  assert.match(app, /if \(showSimpleHome\(\)\) \{ app\.innerHTML = shell\(simpleWriteView\(\)\); bind\(\); bindSimple\(\); return; \}/);
+  assert.match(app, /if \(showSimpleHome\(\)\) \{ app\.innerHTML = shell\(simpleWriteView\(\)\); bind\(\); bindSimple\(\); fitAutoGrow\(\); return; \}/);
   // 간편 화면에서도 머리띠(보관함·계정·포털 이동)가 사라지지 않는다.
   assert.match(app, /if \(state\.activeTool === 'home' && !showSimpleHome\(\)\) return/);
 });
@@ -80,4 +80,28 @@ test('공고 찾기는 기존 공고 준비 화면을 열고 고르면 간편 �
   // 보관함에서 연 목록도 실제로 보인다. 열어 둔 보관함 화면을 닫아야 보인다.
   assert.match(app, /navigateToStep\(1, \{ noticeResults, expertDetail: true, activeTool: '',/);
   assert.match(app, /navigateToStep\(1, \{ noticeResults: state\.noticeResults, activeTool: '', expertDetail: true,/);
+});
+
+test('검증·코칭 입력칸은 빈칸이면 세 줄, 내용만큼만 늘어난다', () => {
+  const css = fs.readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+  // 빈칸이 화면을 차지하지 않는다.
+  assert.match(css, /\.source-text\.auto-grow\{[\s\S]*?min-height:calc\(3 \* 1\.7em \+ 26px\)/);
+  // 최대 높이를 넘으면 칸 안에서만 스크롤한다. 화면이 가로로 넘치지 않는다.
+  assert.match(css, /max-height:min\(45vh, 480px\)/);
+  assert.match(css, /overflow-x:hidden/);
+  // 손잡이로 끌면 자동 높이와 어긋난다.
+  assert.match(css, /\.source-text\.auto-grow\{[\s\S]*?resize:none/);
+  // 긴 한글 문장이 가로로 넘치거나 글자 단위로 쪼개지지 않는다.
+  assert.match(css, /word-break:keep-all/);
+  assert.match(css, /@media\(max-width:420px\)\{\s*\.source-text\.auto-grow\{min-height:calc\(2 \* 1\.7em \+ 22px\)\}/);
+
+  // 두 입력칸에만 붙는다.
+  assert.match(app, /<textarea id="coaching-text" class="source-text auto-grow" rows="3"/);
+  assert.match(app, /<textarea id="coaching-criteria" class="source-text auto-grow" rows="3"/);
+  // 줄였다가 다시 재야 지운 뒤에도 줄어든다.
+  assert.match(app, /el\.style\.height = 'auto';/);
+  assert.match(app, /const next = Math\.min\(el\.scrollHeight, limit\);/);
+  // 파일 불러오기·복원도 화면을 다시 그리므로 같은 자리에서 다시 잰다.
+  assert.match(app, /function fitAutoGrow\(\) \{/);
+  assert.match(app, /el\.addEventListener\('input', \(\) => fitTextarea\(el\)\);/);
 });

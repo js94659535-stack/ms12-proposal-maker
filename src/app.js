@@ -4993,7 +4993,7 @@ function render() {
   // 간편 화면. 일반회원의 기본이고 최고관리자·운영관리자는 전환해서 본다.
   // 화면만 단순해질 뿐 분석·검증·권한 차단은 서버에서 그대로 돈다.
   // 홈도 간편 화면으로 연다. 「작성 과정 자세히 보기」로 들어가 있는 동안에만 전문 화면을 그린다.
-  if (showSimpleHome()) { app.innerHTML = shell(simpleWriteView()); bind(); bindSimple(); return; }
+  if (showSimpleHome()) { app.innerHTML = shell(simpleWriteView()); bind(); bindSimple(); fitAutoGrow(); return; }
   const views = [noticeImportView, noticeConfirmView, applicantSelectView, businessSelectView, documentView, documentView];
   // 관리자 화면은 관리자에게만 열린다. 저장된 화면 위치가 남아 있어도 역할이 아니면 되돌린다.
   if (state.activeTool === 'admin' && !isAdmin()) state.activeTool = 'home';
@@ -5002,7 +5002,7 @@ function render() {
   if (state.activeTool === 'premium' && !isPremium()) state.activeTool = 'home';
   if (state.activeTool === 'diagnosis' && !auth.membership?.canDiagnosis) state.activeTool = 'home';
   const tools = { home: homeView, coaching: coachingView, applicants: applicantsToolView, sample: sampleView, engagement: engagementView, account: accountView, admin: adminView, operator: operatorView, premium: premiumView, diagnosis: diagnosisView };
-  app.innerHTML = shell((tools[state.activeTool] || views[state.step] || views[0])()); bind(); startBusyElapsedTimer(); runPendingAiMove();
+  app.innerHTML = shell((tools[state.activeTool] || views[state.step] || views[0])()); bind(); startBusyElapsedTimer(); fitAutoGrow(); runPendingAiMove();
 }
 // 소개 화면에는 폼이 없다. 로그인 화면으로 넘기는 버튼과 구역 이동만 연결하고 서버는 부르지 않는다.
 function bindLanding() {
@@ -5185,8 +5185,8 @@ function coachingView() {
   return `<div class="page-heading"><div class="actions" style="justify-content:flex-end">${sampleButton('coachingV1', '[샘플] 검증 예시 보기')}</div><div><h2>계획서 검증·코칭</h2><p>내부·외부 계획서를 전체 구조부터 검토하고 문제가 있는 위치만 구체적으로 코칭합니다.</p></div><button class="button secondary" id="close-coaching">작성 흐름으로 돌아가기</button></div>
     <div class="card"><div class="two-col"><div class="field"><label for="coaching-title">계획서명</label><input id="coaching-title" value="${escapeHtml(coaching.title)}" placeholder="검증할 계획서명"></div><div class="field"><label for="coaching-file">PDF·DOCX·TXT·HWPX·HWP 불러오기</label><input id="coaching-file" type="file" accept=".pdf,.docx,.txt,.hwpx,.hwp"><small class="muted">한글 파일(HWPX·HWP)도 본문과 표를 읽습니다. 그림으로만 된 문서나 암호 문서는 이유를 알려 드립니다.</small></div></div>
     <label class="dropzone" id="coaching-dropzone" for="coaching-file"><strong>평가받을 사업계획서를 여기에 끌어다 놓으세요</strong><small>클릭 선택과 같은 방식으로 처리합니다 · PDF · DOCX · TXT · HWPX · HWP</small></label>
-    <div class="field"><label for="coaching-text">계획서 원문</label><textarea id="coaching-text" class="source-text" placeholder="직원이 작성한 계획서를 붙여넣거나 파일을 업로드하세요.">${escapeHtml(coaching.text)}</textarea></div>
-    <div class="field"><label for="coaching-criteria">연결할 공고·신청서·공식 평가기준</label><textarea id="coaching-criteria" class="source-text" placeholder="평가표가 있으면 최우선 기준으로 사용합니다.">${escapeHtml(coaching.criteriaText)}</textarea><label><input id="coaching-official-evaluation" type="checkbox" ${coaching.officialEvaluationProvided ? 'checked' : ''}> 입력 자료에 공식 평가표가 포함되어 있음</label></div>
+    <div class="field"><label for="coaching-text">계획서 원문</label><textarea id="coaching-text" class="source-text auto-grow" rows="3" placeholder="직원이 작성한 계획서를 붙여넣거나 파일을 업로드하세요.">${escapeHtml(coaching.text)}</textarea></div>
+    <div class="field"><label for="coaching-criteria">연결할 공고·신청서·공식 평가기준</label><textarea id="coaching-criteria" class="source-text auto-grow" rows="3" placeholder="평가표가 있으면 최우선 기준으로 사용합니다.">${escapeHtml(coaching.criteriaText)}</textarea><label><input id="coaching-official-evaluation" type="checkbox" ${coaching.officialEvaluationProvided ? 'checked' : ''}> 입력 자료에 공식 평가표가 포함되어 있음</label></div>
     <div class="actions"><div><button class="button secondary" id="coach-current-proposal" ${state.sections.length ? '' : 'disabled'}>현재 계획서 불러오기</button><button class="button secondary" id="coach-list-archive">계획서보관함 계획서</button></div><button class="button primary" id="run-coaching" ${coaching.pendingJob ? 'disabled' : ''}>${coaching.pendingJob ? '검증 중' : result ? '수정본 다시 검증' : '검증·코칭 실행'}</button></div><small>전체 검증은 OpenAI background mode로 실행됩니다. store=false이지만 polling을 위해 응답 데이터가 약 10분간 일시 저장될 수 있습니다.</small></div>
     ${proposalFlow().reviewTarget ? `<div class="alert warning"><strong>검토 대상 고정 · V${proposalFlow().reviewTarget.version} → ${proposalFlow().reviewTarget.round}차 검토 제출</strong><p>검토 중에는 이 버전을 바꾸지 않습니다. 수정은 검토 결과에서 문제별로 진행합니다.</p></div>` : ''}
     ${proposalStructureView()}
@@ -5354,6 +5354,26 @@ function bindDropzone(selector, onFiles) {
     zone.classList.remove('dragover');
     const files = [...(event.dataTransfer?.files || [])];
     if (files.length) onFiles(files);
+  });
+}
+
+// 내용에 맞춰 세로로만 늘린다. 최대 높이를 넘으면 칸 안에서 스크롤한다.
+function fitTextarea(el) {
+  if (!el) return;
+  const limit = Math.min(window.innerHeight * 0.45, 480);
+  // 먼저 줄여야 줄어든 내용에서도 제 높이를 잰다.
+  el.style.height = 'auto';
+  const next = Math.min(el.scrollHeight, limit);
+  el.style.height = `${next}px`;
+  el.style.overflowY = el.scrollHeight > limit ? 'auto' : 'hidden';
+}
+// 파일 불러오기·보관함 불러오기·복원도 화면을 다시 그리므로 여기서 함께 처리된다.
+function fitAutoGrow() {
+  document.querySelectorAll('textarea.auto-grow').forEach(el => {
+    fitTextarea(el);
+    if (el.dataset.autoGrow === '1') return;
+    el.dataset.autoGrow = '1';
+    el.addEventListener('input', () => fitTextarea(el));
   });
 }
 

@@ -41,7 +41,7 @@ test('완료되면 결과 위치로 옮기고 실패하면 옮기지 않는다',
   assert.match(app, /function runPendingAiMove\(\)/);
   assert.match(app, /if \(!move\.sameView\) return;/);
   assert.match(app, /target\.classList\.add\('result-flash'\)/);
-  assert.match(app, /bind\(\); startBusyElapsedTimer\(\); runPendingAiMove\(\);/);
+  assert.match(app, /bind\(\); startBusyElapsedTimer\(\); fitAutoGrow\(\); runPendingAiMove\(\);/);
   // 실패는 현재 위치에서 원인을 보여 주고 다시 시도만 제공한다.
   assert.match(app, /data-ai-retry="\$\{escapeHtml\(result\.retry\)\}"/);
   assert.match(app, /다시 시도<\/button>/);
