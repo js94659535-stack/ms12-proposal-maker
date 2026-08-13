@@ -5186,20 +5186,23 @@ function sampleView() {
 function coachingView() {
   const coaching = state.coaching || initial.coaching;
   const result = coaching.result;
-  return `<div class="page-heading"><div class="actions" style="justify-content:flex-end">${sampleButton('coachingV1', '[샘플] 검증 예시 보기')}</div><div><h2>계획서 검증·코칭</h2><p>내부·외부 계획서를 전체 구조부터 검토하고 문제가 있는 위치만 구체적으로 코칭합니다.</p></div><button class="button secondary" id="close-coaching">작성 흐름으로 돌아가기</button></div>
-    <div class="card"><div class="two-col"><div class="field"><label for="coaching-title">계획서명</label><input id="coaching-title" value="${escapeHtml(coaching.title)}" placeholder="검증할 계획서명"></div><div class="field"><label for="coaching-file">PDF·DOCX·TXT·HWPX·HWP 불러오기</label><input id="coaching-file" type="file" accept=".pdf,.docx,.txt,.hwpx,.hwp"><small class="muted">한글 파일(HWPX·HWP)도 본문과 표를 읽습니다. 그림으로만 된 문서나 암호 문서는 이유를 알려 드립니다.</small></div></div>
+  // 검증이 끝나면 종합소견서를 맨 위에 둔다. 입력칸을 지나 스크롤해야 판정을 보는 일이 없게 한다.
+  // 다시 검증하려면 「계획서·기준 다시 넣기」를 펴서 같은 입력칸을 그대로 쓴다.
+  const inputBlock = `    <div class="card"><div class="two-col"><div class="field"><label for="coaching-title">계획서명</label><input id="coaching-title" value="${escapeHtml(coaching.title)}" placeholder="검증할 계획서명"></div><div class="field"><label for="coaching-file">PDF·DOCX·TXT·HWPX·HWP 불러오기</label><input id="coaching-file" type="file" accept=".pdf,.docx,.txt,.hwpx,.hwp"><small class="muted">한글 파일(HWPX·HWP)도 본문과 표를 읽습니다. 그림으로만 된 문서나 암호 문서는 이유를 알려 드립니다.</small></div></div>
     <label class="dropzone" id="coaching-dropzone" for="coaching-file"><strong>평가받을 사업계획서를 여기에 끌어다 놓으세요</strong><small>클릭 선택과 같은 방식으로 처리합니다 · PDF · DOCX · TXT · HWPX · HWP</small></label>
     <div class="field"><label for="coaching-text">계획서 원문</label><textarea id="coaching-text" class="source-text auto-grow" rows="3" placeholder="직원이 작성한 계획서를 붙여넣거나 파일을 업로드하세요.">${escapeHtml(coaching.text)}</textarea></div>
     <div class="field"><label for="coaching-criteria">연결할 공고·신청서·공식 평가기준</label><textarea id="coaching-criteria" class="source-text auto-grow" rows="3" placeholder="평가표가 있으면 최우선 기준으로 사용합니다.">${escapeHtml(coaching.criteriaText)}</textarea><label><input id="coaching-official-evaluation" type="checkbox" ${coaching.officialEvaluationProvided ? 'checked' : ''}> 입력 자료에 공식 평가표가 포함되어 있음</label></div>
-    <div class="actions"><div><button class="button secondary" id="coach-current-proposal" ${state.sections.length ? '' : 'disabled'}>현재 계획서 불러오기</button><button class="button secondary" id="coach-list-archive">계획서보관함 계획서</button></div><button class="button primary" id="run-coaching" ${coaching.pendingJob ? 'disabled' : ''}>${coaching.pendingJob ? '검증 중' : result ? '수정본 다시 검증' : '검증·코칭 실행'}</button></div><small>전체 검증은 OpenAI background mode로 실행됩니다. store=false이지만 polling을 위해 응답 데이터가 약 10분간 일시 저장될 수 있습니다.</small></div>
+    <div class="actions"><div><button class="button secondary" id="coach-current-proposal" ${state.sections.length ? '' : 'disabled'}>현재 계획서 불러오기</button><button class="button secondary" id="coach-list-archive">계획서보관함 계획서</button></div><button class="button primary" id="run-coaching" ${coaching.pendingJob ? 'disabled' : ''}>${coaching.pendingJob ? '검증 중' : result ? '수정본 다시 검증' : '검증·코칭 실행'}</button></div><small>전체 검증은 OpenAI background mode로 실행됩니다. store=false이지만 polling을 위해 응답 데이터가 약 10분간 일시 저장될 수 있습니다.</small></div>`;
+  return `<div class="page-heading"><div class="actions" style="justify-content:flex-end">${sampleButton('coachingV1', '[샘플] 검증 예시 보기')}</div><div><h2>계획서 검증·코칭</h2><p>내부·외부 계획서를 전체 구조부터 검토하고 문제가 있는 위치만 구체적으로 코칭합니다.</p></div><button class="button secondary" id="close-coaching">작성 흐름으로 돌아가기</button></div>
+    ${result ? coachingResultView(result) : ''}
+    ${result && state.reviewDetail ? repairPlanView() : ''}
+    ${result && state.reviewDetail ? coachingApplicantView() : ''}
+    ${result ? `<details class="card" id="coaching-inputs"><summary><b>계획서·기준 다시 넣기</b> <small>다시 검증하려면 여기서 바꿉니다</small></summary>${inputBlock}</details>` : inputBlock}
     ${proposalFlow().reviewTarget ? `<div class="alert warning"><strong>검토 대상 고정 · V${proposalFlow().reviewTarget.version} → ${proposalFlow().reviewTarget.round}차 검토 제출</strong><p>검토 중에는 이 버전을 바꾸지 않습니다. 수정은 검토 결과에서 문제별로 진행합니다.</p></div>` : ''}
     ${proposalStructureView()}
     ${coachingReferenceView(coaching)}
     ${coaching.pendingJob ? `<div class="alert warning"><strong>검증 중 · ${escapeHtml(coaching.pendingJob.status || 'queued')}</strong><p>작업 ID ${escapeHtml(coaching.pendingJob.id)} · polling ${Number(coaching.pendingJob.pollCount || 0)}회</p><p>새로고침 후에도 같은 탭에서 작업을 이어 확인합니다.<span data-ai-elapsed data-started-at="${Number(coaching.pendingJob.startedAt || Date.now())}" style="display:block">경과시간 00초</span></p></div>` : ''}
-    ${state.archiveProposals.length ? `<div class="card"><h3>계획서보관함에서 불러오기</h3><div class="requirement-list">${state.archiveProposals.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(archiveStageLabel(item.stage))}</span><strong>${escapeHtml(item.title)}</strong></div><button class="button secondary" data-coach-archive="${escapeHtml(item.id)}">${String(item.stage).startsWith('coaching-v') ? '이 버전으로 돌아가기' : '검증 대상으로 불러오기'}</button></article>`).join('')}</div></div>` : ''}
-    ${result ? coachingResultView(result) : ''}
-    ${result && state.reviewDetail ? repairPlanView() : ''}
-    ${result && state.reviewDetail ? coachingApplicantView() : ''}`;
+    ${state.archiveProposals.length ? `<div class="card"><h3>계획서보관함에서 불러오기</h3><div class="requirement-list">${state.archiveProposals.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(archiveStageLabel(item.stage))}</span><strong>${escapeHtml(item.title)}</strong></div><button class="button secondary" data-coach-archive="${escapeHtml(item.id)}">${String(item.stage).startsWith('coaching-v') ? '이 버전으로 돌아가기' : '검증 대상으로 불러오기'}</button></article>`).join('')}</div></div>` : ''}`;
 }
 
 // 계획서 원문을 항목별로 구조화하고 심사 관점으로 분석한다. AI 호출 없이 로컬 규칙만 사용한다.

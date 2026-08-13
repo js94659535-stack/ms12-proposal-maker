@@ -134,3 +134,15 @@ test('화면은 총론을 먼저 그리고 각론은 눌러야 편다', () => {
     assert.ok(!handler.includes(forbidden), `펼치기에서 ${forbidden}를 부르면 안 된다`);
   }
 });
+
+test('검증이 끝나면 종합소견서가 화면 맨 위에 온다', () => {
+  const view = app.slice(app.indexOf('function coachingView() {'), app.indexOf('function proposalStructureView'));
+  // 결과가 있으면 총론이 입력칸보다 먼저 그려진다. 스크롤해야 판정을 보는 일이 없게 한다.
+  assert.ok(view.indexOf('coachingResultView(result)') < view.indexOf('id="coaching-inputs"'), '총론이 입력칸보다 뒤에 있다');
+  // 입력칸은 사라지지 않는다. 다시 검증하려면 펴서 그대로 쓴다.
+  assert.match(view, /계획서·기준 다시 넣기/);
+  assert.match(view, /\$\{result \? `<details class="card" id="coaching-inputs">/);
+  assert.match(view, /: inputBlock\}/, '결과가 없으면 입력칸이 그대로 열려 있어야 한다');
+  // 수정계획·신청기관 반영도 각론과 함께 열고 닫는다.
+  assert.match(view, /result && state\.reviewDetail \? repairPlanView\(\) : ''/);
+});
