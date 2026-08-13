@@ -81,7 +81,11 @@ test('서버 함수에는 OpenAI 외부 호출이 한 곳뿐이고 재시도 루
 test('모든 계획서는 마스터 설계와 신청서 항목별 분할 생성을 거쳐 완성한다', () => {
   const appSource = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   const apiSource = fs.readFileSync(new URL('../functions/api/proposal.js', import.meta.url), 'utf8');
-  assert.match(appSource, /masterWithAI\(completePayload\)/);
+  // 설계는 background로 돌아간다. 시작하고 결과를 물어 가져오며 기다린 시간을 보여 준다.
+  assert.match(appSource, /masterWithAI\(completePayload, seconds =>/);
+  const masterApi = fs.readFileSync(new URL('../src/api.js', import.meta.url), 'utf8');
+  assert.match(masterApi, /const step = await request\('master', payload, \{ jobId: started\.jobId \}\);/);
+  assert.match(masterApi, /if \(!step\?\.pending\) return step;/);
   assert.match(appSource, /id="generate-parts"/);
   assert.match(appSource, /draftPartWithAI/);
   assert.match(appSource, /id="assemble-proposal"/);

@@ -136,13 +136,15 @@ export async function onRequest(context) {
       await touchActivity(context.env.ARCHIVE_DB, user.id);
     }
     // 무료 체험은 OpenAI를 부르기 전에 D1에서 한 번만 통과시킨다. 같은 계정이 동시에 눌러도 한 번만 열린다.
-    const trialRun = body.action === TRIAL_ACTION && !hasFullAccess(user) && membership.tier === 'member';
+    // 진행 상황을 물어보는 요청은 이미 시작한 작업이다. 편수·체험 횟수를 다시 깎지 않는다.
+    const polling = body.action === 'master' && Boolean(body.jobId);
+    const trialRun = !polling && body.action === TRIAL_ACTION && !hasFullAccess(user) && membership.tier === 'member';
     if (trialRun && !(await consumeTrial(context.env.ARCHIVE_DB, user.id))) return json({ error: TRIAL_SPENT, trialUsed: true }, 403);
     // 구독 이용량도 부르기 전에 차감한다. 네 번째 제안서와 여섯 번째 진단서는 여기서 막힌다.
     const quotaKind = membership.tier === 'subscriber' || membership.tier === 'premium'
       ? (body.action === CORE_PROPOSAL_ACTION ? 'coreProposal' : body.action === DIAGNOSIS_ACTION ? 'diagnosis' : '')
       : (body.action === DIAGNOSIS_ACTION && !membership.canDiagnosis ? 'diagnosis' : '');
-    const countsQuota = Boolean(quotaKind) && membership.subscription?.status === 'active';
+    const countsQuota = !polling && Boolean(quotaKind) && membership.subscription?.status === 'active';
     if (countsQuota && !(await consumeQuota(context.env.ARCHIVE_DB, user.id, quotaKind))) {
       return json({ error: QUOTA_SPENT[quotaKind], quotaSpent: true, kind: quotaKind }, 403);
     }
@@ -169,10 +171,37 @@ export async function onRequest(context) {
       usage: extractUsage(data), durationMs: Date.now() - startedAt, ok, failureStage,
       agencyUserId: agency.has ? user.id : '', clientOrgId
     });
+    // 설계는 background로 돌린다. 게이트웨이가 기다리다 끊는 일을 없앤다.
+    const background = body.action === 'master';
+    const jobId = background ? String(body.jobId || '').trim().slice(0, 120) : '';
+    if (jobId && !/^resp_[a-zA-Z0-9_-]+$/.test(jobId)) return json({ error: '작업 번호 형식이 올바르지 않습니다.' }, 400);
     let response;
     let raw;
+    if (jobId) {
+      // 진행 상황만 본다. 끝나지 않았으면 상태만 돌려주고 아래 처리로 내려가지 않는다.
+      try {
+        response = await fetch(`https://api.openai.com/v1/responses/${encodeURIComponent(jobId)}`, {
+          method: 'GET', signal: controller.signal,
+          headers: { Authorization: `Bearer ${context.env.OPENAI_API_KEY}` }
+        });
+        raw = await response.json();
+      } catch (error) {
+        clearTimeout(timeoutId);
+        return json({ error: 'AI 작업 상태를 확인하지 못했습니다. 잠시 후 다시 확인합니다.', jobId, status: 'unknown' }, 502);
+      }
+      if (!response.ok) {
+        clearTimeout(timeoutId);
+        await noteUsage(raw, false, 'openai-upstream');
+        return json({ error: normalizeOpenAIError(raw, response.status, response.headers) }, response.status === 429 ? 429 : 502);
+      }
+      const stage = String(raw?.status || '');
+      if (stage !== 'completed' && stage !== 'failed' && stage !== 'incomplete') {
+        clearTimeout(timeoutId);
+        return json({ jobId, status: stage || 'in_progress', pending: true }, 200);
+      }
+    }
     try {
-      response = await fetch('https://api.openai.com/v1/responses', {
+      if (!jobId) response = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
         headers: { Authorization: `Bearer ${context.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
         signal: controller.signal,
@@ -180,7 +209,9 @@ export async function onRequest(context) {
           model: context.env.OPENAI_MODEL,
           reasoning: { effort: body.action === 'analyze' ? 'medium' : 'low' },
           safety_identifier: safetyIdentifier.slice(0, 32),
-          store: false,
+          // background로 돌린 작업만 잠시 보관한다(약 10분). 나머지는 보관하지 않는다.
+          store: background,
+          ...(background ? { background: true } : {}),
           input: [
             { role: 'developer', content: [{ type: 'input_text', text: SYSTEM_POLICY }] },
             { role: 'user', content: [{ type: 'input_text', text: specification.prompt }] }
@@ -190,7 +221,7 @@ export async function onRequest(context) {
             : body.action === DIAGNOSIS_ACTION ? DIAGNOSIS_TOKENS : LIMITS.outputTokens[body.action]
         })
       });
-      raw = await response.json();
+      if (!jobId) raw = await response.json();
     } catch (error) {
       await noteUsage({}, false, error?.name === 'AbortError' ? 'timeout' : 'transport');
       if (error?.name === 'AbortError') return refund(json({ error: 'OpenAI 요청 시간이 초과되었습니다. 자동 재시도하지 않았습니다.' }, 504));
@@ -203,6 +234,12 @@ export async function onRequest(context) {
       const diagnostic = openAIDiagnostic(raw, response.status, response.headers);
       await noteUsage(raw, false, 'openai-upstream');
       return refund(json({ error: normalizeOpenAIError(raw, response.status, response.headers), ...(response.status === 429 ? { rateLimitDiagnostic: diagnostic } : {}) }, response.status === 429 ? 429 : 502));
+    }
+    if (background && !jobId) {
+      // 시작만 했다. 토큰은 아직 없고, 결과는 화면이 다시 물어 가져간다.
+      const startedId = String(raw?.id || '');
+      if (!/^resp_[a-zA-Z0-9_-]+$/.test(startedId)) return refund(json({ error: 'AI 작업 번호를 받지 못했습니다.' }, 502));
+      return json({ jobId: startedId, status: raw?.status || 'queued', pending: true }, 200);
     }
     // 응답이 끝까지 생성되지 않은 경우와 형식 오류를 구분한다. 자동 재시도는 하지 않는다.
     await noteUsage(raw, true, '');

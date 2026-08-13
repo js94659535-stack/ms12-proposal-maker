@@ -7530,7 +7530,10 @@ async function generateCompleteProposal() {
   ensureNoticeLogic();
   const completePayload = generationPayload();
   try {
-    const result = await masterWithAI(completePayload);
+    // 설계는 background로 돌아간다. 기다리는 동안 몇 초가 지났는지 화면에 이어서 보여 준다.
+    const result = await masterWithAI(completePayload, seconds => {
+      if (state.busy) setState({ busy: `공고문을 분석하고 마스터 설계를 작성하는 중... (${aiTaskLabel(seconds)} 경과)` });
+    });
     state.sponsorIntent = result.sponsorIntent;
     state.projectDesign = result.projectDesign;
     state.missingInformation = applyApplicantAnswers((result.missingInformation || []).slice(0, 5));

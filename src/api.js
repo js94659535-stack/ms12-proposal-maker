@@ -2,10 +2,10 @@
 let currentProposalId = '';
 export function setUsageProposalId(value) { currentProposalId = String(value || '').slice(0, 80); }
 
-async function request(action, payload) {
+async function request(action, payload, extra = {}) {
   const response = await fetch('/api/proposal', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, payload: { ...payload, proposalId: currentProposalId } })
+    body: JSON.stringify({ action, ...extra, payload: { ...payload, proposalId: currentProposalId } })
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || `서버 요청 실패 (${response.status})`);
@@ -18,7 +18,22 @@ export const coreProposalWithAI = payload => request('coreProposal', payload);
 export const diagnoseWithAI = payload => request('diagnosis', payload);
 export const analyzeWithAI = payload => request('analyze', payload);
 export const draftWithAI = payload => request('draft', payload);
-export const masterWithAI = payload => request('master', payload);
+// 설계는 오래 걸려 게이트웨이가 기다리다 끊는다. 시작만 하고 결과는 물어 가져온다.
+// 화면은 예전과 같이 한 번 부르면 결과를 받는다. 기다리는 방식만 바뀐다.
+export async function masterWithAI(payload, onWait = null) {
+  const started = await request('master', payload);
+  if (!started?.jobId) return started;
+  const until = Date.now() + 15 * 60 * 1000;
+  let waited = 0;
+  while (Date.now() < until) {
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    waited += 5;
+    if (onWait) onWait(waited);
+    const step = await request('master', payload, { jobId: started.jobId });
+    if (!step?.pending) return step;
+  }
+  throw new Error('설계 작성이 너무 오래 걸립니다. 잠시 후 다시 시도해 주세요.');
+}
 export const draftPartWithAI = payload => request('draftPart', payload);
 // 승인된 설계안으로 계획서 전체를 한 번에 만든다.
 export const fullProposalWithAI = payload => request('fullProposal', payload);
