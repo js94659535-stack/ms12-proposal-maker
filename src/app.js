@@ -1,4 +1,4 @@
-import { analyzeWithAI, coreProposalWithAI, diagnoseWithAI, draftPartWithAI, draftWithAI, finalizeWithAI, fullProposalWithAI, masterWithAI, patchSectionsWithAI, preciseReviewWithAI, rewriteWithAI, setUsageProposalId } from './api.js';
+import { analyzeWithAI, coreProposalWithAI, diagnoseWithAI, draftPartWithAI, draftWithAI, finalizeWithAI, fullProposalWithAI, masterWithAI, patchSectionsWithAI, preciseReviewWithAI, proposalJobs, rewriteWithAI, setUsageProposalId } from './api.js';
 import { EXAMPLE_NOTE, EXAMPLE_POINTS, EXAMPLE_SECTIONS, EXAMPLE_SUMMARY, EXAMPLE_TITLE } from './example-plan.js';
 import { extractFile, extractFiles } from './files.js';
 import { localAnalyze } from './fallback.js';
@@ -109,6 +109,8 @@ const initial = {
   openOrgGroups: [],
   // 배경으로 돌린 설계 작업번호. 새로고침·시간초과 뒤에도 같은 결과를 받아 다시 과금하지 않는다.
   designJobs: {},
+  // 이 계획서에 남아 있는 AI 작업 기록. 다시 만들기 전에 먼저 보여 준다.
+  aiJobs: { list: [], loadedFor: '' },
   applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
   revisionPlan: null, draftReview: null, projectNarrative: '',
   // 서버가 붙여 준 근거 검증·평가자 검토. 화면은 판정하지 않고 그대로 보여 준다.
@@ -1378,7 +1380,8 @@ function accessPanel() {
 // 관리자와 운영관리자가 같은 화면을 본다. 두 경로 모두 서버가 집계한 값만 그린다.
 function emptyUsage() { return { loaded: false, days: 30, report: null }; }
 const USAGE_PERIODS = [[7, '7일'], [30, '30일'], [90, '90일']];
-const money = value => `$${Number(value || 0).toFixed(4)}`;
+// 단가를 모르면 0원이 아니라 「계산 불가」다. 0원으로 적으면 공짜로 쓴 것처럼 보인다.
+const money = (value, priced = true) => (priced ? `$${Number(value || 0).toFixed(4)}` : '계산 불가');
 const tokens = value => Number(value || 0).toLocaleString();
 
 async function loadUsage(days = auth.usage.days) {
@@ -1393,14 +1396,14 @@ function usagePanel() {
   const report = view.report;
   const rows = (list, label, key) => `<h4>${label}</h4><div class="requirement-list">${(list || []).slice(0, 12).map(item => `<article class="requirement"><div>
     <div><strong>${escapeHtml(String(item[key] || '(없음)'))}</strong> <span class="muted">${item.calls}회${item.failedCalls ? ` · 실패 ${item.failedCalls}회` : ''}</span></div>
-    <small class="muted">${escapeHtml(`${money(item.costUsd)} · 토큰 ${tokens(item.tokens)} (입력 ${tokens(item.inputTokens)} · 캐시 ${tokens(item.cachedTokens)} · 출력 ${tokens(item.outputTokens)} · 추론 ${tokens(item.reasoningTokens)}) · 평균 ${(item.averageMs / 1000).toFixed(1)}초`)}</small>
+    <small class="muted">${escapeHtml(`${money(item.costUsd, report.priced)} · 토큰 ${tokens(item.tokens)} (입력 ${tokens(item.inputTokens)} · 캐시 ${tokens(item.cachedTokens)} · 출력 ${tokens(item.outputTokens)} · 추론 ${tokens(item.reasoningTokens)}) · 평균 ${(item.averageMs / 1000).toFixed(1)}초`)}</small>
   </div></article>`).join('') || '<p class="muted">기록이 없습니다.</p>'}</div>`;
   return `<div class="card-title" style="margin-top:18px"><div><h4>AI 사용량·비용</h4><span>OpenAI 호출마다 모델·토큰·시간·성공 여부만 기록합니다. 공고문·계획서 원문·프롬프트는 저장하지 않습니다.</span></div></div>
     <div class="actions" style="justify-content:stretch;gap:8px">${USAGE_PERIODS.map(([days, label]) => `<button class="button ${view.days === days ? 'primary' : 'secondary'}" data-usage-days="${days}" ${auth.busy ? 'disabled' : ''}>${label}</button>`).join('')}</div>
     ${report ? `
     ${report.priced ? '' : '<div class="alert warning"><strong>단가가 설정되어 있지 않습니다</strong><p>토큰은 기록되지만 비용은 0으로 표시됩니다. Cloudflare 환경변수 <code>OPENAI_PRICE_INPUT_PER_MTOK</code>·<code>OPENAI_PRICE_OUTPUT_PER_MTOK</code>(1M 토큰당 USD)를 넣으면 이후 호출부터 실제 비용이 쌓입니다.</p></div>'}
     <div class="summary-grid">
-      <div><span>${report.period}일 비용</span><strong>${money(report.totals.costUsd)}</strong></div>
+      <div><span>${report.period}일 비용</span><strong>${money(report.totals.costUsd, report.priced)}</strong></div>
       <div><span>호출</span><strong>${report.totals.calls}회${report.totals.failedCalls ? ` (실패 ${report.totals.failedCalls})` : ''}</strong></div>
       <div><span>토큰</span><strong>${tokens(report.totals.tokens)}</strong></div>
       <div><span>계획서 1건 상한</span><strong>${money(report.caps.proposalCostUsd)} / ${tokens(report.caps.proposalTokens)}토큰</strong></div>
@@ -4436,6 +4439,21 @@ function writingProgressView() {
   </div>`;
 }
 
+// 다시 만들기 전에 먼저 보여 준다. 이미 돌고 있거나 끝난 것이 있으면 다시 결제할 필요가 없다.
+function aiJobsView() {
+  const list = (state.aiJobs?.list || []);
+  if (!list.length) return '';
+  const live = list.filter(item => item.live);
+  const done = list.filter(item => item.status === 'done');
+  if (!live.length && !done.length) return '';
+  const label = { masterDesign: '설계 1걸음', masterPlan: '설계 2걸음', draftPart: '본문 묶음', master: '설계', fullProposal: '전체 본문' };
+  return `<div class="alert" id="ai-jobs">
+    <strong>이 계획서에 이미 만들어 둔 작업이 있습니다</strong>
+    <p>${live.length ? `진행 중 ${live.length}건 · ` : ''}완료 ${done.length}건. 같은 내용으로 다시 만들면 새로 결제됩니다. 같은 입력이면 서버가 이전 결과를 그대로 돌려주고 AI를 부르지 않습니다.</p>
+    <div class="stat-badges">${list.slice(0, 8).map(item => `<span class="stat-badge"><strong>${item.status === 'done' ? '완료' : item.live ? '진행 중' : '중단'}</strong><span>${escapeHtml(label[item.action] || item.action)}${item.reused ? ` · 재사용 ${item.reused}회` : ''}</span></span>`).join('')}</div>
+  </div>`;
+}
+
 // 멈췄거나 실패해서 일부만 쓴 상태. 완성본이 아니라고 분명히 적고 이어쓰기만 연다.
 function partialWritingView() {
   const staged = state.stagedGeneration || {};
@@ -4541,6 +4559,7 @@ function simpleWriteView() {
     </div>
     ${done ? `<div class="card"><div class="card-title"><div><h3>4 계획서 완성</h3><span>항목 ${state.sections.length}개</span></div>
       <span class="status 충족">완성</span></div>${simpleResultActions()}</div>` : ''}
+    ${!writing ? aiJobsView() : ''}
     ${writing ? writingProgressView() : ''}
     ${!writing && progress.partial ? partialWritingView() : ''}
     ${state.sections.length && !writing && !progress.partial ? openMarksPanel() : ''}
@@ -5168,7 +5187,7 @@ function render() {
   // 간편 화면. 일반회원의 기본이고 최고관리자·운영관리자는 전환해서 본다.
   // 화면만 단순해질 뿐 분석·검증·권한 차단은 서버에서 그대로 돈다.
   // 홈도 간편 화면으로 연다. 「작성 과정 자세히 보기」로 들어가 있는 동안에만 전문 화면을 그린다.
-  if (showSimpleHome()) { app.innerHTML = shell(simpleWriteView()); bind(); bindSimple(); fitAutoGrow(); return; }
+  if (showSimpleHome()) { app.innerHTML = shell(simpleWriteView()); bind(); bindSimple(); fitAutoGrow(); void loadAiJobs(); return; }
   const views = [noticeImportView, noticeConfirmView, applicantSelectView, businessSelectView, documentView, documentView];
   // 관리자 화면은 관리자에게만 열린다. 저장된 화면 위치가 남아 있어도 역할이 아니면 되돌린다.
   if (state.activeTool === 'admin' && !isAdmin()) state.activeTool = 'home';
@@ -7562,6 +7581,16 @@ function aiBusy(what = '이미 만들고 있습니다') {
   if (!state.busy) return false;
   setState({ notice: `${what}. 끝나면 결과가 화면에 나옵니다.`, error: '' });
   return true;
+}
+
+// 이 계획서의 AI 작업 기록을 한 번만 불러온다. AI를 부르지 않는 조회다.
+async function loadAiJobs() {
+  const id = state.archiveProposalId || '';
+  if (!id || state.aiJobs?.loadedFor === id) return;
+  state.aiJobs = { ...(state.aiJobs || {}), loadedFor: id };
+  const result = await proposalJobs(id).catch(() => null);
+  if (!result?.jobs) return;
+  setState({ aiJobs: { list: result.jobs, loadedFor: id } });
 }
 
 async function runSimpleGeneration() {

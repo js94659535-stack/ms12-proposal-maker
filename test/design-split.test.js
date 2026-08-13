@@ -30,7 +30,7 @@ test('두 걸음은 앞단으로 돌고, 끊길 때만 배경으로 옮긴다', 
 
 test('새 걸음이 허용 목록에 있다', () => {
   // 목록에 없으면 서버가 400 「지원하지 않는 작업입니다」로 막는다.
-  assert.match(api, /const ACTIONS = \['analyze', 'master', 'masterDesign', 'masterPlan', 'draftPart',/);
+  assert.match(api, /const ACTIONS = \['jobs', 'analyze', 'master', 'masterDesign', 'masterPlan', 'draftPart',/);
 });
 
 test('2걸음은 1걸음 결과 없이는 돌지 않는다', () => {

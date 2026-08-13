@@ -56,7 +56,8 @@ async function designStep(action, payload, { onWait = null, resume = null, onJob
     catch (error) { if (error.jobId) throw error; /* 사라진 작업번호면 아래에서 새로 부른다 */ }
   }
   try {
-    return await request(action, payload);
+    // 같은 입력이 이미 돌고 있으면 기다렸다 그 결과를 받는다. 새로 부르지 않는다.
+    return await awaitResult(action, payload);
   } catch (error) {
     if (!GATEWAY_CUT.has(error.status)) throw error;
     // 앞단이 끊겼다. 같은 걸음을 배경으로 옮기고 작업번호를 남긴다.
@@ -77,7 +78,21 @@ export async function masterWithAI(payload, onWait = null, options = {}) {
   return { ...design, masterLogic: plan.masterLogic, sectionPlan: plan.sectionPlan,
     masterStatus: plan.masterStatus, submissionReady: plan.submissionReady, warnings: plan.warnings, officialConflicts: plan.officialConflicts, note: plan.note };
 }
-export const draftPartWithAI = payload => request('draftPart', payload);
+// 서버가 「같은 작업이 이미 돌고 있다」고 하면 새로 부르지 않고 끝날 때까지 기다린다.
+// 같은 입력을 두 번 결제하지 않기 위해서다. 끝난 결과가 있으면 서버가 그 사본을 돌려준다.
+async function awaitResult(action, payload, { limitMs = MAX_WAIT_MS } = {}) {
+  const until = Date.now() + limitMs;
+  let result = await request(action, payload);
+  while (result?.pending && Date.now() < until) {
+    await new Promise(resolve => setTimeout(resolve, POLL_MS));
+    result = await request(action, payload);
+  }
+  if (result?.pending) throw new Error('같은 작업이 아직 끝나지 않았습니다. 잠시 후 「이어받기」로 결과를 확인해 주세요.');
+  return result;
+}
+export const draftPartWithAI = payload => awaitResult('draftPart', payload);
+// 이 계획서에 지금 돌고 있는 작업과 이미 끝난 작업. 다시 만들기 전에 화면이 먼저 보여 준다.
+export const proposalJobs = proposalId => request('jobs', { proposalId });
 // 승인된 설계안으로 계획서 전체를 한 번에 만든다.
 export const fullProposalWithAI = payload => request('fullProposal', payload);
 // 정밀 검증은 문제만 찾고, 부분 수정은 지목된 항목만 다시 쓴다.

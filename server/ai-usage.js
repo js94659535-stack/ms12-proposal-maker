@@ -52,6 +52,8 @@ export async function recordAiUsage(db, env, entry) {
     input: usage.input, cached: usage.cached, output: usage.output, reasoning: usage.reasoning,
     total: usage.total || usage.input + usage.output,
     costMicro: costMicro(usage, price), priced: price.priced ? 1 : 0,
+    // 그때 적용한 단가를 함께 남긴다. 단가를 몰라 계산하지 못한 기록은 0원이 아니라 「계산 불가」다.
+    priceInputMicro: Math.round((price.input || 0) * 1), priceCachedMicro: Math.round((price.cached || 0) * 1), priceOutputMicro: Math.round((price.output || 0) * 1),
     durationMs: count(entry.durationMs), ok: entry.ok ? 1 : 0,
     // 실패 사유는 미리 정한 짧은 코드만 남긴다. 오류 문장이나 응답 본문은 남기지 않는다.
     failureStage: clean(entry.failureStage, 40),
@@ -61,11 +63,11 @@ export async function recordAiUsage(db, env, entry) {
   try {
     await db.prepare(`INSERT INTO ai_usage_events (id, at, user_id, user_email, proposal_id, task, model,
       input_tokens, cached_input_tokens, output_tokens, reasoning_tokens, total_tokens, cost_micro, priced, duration_ms, ok, failure_stage,
-      agency_user_id, client_org_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      agency_user_id, client_org_id, price_input_micro, price_cached_micro, price_output_micro)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .bind(row.id, row.at, row.userId, row.userEmail, row.proposalId, row.task, row.model,
         row.input, row.cached, row.output, row.reasoning, row.total, row.costMicro, row.priced, row.durationMs, row.ok, row.failureStage,
-        row.agencyUserId, row.clientOrgId).run();
+        row.agencyUserId, row.clientOrgId, row.priceInputMicro, row.priceCachedMicro, row.priceOutputMicro).run();
   } catch { /* 기록 실패가 생성 결과를 막지 않는다. */ }
   return row;
 }
