@@ -26,7 +26,7 @@ import { ADMIN_SHORTCUTS } from '../server/admin-overview.js';
 import { AGENCY_STATUS_LABEL, DEFAULT_LIMITS, LIMIT_FIELDS, remainingFor } from '../server/agency.js';
 import { buildOverview, detailPanels, mergeReviewIssues } from '../server/review-digest.js';
 import { REVISION_KINDS, canRevise, diffSections, keptFacts, newUnknowns, remainingOf, revisionSlot, settleRevision } from '../server/revision.js';
-import { CORE_AREAS, areaProgress, mergeProfileIntoApplicant } from '../server/org-profile.js';
+import { mergeProfileIntoApplicant } from '../server/org-profile.js';
 import { ASSET_KINDS, ASSET_STATUS, STATUS_LABELS as ASSET_STATUS_LABELS, assetSentence, suggestAssets, validateAsset } from '../server/idea-assets.js';
 import { MAX_QUESTIONS, UNKNOWN, checkNumbers, intakeState } from '../server/proposal-intake.js';
 import { reportError, reportStep, resetActivityDedupe } from './activity.js';
@@ -53,7 +53,8 @@ import { splitApplicantProfile } from './applicants.js';
 import { ARCHIVE_PAGE_SIZES, ARCHIVE_STATUSES, archiveTableRows, shortDate } from './archive-table.js';
 import { SAMPLE_MARK, SAMPLE_NOTE, SAMPLE_NOTICE, SAMPLE_NOTICE_KEY, SAMPLE_STAGES, SAMPLE_STAGE_BY_STEP, buildSampleProject } from './sample-project.js';
 import { SAMPLE_REAL_COACHING } from './sample-coaching-run.js';
-import { SOURCE_KINDS, makeApplicantSource, APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
+import { SOURCE_KINDS, makeApplicantSource, APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, mergeApplicantItems, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
+import { BASIC_AREAS, DETAIL_GROUPS, DETAIL_INTRO, basicStatus, detailProgress, draftFromApplicant, reusableCount } from './org-stage.js';
 
 const TYPES = [
   ['chest', '사랑의열매', '복지·지원사업'], ['family', '가족센터', '가족지원사업'],
@@ -103,6 +104,8 @@ const initial = {
   viewMode: '', expertDetail: false, workspace: 'personal', markDraft: {}, markOpen: false,
   // 검증 결과 화면. 총론을 먼저 보고 각론은 눌렀을 때만 편다.
   reviewDetail: false, reviewPanels: [], reviewFocus: false, reviseOpen: false, reviseDraft: null, revisions: [], revisionBackup: null,
+  // 상세정보에서 지금 펼쳐 둔 구역. 모든 구역을 한 번에 열지 않는다.
+  openOrgGroups: [],
   applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
   revisionPlan: null, draftReview: null, projectNarrative: '',
   // 서버가 붙여 준 근거 검증·평가자 검토. 화면은 판정하지 않고 그대로 보여 준다.
@@ -3747,77 +3750,63 @@ function statusOptions(selected) { return APPLICANT_STATUSES.map(value => `<opti
 // 기관정보 10개 영역을 다 채우게 하면 계획서를 쓰기도 전에 지친다.
 // 시작에 필요한 다섯 가지만 받고, 나머지는 초안을 만든 뒤 공고가 요구할 때만 묻는다.
 const quickDraft = () => state.quickOrg || {};
-function quickStartPanel() {
-  const draft = quickDraft();
-  const check = readyToDraft(draft);
-  const saved = state.applicants || [];
-  return `<div class="card" id="quick-start">
-    <div class="card-title"><div><h3>간단하게 시작하기</h3><span>다섯 가지만 적으면 AI가 공고와 합쳐 초안을 먼저 만듭니다.</span></div>
-      <span class="status ${check.ready ? '충족' : '확인-필요'}">${check.ready ? '시작 준비됨' : `${check.missing.length}가지 남음`}</span></div>
-    ${saved.length ? `<div class="inline-row"><label for="quick-pick">내 기관 선택</label>
-      <select id="quick-pick"><option value="">전에 저장한 기관 쓰기</option>${saved.map(item => `<option value="${escapeHtml(item.id)}" ${state.selectedApplicantId === item.id ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}</select>
-      <span class="muted">고르면 저장해 둔 정보를 그대로 씁니다.</span></div>` : ''}
-    <div class="two-col">${QUICK_FIELDS.map(field => `<div class="field">
-      <label for="quick-${field.key}">${escapeHtml(field.label)}${field.required ? '' : ' <span class="muted">(선택)</span>'}</label>
-      ${field.choices
-        ? `<select id="quick-${field.key}" data-quick-field="${field.key}"><option value="">고르세요</option>${ORG_TYPES.map(type => `<option value="${escapeHtml(type)}" ${draft[field.key] === type ? 'selected' : ''}>${escapeHtml(type)}</option>`).join('')}</select>`
-        : `<input id="quick-${field.key}" data-quick-field="${field.key}" value="${escapeHtml(draft[field.key] || '')}" placeholder="${escapeHtml(field.hint)}">`}
-    </div>`).join('')}</div>
-    <div class="field"><label for="quick-idea">하고 싶은 사업을 자유롭게 적기</label>
-      <textarea id="quick-idea" class="source-text" placeholder="예: 방과후 돌봄이 끊긴 초등 저학년을 위해 주 2회 학습·정서 프로그램을 하고 싶습니다." style="min-height:80px">${escapeHtml(draft.idea || '')}</textarea>
-      <small class="muted">적지 않은 인력·시설·실적·예산은 만들어 넣지 않고 <b>[확인 필요]</b>로 남깁니다.</small></div>
-    <div class="actions"><span class="muted">${check.ready ? '이대로 초안을 만들 수 있습니다. 부족한 정보는 초안을 만든 뒤 물어봅니다.' : `아직 ${check.missing.join(' · ')}가 비어 있습니다.`}</span>
-      <div><button class="button secondary" id="quick-save" ${state.busy ? 'disabled' : ''}>기관정보로 저장</button>
-        <button class="button primary" id="quick-draft" ${guard(check.ready ? '' : `${check.missing.join(' · ')}를 먼저 적어 주세요. 나머지는 나중에 물어봅니다.`)}>AI가 먼저 작성하기</button></div></div>
-    ${followUpPanel()}
-  </div>`;
-}
 
 // 초안을 만든 뒤 공고가 실제로 요구하는 것만 묻는다.
-function followUpPanel() {
-  const noticeText = [state.selectedNotice?.summary, state.selectedNotice?.eligibility, state.selectedNotice?.supportDetails, state.sourceText].filter(Boolean).join('\n');
-  const asked = followUpQuestions({ noticeText, answers: state.quickAnswers || {} });
-  if (!asked.length) return '';
-  return `<div class="alert"><strong>이 공고가 요구하는 것만 확인합니다</strong>
-    ${asked.map(item => `<div class="field"><label for="followup-${item.key}">${escapeHtml(item.ask)}</label>
-      <input id="followup-${item.key}" data-followup-field="${item.key}" value="${escapeHtml((state.quickAnswers || {})[item.key] || '')}" placeholder="모르면 비워 두세요"></div>`).join('')}
-    <p class="muted">비워 두면 계획서에 [확인 필요]로 남습니다. 없는 실적이나 인력을 만들지 않습니다.</p></div>`;
-}
 
 // 간단 입력을 신청기관 자료로 옮긴다. 옮긴 값은 확인 필요 상태로 들어간다.
 async function saveQuickOrg() {
-  const draft = quickDraft();
+  // 기관정보 화면에서는 지금 열어 둔 기관에 저장한다. 작성 화면에서는 이번 사업 신청기관에 저장한다.
+  const existing = findApplicant(state.applicants, state.activeTool === 'applicants' ? focusedApplicantId() : state.selectedApplicantId);
+  // 이미 등록된 기관을 고치는 중이면 기관명은 그 기관의 이름이다. 다시 적게 하지 않는다.
+  const draft = { ...quickDraft(), orgName: String(quickDraft().orgName || existing?.name || '').trim() };
   const check = readyToDraft(draft);
-  if (!check.ready) return setState({ notice: `${check.missing.join(' · ')}를 먼저 적어 주세요.` });
+  if (!check.ready) { setState({ notice: `${check.missing.join(' · ')}를 먼저 적어 주세요.` }); return false; }
   const items = quickToApplicantItems(draft).map(item => makeApplicantItem(item));
-  const existing = findApplicant(state.applicants, state.selectedApplicantId);
   // 새 신청기관은 normalizeApplicant로 만든다. buildApplicantOrganization은 계획서에 넘길
   // 자료를 만드는 함수라 여기에 쓰면 항목이 사라진 빈 기관이 만들어진다.
   const applicant = existing
-    ? normalizeApplicant({ ...existing, items: [...existing.items, ...items] })
+    ? normalizeApplicant({ ...existing, name: draft.orgName || existing.name, items: mergeApplicantItems(existing.items, items) })
     : normalizeApplicant({ name: draft.orgName, items });
   setState({
     applicants: upsertApplicant(state.applicants, applicant), selectedApplicantId: applicant.id, applicantEditingId: applicant.id,
     notice: '기관정보로 저장했습니다. 확인 필요 상태이니 내용을 보고 확인해 주세요.'
   });
   await saveArchivedApplicant(applicant).catch(() => null);
+  return true;
 }
 
+// 기본정보 저장. 기관명·메모까지 함께 저장하고, 원하면 그대로 계획서 작성으로 나간다.
+// 상세정보가 비어 있어도 여기서 막지 않는다.
+async function saveBasicInfo({ thenWrite = false } = {}) {
+  if (!await saveQuickOrg()) return;
+  const id = focusedApplicantId();
+  if (!id) return;
+  await persistApplicant(id, false);
+  if (!thenWrite) return setState({ notice: '기본정보를 저장했습니다. 상세정보는 선택이며 나중에 추가할 수 있습니다.', error: '' });
+  // 상세정보를 요구하지 않고 바로 작성으로 보낸다.
+  setState({ activeTool: '', expertDetail: false, notice: '기본정보를 저장했습니다. 이어서 계획서를 작성합니다.', error: '' });
+}
+
+// 기관정보 화면. 페이지를 새로 만들지 않고 이 한 곳을 기본정보 → 상세정보 두 단계로 나눈다.
 function applicantsToolView() {
-  const editing = findApplicant(state.applicants, state.applicantEditingId);
+  // 지금 관리하는 기관은 열어 둔 기관이고, 열어 둔 것이 없으면 이번 사업 신청기관이다.
+  // 대행회원은 고른 고객기관의 정보를 그대로 관리하게 된다.
+  const editing = findApplicant(state.applicants, state.applicantEditingId) || findApplicant(state.applicants, state.selectedApplicantId);
   // 대행회원은 여러 고객 기관을 등록해 그 이름으로 계획서를 쓴다. 화면 이름만 바뀌고 자료 구조는 같다.
   const clients = canHoldClients(auth.user?.role);
   const who = clients ? '고객 기관' : '신청기관';
-  return `${quickStartPanel()}<div class="page-heading"><div><h2>${who} 정보</h2><p>${clients ? '대신 계획서를 쓸 고객 기관을 등록·수정합니다' : '이번 사업을 신청하는 기관의 정보를 등록·수정합니다'}. 공고 분석 정보와는 분리해 보관하며, 확인된 정보만 계획서 작성에 전달합니다.</p><div class="actions">${sampleButton('applicant', '[샘플] 기관 보기')}</div></div><button class="button secondary" id="close-applicants">작성 흐름으로 돌아가기</button></div>
+  return `<div class="page-heading"><div><h2>${who} 정보</h2><p>${clients ? '대신 계획서를 쓸 고객 기관을 등록·수정합니다' : '이번 사업을 신청하는 기관의 정보를 등록·수정합니다'}. 공고 분석 정보와는 분리해 보관하며, 확인된 정보만 계획서 작성에 전달합니다.</p><div class="actions">${sampleButton('applicant', '[샘플] 기관 보기')}</div></div><button class="button secondary" id="close-applicants">작성 흐름으로 돌아가기</button></div>
     <div class="card"><div class="card-title"><div><h3>등록된 ${who} ${state.applicants.length}곳</h3><span>마인드스토리도 등록기관 중 하나로만 취급합니다.</span></div><div><button class="button secondary" id="load-applicants">계획서보관함에서 불러오기</button></div></div>
     <div class="two-col"><div class="field"><label for="applicant-name-draft">새 ${who}명</label><input id="applicant-name-draft" value="${escapeHtml(state.applicantNameDraft)}" placeholder="예: 사단법인 ○○센터"></div><div class="field"><label>&nbsp;</label><button class="button primary" id="add-applicant">신청기관 추가</button></div></div>
     ${state.applicants.length ? `<div class="requirement-list">${state.applicants.map(applicant => {
       const confirmed = applicant.items.filter(item => item.status === CONFIRMED_STATUS).length;
-      return `<article class="requirement"><div><span class="tag">${applicant.id === state.selectedApplicantId ? '이번 사업 신청기관' : '등록기관'}</span><div><strong>${escapeHtml(applicant.name)}</strong><small>확인됨 ${confirmed}건 · 확인 필요·오래된 정보 ${applicant.items.length - confirmed}건 · 최근 수정 ${escapeHtml(String(applicant.updatedAt).slice(0, 10))}</small></div></div><div class="actions" style="margin:0;gap:8px"><button class="button secondary" data-edit-applicant="${escapeHtml(applicant.id)}">${state.applicantEditingId === applicant.id ? '수정 닫기' : '정보 수정'}</button><button class="button secondary" data-select-applicant="${escapeHtml(applicant.id)}">이번 사업 신청기관으로 선택</button><button class="button secondary" data-delete-applicant="${escapeHtml(applicant.id)}">삭제</button></div></article>`;
+      return `<article class="requirement"><div><span class="tag">${applicant.id === state.selectedApplicantId ? '이번 사업 신청기관' : '등록기관'}</span><div><strong>${escapeHtml(applicant.name)}</strong><small>확인됨 ${confirmed}건 · 확인 필요·오래된 정보 ${applicant.items.length - confirmed}건 · 최근 수정 ${escapeHtml(String(applicant.updatedAt).slice(0, 10))}</small></div></div><div class="actions" style="margin:0;gap:8px"><button class="button secondary" data-edit-applicant="${escapeHtml(applicant.id)}">${(state.applicantEditingId || state.selectedApplicantId) === applicant.id ? '관리 중' : '이 기관 관리'}</button><button class="button secondary" data-select-applicant="${escapeHtml(applicant.id)}">이번 사업 신청기관으로 선택</button><button class="button secondary" data-delete-applicant="${escapeHtml(applicant.id)}">삭제</button></div></article>`;
     }).join('')}</div>` : '<p class="muted">등록된 신청기관이 없습니다. 기관명을 입력하고 추가하세요.</p>'}</div>
+    ${editing ? applicantBasicView(editing, who) : `<div class="card"><h3>1단계 기본정보</h3><p class="muted">위에서 ${who}을(를) 추가하거나 고르면 기본정보부터 입력할 수 있습니다.</p></div>`}
+    ${editing ? applicantCandidateView(editing) : ''}
+    ${editing ? applicantDetailView(editing) : ''}
     ${editing ? applicantSourcesView(editing) : ''}
-    ${editing ? applicantDocumentView(editing) : ''}
-    ${editing ? applicantEditorView(editing) : ''}`;
+    ${editing ? applicantDocumentView(editing) : ''}`;
 }
 
 // 1) 기관자료 목록. 자료의 종류·이름·주소·기준일만 기록하고, 내용은 기존 추출 경로로 넣는다.
@@ -3931,14 +3920,6 @@ function profileBridgePanel(applicant) {
       <button class="button primary" id="pull-profile-info" ${state.busy ? 'disabled' : ''}>내 정보에서 ${merged.added.length + merged.conflicts.length}건 가져오기</button></div></div>`;
 }
 
-// 영역 진행 안내. 핵심 셋을 먼저 보여 주고 나머지는 접어 둔다. 처음부터 모두 요구하지 않는다.
-function applicantAreaGuide(applicant) {
-  const progress = areaProgress(applicant, APPLICANT_AREAS);
-  const core = progress.filter(area => area.core);
-  const rest = progress.filter(area => !area.core);
-  return `<div class="stat-badges">${core.map(area => `<span class="stat-badge" title="${escapeHtml(area.hint)}"><strong>${area.confirmed}/${area.total}</strong><span>${escapeHtml(area.title)}</span></span>`).join('')}</div>
-    <p class="muted">먼저 <b>${core.map(area => escapeHtml(area.title)).join(' · ')}</b>만 채우면 계획서를 시작할 수 있습니다. 나머지 ${rest.length}개 영역은 선택이며 필요할 때 펼쳐서 적습니다.</p>`;
-}
 
 // ---------- 사업 아이디어·활용자산 ----------
 function emptyAssetDraft() {
@@ -4047,18 +4028,78 @@ async function pullProfileIntoApplicant() {
   await saveArchivedApplicant(next).catch(() => null);
 }
 
-function applicantEditorView(applicant) {
-  return `<div class="card" id="applicant-editor" tabindex="-1"><div class="card-title"><div><h3>${escapeHtml(applicant.name)} 정보 편집</h3><span>각 항목은 확인됨 / 확인 필요 / 오래된 정보로 구분합니다.</span></div><button class="button secondary" id="save-applicant">이 기관 정보 저장</button></div>
-    <div class="field"><label for="applicant-name">기관명</label><input id="applicant-name" value="${escapeHtml(applicant.name)}"></div>
-    <div class="field"><label for="applicant-note">기관 메모</label><input id="applicant-note" value="${escapeHtml(applicant.note)}" placeholder="예: 2026년 기준 정보"></div>
-    ${applicantAreaGuide(applicant)}
+// ---------- 1단계 기본정보 ----------
+// 계획서를 시작하는 데 필요한 최소한만 받는다. 여기까지만 적고 바로 작성으로 갈 수 있다.
+function applicantBasicView(applicant, who = '신청기관') {
+  const draft = quickDraft();
+  const status = basicStatus(applicant, draft);
+  const reuse = reusableCount(applicant);
+  return `<div class="card" id="applicant-editor" tabindex="-1">
+    <div class="card-title"><div><h3>1단계 기본정보 · ${escapeHtml(applicant.name)}</h3>
+      <span>계획서를 시작하는 데 필요한 것만 적습니다. 나머지는 나중에 적어도 됩니다.</span></div>
+      <span class="status ${status.ready ? '충족' : '확인-필요'}">${status.ready ? (status.saved ? '저장됨' : '저장하면 시작 가능') : `${status.missing.join(' · ')} 필요`}</span></div>
+    <div class="two-col">
+      <div class="field"><label for="applicant-name">${escapeHtml(who)}명</label><input id="applicant-name" value="${escapeHtml(applicant.name)}"></div>
+      <div class="field"><label for="applicant-note">기관 메모 <span class="muted">(선택)</span></label><input id="applicant-note" value="${escapeHtml(applicant.note)}" placeholder="예: 2026년 기준 정보"></div>
+    </div>
+    <div class="two-col">${QUICK_FIELDS.filter(field => field.key !== 'orgName').map(field => `<div class="field">
+      <label for="quick-${field.key}">${escapeHtml(field.label)}${field.required ? '' : ' <span class="muted">(선택)</span>'}</label>
+      ${field.choices
+        ? `<select id="quick-${field.key}" data-quick-field="${field.key}"><option value="">고르세요</option>${ORG_TYPES.map(type => `<option value="${escapeHtml(type)}" ${draft[field.key] === type ? 'selected' : ''}>${escapeHtml(type)}</option>`).join('')}</select>`
+        : `<input id="quick-${field.key}" data-quick-field="${field.key}" value="${escapeHtml(draft[field.key] || '')}" placeholder="${escapeHtml(field.hint)}">`}
+    </div>`).join('')}</div>
+    <p class="muted">적지 않은 인력·시설·실적·예산은 만들어 넣지 않고 <b>[확인 필요]</b>로 남깁니다.${reuse ? ` 지금 이 기관에서 다음 계획서에도 다시 쓰이는 확인된 정보는 ${reuse}건입니다.` : ''}</p>
+    <div class="actions"><span class="muted">${status.ready ? '이 상태로 계획서를 시작할 수 있습니다. 상세정보는 선택입니다.' : `아직 ${status.missing.join(' · ')}가 비어 있습니다.`}</span>
+      <div><button class="button secondary" id="save-basic-info" ${state.busy ? 'disabled' : ''}>기본정보 저장</button>
+        <button class="button primary" id="basic-to-writing" ${state.busy ? 'disabled' : ''}>저장하고 계획서 작성으로</button></div></div>
+    ${BASIC_AREAS.map(key => APPLICANT_AREAS.find(area => area.key === key)).filter(Boolean).map(area => {
+      const count = areaItems(applicant, area.key).length;
+      return `<details class="card org-details" data-detail-group="${area.key}" ${(state.openOrgGroups || []).includes(area.key) ? 'open' : ''}>
+        <summary><b>${escapeHtml(area.title)}</b> <small>등록 ${count}건 · 주소·대표자·신청자격처럼 더 적을 것이 있을 때만 펼치세요</small></summary>
+        ${applicantAreaFields(applicant, area, false)}</details>`;
+    }).join('')}
+  </div>`;
+}
+
+// 파일·내 정보에서 뽑은 값은 후보로만 제안한다. 회원이 확인해야 저장된다.
+function applicantCandidateView(applicant) {
+  return `<div class="card"><div class="card-title"><div><h3>입력 후보</h3>
+    <span>내 정보와 올린 문서에서 찾은 값입니다. 출처와 함께 보여 주고, 확인해야 기관정보가 됩니다.</span></div></div>
     ${profileBridgePanel(applicant)}
     ${applicantScopeView(applicant)}
-    ${applicantSourceView(applicant)}
-    ${APPLICANT_AREAS.map(area => {
-      const items = areaItems(applicant, area.key);
-      const draft = state.applicantItemDrafts[area.key] || { label: '', value: '', status: '확인 필요', source: '' };
-      return `<details class="card org-details" ${items.length ? 'open' : ''}><summary>${escapeHtml(area.title)} · ${items.length}건</summary><p class="muted">${escapeHtml(area.hint)}</p>
+    ${applicantSourceView(applicant)}</div>`;
+}
+
+// ---------- 2단계 상세정보(선택) ----------
+// 구역을 한 번에 펼치지 않는다. 필요한 구역만 열어서 적는다. 비어 있어도 계획서를 막지 않는다.
+function applicantDetailView(applicant) {
+  const groups = detailProgress(applicant);
+  const filled = groups.filter(group => group.total).length;
+  return `<div class="card" id="applicant-detail">
+    <div class="card-title"><div><h3>2단계 상세정보 <span class="muted">(선택)</span></h3>
+      <span>여덟 구역 중 ${filled}구역에 자료가 있습니다. 지금 적지 않아도 계획서는 만들어집니다.</span></div>
+      <div><button class="button secondary" id="open-all-details">모두 펼치기</button><button class="button secondary" id="close-all-details">모두 접기</button></div></div>
+    <div class="alert"><strong>상세정보를 등록하면 계획서가 달라집니다</strong><p>${DETAIL_INTRO}</p></div>
+    <div class="stat-badges">${groups.map(group => `<span class="stat-badge" title="${escapeHtml(group.hint)}"><strong>${group.confirmed}/${group.total}</strong><span>${escapeHtml(group.title)}</span></span>`).join('')}</div>
+    ${groups.map(group => detailGroupPanel(applicant, group)).join('')}
+  </div>`;
+}
+
+function detailGroupPanel(applicant, group) {
+  const open = (state.openOrgGroups || []).includes(group.key);
+  const areas = group.areas.map(key => APPLICANT_AREAS.find(area => area.key === key)).filter(Boolean);
+  return `<details class="card org-details" data-detail-group="${group.key}" ${open ? 'open' : ''}>
+    <summary><b>${escapeHtml(group.title)}</b> <small>등록 ${group.total}건 · 확인됨 ${group.confirmed}건</small></summary>
+    <p class="muted">${escapeHtml(group.hint)}</p>
+    ${areas.map(area => applicantAreaFields(applicant, area, areas.length > 1)).join('')}
+    ${group.key === 'programs' ? ideaAssetPanel() : ''}</details>`;
+}
+
+// 한 영역의 등록 항목과 새 항목 입력칸. 저장 구조를 바꾸지 않아 기존 자료가 그대로 보인다.
+function applicantAreaFields(applicant, area, showTitle) {
+  const items = areaItems(applicant, area.key);
+  const draft = state.applicantItemDrafts[area.key] || { label: '', value: '', status: '확인 필요', source: '' };
+  return `${showTitle ? `<h4>${escapeHtml(area.title)} · ${items.length}건</h4>` : ''}
         ${items.length ? `<div class="requirement-list">${items.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(item.label || '항목명 없음')}</span>${applicantStatusTag(item.status)}</div>
           <div class="two-col"><div class="field"><label for="label-${escapeHtml(item.id)}">항목명</label><input id="label-${escapeHtml(item.id)}" data-applicant-field="${escapeHtml(item.id)}|label" value="${escapeHtml(item.label)}"></div><div class="field"><label for="status-${escapeHtml(item.id)}">상태</label><select id="status-${escapeHtml(item.id)}" data-applicant-status="${escapeHtml(item.id)}">${statusOptions(item.status)}</select></div></div>
           <div class="field"><label for="value-${escapeHtml(item.id)}">내용</label><textarea id="value-${escapeHtml(item.id)}" data-applicant-field="${escapeHtml(item.id)}|value" style="min-height:70px">${escapeHtml(item.value)}</textarea></div>
@@ -4069,8 +4110,7 @@ function applicantEditorView(applicant) {
         <div class="two-col"><div class="field"><label for="draft-label-${area.key}">새 항목명</label><input id="draft-label-${area.key}" data-applicant-draft="${area.key}|label" value="${escapeHtml(draft.label)}"></div><div class="field"><label for="draft-status-${area.key}">상태</label><select id="draft-status-${area.key}" data-applicant-draft="${area.key}|status">${statusOptions(draft.status)}</select></div></div>
         <div class="field"><label for="draft-value-${area.key}">새 항목 내용</label><textarea id="draft-value-${area.key}" data-applicant-draft="${area.key}|value" style="min-height:70px">${escapeHtml(draft.value)}</textarea></div>
         <div class="field"><label for="draft-source-${area.key}">근거자료·출처</label><input id="draft-source-${area.key}" data-applicant-draft="${area.key}|source" value="${escapeHtml(draft.source)}"></div>
-        <div class="actions" style="margin:0"><span></span><button class="button primary" data-add-applicant-item="${area.key}">${escapeHtml(area.title)} 항목 추가</button></div></details>${area.key === 'programs' ? ideaAssetPanel() : ''}`;
-    }).join('')}</div>`;
+        <div class="actions" style="margin:0"><span></span><button class="button primary" data-add-applicant-item="${area.key}">${escapeHtml(area.title)} 항목 추가</button></div>`;
 }
 
 function comparisonRequirements() {
@@ -4252,7 +4292,13 @@ function simpleOrgPanel() {
   const draft = quickDraft();
   const saved = state.applicants || [];
   const chosen = findApplicant(state.applicants, state.selectedApplicantId);
-  return `<details class="card org-details" id="simple-org" ${chosen ? '' : 'open'}>
+  const reuse = reusableCount(chosen);
+  // 첫 화면 안내 배너. 새 화면을 만들지 않고 기존 기관정보 페이지로 보낸다.
+  return `<div class="alert"><strong>기관정보를 한 번 등록해 두면 계획서마다 다시 적지 않습니다</strong>
+    <p>${chosen ? `지금 «${escapeHtml(chosen.name)}»의 확인된 정보 ${reuse}건을 계획서에 다시 씁니다. ` : ''}인력·실적·시설·프로그램 같은 상세정보를 등록하면 [확인 필요]가 줄어듭니다. 기본정보만 적고 시작해도 됩니다.</p>
+    <div class="actions"><span class="muted">상세정보는 선택입니다. 없어도 계획서는 만들어집니다.</span>
+      <button class="button secondary" data-open-applicants="1">기관정보 등록·수정</button></div></div>
+    <details class="card org-details" id="simple-org" ${chosen ? '' : 'open'}>
     <summary><b>신청기관</b> <small>${chosen ? escapeHtml(chosen.name) : '기관을 고르거나 간단히 적어 주세요'}</small></summary>
     ${saved.length ? `<div class="inline-row"><label for="simple-org-pick">저장한 기관</label>
       <select id="simple-org-pick"><option value="">고르세요</option>${saved.map(item => `<option value="${escapeHtml(item.id)}" ${state.selectedApplicantId === item.id ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}</select></div>` : ''}
@@ -6062,7 +6108,23 @@ function bindApplicants() {
   document.querySelector('#applicant-name-draft')?.addEventListener('input', event => { state.applicantNameDraft = event.target.value; });
   document.querySelector('#add-applicant')?.addEventListener('click', addApplicant);
   document.querySelector('#load-applicants')?.addEventListener('click', loadApplicantsFromArchive);
-  document.querySelectorAll('[data-edit-applicant]').forEach(el => el.onclick = () => setState({ activeTool: 'applicants', applicantEditingId: state.applicantEditingId === el.dataset.editApplicant ? '' : el.dataset.editApplicant, notice: '', error: '' }));
+  // 기관을 열면 저장해 둔 기본정보를 입력칸에 다시 채운다. 같은 내용을 두 번 적지 않게 한다.
+  document.querySelectorAll('[data-edit-applicant]').forEach(el => el.onclick = () => setState({
+    activeTool: 'applicants', applicantEditingId: el.dataset.editApplicant, openOrgGroups: [],
+    quickOrg: { ...quickDraft(), ...draftFromApplicant(findApplicant(state.applicants, el.dataset.editApplicant)) }, notice: '', error: ''
+  }));
+  // 필요한 구역만 연다. 다시 그려도 열어 둔 구역이 닫히지 않게 기억한다.
+  document.querySelectorAll('[data-detail-group]').forEach(el => el.addEventListener('toggle', () => {
+    const key = el.dataset.detailGroup;
+    const open = new Set(state.openOrgGroups || []);
+    if (el.open) open.add(key); else open.delete(key);
+    state.openOrgGroups = [...open];
+    saveState();
+  }));
+  document.querySelector('#open-all-details')?.addEventListener('click', () => setState({ openOrgGroups: [...BASIC_AREAS, ...DETAIL_GROUPS.map(group => group.key)] }));
+  document.querySelector('#close-all-details')?.addEventListener('click', () => setState({ openOrgGroups: [] }));
+  document.querySelector('#save-basic-info')?.addEventListener('click', () => void saveBasicInfo());
+  document.querySelector('#basic-to-writing')?.addEventListener('click', () => void saveBasicInfo({ thenWrite: true }));
   document.querySelectorAll('[data-select-applicant]').forEach(el => el.onclick = () => selectApplicantForProject(el.dataset.selectApplicant));
   // 신청기관 정보가 없어도 계획서 작성을 막지 않는다.
   document.querySelector('#skip-applicant')?.addEventListener('click', () => navigateToStep(3, { applicantSkipped: true, notice: '신청기관 없이 진행합니다. 확인되지 않은 기관 사실은 만들지 않고 [확인 필요]로 남깁니다.', error: '' }));
@@ -6144,8 +6206,13 @@ function bindApplicants() {
   document.querySelectorAll('[data-applicant-answer]').forEach(el => el.oninput = () => { state.designAnswers[el.dataset.question] = el.value; saveState(); });
 }
 
+// 기관정보 화면이 지금 다루는 기관. 열어 둔 기관이 없으면 이번 사업 신청기관을 그대로 관리한다.
+function focusedApplicantId() {
+  return findApplicant(state.applicants, state.applicantEditingId)?.id || findApplicant(state.applicants, state.selectedApplicantId)?.id || '';
+}
+
 function updateEditingApplicant(mutate) {
-  const applicant = findApplicant(state.applicants, state.applicantEditingId);
+  const applicant = findApplicant(state.applicants, focusedApplicantId());
   if (!applicant) return null;
   const next = structuredClone(applicant);
   mutate(next);

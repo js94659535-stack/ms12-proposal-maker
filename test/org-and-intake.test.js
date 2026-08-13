@@ -53,7 +53,9 @@ test('문서에서 뽑은 값은 자동으로 확정하지 않는다', () => {
 
 test('핵심 영역을 먼저 안내하고 나머지는 선택으로 둔다', () => {
   const progress = areaProgress({ items: [] }, APPLICANT_AREAS);
-  assert.equal(progress.length, 10, '기존 10개 영역을 그대로 유지한다');
+  // 기존 10개 영역을 그대로 두고 상세정보 「이용자」 한 곳만 늘었다. 기존 자료의 area는 바뀌지 않는다.
+  assert.equal(progress.length, 11);
+  assert.ok(progress.some(area => area.key === 'clients'));
   const core = progress.filter(area => area.core).map(area => area.key);
   assert.deepEqual(core, [...CORE_AREAS]);
   // 비어 있어도 막지 않는다. 먼저 채우자고 안내만 한다.

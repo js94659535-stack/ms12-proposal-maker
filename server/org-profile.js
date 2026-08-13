@@ -10,7 +10,7 @@
 // 회원이 먼저 보는 핵심 영역. 나머지는 접어 두고 필요할 때 편다.
 export const CORE_AREAS = Object.freeze(['basic', 'staff', 'performance']);
 // 처음부터 모두 요구하지 않는다. 이 목록만 「입력하면 좋음」으로 안내한다.
-export const OPTIONAL_AREAS = Object.freeze(['legal', 'programs', 'facilities', 'partners', 'budget', 'measurement', 'references']);
+export const OPTIONAL_AREAS = Object.freeze(['legal', 'clients', 'programs', 'facilities', 'partners', 'budget', 'measurement', 'references']);
 
 export const PROFILE_SOURCE = '내 정보(회원 입력)';
 // 물려받은 값은 확정이 아니다. 회원이 확인해야 확정된다.

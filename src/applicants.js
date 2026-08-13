@@ -7,6 +7,7 @@ export const CONFIRMED_STATUS = '확인됨';
 export const APPLICANT_AREAS = [
   { key: 'basic', title: '기관 기본정보', hint: '기관명·설립연도·소재지·대표자·연락처' },
   { key: 'legal', title: '법적 유형·신청자격', hint: '법인 유형·고유번호·등록증·공모 신청자격 충족 여부' },
+  { key: 'clients', title: '이용자·대상', hint: '이용 인원·연령대·이용 방식' },
   { key: 'staff', title: '수행인력', hint: '상근·비상근 인원, 자격증, 담당 역할' },
   { key: 'programs', title: '보유 프로그램·사업역량', hint: '프로그램명·대상·회기·운영 방식' },
   { key: 'performance', title: '주요 사업실적·성과', hint: '연도·사업명·규모·성과' },
@@ -127,6 +128,27 @@ export function upsertApplicant(applicants, applicant) {
   const list = Array.isArray(applicants) ? applicants : [];
   const index = list.findIndex(item => item.id === normalized.id);
   return index < 0 ? [...list, normalized] : list.map((item, position) => (position === index ? normalized : item));
+}
+
+// 같은 항목을 다시 저장할 때 줄을 하나 더 만들지 않는다.
+// 값이 같으면 손대지 않아 이미 「확인됨」인 항목이 다시 「확인 필요」로 내려가지 않고,
+// 값이 달라졌을 때만 이전 값을 이력에 남기고 바꾼다. 지우지 않는다.
+export function mergeApplicantItems(existing = [], incoming = []) {
+  const list = (Array.isArray(existing) ? existing : []).map(item => ({ ...item }));
+  const index = new Map(list.map((item, position) => [`${item.area}:${item.label}`, position]));
+  for (const item of Array.isArray(incoming) ? incoming : []) {
+    const key = `${item.area}:${item.label}`;
+    const at = index.get(key);
+    if (at === undefined) { index.set(key, list.length); list.push(item); continue; }
+    const current = list[at];
+    if (text(current.value, 2000) === text(item.value, 2000)) continue;
+    list[at] = {
+      ...current, value: item.value, status: item.status, source: item.source || current.source, origin: item.origin || current.origin,
+      history: [...(current.history || []), { value: current.value, status: current.status, source: current.source, origin: current.origin, asOf: current.asOf, recordedAt: new Date().toISOString() }].slice(-20),
+      updatedAt: new Date().toISOString()
+    };
+  }
+  return list;
 }
 
 export function findApplicant(applicants, id) {
