@@ -56,9 +56,9 @@ try {
   // 한도를 아주 낮게 바꿔 초과 상황을 만든다.
   const limited = await call('/api/admin', {
     action: 'setAgency', id: byRole.customer.id, status: 'active',
-    limits: { monthlyPlans: 1, revisionsPerPlan: 1, monthlyDiagnoses: 1, monthlyTokens: 1, monthlyCostMicro: 1 }
+    limits: { monthlyPlans: 5, revisionsPerPlan: 2, monthlyDiagnoses: 2, monthlyTokens: 5000000, monthlyCostMicro: 5000000 }
   });
-  record(4, '한도 변경(토큰 1로 낮춤)', limited?.status === 200, `HTTP ${limited?.status}`);
+  record(4, '한도 변경', limited?.status === 200, `HTTP ${limited?.status}`);
 
   // ---------- 2. 운영관리자·일반회원의 지정 요청 ----------
   await signIn(byRole.operator);
@@ -93,6 +93,10 @@ try {
     return JSON.stringify({ status: r.status, error: String(data.error || '').slice(0, 80) });
   })()`, 120000);
   record(10, '요금 없이 자격만으로 AI 사용', firstCall?.status === 200, `HTTP ${firstCall?.status} ${firstCall?.error || ''}`);
+  // 이제 상한을 사용량 아래로 낮춘다. 다음 호출은 부르기 전에 막혀야 한다.
+  await signIn(byRole.admin);
+  await call('/api/admin', { action: 'setAgency', id: byRole.customer.id, status: 'active', limits: { monthlyPlans: 1, revisionsPerPlan: 1, monthlyDiagnoses: 1, monthlyTokens: 1, monthlyCostMicro: 1 } });
+  await signIn(byRole.customer);
   const blocked = await call('/api/proposal', { action: 'master', payload: { proposalId: 'e2e-agency-limit', sourceText: source } });
   record(10.5, '한도 초과 시 AI 호출 전에 차단', blocked?.status === 403 && /상한|한도|모두 썼습니다/.test(blocked?.error || ''),
     `HTTP ${blocked?.status} · ${blocked?.error}`);
@@ -100,7 +104,7 @@ try {
   // 대행 업무 자료를 하나 만든다.
   const madeClient = await archiveCall('saveApplicant', {
     workspace: 'agency',
-    applicant: { id: 'e2e-agency-client-1', name: 'E2E-AGENCY 고객기관', note: '시험자료', items: [] }
+    applicant: { id: 'e2e-agency-client-' + Date.now(), name: 'E2E-AGENCY 고객기관', note: '시험자료', items: [] }
   });
   const agencyList = await archiveCall('listApplicants', { workspace: 'agency' });
   const personalList = await archiveCall('listApplicants', { workspace: 'personal' });

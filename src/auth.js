@@ -20,7 +20,8 @@ export const UNAUTHORIZED = '로그인이 필요합니다.';
 // 소셜 가입·연결. 공급자 토큰은 서버에서만 다루고 브라우저로 오지 않는다.
 export const startSocial = (provider, mode = 'signup') => post('/api/oauth', 'start', { provider, mode });
 export const finishSocial = (provider, code, state) => post('/api/oauth', 'callback', { provider, code, state });
-export const agencyMe = () => post('agencyMe');
+// 대행회원 본인의 자격·남은 편수. 남의 자격은 이 경로로 볼 수 없다.
+export const agencyMe = () => post('/api/account', 'agencyMe');
 export const accountProfile = () => post('/api/account', 'profile');
 export const saveAccountProfile = value => post('/api/account', 'completeProfile', value);
 

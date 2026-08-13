@@ -185,3 +185,14 @@ test('대행회원은 요금 없이 최고관리자가 연 자격으로 전문 �
   assert.ok(proposal.indexOf('const agency = await stateFor(') < proposal.indexOf('const membership = membershipOf('));
   assert.match(proposal, /agencyActive: agency\.active/);
 });
+
+test('대행회원 본인 자격은 계정 경로로 읽는다', () => {
+  const client = fs.readFileSync(new URL('../src/auth.js', import.meta.url), 'utf8');
+  assert.match(client, /export const agencyMe = \(\) => post\('\/api\/account', 'agencyMe'\);/);
+  const account = fs.readFileSync(new URL('../functions/api/account.js', import.meta.url), 'utf8');
+  assert.match(account, /if \(body\.action === 'agencyMe'\) return agencyMe\(env\.ARCHIVE_DB, data\.session\.user\);/);
+  // 남의 자격은 돌려주지 않는다. 세션 주인의 값만 읽는다.
+  const fn = account.slice(account.indexOf('async function agencyMe(db, user)'));
+  assert.match(fn, /stateFor\(db, user\.id\)/);
+  assert.ok(!/body\.(id|userId)/.test(fn));
+});
