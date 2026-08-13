@@ -2532,9 +2532,11 @@ const AI_TASKS = {
 };
 let aiTask = null;
 let pendingAiMove = null;
+// 걸린 시간은 초와 분으로 읽어 준다. 00:00은 시각처럼 보여 얼마나 지났는지 한눈에 들어오지 않는다.
 function aiTaskLabel(seconds) {
   const value = Math.max(0, Math.round(seconds));
-  return `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`;
+  if (value < 60) return `${String(value).padStart(2, '0')}초`;
+  return `${Math.floor(value / 60)}분 ${String(value % 60).padStart(2, '0')}초`;
 }
 function markAiDoneAt(taskId, startedAt, patch = {}) { return markAiDone(taskId, patch, startedAt); }
 function markAiDone(taskId, patch = {}, startedAt = Date.now()) {
@@ -2591,7 +2593,8 @@ function aiResultBanner() {
 }
 
 // 진행 중 표시를 끝낼 때 최종 경과시간을 완료·실패 메시지에 함께 남긴다.
-function elapsedLabel() { return busyStartedAt ? ` · ${Math.max(0, Math.round((Date.now() - busyStartedAt) / 1000))}초` : ''; }
+// 끝난 뒤 알림에 붙이는 걸린 시간. 진행 중 표시와 같은 형식으로 읽어 준다.
+function elapsedLabel() { return busyStartedAt ? ` · ${aiTaskLabel((Date.now() - busyStartedAt) / 1000)}` : ''; }
 function typeName() { return TYPES.find(([id]) => id === state.project.type)?.[1] || '사업'; }
 function isStepComplete(index) {
   if (index === 0) return Boolean(state.noticeResults.length || state.sourceText.trim().length >= 30 || state.manualSources.some(item => item.extractionStatus === 'success'));
@@ -2665,7 +2668,7 @@ function shell(content) {
         ${state.notice ? `<div class="alert success">${escapeHtml(state.notice)}</div>` : ''}
         ${state.error ? `<div class="alert danger">${escapeHtml(state.error)}</div>` : ''}
         <section class="workspace">${content}</section>
-        ${state.busy ? `<div class="busy"><div class="loader"></div><strong>${escapeHtml(state.busy)}</strong><small>창을 닫지 마세요.${busyStartedAt ? `<span data-ai-elapsed data-started-at="${busyStartedAt}" style="display:block">경과시간 00:00</span>` : ''}</small></div>` : ''}
+        ${state.busy ? `<div class="busy"><div class="loader"></div><strong>${escapeHtml(state.busy)}</strong><small>창을 닫지 마세요.${busyStartedAt ? `<span data-ai-elapsed data-started-at="${busyStartedAt}" style="display:block">경과시간 00초</span>` : ''}</small></div>` : ''}
       </main>
     </div>`;
 }
@@ -7124,7 +7127,7 @@ async function runRevision() {
 
   const before = structuredClone(state.sections);
   const facts = confirmedFactsForRevision();
-  setState({ busy: '요청한 곳만 고치는 중...', error: '', notice: '' });
+  setAiBusy('요청한 곳만 고치는 중...', { error: '', notice: '' });
   let ok = false;
   try {
     const kindLabel = REVISION_KINDS.find(item => item.key === draft.kind)?.label || '수정';

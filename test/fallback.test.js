@@ -443,8 +443,8 @@ test('모든 AI 작업은 단일 타이머로 경과시간을 표시하고 backg
   const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   for (const message of ['계획서 전체 검증 작업을 시작하는 중', '선택한 문제의 수정안만 작성하는 중', '사업계획서를 심사자 관점에서 검토하는 중', '기관 요구사항과 평가 기준을 분석하는 중', '선택한 항목을 근거 범위 안에서 재작성하는 중', '공고문을 분석하고 마스터 설계를 작성하는 중', '전체 계획서 작성 중']) assert.match(source, new RegExp(`setAiBusy\\('${message}`));
   assert.match(source, /data-ai-elapsed data-started-at/);
-  assert.match(source, /data-ai-elapsed[^>]+style="display:block">경과시간 00:00/);
-  assert.match(source, /경과시간 00:00/);
+  assert.match(source, /data-ai-elapsed[^>]+style="display:block">경과시간 00초/);
+  assert.match(source, /경과시간 00초/);
   assert.match(source, /startedAt: busyStartedAt \|\| Date\.now\(\)/);
   assert.match(source, /aiTaskLabel\(\(Date\.now\(\) - startedAt\) \/ 1000\)/);
   assert.match(source, /clearInterval\(busyTimer\)/);

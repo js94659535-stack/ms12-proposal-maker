@@ -20,9 +20,13 @@ test('AI·API 작업마다 진행 이름과 완료 후 결과 위치를 정의�
   }
 });
 
-test('진행시간은 하나의 타이머로 00:00부터 세고 폴링을 늘리지 않는다', () => {
+test('진행시간은 하나의 타이머로 초·분으로 세고 폴링을 늘리지 않는다', () => {
   assert.match(app, /function aiTaskLabel\(seconds\)/);
-  assert.match(app, /String\(Math\.floor\(value \/ 60\)\)\.padStart\(2, '0'\)/);
+  // 00:00은 시각처럼 보인다. 1분 미만은 「42초」, 넘으면 「5분 33초」로 읽어 준다.
+  assert.ok(app.includes("if (value < 60) return `${String(value).padStart(2, '0')}초`;"));
+  assert.ok(app.includes("return `${Math.floor(value / 60)}분 ${String(value % 60).padStart(2, '0')}초`;"));
+  // 수정 요청도 같은 타이머를 쓴다. 기다리는 동안 멈춘 것처럼 보이지 않게 한다.
+  assert.ok(app.includes("setAiBusy('요청한 곳만 고치는 중...'"));
   assert.match(app, /경과시간 \$\{aiTaskLabel\(\(Date\.now\(\) - startedAt\) \/ 1000\)\}/);
   assert.match(app, /aiTask = taskId && AI_TASKS\[taskId\] \? \{ id: taskId, startedAt: busyStartedAt/);
   // background 검증은 최초 요청 시각을 그대로 이어 쓴다.
