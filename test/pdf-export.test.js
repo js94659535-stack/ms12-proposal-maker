@@ -165,7 +165,8 @@ test('PDF도 선택한 저장 버전만 쓰고 인쇄창을 거치지 않는다'
   assert.match(app, /id="print"/);
   // PDF 버튼은 파일로 내려받는다. 인쇄 창은 팝업 차단에 걸리면 아무 일도 일어나지 않았다.
   assert.match(app, /document\.querySelector\('#pdf'\)\?\.addEventListener\('click', \(\) => downloadProposalPdf\(\)\)/);
-  assert.match(app, /document\.querySelector\('#final-pdf-top'\)\?\.addEventListener\('click', \(\) => downloadProposalPdf\(\)\)/);
+  // 부분 결과는 내보내지 않는다.
+  assert.match(app, /document\.querySelector\('#final-pdf-top'\)\?\.addEventListener\('click', \(\) => \{ if \(!refusePartial\(\)\) downloadProposalPdf\(\); \}\)/);
   assert.match(app, /async function downloadProposalPdf\(\)/);
   assert.match(app, /exportProposalPdf\(\{[\s\S]{0,200}fileName: `\$\{state\.project\.title \|\| '사업계획서'\}_검토용\.pdf`/);
   assert.match(app, /id="package-pdf"[\s\S]{0,240}최종 PDF 내려받기/);

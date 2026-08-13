@@ -55,6 +55,7 @@ import { SAMPLE_MARK, SAMPLE_NOTE, SAMPLE_NOTICE, SAMPLE_NOTICE_KEY, SAMPLE_STAG
 import { SAMPLE_REAL_COACHING } from './sample-coaching-run.js';
 import { SOURCE_KINDS, makeApplicantSource, APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, mergeApplicantItems, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
 import { BASIC_AREAS, DETAIL_GROUPS, DETAIL_INTRO, basicStatus, detailProgress, draftFromApplicant, reusableCount } from './org-stage.js';
+import { partialBlockReason, recordTiming, remainingGroups, timelineRows, writingState } from './writing-progress.js';
 
 const TYPES = [
   ['chest', '사랑의열매', '복지·지원사업'], ['family', '가족센터', '가족지원사업'],
@@ -112,7 +113,7 @@ const initial = {
   serverGuard: null, serverEvidence: null, evaluatorReview: null, proposalVersions: [], proposalFlow: { status: '', baselineVersion: 0, reviewTarget: null, rounds: [], requests: [], requestOpen: false, requestText: '', requestScope: [], openVersion: 0, compareVersion: 0, approvedVersion: 0, approvedAt: '' }, coachingSelection: [], applicantSkipped: false, noticeLogic: null, redesignForContract: false,
   // 「사업계획서 의뢰 건」 한 건의 고객 담당자와 공고 요청서. 기관 영구정보와 섞지 않는다.
   engagement: { client: makeClient(), request: makeNoticeRequest(), design: makeDesignApproval(), view: 'customer', mode: '표준형' }, proposalTables: [], preciseReview: null, submissionIncluded: [], currentVersionId: '', attachmentLinks: {}, submissionZip: null,
-  analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveTable: { query: '', sortKey: 'collectedAt', sortDir: 'desc', page: 1, pageSize: 20, selected: [], expandedKey: '', applicantPickerKey: '', filters: { collected: '', institution: '', field: '', status: '', applicant: '', deadline: '' } }, archiveNoticeLinks: {}, archiveHiddenNotices: [], archiveOpenProposal: '', sampleStage: '', sampleReturn: '', aiResult: null, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeSources: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
+  analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null, timeline: [], calls: {}, stoppedAt: '', failedGroupId: '' }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveTable: { query: '', sortKey: 'collectedAt', sortDir: 'desc', page: 1, pageSize: 20, selected: [], expandedKey: '', applicantPickerKey: '', filters: { collected: '', institution: '', field: '', status: '', applicant: '', deadline: '' } }, archiveNoticeLinks: {}, archiveHiddenNotices: [], archiveOpenProposal: '', sampleStage: '', sampleReturn: '', aiResult: null, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeSources: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
 let navigationHistory = loadNavigationHistory();
@@ -4406,6 +4407,13 @@ function designSoFarView() {
     <p class="muted">설계가 먼저 나왔습니다. 방향이 다르면 지금 멈추고 한 줄 요청을 고쳐 다시 시작해도 됩니다.</p>`;
 }
 
+// 진행 기록. 무엇이 언제 나왔고 얼마나 걸렸는지 저장된 값만 적는다.
+function writingTimelineView() {
+  const rows = timelineRows(state.stagedGeneration?.timeline);
+  if (!rows.length) return '';
+  return `<div class="cap-grid">${rows.map(row => `<div><span>${escapeHtml(row.at)}</span><strong>${escapeHtml(row.title)}</strong><small>${escapeHtml(row.took)} 걸림</small></div>`).join('')}</div>`;
+}
+
 function writingProgressView() {
   const staged = state.stagedGeneration || {};
   const all = (staged.master?.sectionPlan || []).length;
@@ -4415,7 +4423,32 @@ function writingProgressView() {
       <span>${all ? `${done} / ${all} 묶음 끝남` : '설계를 먼저 만드는 중'} · 항목 ${state.sections.length}개 · 아래로 계속 이어집니다</span></div>
       <span class="status 확인-필요">작성 중</span></div>
     <p class="muted">끝난 항목부터 바로 읽을 수 있습니다. 다 끝나면 한 편으로 다듬어 정리합니다. 창을 닫으면 결과를 받지 못합니다.</p>
+    <div class="actions"><span class="muted">멈춰도 지금까지 쓴 묶음은 그대로 남습니다. 이번 묶음까지만 쓰고 멈춥니다.</span>
+      <button class="button secondary" id="stop-writing">여기서 멈추기</button></div>
+    ${writingTimelineView()}
     ${designSoFarView()}
+    ${state.sections.map(section => `<details class="card org-details">
+      <summary><b>${escapeHtml(section.title || '항목')}</b> <small>${String(section.content || '').length.toLocaleString('ko-KR')}자</small></summary>
+      <p style="white-space:pre-wrap">${escapeHtml(String(section.content || '').slice(0, 1200))}${String(section.content || '').length > 1200 ? '…' : ''}</p>
+    </details>`).join('')}
+  </div>`;
+}
+
+// 멈췄거나 실패해서 일부만 쓴 상태. 완성본이 아니라고 분명히 적고 이어쓰기만 연다.
+function partialWritingView() {
+  const staged = state.stagedGeneration || {};
+  const progress = writingState(staged, { busy: state.busy, sections: state.sections.length });
+  const left = remainingGroups(staged);
+  const failed = left.find(group => group.id === progress.failedGroupId);
+  return `<div class="card" id="partial-writing">
+    <div class="card-title"><div><h3>여기까지 썼습니다 · ${progress.done} / ${progress.total} 묶음</h3>
+      <span>${progress.stopped ? '멈춤' : failed ? '오류로 중단됨' : '남은 묶음 있음'} · 항목 ${state.sections.length}개는 그대로 보존됩니다</span></div>
+      <span class="status 확인-필요">부분 결과</span></div>
+    <p class="muted">아직 완성본이 아니어서 저장·출력·최종확정은 열지 않습니다. ${failed ? `「${escapeHtml(failed.title)}」부터` : '남은 묶음부터'} 이어서 쓰면 열립니다. 이미 끝난 묶음은 다시 쓰지 않습니다.</p>
+    ${writingTimelineView()}
+    <div class="requirement-list">${left.map(group => `<article class="requirement"><div><span class="tag">${group.id === progress.failedGroupId ? '실패' : '대기'}</span><div><strong>${escapeHtml(group.title)}</strong><small>${escapeHtml((group.sectionKeys || []).map(sectionTitle).join(' · '))}</small></div></div></article>`).join('')}</div>
+    <div class="actions"><span class="muted">남은 ${left.length}묶음</span>
+      <button class="button primary" id="resume-writing" ${state.busy ? 'disabled' : ''}>남은 내용 이어서 작성</button></div>
     ${state.sections.map(section => `<details class="card org-details">
       <summary><b>${escapeHtml(section.title || '항목')}</b> <small>${String(section.content || '').length.toLocaleString('ko-KR')}자</small></summary>
       <p style="white-space:pre-wrap">${escapeHtml(String(section.content || '').slice(0, 1200))}${String(section.content || '').length > 1200 ? '…' : ''}</p>
@@ -4480,8 +4513,10 @@ function simpleWriteView() {
   const chosen = Boolean(state.selectedNotice?.title || state.sourceText.trim());
   const step = simpleStep({ noticeChosen: chosen, requestWritten: Boolean(String(state.projectNarrative || '').trim()), sections: state.sections.length });
   // 아직 쓰는 중이면 완성으로 보지 않는다. 지금까지 쓴 것은 아래에서 바로 읽을 수 있다.
-  const writing = Boolean(state.busy) && (state.sections.length > 0 || Boolean(state.stagedGeneration?.master));
-  const done = step === 'done' && !writing;
+  const progress = writingState(state.stagedGeneration, { busy: state.busy, sections: state.sections.length });
+  const writing = progress.writing;
+  // 묶음이 남아 있으면 결과 화면을 열지 않는다. 부분 결과를 완성본처럼 보여 주지 않는다.
+  const done = step === 'done' && !writing && !progress.partial;
   // 지금 보는 화면 표시는 머리띠 아래에 한 번만 나온다. 여기서 또 그리면 두 줄이 된다.
   return `<div class="page-heading"><div><h2>간편 계획서 작성</h2>
     <p>공고를 고르고 하고 싶은 사업을 한두 문장으로 적으면 됩니다. 분석·설계·검증은 안에서 자동으로 돌아갑니다.</p></div>
@@ -4505,7 +4540,8 @@ function simpleWriteView() {
     ${done ? `<div class="card"><div class="card-title"><div><h3>4 계획서 완성</h3><span>항목 ${state.sections.length}개</span></div>
       <span class="status 충족">완성</span></div>${simpleResultActions()}</div>` : ''}
     ${writing ? writingProgressView() : ''}
-    ${state.sections.length && !writing ? openMarksPanel() : ''}
+    ${!writing && progress.partial ? partialWritingView() : ''}
+    ${state.sections.length && !writing && !progress.partial ? openMarksPanel() : ''}
     ${revisionPanel()}
     ${chosen ? expertDetails() : ''}`;
 }
@@ -5865,15 +5901,15 @@ function bind() {
   document.querySelector('#archive-restore-hidden')?.addEventListener('click', () => setState({ archiveHiddenNotices: [], notice: '숨긴 공고를 다시 목록에 표시했습니다.' }));
   // 환류 작업흐름: 완성본 → 수정 요청 → 검토 제출 → 버전 이력 → 최종 승인.
   document.querySelector('#open-full-proposal')?.addEventListener('click', () => document.querySelector('#final-submission, #result-pipeline')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-  document.querySelector('#final-docx-top')?.addEventListener('click', () => exportDocx(state.project, state.sections));
-  document.querySelector('#final-hwpx-top')?.addEventListener('click', () => downloadProposalHwpx());
-  document.querySelector('#final-form-docx')?.addEventListener('click', () => void downloadFormFilled());
+  document.querySelector('#final-docx-top')?.addEventListener('click', () => { if (!refusePartial()) exportDocx(state.project, state.sections); });
+  document.querySelector('#final-hwpx-top')?.addEventListener('click', () => { if (!refusePartial()) downloadProposalHwpx(); });
+  document.querySelector('#final-form-docx')?.addEventListener('click', () => { if (!refusePartial()) void downloadFormFilled(); });
   document.querySelector('#preview-form-docx')?.addEventListener('click', () => void downloadFormFilled());
   // 제출 판정에 막혀도 지금까지 쓴 내용은 검토본으로 받는다.
   document.querySelector('#package-review-docx')?.addEventListener('click', () => exportDocx(state.project, state.sections, { tables: state.proposalTables || [] }).catch(showError));
   document.querySelector('#package-review-pdf')?.addEventListener('click', () => void downloadProposalPdf());
   document.querySelector('#package-fill-open')?.addEventListener('click', () => setState({ expertDetail: true, activeTool: '', step: 4, notice: '확인 필요 표시가 남은 항목입니다. 값을 채우면 제출본이 열립니다.' }));
-  document.querySelector('#final-pdf-top')?.addEventListener('click', () => downloadProposalPdf());
+  document.querySelector('#final-pdf-top')?.addEventListener('click', () => { if (!refusePartial()) downloadProposalPdf(); });
   document.querySelector('#open-revision-request')?.addEventListener('click', () => setProposalFlow({ requestOpen: !proposalFlow().requestOpen }));
   document.querySelector('#cancel-revision-request')?.addEventListener('click', () => setProposalFlow({ requestOpen: false }));
   document.querySelector('#revision-request-text')?.addEventListener('input', event => { state.proposalFlow = { ...proposalFlow(), requestText: event.target.value }; saveState(); });
@@ -5949,6 +5985,9 @@ function bind() {
   document.querySelector('#regenerate-design')?.addEventListener('click', generateCompleteProposal);
   // 사용자는 한 번만 누른다. 남은 항목이 있으면 그 항목부터 이어서 작성한다.
   document.querySelector('#generate-parts')?.addEventListener('click', () => generateProposalParts());
+  // 멈춤과 이어쓰기. 멈춰도 끝난 묶음은 지우지 않고, 이어쓰기는 남은 묶음부터 시작한다.
+  document.querySelector('#stop-writing')?.addEventListener('click', requestStopWriting);
+  document.querySelector('#resume-writing')?.addEventListener('click', () => void generateProposalParts());
   document.querySelector('#generate-proposal')?.addEventListener('click', () => generateFullProposal());
   document.querySelector('#proposal-freeform')?.addEventListener('input', event => { state.projectNarrative = event.target.value; saveState(); });
   document.querySelector('#assemble-proposal')?.addEventListener('click', assembleProposal);
@@ -5964,12 +6003,12 @@ function bind() {
   document.querySelector('#discard-revision-plan')?.addEventListener('click', () => setState({ revisionPlan: null, notice: '수정 요청 목록을 닫았습니다. 저장된 버전은 유지됩니다.' }));
   document.querySelectorAll('[data-confirm-fact]').forEach(el => el.onclick = () => confirmCompanyFact(Number(el.dataset.confirmFact)));
   document.querySelector('#confirm-company-fact')?.addEventListener('click', confirmCompanyFactDraft);
-  document.querySelector('#save-proposal-archive')?.addEventListener('click', () => archiveCurrentProposal(undefined, true).catch(showError));
+  document.querySelector('#save-proposal-archive')?.addEventListener('click', () => { if (!refusePartial()) archiveCurrentProposal(undefined, true).catch(showError); });
   document.querySelector('#docx')?.addEventListener('click', () => exportDocx(state.project, state.sections).catch(showError));
   document.querySelector('#pdf')?.addEventListener('click', () => downloadProposalPdf());
   // 제출서류에서 내려받는 최종본은 판정을 통과했을 때만 나간다. 출력 방식은 기존과 같다.
-  document.querySelector('#package-docx')?.addEventListener('click', () => exportFinalPackage('docx'));
-  document.querySelector('#package-pdf')?.addEventListener('click', () => exportFinalPackage('pdf'));
+  document.querySelector('#package-docx')?.addEventListener('click', () => { if (!refusePartial()) exportFinalPackage('docx'); });
+  document.querySelector('#package-pdf')?.addEventListener('click', () => { if (!refusePartial()) exportFinalPackage('pdf'); });
   document.querySelectorAll('[data-open-version]').forEach(el => el.addEventListener('click', () => selectProposalVersion(el.dataset.openVersion)));
   document.querySelectorAll('[data-attachment]').forEach(el => el.addEventListener('change', () => toggleAttachment(el.dataset.attachment)));
   document.querySelectorAll('[data-attachment-file]').forEach(el => el.addEventListener('change', () => linkAttachmentFile(el.dataset.attachmentFile, el.files?.[0])));
@@ -7648,6 +7687,7 @@ async function generateCompleteProposal() {
   if (state.sourceText.trim().length + manualLength < 30) return setState({ error: '사업계획서를 작성할 공식 또는 직접 자료를 30자 이상 입력해 주세요.' });
   if (state.sourceText.length > 180000 || state.sourceText.length + manualLength > 220000) return setState({ error: '생성 입력 자료가 허용 길이를 초과했습니다. 자료를 나누거나 불필요한 내용을 줄여 주세요.' });
   setAiBusy('공고문을 분석하고 마스터 설계를 작성하는 중...', { error: '', notice: '', sections: [], assemblyCheck: null, stagedGeneration: structuredClone(initial.stagedGeneration) }, 'master');
+  const designStartedAt = Date.now();
   ensureNoticeLogic();
   const completePayload = generationPayload();
   try {
@@ -7662,7 +7702,12 @@ async function generateCompleteProposal() {
     state.qualityCheck = result.qualityCheck;
     state.analysis = engineAnalysis(result);
     state.sections = [];
-    state.stagedGeneration = { phase: 'master-ready', master: result, parts: [], completedGroupIds: [], continuitySummary: null };
+    // 설계 요약이 화면에 처음 나오는 시각을 그대로 남긴다. 나중에 지어내지 않는다.
+    state.stagedGeneration = {
+      phase: 'master-ready', master: result, parts: [], completedGroupIds: [], continuitySummary: null,
+      timeline: [{ kind: 'design', title: '설계 요약', at: new Date().toISOString(), ms: Date.now() - designStartedAt }],
+      calls: {}, stoppedAt: '', failedGroupId: ''
+    };
     state.aiMode = 'ai';
     state.designUnavailable = false;
     state.project = { ...state.project, title: result.projectDesign.projectName || state.project.title };
@@ -7834,24 +7879,39 @@ async function generateProposalParts() {
   if (!permission.allowed) return setState({ error: permission.reason });
   const completed = new Set(staged.completedGroupIds || []);
   state.stagedGeneration.phase = 'parts-generating';
+  // 새로 시작하면 앞서 눌렀던 멈춤과 실패 표시를 지운다. 끝난 묶음은 지우지 않는다.
+  stopWriting = false;
+  state.stagedGeneration.stoppedAt = '';
+  state.stagedGeneration.failedGroupId = '';
   const startedAt = Date.now();
   setAiBusy('전체 계획서 작성 중', { stagedGeneration: state.stagedGeneration, error: '', notice: '' }, 'parts');
   try {
     for (const group of groups) {
       if (completed.has(group.id)) continue;
+      // 멈춤을 누르면 지금 호출까지만 하고 다음 묶음은 시작하지 않는다.
+      if (stopWriting) return stopWritingHere(completed.size, all.length);
       const relevantSections = relevantPreviousSections(group, state.stagedGeneration.parts);
+      // 같은 묶음을 몇 번 불렀는지 남긴다. 멈췄다 이어 써도 두 번 부르지 않는다.
+      state.stagedGeneration.calls = { ...(state.stagedGeneration.calls || {}), [group.id]: Number((state.stagedGeneration.calls || {})[group.id] || 0) + 1 };
+      const groupStartedAt = Date.now();
       const result = await draftPartWithAI({ ...partPayload(), analysis: state.analysis, master: staged.master, group, continuitySummary: state.stagedGeneration.continuitySummary, relevantSections });
       state.stagedGeneration.parts = [...state.stagedGeneration.parts.filter(part => part.groupId !== group.id), { groupId: group.id, sections: result.sections }];
       state.stagedGeneration.continuitySummary = result.continuitySummary;
       completed.add(group.id);
       state.stagedGeneration.completedGroupIds = [...completed];
       state.stagedGeneration.phase = completed.size === all.length ? 'parts-ready' : 'parts-generating';
+      state.stagedGeneration.timeline = recordTiming(state.stagedGeneration.timeline, {
+        kind: 'group', id: group.id, title: group.title, at: new Date().toISOString(), ms: Date.now() - groupStartedAt
+      });
       // 끝난 묶음을 바로 본문에 붙인다. 나머지가 끝나기를 기다리지 않는다.
       state.sections = sectionsSoFar();
       setState({
         stagedGeneration: state.stagedGeneration, sections: state.sections,
         busy: completed.size === all.length ? '' : `전체 계획서 작성 중 · ${completed.size} / ${all.length} 묶음 · 지금까지 ${state.sections.length}항목`
       });
+      // 묶음마다 보관자료에도 남긴다. 새로고침하거나 다시 로그인해도 여기까지는 돌아온다.
+      void archiveCurrentProposal('parts').catch(() => {});
+      if (stopWriting && completed.size < all.length) return stopWritingHere(completed.size, all.length);
     }
     setState({ busy: '', stagedGeneration: state.stagedGeneration, notice: '전체 계획서 초안을 작성했습니다. 확인되지 않은 값은 [확인 필요]로 남겼습니다.' });
     // 항목이 모두 끝나면 사용자가 다시 누르지 않아도 하나의 계획서로 합친다.
@@ -7860,8 +7920,29 @@ async function generateProposalParts() {
     void archiveCurrentProposal('parts').catch(() => {});
   } catch (error) {
     state.stagedGeneration.phase = 'parts-generating';
-    setState({ busy: '', stagedGeneration: state.stagedGeneration, error: `작성이 중단되었습니다. 완료된 항목은 보존되며 「남은 내용 이어서 작성」으로 이어서 진행할 수 있습니다. ${error.message}` });
+    // 어디서 멈췄는지 남긴다. 이어쓰기는 이 묶음부터 시작하고 끝난 묶음은 다시 부르지 않는다.
+    state.stagedGeneration.failedGroupId = groups.find(group => !completed.has(group.id))?.id || '';
+    void archiveCurrentProposal('parts').catch(() => {});
+    setState({ busy: '', stagedGeneration: state.stagedGeneration, error: `작성이 중단되었습니다. 완료된 ${completed.size}묶음은 그대로 있으며 「남은 내용 이어서 작성」으로 실패한 묶음부터 다시 시작합니다. ${error.message}` });
   }
+}
+
+// 멈춤. 지금 호출까지만 끝내고 다음 묶음은 시작하지 않는다. 끝난 묶음은 그대로 둔다.
+let stopWriting = false;
+function requestStopWriting() {
+  stopWriting = true;
+  setState({ notice: '이번 묶음까지만 쓰고 멈춥니다. 지금까지 쓴 내용은 그대로 남습니다.' });
+}
+function stopWritingHere(done, total) {
+  stopWriting = false;
+  state.stagedGeneration.stoppedAt = new Date().toISOString();
+  state.stagedGeneration.phase = 'parts-generating';
+  state.sections = sectionsSoFar();
+  void archiveCurrentProposal('parts').catch(() => {});
+  setState({
+    busy: '', stagedGeneration: state.stagedGeneration, sections: state.sections,
+    notice: `${total}묶음 중 ${done}묶음까지 쓰고 멈췄습니다. 「남은 내용 이어서 작성」을 누르면 남은 ${total - done}묶음부터 이어서 씁니다.`, error: ''
+  });
 }
 
 const SECTION_DEPENDENCIES = { necessity: [], purpose: ['necessity'], goals: ['purpose'], target: ['necessity', 'goals'], programs: ['goals', 'target'], schedule: ['programs'], roles: ['programs', 'schedule'], budget: ['programs', 'roles'], indicators: ['goals', 'programs'], outcomes: ['goals', 'indicators'] };
@@ -7904,6 +7985,7 @@ function assembleProposal(startedAt = Date.now()) {
   });
   const assemblyCheck = validateFinalAssembly(staged.master, sections, structuralIssues, state.evidenceMap || []);
   state.stagedGeneration.phase = 'complete';
+  state.stagedGeneration.timeline = recordTiming(state.stagedGeneration.timeline, { kind: 'done', title: '전체 완성', at: new Date().toISOString(), ms: Date.now() - startedAt });
   state.sections = sections;
   state.assemblyCheck = assemblyCheck;
   state.reviewResult = null;
@@ -7946,6 +8028,19 @@ function validateFinalAssembly(master, sections, initialIssues = [], evidenceMap
   return { valid: issues.length === 0, issues: [...new Set(issues)], checkedAt: new Date().toISOString(), sourcePolicy: '분할 원문 보존·새 사실 추가 없음' };
 }
 function compactText(value) { return String(value || '').replace(/[\s,·:~～-]/g, '').toLowerCase(); }
+
+// 부분 결과로 저장·출력을 막는 사유. 화면과 처리기가 같은 판단을 쓴다.
+function partialBlock() {
+  return partialBlockReason(state.stagedGeneration, { busy: state.busy, sections: state.sections.length });
+}
+// 저장·출력 처리기의 마지막 방어선. 어느 화면에서 눌러도 부분 결과는 나가지 않는다.
+// 작성 중 자동 보관(stage 'parts')은 막지 않는다. 그것이 있어야 새로고침·재로그인에 살아남는다.
+function refusePartial() {
+  const reason = partialBlock();
+  if (!reason) return false;
+  setState({ error: reason, notice: '' });
+  return true;
+}
 
 async function archiveCurrentProposal(forcedStage, announce = false) {
   if (!state.project.title && !state.selectedNotice?.title) throw new Error('저장할 계획서 제목이 없습니다.');

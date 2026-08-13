@@ -116,7 +116,8 @@ test('계획서는 자유입력과 「전체 작성」 버튼 하나로 만든�
   // 모두 끝나면 사용자가 다시 누르지 않아도 하나로 합친다.
   assert.ok(appSource.includes('if (completed.size === all.length) assembleProposal(startedAt);'));
   // 실패 시에는 완료분을 보존하고 자동 재시도하지 않는다.
-  assert.match(appSource, /작성이 중단되었습니다. 완료된 항목은 보존되며/);
+  // 오류로 멈춰도 끝난 묶음은 그대로 두고 실패한 묶음부터 다시 시작한다.
+  assert.match(appSource, /작성이 중단되었습니다\. 완료된 \$\{completed\.size\}묶음은 그대로 있으며/);
 });
 
 test('마스터 설계는 10개 호환 항목을 중복 없이 포함하고 분할 결과는 요청 항목과 일치한다', () => {

@@ -109,7 +109,8 @@ test('본문에 든 특수문자가 파일을 깨뜨리지 않는다', () => {
 
 test('화면에 한글 파일 받기 단추가 있고 표 안내를 함께 적는다', () => {
   assert.match(app, /id="final-hwpx-top">한글\(HWPX\) 받기<\/button>/);
-  assert.match(app, /#final-hwpx-top'\)\?\.addEventListener\('click', \(\) => downloadProposalHwpx\(\)\);/);
+  // 부분 결과는 내보내지 않는다. 완성된 뒤에만 실제로 만든다.
+  assert.match(app, /#final-hwpx-top'\)\?\.addEventListener\('click', \(\) => \{ if \(!refusePartial\(\)\) downloadProposalHwpx\(\); \}\);/);
   // 계획서가 없으면 만들지 않는다.
   assert.match(app, /if \(!state\.sections\.length\) return setState\(\{ error: '먼저 계획서를 만들어 주세요\.' \}\);/);
   // 표 서식이 그대로 필요하면 DOCX를 쓰라고 그 자리에서 알려 준다.

@@ -141,9 +141,9 @@ test('쓰는 동안 끝난 묶음을 바로 보여 준다', () => {
   assert.match(app, /groups\.filter\(group => done\.has\(group\.id\)\)/);
   // 진행 표시에 남은 묶음과 지금까지 항목 수를 함께 적는다.
   assert.match(app, /묶음 · 지금까지 \$\{state\.sections\.length\}항목/);
-  // 쓰는 중에는 완성으로 보지 않는다. 결과 단추를 미리 열지 않는다.
-  assert.match(app, /const writing = Boolean\(state\.busy\) && \(state\.sections\.length > 0 \|\| Boolean\(state\.stagedGeneration\?\.master\)\);/);
-  assert.match(app, /const done = step === 'done' && !writing;/);
+  // 쓰는 중에도, 묶음이 남아 있어도 완성으로 보지 않는다. 결과 단추를 미리 열지 않는다.
+  assert.match(app, /const progress = writingState\(state\.stagedGeneration, \{ busy: state\.busy, sections: state\.sections\.length \}\);/);
+  assert.match(app, /const done = step === 'done' && !writing && !progress\.partial;/);
   // 설계가 먼저 끝나면 본문 전에도 방향을 확인할 수 있다.
   assert.match(app, /function designSoFarView\(\) \{/);
   assert.match(app, /\['한 문장 전략', design\.oneSentenceStrategy\]/);
