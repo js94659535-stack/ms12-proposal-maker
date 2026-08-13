@@ -8,7 +8,12 @@ async function request(action, payload, extra = {}) {
     body: JSON.stringify({ action, ...extra, payload: { ...payload, proposalId: currentProposalId } })
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || `서버 요청 실패 (${response.status})`);
+  if (!response.ok) {
+    const error = new Error(data.error || `서버 요청 실패 (${response.status})`);
+    // 게이트웨이가 기다리다 끊은 것과 진짜 오류를 구분해야 뒷단에서 배경모드로 옮길 수 있다.
+    error.status = response.status;
+    throw error;
+  }
   return data;
 }
 
@@ -18,21 +23,59 @@ export const coreProposalWithAI = payload => request('coreProposal', payload);
 export const diagnoseWithAI = payload => request('diagnosis', payload);
 export const analyzeWithAI = payload => request('analyze', payload);
 export const draftWithAI = payload => request('draft', payload);
-// 설계는 오래 걸려 게이트웨이가 기다리다 끊는다. 시작만 하고 결과는 물어 가져온다.
-// 화면은 예전과 같이 한 번 부르면 결과를 받는다. 기다리는 방식만 바뀐다.
-export async function masterWithAI(payload, onWait = null) {
-  const started = await request('master', payload);
-  if (!started?.jobId) return started;
-  const until = Date.now() + 15 * 60 * 1000;
-  let waited = 0;
+// 설계는 두 걸음으로 나눠 부른다.
+//
+// 한 번에 9천 토큰을 뽑던 때는 100초 게이트웨이 제한을 피하려고 배경작업으로 돌렸는데,
+// 배경작업은 앞단보다 네 배쯤 느려(초당 19토큰 대 80토큰) 8분이 걸리고 때로는 15분을 넘겨 실패했다.
+// 걸음을 나누면 각 걸음이 5천 토큰 안팎이라 앞단으로도 100초 안에 끝난다.
+// 그래도 끊기면 그 걸음만 배경으로 다시 돌리고, 작업번호를 밖에 알려 주어 다시 부르지 않게 한다.
+const GATEWAY_CUT = new Set([502, 503, 504, 522, 524]);
+const POLL_MS = 5000;
+const MAX_WAIT_MS = 15 * 60 * 1000;
+
+async function pollJob(action, payload, jobId, onWait, since = 0) {
+  const until = Date.now() + MAX_WAIT_MS;
+  let waited = since;
   while (Date.now() < until) {
-    await new Promise(resolve => setTimeout(resolve, 5000));
-    waited += 5;
+    await new Promise(resolve => setTimeout(resolve, POLL_MS));
+    waited += POLL_MS / 1000;
     if (onWait) onWait(waited);
-    const step = await request('master', payload, { jobId: started.jobId });
+    const step = await request(action, payload, { jobId });
     if (!step?.pending) return step;
   }
-  throw new Error('설계 작성이 너무 오래 걸립니다. 잠시 후 다시 시도해 주세요.');
+  const error = new Error('설계 작성이 너무 오래 걸립니다. 잠시 후 「이어서 받기」로 결과를 다시 확인할 수 있습니다.');
+  error.jobId = jobId;
+  throw error;
+}
+
+// 한 걸음. 저장된 작업번호가 있으면 새로 부르지 않고 그 결과부터 받아 온다.
+async function designStep(action, payload, { onWait = null, resume = null, onJob = null } = {}) {
+  const saved = resume?.[action]?.id || '';
+  if (saved) {
+    try { return await pollJob(action, payload, saved, onWait); }
+    catch (error) { if (error.jobId) throw error; /* 사라진 작업번호면 아래에서 새로 부른다 */ }
+  }
+  try {
+    return await request(action, payload);
+  } catch (error) {
+    if (!GATEWAY_CUT.has(error.status)) throw error;
+    // 앞단이 끊겼다. 같은 걸음을 배경으로 옮기고 작업번호를 남긴다.
+    const started = await request(action, payload, { background: true });
+    if (!started?.jobId) throw error;
+    if (onJob) onJob(action, { id: started.jobId, at: new Date().toISOString() });
+    return pollJob(action, payload, started.jobId, onWait);
+  }
+}
+
+export async function masterWithAI(payload, onWait = null, options = {}) {
+  const settings = { onWait, ...options };
+  const design = await designStep('masterDesign', payload, settings);
+  if (options.onStep) options.onStep('design');
+  const plan = await designStep('masterPlan', { ...payload, design }, settings);
+  if (options.onStep) options.onStep('plan');
+  // 화면과 뒷단이 쓰는 모양은 예전 한 번 호출과 똑같이 맞춘다.
+  return { ...design, masterLogic: plan.masterLogic, sectionPlan: plan.sectionPlan,
+    masterStatus: plan.masterStatus, submissionReady: plan.submissionReady, warnings: plan.warnings, officialConflicts: plan.officialConflicts, note: plan.note };
 }
 export const draftPartWithAI = payload => request('draftPart', payload);
 // 승인된 설계안으로 계획서 전체를 한 번에 만든다.

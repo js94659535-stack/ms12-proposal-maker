@@ -70,7 +70,7 @@ test('설계는 시작과 결과 확인을 나눠 부른다', async () => {
   const fs = await import('node:fs');
   const api = fs.readFileSync(new URL('../functions/api/proposal.js', import.meta.url), 'utf8');
   // 시작 요청은 결과를 기다리지 않고 작업 번호만 돌려준다.
-  assert.match(api, /const background = body\.action === 'master';/);
+  assert.match(api, /const background = body\.action === 'master' \|\| \(BACKGROUND_ACTIONS\.has\(body\.action\) && body\.background === true\);/);
   assert.match(api, /\.\.\.\(background \? \{ background: true \} : \{\}\)/);
   assert.match(api, /return json\(\{ jobId: startedId, status: raw\?\.status \|\| 'queued', pending: true \}, 200\);/);
   // 진행 중이면 상태만 돌려주고 결과 처리로 내려가지 않는다.
@@ -78,7 +78,7 @@ test('설계는 시작과 결과 확인을 나눠 부른다', async () => {
   // 작업 번호는 형식을 확인한다.
   assert.match(api, /if \(jobId && !\/\^resp_\[a-zA-Z0-9_-\]\+\$\/\.test\(jobId\)\)/);
   // 진행 상황을 물을 때 편수·체험 횟수를 다시 깎지 않는다.
-  assert.match(api, /const polling = body\.action === 'master' && Boolean\(body\.jobId\);/);
+  assert.match(api, /const polling = BACKGROUND_ACTIONS\.has\(body\.action\) && Boolean\(body\.jobId\);/);
   assert.match(api, /const trialRun = !polling &&/);
   assert.match(api, /const countsQuota = !polling &&/);
   // background로 돌린 작업만 잠시 보관한다.

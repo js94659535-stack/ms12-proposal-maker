@@ -107,6 +107,8 @@ const initial = {
   reviewDetail: false, reviewPanels: [], reviewFocus: false, reviseOpen: false, reviseDraft: null, revisions: [], revisionBackup: null,
   // 상세정보에서 지금 펼쳐 둔 구역. 모든 구역을 한 번에 열지 않는다.
   openOrgGroups: [],
+  // 배경으로 돌린 설계 작업번호. 새로고침·시간초과 뒤에도 같은 결과를 받아 다시 과금하지 않는다.
+  designJobs: {},
   applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
   revisionPlan: null, draftReview: null, projectNarrative: '',
   // 서버가 붙여 준 근거 검증·평가자 검토. 화면은 판정하지 않고 그대로 보여 준다.
@@ -7692,9 +7694,17 @@ async function generateCompleteProposal() {
   const completePayload = generationPayload();
   try {
     // 설계는 background로 돌아간다. 기다리는 동안 몇 초가 지났는지 화면에 이어서 보여 준다.
+    const stepAt = {};
     const result = await masterWithAI(completePayload, seconds => {
       if (state.busy) setState({ busy: `공고문을 분석하고 마스터 설계를 작성하는 중... (${aiTaskLabel(seconds)} 경과)` });
+    }, {
+      // 배경으로 넘어간 걸음의 작업번호를 남긴다. 다시 눌러도 새로 만들지 않고 그 결과를 받는다.
+      resume: state.designJobs || {},
+      onJob: (action, job) => { state.designJobs = { ...(state.designJobs || {}), [action]: job }; saveState(); },
+      onStep: step => { stepAt[step] = Date.now(); }
     });
+    // 걸음이 끝났으니 이어받을 작업번호는 지운다.
+    state.designJobs = {};
     state.sponsorIntent = result.sponsorIntent;
     state.projectDesign = result.projectDesign;
     state.missingInformation = applyApplicantAnswers((result.missingInformation || []).slice(0, 5));
@@ -7705,7 +7715,10 @@ async function generateCompleteProposal() {
     // 설계 요약이 화면에 처음 나오는 시각을 그대로 남긴다. 나중에 지어내지 않는다.
     state.stagedGeneration = {
       phase: 'master-ready', master: result, parts: [], completedGroupIds: [], continuitySummary: null,
-      timeline: [{ kind: 'design', title: '설계 요약', at: new Date().toISOString(), ms: Date.now() - designStartedAt }],
+      timeline: [
+        { kind: 'design', title: '설계 뼈대', at: new Date(stepAt.design || Date.now()).toISOString(), ms: (stepAt.design || Date.now()) - designStartedAt },
+        { kind: 'design', title: '논리·목차', at: new Date().toISOString(), ms: Date.now() - (stepAt.design || designStartedAt) }
+      ],
       calls: {}, stoppedAt: '', failedGroupId: ''
     };
     state.aiMode = 'ai';

@@ -125,7 +125,8 @@ test('설계도를 계획서 작성 요청과 화면에 연결했다', () => {
   assert.match(api, /다른 신청유형의 대상·프로그램·성과를 섞지 않는다/);
   assert.match(api, /과거 사업 기록\(pastProjectRecords\)의 인원·회기·기간·예산을 이번 사업 값으로 옮겨 적지 않는다/);
   // master · fullProposal · draft(단발 생성)는 설계도 전체를 넣고, 분할 생성은 경량 문맥에 같은 규칙을 붙인다.
-  assert.equal((api.match(/\$\{blueprintBlock\(payload\)\}/g) || []).length, 3);
+  // master(구버전) · masterDesign · masterPlan · fullProposal · draft 다섯 곳에 설계도를 넣는다.
+  assert.equal((api.match(/\$\{blueprintBlock\(payload\)\}/g) || []).length, 5);
   assert.match(api, /<MASTER_CONTEXT>\$\{JSON\.stringify\(partContext\(payload\)\)\}/);
   assert.match(api, /officialConflicts는 임의로 확정·해결하지 말고/);
   const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');

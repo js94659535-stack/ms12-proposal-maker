@@ -17,6 +17,8 @@ const TRIAL_SOURCE_CHARS = 20_000;
 const TRIAL_NOTE_CHARS = 2_000;
 // 공고에 지원금액·예산 기준이 없을 때 쓰는 표시. 금액을 만들어 내지 않는다는 뜻이다.
 const BUDGET_UNKNOWN = '공고문 또는 기관 확인 필요';
+// 배경작업으로 돌릴 수 있는 동작. 작업번호를 돌려주고 화면이 다시 물어 가져간다.
+const BACKGROUND_ACTIONS = new Set(['master', 'masterDesign', 'masterPlan']);
 const LIMITS = Object.freeze({
   requestBytes: 750_000,
   sourceChars: 180_000,
@@ -26,7 +28,7 @@ const LIMITS = Object.freeze({
   rewriteInstructionChars: 4_000,
   analysisChars: 300_000,
   timeoutMs: 300_000,
-  outputTokens: Object.freeze({ analyze: 6_000, master: 12_000, draftPart: 7_000, draft: 12_000, fullProposal: 20_000, preciseReview: 8_000, patchSections: 10_000, rewrite: 4_000, finalize: 9_000, coreProposal: 5_000 })
+  outputTokens: Object.freeze({ analyze: 6_000, master: 12_000, masterDesign: 8_000, masterPlan: 7_000, draftPart: 7_000, draft: 12_000, fullProposal: 20_000, preciseReview: 8_000, patchSections: 10_000, rewrite: 4_000, finalize: 9_000, coreProposal: 5_000 })
 });
 const ACTIONS = ['analyze', 'master', 'draftPart', 'draft', 'fullProposal', 'preciseReview', 'patchSections', 'rewrite', 'finalize', CORE_PROPOSAL_ACTION, DIAGNOSIS_ACTION];
 
@@ -137,7 +139,7 @@ export async function onRequest(context) {
     }
     // 무료 체험은 OpenAI를 부르기 전에 D1에서 한 번만 통과시킨다. 같은 계정이 동시에 눌러도 한 번만 열린다.
     // 진행 상황을 물어보는 요청은 이미 시작한 작업이다. 편수·체험 횟수를 다시 깎지 않는다.
-    const polling = body.action === 'master' && Boolean(body.jobId);
+    const polling = BACKGROUND_ACTIONS.has(body.action) && Boolean(body.jobId);
     const trialRun = !polling && body.action === TRIAL_ACTION && !hasFullAccess(user) && membership.tier === 'member';
     if (trialRun && !(await consumeTrial(context.env.ARCHIVE_DB, user.id))) return json({ error: TRIAL_SPENT, trialUsed: true }, 403);
     // 구독 이용량도 부르기 전에 차감한다. 네 번째 제안서와 여섯 번째 진단서는 여기서 막힌다.
@@ -172,8 +174,10 @@ export async function onRequest(context) {
       agencyUserId: agency.has ? user.id : '', clientOrgId
     });
     // 설계는 background로 돌린다. 게이트웨이가 기다리다 끊는 일을 없앤다.
-    const background = body.action === 'master';
-    const jobId = background ? String(body.jobId || '').trim().slice(0, 120) : '';
+    // 설계 두 걸음은 앞단으로 돈다(각 5천 토큰 안팎이라 게이트웨이 100초 벽 아래다).
+    // 앞단이 끊긴 경우에만 화면이 background를 요청하고, 그때는 작업번호를 돌려준다.
+    const background = body.action === 'master' || (BACKGROUND_ACTIONS.has(body.action) && body.background === true);
+    const jobId = BACKGROUND_ACTIONS.has(body.action) ? String(body.jobId || '').trim().slice(0, 120) : '';
     if (jobId && !/^resp_[a-zA-Z0-9_-]+$/.test(jobId)) return json({ error: '작업 번호 형식이 올바르지 않습니다.' }, 400);
     let response;
     let raw;
@@ -305,6 +309,17 @@ export async function onRequest(context) {
       // 자기점검 실패나 공고 기준 충돌만으로는 마스터 설계를 폐기하지 않는다. 상태로 알린다.
       Object.assign(result, masterReviewState(result, body.payload));
     }
+    if (body.action === 'masterDesign') {
+      // 1걸음은 근거 연결만 확인한다. 목차·논리사슬은 2걸음에서 본다.
+      if (!result.sponsorIntent?.evidence?.length || !result.evidenceMap?.length) return json({ error: '설계에 공식 원문 근거가 연결되지 않았습니다.' }, 502);
+    }
+    if (body.action === 'masterPlan') {
+      // 두 걸음을 합쳐 기존 마스터 설계와 같은 기준으로 검증한다. 기준을 낮추지 않는다.
+      const merged = { ...(body.payload.design || {}), masterLogic: result.masterLogic, sectionPlan: result.sectionPlan };
+      const masterError = validateMasterResult(merged, body.payload);
+      if (masterError) return json({ error: masterError }, 502);
+      Object.assign(result, masterReviewState(merged, body.payload));
+    }
     if (body.action === 'draftPart') {
       const partError = validatePartResult(result, body.payload.group, body.payload);
       if (partError) return json({ error: partError }, 502);
@@ -361,7 +376,10 @@ function validate(action, payload) {
     return '';
   }
   // 분할 생성은 master가 확정한 경량 문맥만 쓰므로 공고 원문을 다시 받지 않는다.
-  const includesSource = action === 'analyze' || action === 'master' || (action === 'draft' && typeof payload.sourceText === 'string');
+  const includesSource = action === 'analyze' || action === 'master' || action === 'masterDesign' || (action === 'draft' && typeof payload.sourceText === 'string');
+  // 2걸음은 1걸음 결과가 있어야 한다. 없으면 앞 걸음부터 다시 한다.
+  if (action === 'masterPlan' && (!payload.design?.projectDesign || !payload.design?.sponsorIntent)) return '목차 분할에는 확정된 설계 1걸음 결과가 필요합니다.';
+  if (action === 'masterPlan' && jsonLength(payload.design) > 200_000) return '설계 1걸음 결과가 허용 길이를 초과했습니다.';
   if (action === 'draftPart' && (!payload.master?.masterLogic || !Array.isArray(payload.group?.sectionKeys) || !payload.group.sectionKeys.length)) return '분할 생성에는 확정된 마스터 설계와 작성할 항목이 필요합니다.';
   if (action === 'draftPart' && jsonLength(payload.master) > 200_000) return '마스터 설계가 허용 길이를 초과했습니다.';
   const manualSources = normalizeManualSources(payload.manualSources);
@@ -546,6 +564,32 @@ title은 40자 이내의 제안서 제목, summary는 200자 이내로 받는 �
     prompt: `사업 유형: ${payload.projectType}\n<SELECTED_SUBPROGRAM>${payload.selectedSubprogram || payload.project?.title || ''}</SELECTED_SUBPROGRAM>\n<PROJECT>${JSON.stringify(payload.project)}</PROJECT>\n<CONFIRMED_USER_ANSWERS>${JSON.stringify(payload.userAnswers || {})}</CONFIRMED_USER_ANSWERS>\n<CANDIDATE_ASSETS>${JSON.stringify(payload.organization)}</CANDIDATE_ASSETS>\n${blueprintBlock(payload)}<OFFICIAL_NOTICE_TEXT>${payload.sourceText}</OFFICIAL_NOTICE_TEXT>\n<MANUAL_SOURCES>${JSON.stringify(normalizeManualSources(payload.manualSources))}</MANUAL_SOURCES>\n
 아직 계획서 본문을 작성하지 말고 모든 후속 분할 생성이 공통으로 따를 마스터 설계만 확정하라. 선택한 세부사업 하나에 대해 공모기관 핵심 의도와 선정 포인트, 해결할 문제와 필요성, 대상과 선정 근거, 핵심 전략과 차별성, 세부 프로그램과 실행방법, 대상 인원·기간·회기·역할·예산의 기준값을 먼저 고정하라. 산출물→성과목표→측정지표를 연결하고 평가기준별 대응계획과 각 주장에 사용할 공식 원문 근거를 명시하라.
 masterLogic은 문제→원인→대상→전략→실행→산출→변화→성과측정이 끊기지 않는 하나의 논리사슬이어야 한다. baselineValues에는 이후 모든 분할이 그대로 재사용할 인원·기간·회기·역할·예산 기준값을 둔다. outputOutcomeMeasurementLinks에는 각 산출물과 성과목표·측정지표·측정시기·담당을 연결한다. evaluationResponsePlan에는 평가기준과 대응전략·반영항목·근거를 연결하고 claimEvidencePlan에는 핵심 주장과 공식 자료 근거·위치를 연결한다. 공식 자료에서 확인할 수 없는 내용은 사실처럼 확정하지 말고 해당 값에 [확인 필요]를 표시하며 missingInformation에도 현재 설계에 필요한 질문으로 최대 5개만 둔다.
+sectionPlan은 실제 공모신청서·사업계획서 서식의 질문과 목차 결합 관계를 우선하여 필요한 수만큼 가변적으로 정한다. 2~5개로 고정하거나 페이지 수·문서 길이로 나누지 않는다. 호환용 10개 sectionKeys(necessity, purpose, goals, target, programs, schedule, roles, budget, indicators, outcomes)를 빠짐없이 정확히 한 번씩 배치하고, 실제 신청서에서 함께 요구하는 항목은 같은 묶음에 둔다. 각 묶음 제목은 공식 신청서의 항목명 또는 그 구조를 명확히 나타내는 한국어로 작성한다.`
+  };
+  // 설계 1걸음. 공모기관 의도와 사업 설계, 근거 목록까지만 만든다. 목차 분할은 다음 걸음에서 한다.
+  if (action === 'masterDesign') return {
+    name: 'proposal_master_design_core', schema: MASTER_DESIGN_SCHEMA,
+    prompt: `사업 유형: ${payload.projectType}
+<SELECTED_SUBPROGRAM>${payload.selectedSubprogram || payload.project?.title || ''}</SELECTED_SUBPROGRAM>
+<PROJECT>${JSON.stringify(payload.project)}</PROJECT>
+<CONFIRMED_USER_ANSWERS>${JSON.stringify(payload.userAnswers || {})}</CONFIRMED_USER_ANSWERS>
+<CANDIDATE_ASSETS>${JSON.stringify(payload.organization)}</CANDIDATE_ASSETS>
+${blueprintBlock(payload)}<OFFICIAL_NOTICE_TEXT>${payload.sourceText}</OFFICIAL_NOTICE_TEXT>
+<MANUAL_SOURCES>${JSON.stringify(normalizeManualSources(payload.manualSources))}</MANUAL_SOURCES>
+
+아직 계획서 본문도 목차 분할도 만들지 마라. 이 걸음에서는 설계의 뼈대만 확정한다. 선택한 세부사업 하나에 대해 공모기관 핵심 의도와 선정 포인트, 해결할 문제와 필요성, 대상과 선정 근거, 핵심 전략과 차별성, 세부 프로그램과 실행방법, 대상 인원·기간·회기·역할·예산의 기준값을 고정하라.
+evidenceMap에는 이후 모든 주장이 참조할 공식 원문 근거를 id·주장·근거·위치로 정리한다. 각 근거 id는 다음 걸음에서 그대로 인용되므로 짧고 고유하게 만든다.
+공식 자료에서 확인할 수 없는 내용은 사실처럼 확정하지 말고 해당 값에 [확인 필요]를 표시하며 missingInformation에도 현재 설계에 필요한 질문으로 최대 5개만 둔다.`
+  };
+  // 설계 2걸음. 1걸음 결과를 그대로 받아 논리사슬과 신청서 목차 분할만 만든다.
+  if (action === 'masterPlan') return {
+    name: 'proposal_master_plan', schema: MASTER_PLAN_SCHEMA,
+    prompt: `사업 유형: ${payload.projectType}
+<SELECTED_SUBPROGRAM>${payload.selectedSubprogram || payload.project?.title || ''}</SELECTED_SUBPROGRAM>
+${blueprintBlock(payload)}<CONFIRMED_DESIGN>${JSON.stringify(payload.design)}</CONFIRMED_DESIGN>
+
+CONFIRMED_DESIGN은 앞 걸음에서 확정한 설계다. 값을 바꾸지 말고 그대로 쓰며, 여기에 없는 사실을 새로 만들지 마라.
+masterLogic은 문제→원인→대상→전략→실행→산출→변화→성과측정이 끊기지 않는 하나의 논리사슬이어야 한다. baselineValues에는 이후 모든 분할이 그대로 재사용할 인원·기간·회기·역할·예산 기준값을 CONFIRMED_DESIGN에서 가져와 둔다. outputOutcomeMeasurementLinks에는 각 산출물과 성과목표·측정지표·측정시기·담당을 연결한다. evaluationResponsePlan에는 평가기준과 대응전략·반영항목·근거를 연결하고 claimEvidencePlan에는 핵심 주장과 공식 자료 근거·위치를 연결한다. 근거 id는 CONFIRMED_DESIGN의 evidenceMap에 있는 id만 쓴다.
 sectionPlan은 실제 공모신청서·사업계획서 서식의 질문과 목차 결합 관계를 우선하여 필요한 수만큼 가변적으로 정한다. 2~5개로 고정하거나 페이지 수·문서 길이로 나누지 않는다. 호환용 10개 sectionKeys(necessity, purpose, goals, target, programs, schedule, roles, budget, indicators, outcomes)를 빠짐없이 정확히 한 번씩 배치하고, 실제 신청서에서 함께 요구하는 항목은 같은 묶음에 둔다. 각 묶음 제목은 공식 신청서의 항목명 또는 그 구조를 명확히 나타내는 한국어로 작성한다.`
   };
   // 정밀 검증: 확정된 기준과 계획서를 대조해 문제만 찾는다. 본문을 고치지 않는다.
@@ -796,6 +840,15 @@ const COMPLETE_SCHEMA = { type: 'object', additionalProperties: false, propertie
 const sectionPlanItem = { type: 'object', additionalProperties: false, properties: {
   id: { type: 'string' }, title: { type: 'string' }, sectionKeys: { type: 'array', minItems: 1, items: { type: 'string', enum: SECTION_KEYS } }
 }, required: ['id', 'title', 'sectionKeys'] };
+// 설계를 두 걸음으로 나눈다. 한 번에 9천 토큰을 뽑느라 배경작업으로 밀려나 4배 느려졌던 것을 되돌린다.
+// 1걸음(masterDesign): 공모기관 의도·사업 설계·근거 목록. 2걸음(masterPlan): 논리사슬과 신청서 목차 분할.
+const MASTER_DESIGN_SCHEMA = { type: 'object', additionalProperties: false, properties: {
+  sponsorIntent, projectDesign,
+  missingInformation: { type: 'array', maxItems: 5, items: { type: 'string' } }, evidenceMap: { type: 'array', items: evidenceItem }, qualityCheck
+}, required: ['sponsorIntent', 'projectDesign', 'missingInformation', 'evidenceMap', 'qualityCheck'] };
+const MASTER_PLAN_SCHEMA = { type: 'object', additionalProperties: false, properties: {
+  masterLogic, sectionPlan: { type: 'array', minItems: 2, items: sectionPlanItem }
+}, required: ['masterLogic', 'sectionPlan'] };
 const MASTER_SCHEMA = { type: 'object', additionalProperties: false, properties: {
   sponsorIntent, projectDesign, masterLogic, sectionPlan: { type: 'array', minItems: 2, items: sectionPlanItem },
   missingInformation: { type: 'array', maxItems: 5, items: { type: 'string' } }, evidenceMap: { type: 'array', items: evidenceItem }, qualityCheck

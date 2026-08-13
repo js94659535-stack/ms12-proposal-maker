@@ -83,7 +83,9 @@ test('묶음별 호출 횟수를 남겨 중복 호출을 확인한다', () => {
 });
 
 test('설계와 묶음이 나온 시각을 실제로 기록한다', () => {
-  assert.match(app, /timeline: \[\{ kind: 'design', title: '설계 요약', at: new Date\(\)\.toISOString\(\), ms: Date\.now\(\) - designStartedAt \}\]/);
+  // 설계는 두 걸음이라 기록도 두 줄이다.
+  assert.match(app, /\{ kind: 'design', title: '설계 뼈대', at: new Date\(stepAt\.design \|\| Date\.now\(\)\)\.toISOString\(\)/);
+  assert.match(app, /\{ kind: 'design', title: '논리·목차', at: new Date\(\)\.toISOString\(\)/);
   assert.match(app, /kind: 'group', id: group\.id, title: group\.title, at: new Date\(\)\.toISOString\(\), ms: Date\.now\(\) - groupStartedAt/);
   assert.match(app, /\{ kind: 'done', title: '전체 완성', at: new Date\(\)\.toISOString\(\), ms: Date\.now\(\) - startedAt \}/);
   assert.match(app, /function writingTimelineView\(\) \{/);
