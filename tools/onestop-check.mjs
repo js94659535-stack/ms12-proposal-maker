@@ -75,7 +75,7 @@ try {
 
   // ---------- 2. 서식 자동 인식 ----------
   const spec = await page.run(`(() => {
-    const el = [...document.querySelectorAll('summary, h3, h4')].find(node => /서식 규격표/.test(node.textContent || ''));
+    const el = document.querySelector('#intake-summary');
     return JSON.stringify({ found: Boolean(el), text: (el?.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 70) });
   })()`);
   record(3, '신청서 서식 자동 인식', spec?.found === true, spec?.text || '규격표 없음');
