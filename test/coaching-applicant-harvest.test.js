@@ -96,7 +96,8 @@ test('검증 결과 화면에서 신청기관 정보 반영으로 연결된다',
   assert.match(appSource, /function coachingApplicantView\(\)/);
   assert.match(appSource, /id="harvest-coaching-applicant"/);
   assert.match(appSource, /id="coaching-applicant-target"/);
-  assert.match(appSource, /result \? coachingApplicantView\(\) : ''/);
+  // 각론과 함께 열린다. 총론만 볼 때는 접힌다.
+  assert.match(appSource, /result && state\.reviewDetail \? coachingApplicantView\(\) : ''/);
   assert.match(appSource, /includeNarrative: true, sourceLabel: '검증·코칭 계획서'/);
   // 코칭 본래 기능과 추가 AI 호출은 건드리지 않는다.
   assert.match(appSource, /function harvestApplicantFromCoaching\(\)[\s\S]{0,900}?extractApplicantCandidates\(state\.coaching\.text/);
