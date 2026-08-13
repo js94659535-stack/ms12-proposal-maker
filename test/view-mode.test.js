@@ -125,3 +125,10 @@ test('확정은 마지막에 한 번이고 항목마다 누르지 않는다', ()
   // 확인 필요가 남아 있어도 막지 않고 무엇이 남는지 알려 준다.
   assert.match(app, /그대로 확정하면 \[확인 필요\] 표시가 제출본에 남습니다/);
 });
+
+test('초안을 만들 때 설계 기록을 늘 남긴다', () => {
+  // 게이트를 열었다고 설계 기록까지 없애면 본문 작성이 「승인된 설계안을 찾지 못했습니다」로 멈춘다.
+  assert.match(app, /if \(!state\.engagement\?\.design\?\.approvedAt\) \{\s*\n\s*requestDesignReview\(\);\s*\n\s*startDesignReview\(\);/);
+  // 사용자가 누를 필요는 없다. 화면에는 확정 단추가 마지막에 하나뿐이다.
+  assert.match(app, /approveDesign\(\{ silent: true \}\);/);
+});

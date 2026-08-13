@@ -115,6 +115,10 @@ try {
   metrics.seconds = Math.round((Date.now() - started) / 1000);
   const draft = await read("n: (s.sections||[]).length, chars: (s.sections||[]).reduce((a,x)=>a+String(x.content||'').length,0), open: (s.sections||[]).reduce((a,x)=>a+((String(x.content||'').match(/\\[확인 필요[^\\]]*\\]/g)||[]).length),0)");
   metrics.aiFilled = Number(draft?.n || 0);
+  if (!made) {
+    const why = await page.run("(() => { const s = JSON.parse(localStorage.getItem('ms12_project_v3')||'{}'); return JSON.stringify({ err: (document.querySelector('.alert.danger')?.textContent||'').trim().slice(0,160), busy: (document.querySelector('.busy strong')?.textContent||'').trim().slice(0,60), master: !!s.stagedGeneration?.master, parts: (s.stagedGeneration?.parts||[]).length, phase: s.stagedGeneration?.phase || '' }); })()");
+    console.log('   상태:', JSON.stringify(why));
+  }
   record(6, '전체 초안 한 번에 생성', made && metrics.aiFilled > 0, `항목 ${draft?.n}개 · ${draft?.chars}자 · 확인 필요 ${draft?.open}곳 · ${metrics.seconds}초`);
   await shot('02-draft');
 

@@ -7398,8 +7398,9 @@ async function runSimpleGeneration() {
   }
   // 기관정보가 아직 없으면 적은 것만이라도 저장한다. 없다고 막지 않는다.
   if (!state.selectedApplicantId && readyToDraft(quickDraft()).ready) await saveQuickOrg();
-  // 설계 승인 절차는 그대로 둔다. 간편 화면에서는 요청·검토·승인을 잇달아 처리한다.
-  if (!generationPermission().allowed) {
+  // 설계 기록은 그대로 남긴다. 사용자가 누를 필요는 없고, 뒤 단계가 승인된 설계안을 그대로 쓴다.
+  // 이 기록이 없으면 본문 작성이 「승인된 설계안을 찾지 못했습니다」로 멈춘다.
+  if (!state.engagement?.design?.approvedAt) {
     requestDesignReview();
     startDesignReview();
     // 간편 화면에서는 되묻지 않는다. 부족한 값은 [확인 필요]로 남는다.
