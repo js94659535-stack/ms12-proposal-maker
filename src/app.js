@@ -6380,13 +6380,14 @@ async function completeProposalCoaching(result) {
     const seriesId = String(state.coaching.seriesId || state.coaching.sourceProposalId || crypto.randomUUID()).slice(0, 60);
     // 재검증이면 이전 결과와 비교해 해결·남은·새 문제를 알려준다.
     const rounds = state.coaching.result ? compareCoachingRounds(state.coaching.result, result) : null;
-    state.coaching = { ...state.coaching, result, workItems: makeCoachingWorkItems(result), pendingJob: null, version, seriesId, validatedText: state.coaching.text, lastComparison: rounds };
+    // 새 검증 결과는 총론부터 보여 준다. 지난번에 펼쳐 둔 각론을 그대로 열지 않는다.
+    state.coaching = { ...state.coaching, result, workItems: makeCoachingWorkItems(result), pendingJob: null, detailOpen: false, version, seriesId, validatedText: state.coaching.text, lastComparison: rounds };
     const id = `${seriesId}-coaching-v${version}`.slice(0, 80);
     state.coaching.currentArchiveId = id;
     await saveArchivedProposal({ id, noticeKey: state.coaching.sourceNoticeKey, title: `${state.coaching.title || '외부 계획서'} · 코칭 v${version}`, stage: `coaching-v${version}`, snapshot: { coaching: structuredClone(state.coaching), parentProposalId: state.coaching.sourceProposalId || '', coachingSeriesId: seriesId } });
     // 검토 회차를 환류 이력에 기록한다. 검증 결과 구조는 그대로 둔다.
     recordReviewRound({ ...result, comparison: rounds ? { resolvedIssues: rounds.resolved } : null });
-    setState({ busy: '', coaching: state.coaching, coachingSelection: [], notice: `검증·코칭 v${version} 결과를 계획서보관함에 저장했습니다.${rounds ? ` 해결 ${rounds.resolved.length}건 · 남은 문제 ${rounds.remaining.length}건 · 새 문제 ${rounds.added.length}건` : ''}` });
+    setState({ busy: '', coaching: state.coaching, coachingSelection: [], reviewPanels: [], reviewFocus: false, notice: `검증·코칭 v${version} 결과를 계획서보관함에 저장했습니다.${rounds ? ` 해결 ${rounds.resolved.length}건 · 남은 문제 ${rounds.remaining.length}건 · 새 문제 ${rounds.added.length}건` : ''}` });
   } catch (error) {
     state.coaching.pendingJob = null;
     setState({ busy: '', coaching: state.coaching, error: error.message });
