@@ -62,17 +62,17 @@ test('같은 작업이 도는 중이면 화면은 기다렸다 그 결과를 받
   assert.match(client, /export const draftPartWithAI = payload => awaitResult\('draftPart', payload\);/);
 });
 
-test('draftPart 프롬프트는 고정 블록이 앞, 가변 자료가 뒤다', () => {
-  const spec = api.slice(api.indexOf("if (action === 'draftPart') return {"), api.indexOf('\n  };', api.indexOf("if (action === 'draftPart') return {")));
-  // 문구를 지우거나 줄이지 않았다. 순서만 바꿨다.
+test('캐시 배치 변경은 적용하지 않는다', () => {
+  // 유료 검증 1회에서 캐시 적중은 0%였고 본문 분량은 기준본보다 24% 줄었다.
+  // 「품질이 하나라도 나빠지면 폐기한다」는 기준에 따라 순서 변경을 되돌렸다.
+  const at = api.indexOf("if (action === 'draftPart') return {");
+  const chr = "  };";
+  const spec = api.slice(at, api.indexOf(String.fromCharCode(10) + chr, at));
+  assert.match(spec, /prompt: `<MASTER_CONTEXT>/);
+  // 문구는 처음부터 끝까지 그대로다.
   for (const keep of ['MASTER_CONTEXT는 master 단계에서 이미 확정·검증된 기준이다', '공고 원문 전체는 다시 제공되지 않는다', 'sections의 id는 sectionKeys와 정확히 같아야 하며']) {
     assert.ok(spec.includes(keep), keep.slice(0, 20));
   }
-  // 고정 규칙이 맨 앞이다.
-  assert.match(spec, /prompt: `\$\{payload\.noticeContract\?\.rules\?\.length \? `\$\{CONTRACT_RULE\}\\n` : ''\}\$\{BLUEPRINT_RULE\}/);
-  // 가변 자료는 지시문 뒤에 온다.
-  assert.ok(spec.lastIndexOf('<CURRENT_APPLICATION_GROUP>') > spec.indexOf('sections의 id는 sectionKeys와'));
-  assert.ok(spec.lastIndexOf('<RELEVANT_PREVIOUS_SECTIONS>') > spec.indexOf('sections의 id는 sectionKeys와'));
 });
 
 test('비용은 그때 단가와 함께 남기고, 모르면 계산 불가로 적는다', () => {

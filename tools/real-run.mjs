@@ -40,7 +40,7 @@ async function signIn() {
   await page.fill('#login-password', account.password, 250);
   await page.run("(() => { document.querySelector('#login-form')?.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})); return '1'; })()", 1500);
   const ok = await page.waitFor("!document.querySelector('#login-form')", 40000, 1200);
-  await page.run("(() => { const s = JSON.parse(localStorage.getItem('ms12_project_v3')||'{}'); s.homeSeen = true; localStorage.setItem('ms12_project_v3', JSON.stringify(s)); return '1'; })()");
+  await page.run("(() => { localStorage.removeItem('ms12_project_v3'); localStorage.setItem('ms12_project_v3', JSON.stringify({ homeSeen: true })); return '1'; })()");
   await page.go(SITE, 3000);
   return ok;
 }
@@ -58,7 +58,9 @@ const WATCH = `(() => {
     if (!url.includes('/api/proposal')) return res;
     try {
       const data = await res.clone().json();
-      window.__watch.push({ at: new Date().toISOString(), http: res.status, status: data?.status || '', pending: !!data?.pending, jobId: String(data?.jobId || '').slice(0, 12), error: String(data?.error || '').slice(0, 60) });
+      let action = '';
+      try { const body = JSON.parse(args[1]?.body || '{}'); action = body.action || ''; window.__lastBody = window.__lastBody || {}; if (action) window.__lastBody[action] = args[1]?.body || ''; } catch { /* 그대로 */ }
+      window.__watch.push({ at: new Date().toISOString(), action, http: res.status, status: data?.status || '', pending: !!data?.pending, reused: !!data?.reused, jobId: String(data?.jobId || '').slice(0, 12), error: String(data?.error || '').slice(0, 60) });
     } catch { /* 그대로 */ }
     return res;
   };
@@ -171,6 +173,18 @@ try {
   }))()`);
   record(9, '완성 뒤 저장·출력·최종확정이 열린다', ui?.partial === false && ui?.save === true && ui?.docx === true,
     `부분카드 ${ui?.partial} · 저장 ${ui?.save} · DOCX ${ui?.docx} · PDF ${ui?.pdf} · 최종확정 ${ui?.confirm}`);
+
+  // 같은 입력을 한 번 더 보낸다. 서버가 이전 결과를 그대로 돌려주면 AI를 부르지 않은 것이다.
+  const dup = await page.run(`(async () => {
+    const body = (window.__lastBody || {}).draftPart;
+    if (!body) return JSON.stringify({ ok: false, reason: '보낼 본문이 없음' });
+    const r = await fetch('/api/proposal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+    const j = await r.json().catch(() => ({}));
+    return JSON.stringify({ ok: true, http: r.status, reused: !!j.reused, sections: (j.sections || []).length, pending: !!j.pending });
+  })()`, 3000);
+  record(10, '같은 입력을 다시 보내면 AI를 부르지 않고 이전 결과를 돌려준다',
+    dup?.reused === true && Number(dup?.sections || 0) > 0,
+    `HTTP ${dup?.http} · 재사용 ${dup?.reused} · 항목 ${dup?.sections}개`);
 
   const watch = await page.run("(() => JSON.stringify({ list: (window.__watch||[]).slice(-80) }))()");
   const seen = (watch?.list || []).map(item => `${String(item.at).slice(11, 19)} ${item.http} ${item.status || (item.error ? 'error' : 'result')}${item.error ? ' · ' + item.error : ''}`);
