@@ -103,9 +103,12 @@ export async function onRequest(context) {
     const legacyGate = ![CORE_PROPOSAL_ACTION, DIAGNOSIS_ACTION].includes(body.action) ? planRefusal(user, body.action) : null;
     // 회원등급으로 한 번 더 본다. 승인 상태·구독·프리미엄 계약은 서로 별개라 따로 읽는다.
     // 권한을 입력 검사보다 먼저 본다. OpenAI 호출보다 언제나 앞이다.
+    // 대행회원 자격을 먼저 읽는다. 요금이 아니라 이 자격이 이용 권한을 연다.
+    const clientOrgId = String(body.payload?.clientOrgId || '').trim().slice(0, 80);
+    const agency = await stateFor(context.env.ARCHIVE_DB, user.id);
     const subscription = await loadSubscription(context.env.ARCHIVE_DB, user.id);
     const contractRow = await loadPremiumContract(context.env.ARCHIVE_DB, user.id);
-    const membership = membershipOf({ user, subscription, contract: contractRow });
+    const membership = membershipOf({ user, subscription, contract: contractRow, agencyActive: agency.active });
     const gated = membershipRefusal(membership, body.action);
     if (gated) return json({ error: gated.error, locked: gated.locked, needsSubscription: gated.needsSubscription, needsPremium: gated.needsPremium }, gated.status);
     // 회원등급이 열어 주지 않은 작업은 예전 이용권 규칙으로 한 번 더 본다.
@@ -121,9 +124,9 @@ export async function onRequest(context) {
     }
     // 계획서 한 건과 계정 하루에 걸어 둔 사용량 상한을 부르기 전에 본다.
     const proposalId = String(body.payload?.proposalId || '').trim().slice(0, 80);
+    const guard = await budgetRefusal(context.env.ARCHIVE_DB, context.env, { proposalId, userId: user.id });
+    if (guard.refusal) return json({ error: guard.refusal.error, capReached: true, budget: guard.refusal.budget }, guard.refusal.status);
     // 대행회원 한도. 요금은 받지 않지만 AI 비용은 여기서 막는다. OpenAI 호출보다 언제나 앞이다.
-    const clientOrgId = String(body.payload?.clientOrgId || '').trim().slice(0, 80);
-    const agency = await stateFor(context.env.ARCHIVE_DB, user.id);
     if (agency.has) {
       const usage = await monthlyUsage(context.env.ARCHIVE_DB, user.id, { proposalId });
       const verdict = limitCheck({ state: agency, usage, kind: limitKindFor(body.action) });
@@ -132,8 +135,6 @@ export async function onRequest(context) {
       }
       await touchActivity(context.env.ARCHIVE_DB, user.id);
     }
-    const guard = await budgetRefusal(context.env.ARCHIVE_DB, context.env, { proposalId, userId: user.id });
-    if (guard.refusal) return json({ error: guard.refusal.error, capReached: true, budget: guard.refusal.budget }, guard.refusal.status);
     // 무료 체험은 OpenAI를 부르기 전에 D1에서 한 번만 통과시킨다. 같은 계정이 동시에 눌러도 한 번만 열린다.
     const trialRun = body.action === TRIAL_ACTION && !hasFullAccess(user) && membership.tier === 'member';
     if (trialRun && !(await consumeTrial(context.env.ARCHIVE_DB, user.id))) return json({ error: TRIAL_SPENT, trialUsed: true }, 403);

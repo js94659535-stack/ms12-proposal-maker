@@ -7,6 +7,7 @@ import {
   limitsOf, nextMonthStart, rejectsSelfPromotion, remainingFor, transferCheck, workspaceOf
 } from '../server/agency.js';
 import { BLOCKED_ACTIONS, OPERATOR_ACTIONS } from '../server/operator-scope.js';
+import { membershipOf } from '../server/membership.js';
 
 const admin = fs.readFileSync(new URL('../functions/api/admin.js', import.meta.url), 'utf8');
 const proposal = fs.readFileSync(new URL('../functions/api/proposal.js', import.meta.url), 'utf8');
@@ -160,4 +161,19 @@ test('자격을 거두면 로그인은 남고 역할만 일반회원으로 돌�
   assert.ok(!/DELETE FROM users/.test(block));
   assert.ok(!/status = 'disabled'/.test(block));
   assert.match(block, /DELETE FROM sessions WHERE user_id = \?/, '역할이 바뀌면 다시 로그인한다');
+});
+
+test('대행회원은 요금 없이 최고관리자가 연 자격으로 전문 작업을 쓴다', () => {
+  const paid = membershipOf({ user: { role: 'customer', status: 'active', plan: 'trial' }, agencyActive: true });
+  const unpaid = membershipOf({ user: { role: 'customer', status: 'active', plan: 'trial' } });
+  assert.equal(paid.canExpertWork, true, '자격이 살아 있으면 전문 작업이 열린다');
+  assert.equal(unpaid.canExpertWork, false);
+  // 구독이나 계약이 생긴 것은 아니다. 요금 관련 값은 그대로다.
+  assert.equal(paid.tier, 'legacy');
+  assert.equal(paid.subscription?.status ?? 'none', 'none');
+  // 자격이 멈추면 다시 닫힌다.
+  assert.equal(membershipOf({ user: { role: 'customer', status: 'active', plan: 'trial' }, agencyActive: false }).canExpertWork, false);
+  // 서버가 자격을 먼저 읽고 등급 판정에 넣는다.
+  assert.ok(proposal.indexOf('const agency = await stateFor(') < proposal.indexOf('const membership = membershipOf('));
+  assert.match(proposal, /agencyActive: agency\.active/);
 });

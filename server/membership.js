@@ -97,10 +97,11 @@ export function membershipPlans() {
 }
 
 // 이 사람의 실제 등급과 열려 있는 기능. 서버가 이 판정으로 막는다.
-export function membershipOf({ user = {}, subscription = null, contract = null } = {}) {
+export function membershipOf({ user = {}, subscription = null, contract = null, agencyActive = false } = {}) {
   const approval = approvalOf(user.status);
   const staff = ['admin', 'operator'].includes(user.role);
-  const legacyFull = !staff && user.plan === 'full';
+  // 대행회원은 요금을 내지 않는다. 최고관리자가 연 자격이 이용 권한을 대신한다.
+  const legacyFull = !staff && (user.plan === 'full' || agencyActive === true);
   const subscriptionActive = subscription?.status === 'active';
   // 프리미엄 여부는 계약으로만 판정한다. users.plan = 'full' 하나로 정하지 않는다.
   const premium = Boolean(contract);
