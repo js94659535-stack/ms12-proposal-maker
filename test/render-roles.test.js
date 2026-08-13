@@ -95,3 +95,37 @@ test('운영관리자는 관리자 랜딩이 아니라 허용된 운영 화면�
   assert.doesNotMatch(html, /class="admin-shortcuts"/, '운영관리자에게 관리자 랜딩이 보이면 안 된다');
   assert.ok(html.length > 500);
 });
+
+test('대행회원 관리 화면에 목록·한도·인계 단추가 그려진다', async () => {
+  // 관리자 화면의 대행회원 갈래. 목록은 서버가 센 값만 그린다.
+  const previous = globalThis.fetch;
+  globalThis.fetch = async (path, options = {}) => {
+    const body = JSON.parse(options?.body || '{}');
+    if (path === '/api/auth' && body.action === 'me') {
+      return { ok: true, status: 200, json: async () => ({ ok: true, user: { id: 'a1', email: 'admin@example.com', role: 'admin', status: 'active', plan: 'full', provider: 'email' } }) };
+    }
+    if (path === '/api/admin' && body.action === 'agencyList') {
+      return {
+        ok: true, status: 200,
+        json: async () => ({
+          agencies: [{
+            userId: 'g1', email: 'agency@example.com', name: '대행 담당자', status: 'active', active: true,
+            startsOn: '2026-08-01', endsOn: '', grantedAt: '2026-08-01T00:00:00Z', lastActiveAt: '2026-08-13T01:00:00Z',
+            limits: { monthlyPlans: 10, revisionsPerPlan: 2, monthlyDiagnoses: 5, monthlyTokens: 1500000, monthlyCostMicro: 30000000 },
+            usage: { plans: 3, diagnoses: 1, tokens: 120000 }, footprint: { clients: 4, proposals: 7, inProgress: 2 }
+          }],
+          defaults: { monthlyPlans: 10 }, today: '2026-08-13'
+        })
+      };
+    }
+    if (path === '/api/admin' && body.action === 'listUsers') {
+      return { ok: true, status: 200, json: async () => ({ ok: true, users: [{ id: 'c1', email: 'member@example.com', name: '일반 회원', role: 'customer', status: 'active', plan: 'trial' }] }) };
+    }
+    return { ok: true, status: 200, json: async () => ({ ok: true, users: [], agencies: [] }) };
+  };
+  const html = await draw(
+    { id: 'a1', email: 'admin@example.com', role: 'admin', status: 'active', plan: 'full', provider: 'email' },
+    { activeTool: 'admin', homeSeen: true, portal: 'admin' }, 'agency-panel');
+  globalThis.fetch = previous;
+  assert.match(html, /id="open-admin-agency"/, '대행회원 관리 진입점이 없다');
+});
