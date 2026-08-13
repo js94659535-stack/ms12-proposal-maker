@@ -5,6 +5,8 @@ import { localAnalyze } from './fallback.js';
 import { buildDocxBlob, downloadBlob, exportDocx, exportPdf, printDocument, submissionFileName } from './export.js';
 import { buildProposalPdfBlob, exportProposalPdf } from './pdf-export.js';
 import { buildHwpxBlob } from './hwpx-export.js';
+import { fillFormLayout, fillSummary } from './form-fill.js';
+import { applyOpenMarks, collectOpenMarks, openMarkTotal } from './open-marks.js';
 import { MANIFEST_NAME, packageStale, planSubmissionZip, zipBytes } from './submission-zip.js';
 import { agencyMe, acknowledgePrivacyNotice, UNAUTHORIZED, accountProfile, clearOAuthCallback, currentUser, finishSocial, login, logout, readOAuthCallback, recoverPassword, saveAccountProfile, saveMemberInfo, signup as signupEmail, startSocial } from './auth.js';
 import { premiumNoticeHistory, premiumShowcase, premiumStatus } from './premium.js';
@@ -95,7 +97,7 @@ const initial = {
   // 간단 시작 입력과 뒤이은 확인 질문. 계획서 원문과 따로 둔다.
   quickOrg: {}, quickAnswers: {},
   // 간편·전문가 화면 전환과 한 번에 수정 요청. 계획서 원문과 따로 둔다.
-  viewMode: '', expertDetail: false, workspace: 'personal', reviseOpen: false, reviseDraft: null, revisions: [], revisionBackup: null,
+  viewMode: '', expertDetail: false, workspace: 'personal', markDraft: {}, markOpen: false, reviseOpen: false, reviseDraft: null, revisions: [], revisionBackup: null,
   applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
   revisionPlan: null, draftReview: null, projectNarrative: '',
   // 서버가 붙여 준 근거 검증·평가자 검토. 화면은 판정하지 않고 그대로 보여 준다.
@@ -3585,6 +3587,8 @@ function versionPickerView() {
       <button class="button secondary" data-open-version="${escapeHtml(item.versionId)}" ${item.versionId === state.currentVersionId ? 'disabled' : ''}>이 버전 열기</button></article>`).join('')}</div></details>`;
 }
 
+function openMarkCount() { return openMarkTotal(state.sections); }
+
 function submissionPackageView() {
   const summary = currentSubmissionPackage();
   if (!summary) return '';
@@ -3594,7 +3598,13 @@ function submissionPackageView() {
   return `<div class="card" id="submission-package" tabindex="-1"><div class="card-title"><div><h3>제출 패키지 · ${escapeHtml(summary.status)}</h3><span>지금 버전 기준입니다. 출력은 기존 DOCX·PDF 경로를 그대로 씁니다.</span></div><span class="status ${summary.status === '제출 가능' ? '충족' : summary.status === '보완 필요' ? '부분-충족' : '부족'}">${escapeHtml(summary.status)}</span></div>
     <div class="alert ${PACKAGE_TONE[summary.status]}"><strong>${summary.blockers.length ? `출력을 막는 사유 ${summary.blockers.length}건` : summary.warnings.length ? `확인할 사항 ${summary.warnings.length}건` : '제출 조건을 모두 지켰습니다'}</strong>
       ${summary.blockers.map(item => `<p>✕ <b>${escapeHtml(item.reason)}</b> — ${escapeHtml(item.detail)}</p>`).join('')}
-      ${summary.warnings.map(item => `<p>· ${escapeHtml(item.reason)} — ${escapeHtml(item.detail)}</p>`).join('')}</div>
+      ${summary.warnings.map(item => `<p>· ${escapeHtml(item.reason)} — ${escapeHtml(item.detail)}</p>`).join('')}
+      ${summary.blockers.length ? `<p class="muted">막힌 것은 <b>제출본 확정</b>뿐입니다. 지금까지 쓴 내용은 아래 「검토본 받기」로 언제든 받을 수 있습니다.</p>
+        <div class="actions" style="margin-top:6px"><span></span><div>
+          <button class="button secondary" id="package-review-docx">검토본 DOCX 받기</button>
+          <button class="button secondary" id="package-review-pdf">검토본 PDF 받기</button>
+          ${openMarkCount() ? '<button class="button primary" id="package-fill-open">확인 필요 ' + openMarkCount() + '곳 채우기</button>' : ''}
+        </div></div>` : ''}</div>
     <div class="summary-grid">
       <div><span>현재 버전</span><strong>${summary.timeline.version ? `V${summary.timeline.version}` : '없음'}</strong><small>${escapeHtml(summary.timeline.versionLabel || '')}</small></div>
       <div><span>최종본 승인</span><strong>${summary.timeline.approvedVersion ? `V${summary.timeline.approvedVersion}` : '미승인'}</strong><small>${escapeHtml(String(summary.timeline.approvedAt).slice(0, 10))}</small></div>
@@ -4262,6 +4272,26 @@ function simpleQuestionsPanel() {
 }
 
 // 완성 뒤 큰 버튼 다섯 개. 막힌 것은 회색으로 두지 않고 이유를 알린다.
+// 확인 필요 표시를 한 화면에서 채운다. 같은 것을 묻는 자리는 한 번에 함께 채운다.
+function openMarksPanel() {
+  const marks = collectOpenMarks(state.sections);
+  if (!marks.length) {
+    return '<div class="card"><div class="card-title"><div><h3>확인 필요 없음</h3><span>지어낸 값 없이 모두 채워졌습니다</span></div><span class="status 충족">제출본 가능</span></div></div>';
+  }
+  const draft = state.markDraft || {};
+  return `<details class="card" id="open-marks" ${state.markOpen ? 'open' : ''}>
+    <summary><b>확인이 필요한 값 ${openMarkCount()}곳</b> <small>한 화면에서 채우면 같은 자리에 모두 들어갑니다</small></summary>
+    <p class="muted">AI가 기관 실적·인력·예산을 지어내지 않도록 비워 둔 자리입니다. 아는 것만 채우고 나머지는 그대로 두어도 됩니다.</p>
+    <div class="requirement-list">${marks.map(item => `<article class="requirement">
+      <div><strong>${escapeHtml(item.label)}</strong> <span class="muted">${item.count}곳 · ${escapeHtml(item.sections.slice(0, 3).join(' · '))}</span></div>
+      <small class="muted">${escapeHtml(item.context)}</small>
+      <div class="field"><input data-mark-key="${escapeHtml(item.key)}" value="${escapeHtml(draft[item.key] || '')}" placeholder="확인한 값을 적어 주세요"></div>
+    </article>`).join('')}</div>
+    <div class="actions"><span class="muted">비워 둔 자리는 그대로 남습니다. 빈 값으로 지우지 않습니다.</span>
+      <button class="button primary" id="apply-marks" ${auth.busy ? 'disabled' : ''}>채운 값 반영</button></div>
+  </details>`;
+}
+
 function simpleResultActions() {
   const saved = Boolean(state.archiveProposalId);
   const left = remainingOf(state.revisions || []);
@@ -4271,6 +4301,7 @@ function simpleResultActions() {
     <button class="button secondary" id="save-proposal-archive">저장${saved ? ' 완료' : ''}</button>
     <button class="button secondary" id="final-docx-top">DOCX 받기</button>
     <button class="button secondary" id="final-hwpx-top">한글(HWPX) 받기</button>
+    ${currentFormSpec() ? '<button class="button primary" id="final-form-docx">올린 서식대로 받기(DOCX)</button>' : ''}
     <button class="button secondary" id="final-pdf-top">PDF 받기</button>
     <button class="button secondary" id="simple-expert">전문 검토 보기</button>
   </div>`;
@@ -4337,6 +4368,7 @@ function simpleWriteView() {
     </div>
     ${done ? `<div class="card"><div class="card-title"><div><h3>4 계획서 완성</h3><span>항목 ${state.sections.length}개</span></div>
       <span class="status 충족">완성</span></div>${simpleResultActions()}</div>` : ''}
+    ${state.sections.length ? openMarksPanel() : ''}
     ${revisionPanel()}
     ${chosen ? expertDetails() : ''}`;
 }
@@ -5580,6 +5612,11 @@ function bind() {
   document.querySelector('#open-full-proposal')?.addEventListener('click', () => document.querySelector('#final-submission, #result-pipeline')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   document.querySelector('#final-docx-top')?.addEventListener('click', () => exportDocx(state.project, state.sections));
   document.querySelector('#final-hwpx-top')?.addEventListener('click', () => downloadProposalHwpx());
+  document.querySelector('#final-form-docx')?.addEventListener('click', () => void downloadFormFilled());
+  // 제출 판정에 막혀도 지금까지 쓴 내용은 검토본으로 받는다.
+  document.querySelector('#package-review-docx')?.addEventListener('click', () => exportDocx(state.project, state.sections, { tables: state.proposalTables || [] }).catch(showError));
+  document.querySelector('#package-review-pdf')?.addEventListener('click', () => void downloadProposalPdf());
+  document.querySelector('#package-fill-open')?.addEventListener('click', () => setState({ expertDetail: true, activeTool: '', step: 4, notice: '확인 필요 표시가 남은 항목입니다. 값을 채우면 제출본이 열립니다.' }));
   document.querySelector('#final-pdf-top')?.addEventListener('click', () => downloadProposalPdf());
   document.querySelector('#open-revision-request')?.addEventListener('click', () => setProposalFlow({ requestOpen: !proposalFlow().requestOpen }));
   document.querySelector('#cancel-revision-request')?.addEventListener('click', () => setProposalFlow({ requestOpen: false }));
@@ -7015,6 +7052,28 @@ async function analyze() {
 
 // PDF는 파일로 내려받는다. 인쇄 창은 팝업 차단에 걸리면 아무 일도 일어나지 않는다.
 // 한글 글꼴을 넣어 만든 실제 PDF이며, 만들다 실패하면 빈 파일을 내려받지 않고 이유를 알린다.
+// 올린 신청서 서식에 맞춰 내려받는다.
+// 서식이 정한 항목 이름·순서·표에 우리가 쓴 내용을 넣는다. 없는 값은 지어내지 않고 [확인 필요]로 남긴다.
+function currentFormLayout() {
+  const spec = currentFormSpec();
+  if (!spec) return { ok: false, reason: '먼저 신청서 서식 파일을 올려 주세요. 공고 준비 화면에서 올릴 수 있습니다.' };
+  const plan = buildDocumentPlan(currentNoticeContract(), spec);
+  return fillFormLayout({ plan, sections: state.sections, tables: state.proposalTables || [] });
+}
+
+async function downloadFormFilled() {
+  if (!state.sections.length) return setState({ error: '먼저 계획서를 만들어 주세요.' });
+  const laid = currentFormLayout();
+  if (!laid.ok) return setState({ error: laid.reason });
+  setState({ busy: '올린 서식에 맞춰 배치하는 중...', error: '', notice: '' });
+  try {
+    await exportDocx(state.project, laid.sections, { tables: laid.tables });
+    setState({ busy: '', notice: `올린 서식대로 받았습니다. ${fillSummary(laid)}` });
+  } catch (error) {
+    setState({ busy: '', error: `서식대로 만들지 못했습니다. ${String(error?.message || '').slice(0, 60)}` });
+  }
+}
+
 // 한글 파일로 내보내기. 한글 2014 이상에서 열린다.
 // 표는 칸을 나눈 글줄로 들어간다. 표 서식 그대로가 필요하면 DOCX·PDF를 쓴다.
 function downloadProposalHwpx() {
@@ -7082,6 +7141,19 @@ function bindSimple() {
     notice: event.target.value ? '저장해 둔 기관정보를 씁니다.' : ''
   }));
   document.querySelector('#simple-generate')?.addEventListener('click', () => void runSimpleGeneration());
+  document.querySelectorAll('[data-mark-key]').forEach(el => el.onchange = () => {
+    state.markDraft = { ...(state.markDraft || {}), [el.dataset.markKey]: el.value };
+  });
+  document.querySelector('#apply-marks')?.addEventListener('click', () => {
+    const result = applyOpenMarks(state.sections, state.markDraft || {});
+    if (!result.filled) return setState({ error: '채운 값이 없습니다. 아는 값을 한 곳이라도 적어 주세요.', markOpen: true });
+    state.sections = result.sections;
+    setState({
+      sections: state.sections, markDraft: {}, markOpen: result.left > 0, error: '',
+      notice: `${result.filled}곳을 채웠습니다. 남은 확인 필요 ${result.left}곳${result.left ? '' : ' · 이제 제출본을 만들 수 있습니다'}.`
+    });
+    if (state.archiveProposalId) void archiveCurrentProposal().catch(() => {});
+  });
   document.querySelector('#simple-view')?.addEventListener('click', () => setState({ expertDetail: true, activeTool: '', step: 4, notice: '작성한 계획서를 펼쳤습니다.' }));
   document.querySelector('#simple-expert')?.addEventListener('click', () => setState({ expertDetail: true, activeTool: 'coaching', notice: '' }));
   document.querySelector('#simple-revise')?.addEventListener('click', () => setState({ reviseOpen: true, reviseDraft: state.reviseDraft || { kind: 'add', text: '' } }));
