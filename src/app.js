@@ -7,6 +7,7 @@ import { buildProposalPdfBlob, exportProposalPdf } from './pdf-export.js';
 import { buildHwpxBlob } from './hwpx-export.js';
 import { fillFormLayout, fillSummary } from './form-fill.js';
 import { classifyDocument, intakeSummary, markDuplicates } from './doc-classify.js';
+import { trimManualSources } from './payload-trim.js';
 import { applyOpenMarks, collectOpenMarks, openMarkTotal } from './open-marks.js';
 import { MANIFEST_NAME, packageStale, planSubmissionZip, zipBytes } from './submission-zip.js';
 import { agencyMe, acknowledgePrivacyNotice, UNAUTHORIZED, accountProfile, clearOAuthCallback, currentUser, finishSocial, login, logout, readOAuthCallback, recoverPassword, saveAccountProfile, saveMemberInfo, signup as signupEmail, startSocial } from './auth.js';
@@ -114,6 +115,8 @@ let state = loadState();
 let navigationHistory = loadNavigationHistory();
 const app = document.querySelector('#app');
 let busyStartedAt = 0;
+// 이번 AI 호출에서 무엇을 줄여 보냈는지. 화면에 그대로 알린다.
+let lastTrimNotes = [];
 let busyTimer = null;
 let archiveLoaded = false;
 let homeArchiveLoaded = false;
@@ -4321,6 +4324,13 @@ function formPreviewView() {
   </details>`;
 }
 
+// 이번 작성에서 무엇을 줄여 보냈는지 알린다. 조용히 자르면 왜 빠졌는지 알 수 없다.
+function trimNoticeView() {
+  if (!lastTrimNotes.length) return '';
+  return `<div class="alert"><strong>보내는 자료를 줄였습니다</strong>${lastTrimNotes.map(line => `<p>· ${escapeHtml(line)}</p>`).join('')}
+    <small>서식 규격(항목 이름·분량·표 칸)은 그대로 지킵니다.</small></div>`;
+}
+
 function finalConfirmView() {
   const open = openMarkCount();
   const confirmed = Boolean(state.engagement?.design?.approvedAt);
@@ -4348,6 +4358,7 @@ function simpleResultActions() {
     <button class="button secondary" id="final-pdf-top">PDF 받기</button>
     <button class="button secondary" id="simple-expert">전문 검토 보기</button>
   </div>
+  ${trimNoticeView()}
   ${currentFormSpec() ? formPreviewView() : ''}
   ${finalConfirmView()}`;
 }
@@ -7556,7 +7567,11 @@ async function generateCompleteProposal() {
 }
 
 function generationPayload() {
-  return { sourceText: state.sourceText, manualSources: state.manualSources.map(({ id, fileName, sourceType, extractedText, extractionStatus, extractionError }) => ({ id, fileName, sourceType, extractedText, extractionStatus, extractionError })), projectType: typeName(), project: state.project, selectedSubprogram: state.selectedNotice?.selectedSubproject || state.selectedNotice?.title || state.project.title, organization: organizationForGeneration(), userAnswers: state.designAnswers, projectBlueprint: blueprintHandoff(), noticeContract: contractHandoff() };
+  // 서식 원문을 통째로 보내면 설계 호출이 Cloudflare 100초 한도를 넘겨 524로 끊긴다.
+  // 서식은 이미 로컬에서 읽어 둔 규격 요약으로 바꾸고, 자른 것은 화면에 그대로 알린다.
+  const trimmed = trimManualSources(state.manualSources, currentFormSpec());
+  lastTrimNotes = trimmed.notes;
+  return { sourceText: state.sourceText, manualSources: trimmed.sources.map(({ id, fileName, sourceType, extractedText, extractionStatus, extractionError }) => ({ id, fileName, sourceType, extractedText, extractionStatus, extractionError })), projectType: typeName(), project: state.project, selectedSubprogram: state.selectedNotice?.selectedSubproject || state.selectedNotice?.title || state.project.title, organization: organizationForGeneration(), userAnswers: state.designAnswers, projectBlueprint: blueprintHandoff(), noticeContract: contractHandoff() };
 }
 
 // 분할 생성은 master가 확정한 기준만 다시 쓴다. 공고 원문·직접자료를 매 분할마다 다시 보내지 않는다.

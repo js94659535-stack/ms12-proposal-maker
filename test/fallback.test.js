@@ -828,7 +828,10 @@ test('직접 자료 UI는 다중 추가·유형 변경·삭제·미리보기를 
   assert.match(source, /data-manual-source-type/);
   assert.match(source, /data-remove-manual-source/);
   assert.match(source, /텍스트 미리보기 없음/);
-  assert.match(source, /manualSources: state\.manualSources\.map/);
+  // 보내기 전에 서식 원문을 규격 요약으로 줄인다. 자른 사실은 화면에 적는다.
+  assert.match(source, /const trimmed = trimManualSources\(state\.manualSources, currentFormSpec\(\)\);/);
+  assert.match(source, /manualSources: trimmed\.sources\.map/);
+  assert.match(source, /function trimNoticeView\(\) \{/);
   assert.match(source, /extractionStatus === 'success'/);
 });
 
