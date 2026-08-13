@@ -74,10 +74,10 @@ export async function onRequest(context) {
     if (body.action === 'listAssets') return json({ assets: await listAssets(context.env.ARCHIVE_DB, ownerHash) });
     if (body.action === 'saveAsset') return saveAsset(context.env.ARCHIVE_DB, ownerHash, context.data?.session?.user?.id || '', body.asset);
     if (body.action === 'deleteAsset') return json(await deleteAsset(context.env.ARCHIVE_DB, ownerHash, body.id));
-    if (body.action === 'listProposals') return json({ proposals: await listProposals(context.env.ARCHIVE_DB, ownerHash, workspace) });
+    if (body.action === 'listProposals') return json({ proposals: await listProposals(context.env.ARCHIVE_DB, ownerHash, workspace, sessionUser?.id || '') });
     if (body.action === 'getProposal') return json({ proposal: await getProposal(context.env.ARCHIVE_DB, ownerHash, body.id) });
     if (body.action === 'saveApplicant') return json(await saveApplicant(context.env.ARCHIVE_DB, ownerHash, body.applicant, sessionUser?.id || '', workspace));
-    if (body.action === 'listApplicants') return json({ applicants: await listApplicants(context.env.ARCHIVE_DB, ownerHash, workspace) });
+    if (body.action === 'listApplicants') return json({ applicants: await listApplicants(context.env.ARCHIVE_DB, ownerHash, workspace, sessionUser?.id || '') });
     if (body.action === 'deleteApplicant') return json(await deleteApplicant(context.env.ARCHIVE_DB, ownerHash, body.id));
     return json({ error: '지원하지 않는 자료보관함 작업입니다.' }, 400);
   } catch (error) {
@@ -146,11 +146,14 @@ export async function saveProposal(db, ownerHash, value, userId = '', workspace 
   return { id, updatedAt: now, userId: owner };
 }
 
-export async function listProposals(db, ownerHash, workspace = 'personal') {
+export async function listProposals(db, ownerHash, workspace = 'personal', agencyUserId = '') {
   // 개인 작업공간에는 대행 업무 자료가 섞이지 않는다. 반대도 마찬가지다.
-  const rows = await db.prepare(`SELECT id, notice_key, title, stage, created_at, updated_at FROM archived_proposals
-    WHERE owner_hash = ? AND COALESCE(workspace, 'personal') = ? ORDER BY updated_at DESC LIMIT 100`)
-    .bind(ownerHash, workspace === 'agency' ? 'agency' : 'personal').all();
+  // 대행 업무 자료는 대행회원 계정으로 찾는다. 인계로 주인이 바뀌어도 새 대행회원이 그대로 연다.
+  const rows = workspace === 'agency'
+    ? await db.prepare(`SELECT id, notice_key, title, stage, created_at, updated_at FROM archived_proposals
+        WHERE agency_user_id = ? AND workspace = 'agency' ORDER BY updated_at DESC LIMIT 100`).bind(String(agencyUserId || '')).all()
+    : await db.prepare(`SELECT id, notice_key, title, stage, created_at, updated_at FROM archived_proposals
+        WHERE owner_hash = ? AND COALESCE(workspace, 'personal') = 'personal' ORDER BY updated_at DESC LIMIT 100`).bind(ownerHash).all();
   return (rows.results || []).map(row => ({ id: row.id, noticeKey: row.notice_key, title: row.title, stage: row.stage, createdAt: row.created_at, updatedAt: row.updated_at }));
 }
 
@@ -207,10 +210,12 @@ export async function saveApplicant(db, ownerHash, value, userId = '', workspace
   return { id: applicant.id, updatedAt: now };
 }
 
-export async function listApplicants(db, ownerHash, workspace = 'personal') {
-  const rows = await db.prepare(`SELECT applicant_json, created_at, updated_at FROM applicant_organizations
-    WHERE owner_hash = ? AND COALESCE(workspace, 'personal') = ? ORDER BY updated_at DESC LIMIT 100`)
-    .bind(ownerHash, workspace === 'agency' ? 'agency' : 'personal').all();
+export async function listApplicants(db, ownerHash, workspace = 'personal', agencyUserId = '') {
+  const rows = workspace === 'agency'
+    ? await db.prepare(`SELECT applicant_json, created_at, updated_at FROM applicant_organizations
+        WHERE agency_user_id = ? AND workspace = 'agency' ORDER BY updated_at DESC LIMIT 100`).bind(String(agencyUserId || '')).all()
+    : await db.prepare(`SELECT applicant_json, created_at, updated_at FROM applicant_organizations
+        WHERE owner_hash = ? AND COALESCE(workspace, 'personal') = 'personal' ORDER BY updated_at DESC LIMIT 100`).bind(ownerHash).all();
   return (rows.results || []).map(row => ({ ...safeJson(row.applicant_json), createdAt: row.created_at, updatedAt: row.updated_at }));
 }
 

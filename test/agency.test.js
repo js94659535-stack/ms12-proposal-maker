@@ -129,7 +129,9 @@ test('자격을 잃으면 대행 업무 자료가 다음 요청부터 닫힌다'
   assert.equal(workspaceOf(''), 'personal');
   assert.equal(workspaceOf('other'), 'personal');
   // 두 공간의 자료가 목록에서 섞이지 않는다.
-  assert.match(archive, /COALESCE\(workspace, 'personal'\) = \?/);
+  assert.match(archive, /COALESCE\(workspace, 'personal'\) = 'personal'/);
+  // 대행 업무 자료의 주인은 브라우저 키가 아니라 대행회원 계정이다. 인계 뒤에도 새 주인이 연다.
+  assert.match(archive, /WHERE agency_user_id = \? AND workspace = 'agency'/);
 });
 
 test('인계는 살아 있는 다른 대행회원에게만 하고 건수를 먼저 보여 준다', () => {

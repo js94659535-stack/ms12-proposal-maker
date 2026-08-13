@@ -77,6 +77,7 @@ try {
   const me = await call('/api/account', { action: 'agencyMe' });
   record(8, '대행회원 본인 자격·남은 한도 조회', me?.status === 200 && me?.data?.has === true,
     `자격 ${me?.data?.status} · 남은 편수 ${me?.data?.remaining?.plans} · 갱신 ${me?.data?.remaining?.renewsOn}`);
+  await page.go(SITE, 4000);
   const view = await page.run(`(() => JSON.stringify({
     quota: /남은 계획서/.test(document.body.innerText || ''),
     toggle: !!document.querySelector('#toggle-workspace')
