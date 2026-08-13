@@ -3457,7 +3457,7 @@ function unsavedChanges() {
   return JSON.stringify(version.sections) !== JSON.stringify(state.sections) || JSON.stringify(version.tables || []) !== JSON.stringify(state.proposalTables || []);
 }
 
-// 제출 패키지 — 지금 이 버전이 제출 가능한지 판정하고 함께 낼 것을 정리한다.
+// 제출서류 한 벌 — 지금 이 버전이 제출 가능한지 판정하고 함께 낼 것을 정리한다.
 function currentSubmissionPackage() {
   if (!state.sections.length) return null;
   return buildSubmissionPackage({
@@ -3509,7 +3509,7 @@ function unlinkAttachmentFile(name) {
   delete links[name];
   setState({ attachmentLinks: links, notice: `${name}의 연결을 해제했습니다.`, error: '' });
 }
-// 계획서 버전이 바뀌면 앞서 만든 패키지는 만료다.
+// 계획서 버전이 바뀌면 앞서 묶은 제출서류는 지난 판이다.
 function submissionZipStale() {
   return Boolean(state.submissionZip) && packageStale(state.submissionZip, state.currentVersionId);
 }
@@ -3529,7 +3529,7 @@ function currentZipPlan(documents = null) {
 async function exportSubmissionZip() {
   const { version, reason } = selectedSavedVersion();
   if (!version) return setState({ error: reason });
-  if (unsavedChanges()) return setState({ error: `화면 내용이 저장된 V${version.version}과 달라 패키지를 만들지 않았습니다.` });
+  if (unsavedChanges()) return setState({ error: `화면 내용이 저장된 V${version.version}과 달라 제출서류를 묶지 않았습니다.` });
   const applicantName = selectedApplicant()?.name || '';
   const names = { docx: submissionFileName(state.project, { applicantName, version: version.version, kind: 'docx' }), pdf: submissionFileName(state.project, { applicantName, version: version.version, kind: 'pdf' }) };
   setState({ busy: 'zip', notice: '', error: '' });
@@ -3542,7 +3542,7 @@ async function exportSubmissionZip() {
     ]);
     const blobs = { docx, pdf };
     const plan = currentZipPlan([{ key: 'docx', name: names.docx, bytes: docx.size }, { key: 'pdf', name: names.pdf, bytes: pdf.size }]);
-    if (!plan.ok) return setState({ busy: '', error: `제출 패키지를 만들지 않았습니다. ${plan.blockers.map(item => `${item.reason} — ${item.detail}`).join(' / ')}` });
+    if (!plan.ok) return setState({ busy: '', error: `제출서류를 묶지 않았습니다. ${plan.blockers.map(item => `${item.reason} — ${item.detail}`).join(' / ')}` });
     const files = [];
     for (const entry of plan.entries) {
       // 첨부 원본은 변환하지 않고 읽은 바이트를 그대로 담는다.
@@ -3555,11 +3555,11 @@ async function exportSubmissionZip() {
     files.push({ name: MANIFEST_NAME, bytes: new TextEncoder().encode(plan.manifest) });
     downloadBlob(new Blob([zipBytes(files, plan.meta.generatedAt)], { type: 'application/zip' }), plan.fileName);
     setState({
-      busy: '', notice: `제출 패키지 ${files.length}개 파일을 묶었습니다: ${plan.fileName}`,
+      busy: '', notice: `제출서류 ${files.length}개 파일을 묶었습니다: ${plan.fileName}`,
       submissionZip: { versionId: version.versionId, at: plan.meta.generatedAt, fileName: plan.fileName, count: files.length }
     });
   } catch (error) {
-    setState({ busy: '', error: `제출 패키지를 만들지 못했습니다. ${error.message}` });
+    setState({ busy: '', error: `제출서류를 묶지 못했습니다. ${error.message}` });
   }
 }
 const PACKAGE_TONE = { '제출 가능': 'success', '보완 필요': 'warning', '제출 차단': 'danger' };
@@ -3571,9 +3571,9 @@ function zipSkipReason(plan, name) {
 function zipPanelView(plan) {
   const stale = submissionZipStale();
   return `<details open><summary>제출 ZIP 구성 · 포함 ${plan.entries.length + 1}건 · 미포함 ${plan.skipped.length}건</summary>
-    ${plan.ok ? '' : `<div class="alert danger"><strong>패키지를 만들 수 없습니다</strong>${plan.blockers.map(item => `<p>✕ <b>${escapeHtml(item.reason)}</b> — ${escapeHtml(item.detail)}</p>`).join('')}</div>`}
-    ${stale ? `<div class="alert warning"><strong>이전 패키지는 만료되었습니다</strong><p>계획서 버전이 바뀌었습니다. ${escapeHtml(state.submissionZip.fileName)}을 그대로 제출하지 말고 다시 묶으세요.</p></div>` : ''}
-    ${!stale && state.submissionZip ? `<div class="alert success"><strong>마지막 패키지</strong><p>${escapeHtml(state.submissionZip.fileName)} · 파일 ${state.submissionZip.count}개 · ${escapeHtml(String(state.submissionZip.at).slice(0, 16).replace('T', ' '))}</p></div>` : ''}
+    ${plan.ok ? '' : `<div class="alert danger"><strong>아직 제출본으로 굳힐 수 없습니다</strong>${plan.blockers.map(item => `<p>✕ <b>${escapeHtml(item.reason)}</b> — ${escapeHtml(item.detail)}</p>`).join('')}</div>`}
+    ${stale ? `<div class="alert warning"><strong>앞서 묶은 제출서류는 지난 판입니다</strong><p>계획서 버전이 바뀌었습니다. ${escapeHtml(state.submissionZip.fileName)}을 그대로 제출하지 말고 다시 묶으세요.</p></div>` : ''}
+    ${!stale && state.submissionZip ? `<div class="alert success"><strong>마지막으로 묶은 제출서류</strong><p>${escapeHtml(state.submissionZip.fileName)} · 파일 ${state.submissionZip.count}개 · ${escapeHtml(String(state.submissionZip.at).slice(0, 16).replace('T', ' '))}</p></div>` : ''}
     <div class="requirement-list">${[...plan.entries, { kind: '제출목록', name: MANIFEST_NAME, slot: '', bytes: null }].map(entry => `<article class="requirement"><div><span class="status 충족">${escapeHtml(entry.kind)}</span><div><strong>${escapeHtml(entry.name)}</strong><small class="muted">${escapeHtml(entry.slot || entry.from || '')}</small></div></div></article>`).join('')}
       ${plan.skipped.map(item => `<article class="requirement"><div><span class="status ${item.satisfied ? '충족' : '확인-필요'}">미포함</span><div><strong>${escapeHtml(item.name)}</strong><small class="muted">${escapeHtml(item.reason)}</small></div></div></article>`).join('')}</div>
     <div class="actions"><span class="muted">공고문·참고자료와 내부 검증 자료는 담지 않습니다.</span>
@@ -3599,7 +3599,7 @@ function submissionPackageView() {
   const { version: savedVersion, reason: versionReason } = selectedSavedVersion();
   const exportBlock = versionReason || (unsavedChanges() ? `화면 내용이 저장된 V${savedVersion?.version}과 달라 출력할 수 없습니다.` : '');
   const zipPlan = currentZipPlan();
-  return `<div class="card" id="submission-package" tabindex="-1"><div class="card-title"><div><h3>제출 패키지 · ${escapeHtml(summary.status)}</h3><span>지금 버전 기준입니다. 출력은 기존 DOCX·PDF 경로를 그대로 씁니다.</span></div><span class="status ${summary.status === '제출 가능' ? '충족' : summary.status === '보완 필요' ? '부분-충족' : '부족'}">${escapeHtml(summary.status)}</span></div>
+  return `<div class="card" id="submission-package" tabindex="-1"><div class="card-title"><div><h3>제출서류 한 벌 · ${escapeHtml(summary.status)}</h3><span>지금 버전 기준입니다. 출력은 기존 DOCX·PDF 경로를 그대로 씁니다.</span></div><span class="status ${summary.status === '제출 가능' ? '충족' : summary.status === '보완 필요' ? '부분-충족' : '부족'}">${escapeHtml(summary.status)}</span></div>
     <div class="alert ${PACKAGE_TONE[summary.status]}"><strong>${summary.blockers.length ? `출력을 막는 사유 ${summary.blockers.length}건` : summary.warnings.length ? `확인할 사항 ${summary.warnings.length}건` : '제출 조건을 모두 지켰습니다'}</strong>
       ${summary.blockers.map(item => `<p>✕ <b>${escapeHtml(item.reason)}</b> — ${escapeHtml(item.detail)}</p>`).join('')}
       ${summary.warnings.map(item => `<p>· ${escapeHtml(item.reason)} — ${escapeHtml(item.detail)}</p>`).join('')}
@@ -3618,7 +3618,7 @@ function submissionPackageView() {
     <details open><summary>제출 문서 ${summary.documents.length}개 · 필수 표 ${summary.tables.length}개</summary>
       <div class="requirement-list">${[...summary.documents, ...summary.tables.map(table => ({ name: `${table.title} (${table.kind})`, ready: table.ready, via: `${table.rows}행` }))].map(item => `<article class="requirement"><div><span class="status ${item.ready ? '충족' : '확인-필요'}">${item.ready ? '준비됨' : '준비 안 됨'}</span><div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.via || '')}</small></div></div></article>`).join('')}</div></details>
     ${summary.attachments.length ? `<details open><summary>첨부서류 ${summary.attachments.length}건 · 파일 연결 ${Object.keys(state.attachmentLinks || {}).length}건</summary>
-      <p class="muted">「준비 완료」 표시만으로는 묶지 않습니다. 필수 첨부는 실제 파일을 연결해야 패키지를 만들 수 있습니다.</p>
+      <p class="muted">「준비 완료」 표시만으로는 묶지 않습니다. 필수 첨부는 실제 파일을 연결해야 제출서류로 묶을 수 있습니다.</p>
       <div class="requirement-list">${summary.attachments.map(item => {
     const link = (state.attachmentLinks || {})[item.name];
     const auto = zipSkipReason(zipPlan, item.name);
@@ -5833,7 +5833,7 @@ function bind() {
   document.querySelector('#save-proposal-archive')?.addEventListener('click', () => archiveCurrentProposal(undefined, true).catch(showError));
   document.querySelector('#docx')?.addEventListener('click', () => exportDocx(state.project, state.sections).catch(showError));
   document.querySelector('#pdf')?.addEventListener('click', () => downloadProposalPdf());
-  // 제출 패키지에서 내려받는 최종본은 판정을 통과했을 때만 나간다. 출력 방식은 기존과 같다.
+  // 제출서류에서 내려받는 최종본은 판정을 통과했을 때만 나간다. 출력 방식은 기존과 같다.
   document.querySelector('#package-docx')?.addEventListener('click', () => exportFinalPackage('docx'));
   document.querySelector('#package-pdf')?.addEventListener('click', () => exportFinalPackage('pdf'));
   document.querySelectorAll('[data-open-version]').forEach(el => el.addEventListener('click', () => selectProposalVersion(el.dataset.openVersion)));

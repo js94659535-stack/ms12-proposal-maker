@@ -84,11 +84,14 @@ test('본문이 바뀌면 이전 정밀검증 PASS를 다시 쓰지 못한다', 
   assert.equal(reviewFreshness(null, SECTIONS), '없음');
 });
 
-test('필수 첨부서류가 빠지면 출력을 막고 선택 첨부는 막지 않는다', () => {
+test('첨부서류는 준비할 것으로 알리고 계획서 출력까지 막지 않는다', () => {
+  // 첨부서류는 기관이 나중에 붙이는 문서다. 없다고 계획서 출력을 막으면 정상 흐름이 끊긴다.
+  // 실제로 묶어 낼 때(제출 ZIP)만 파일을 요구한다.
   const missing = base({ included: ['신청기관현황'] });
-  assert.equal(missing.status, '제출 차단');
-  const reason = missing.blockers.find(item => item.reason === '필수 첨부서류 누락');
+  const reason = missing.warnings.find(item => item.reason === '첨부서류 준비 필요');
+  assert.ok(reason, '준비 안내가 없다');
   assert.match(reason.detail, /사업계획서 1부/);
+  assert.ok(!missing.blockers.some(item => item.reason === '필수 첨부서류 누락'), '첨부 때문에 막으면 안 된다');
   assert.equal(missing.attachments.find(item => item.name === '사업계획서 1부').included, false);
   // 선택 첨부를 빼도 막지 않는다.
   assert.equal(base({ included: ALL_INCLUDED }).status, '제출 가능');
@@ -96,6 +99,9 @@ test('필수 첨부서류가 빠지면 출력을 막고 선택 첨부는 막지 
   const noForm = base({ formSpec: null, included: [] });
   assert.ok(noForm.warnings.some(item => item.reason === '첨부서류 목록 없음'));
   assert.ok(!noForm.blockers.some(item => item.reason === '필수 첨부서류 누락'));
+  // 제출 ZIP은 그대로 실제 파일을 요구한다.
+  const zip = fs.readFileSync(new URL('../src/submission-zip.js', import.meta.url), 'utf8');
+  assert.match(zip, /필수 첨부 파일 없음/);
 });
 
 test('서식 openPoints와 기관 확인 필요 사항이 최종 확인 목록에 남는다', () => {
@@ -145,14 +151,16 @@ test('공고문을 붙여넣기만 해도 제출서류 목록을 읽어 필수 �
   assert.match(app, /공고문을 자료로 올리지 않고 붙여넣기만 했어도 제출서류 목록을 읽는다/);
   assert.match(app, /const pasted = state\.sourceText\.trim\(\)\.length >= 200 && !state\.manualSources\.some\(item => item\.sourceType === '세부 공고문'/);
   assert.match(app, /const spec = buildFormSpec\(\[\.\.\.state\.manualSources, \.\.\.pasted\]\);/);
-  // 실제 공고문에서 필수 8건을 읽고, 하나라도 준비 전이면 차단한다.
+  // 실제 공고문에서 필수 8건을 읽는다. 준비 전이면 차단이 아니라 준비 안내로 알린다.
   const notice = fs.readFileSync(new URL('./fixtures/notice-chest-2027-gold.txt', import.meta.url), 'utf8');
   const spec = buildFormSpec([{ id: 'pasted-notice', fileName: '공고문', sourceType: '세부 공고문', extractionStatus: 'success', extractedText: notice }]);
   assert.equal(spec.attachments.length, 8);
   assert.equal(spec.attachments.filter(item => item.required).length, 8);
-  const blocked = buildSubmissionPackage({ sections: SECTIONS, gate: GATE_OK, formSpec: spec, included: [] });
-  assert.equal(blocked.status, '제출 차단');
-  assert.ok(blocked.blockers.some(item => item.reason === '필수 첨부서류 누락'));
+  const pending = buildSubmissionPackage({ sections: SECTIONS, gate: GATE_OK, formSpec: spec, included: [] });
+  assert.ok(pending.warnings.some(item => item.reason === '첨부서류 준비 필요'));
+  assert.ok(!pending.blockers.some(item => item.reason === '필수 첨부서류 누락'));
+  // 계획서 본문에 문제가 없으면 첨부가 남아 있어도 출력은 열린다.
+  assert.equal(pending.canExport, true);
   const ready = buildSubmissionPackage({ sections: SECTIONS, gate: GATE_OK, formSpec: spec, included: spec.attachments.map(item => item.name) });
   assert.equal(ready.canExport, true);
 });

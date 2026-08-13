@@ -1,3 +1,4 @@
+import { classifyDocument } from './doc-classify.js';
 // 「신청서 서식 규격표」 — 공모신청서·사업계획서 서식에서 작성 항목·분량·필수 표·예산 양식·첨부서류를 읽는다.
 // 규칙 기반 로컬 처리만 하고 외부 API를 호출하지 않는다. 서식에 없는 기준은 만들지 않는다.
 export const FORM_SOURCE_TYPES = ['공모신청서', '사업계획서 서식', '예산 편성 기준', '세부 공고문'];
@@ -9,9 +10,17 @@ const number = value => Number(String(value).replace(/[,\s]/g, ''));
 
 // 서식 자료만 본다. 공고 본문 요약이나 기관자료를 서식 기준으로 삼지 않는다.
 export function formSources(manualSources = []) {
-  return (manualSources || [])
-    .filter(item => item?.extractionStatus === 'success' && FORM_SOURCE_TYPES.includes(item.sourceType) && String(item.extractedText || '').trim())
-    .map(item => ({ id: item.id, fileName: clean(item.fileName, 120), sourceType: item.sourceType, text: String(item.extractedText) }));
+  const usable = (manualSources || []).filter(item => item?.extractionStatus === 'success' && String(item.extractedText || '').trim());
+  // 문서 종류를 잘못 골랐어도 서식을 못 읽고 끝나지 않는다.
+  // 사용자가 고른 종류를 먼저 믿고, 그렇지 않은 자료는 내용으로 다시 본다.
+  return usable
+    .map(item => {
+      if (FORM_SOURCE_TYPES.includes(item.sourceType)) return { item, sourceType: item.sourceType };
+      const guess = classifyDocument(item.fileName, item.extractedText);
+      return FORM_SOURCE_TYPES.includes(guess.kind) ? { item, sourceType: guess.kind } : null;
+    })
+    .filter(Boolean)
+    .map(({ item, sourceType }) => ({ id: item.id, fileName: clean(item.fileName, 120), sourceType, text: String(item.extractedText) }));
 }
 function linesOf(source) {
   return String(source.text).split(/\n+|(?=[○●▶▸□■※])/)
@@ -23,24 +32,33 @@ function linesOf(source) {
 // 「1. 사업 필요성 (1,000자 이내)」 「□ 사업개요 ※ 2쪽 이내」처럼 항목명과 제한이 같은 줄이나 다음 줄에 온다.
 // 실제 서식의 작성 항목은 번호·글머리 기호를 달고 있다(1. / 1) / 가.).
 // 표 안의 칸 이름이나 문장 조각을 항목으로 잘못 올리지 않도록 번호가 붙은 줄만 항목으로 본다.
-const ITEM_LINE = /^(?:[□■○●▶▸※\s]*)?(\d{1,2}|[가-힣])\s*[.)]\s*([가-힣A-Za-z][^:：\[]{1,40}?)\s*(?:[:：]|\(|\[|※|$)/;
+const ITEM_LINE = /^(?:[□■○●▶▸※\s]*)?(\d{1,2}|[가-힣])\s*[.)]\s*([가-힣A-Za-z][^:：\[]{1,48}?)\s*(?:[:：]|\[|※|$)/;
 const CHAR_LIMIT = /(\d[\d,]*)\s*자\s*(?:이내|이하|내외|까지)/;
 const PAGE_LIMIT = /(\d[\d,]*)\s*(?:쪽|페이지|p)\s*(?:이내|이하|내외|까지)/i;
 // 서식의 작성 항목으로 볼 만한 이름만 남긴다(안내문·머리말과 구분).
-const ITEM_HINT = /필요성|목적|목표|대상|프로그램|사업\s*내용|사업명|추진|일정|인력|조직|수행\s*체계|예산|성과|지표|평가|기대|효과|개요|배경|계획|방법|방안|홍보|협력|사후|문제|지향|차별성|강점|전략|선정|모집|참여자|활용/;
+const ITEM_HINT = /문제\s*의식|지향점|전략|차별성|강점|모집|연계|협력|산출목표|필요성|목적|목표|대상|프로그램|사업\s*내용|사업명|추진|일정|인력|조직|수행\s*체계|예산|성과|지표|평가|기대|효과|개요|배경|계획|방법|방안|홍보|협력|사후|문제|지향|차별성|강점|전략|선정|모집|참여자|활용/;
 // 신뢰성·회계 점검표의 선택지와 안내 문항은 계획서 작성 항목이 아니다.
 const ITEM_SKIP = /제출\s*서류|첨부|유의|안내|문의|접수|신청\s*방법|작성\s*요령|서식\s*\d|붙임|해당\s*(?:없음|있음)|회계부정|인권침해|조사\/수사|재판|처분|체크|서명|동의/;
 
 // 작성 항목은 신청서·계획서 서식에서만 읽는다. 공고문의 조항·안내 문장을 작성 항목으로 오인하지 않는다.
 const ITEM_SOURCE_TYPES = ['공모신청서', '사업계획서 서식'];
 export function extractFormItems(sources) {
+  const marked = sources.filter(item => ITEM_SOURCE_TYPES.includes(item.sourceType));
+  // 사용자가 종류를 잘못 골랐거나 자동 분류가 애매해도 작업을 멈추지 않는다.
+  const pool = marked.length ? marked : sources.filter(item => item.extractionStatus === 'success');
+  return readFormItems(pool);
+}
+
+function readFormItems(sources) {
   const items = [];
-  for (const source of sources.filter(item => ITEM_SOURCE_TYPES.includes(item.sourceType))) {
+  for (const source of sources) {
     const lines = linesOf(source);
     for (const entry of lines) {
       const matched = ITEM_LINE.exec(entry.line);
       if (!matched) continue;
-      const name = clean(matched[2], 60);
+      // 「3. 문제 의식(사업 필요성)」처럼 괄호 안이 진짜 이름인 서식이 있다. 괄호까지 이름으로 읽는다.
+      // 다만 「1. 사업 필요성 (1,000자 이내)」의 괄호는 분량 표기이므로 이름에서 뗀다.
+      const name = clean(matched[2], 60).replace(/\s*[(（][^)）]*(?:자|쪽|페이지|p)\s*(?:이내|이하|내외|까지)[^)）]*[)）]\s*$/i, '').trim();
       if (name.length < 2 || !ITEM_HINT.test(name) || ITEM_SKIP.test(entry.line)) continue;
       // 제한은 같은 줄이나 바로 다음 줄에서 찾는다.
       const window = [entry.line, lines[entry.index + 1]?.line || ''].join(' ');

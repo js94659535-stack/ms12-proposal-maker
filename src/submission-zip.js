@@ -46,7 +46,7 @@ export function planSubmissionZip({
   const entries = [];
   const skipped = [];
 
-  if (!canExport) blockers.push(blocker('제출 판정 미통과', `제출 ${packageStatus || '판정'} 상태에서는 패키지를 만들지 않습니다.`));
+  if (!canExport) blockers.push(blocker('제출 판정 미통과', `제출 ${packageStatus || '판정'} 상태에서는 제출서류로 묶지 않습니다.`));
   if (!versionId) blockers.push(blocker('저장 버전 없음', '저장된 계획서 버전을 고른 뒤에 묶을 수 있습니다.'));
   // bytes가 null이면 아직 만들기 전이라는 뜻이다. 0바이트로 나온 것만 실패로 본다.
   const failed = documents.filter(item => !item || (item.bytes !== null && !(item.bytes > 0)));

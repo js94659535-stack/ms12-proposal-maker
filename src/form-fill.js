@@ -101,7 +101,10 @@ export function fillFormLayout({ plan = null, sections = [], tables = [] } = {})
 // 배치 결과를 한 줄로 요약한다. 화면에 그대로 적는다.
 export function fillSummary(result) {
   if (!result?.ok) return result?.reason || '서식을 읽지 못했습니다.';
-  const parts = [`서식 항목 ${result.sections.filter(item => item.fromForm).length}개 중 ${result.filled}개 채움`];
+  // 센 것과 나눈 것을 같은 기준으로 적는다. 「9개 중 10개」처럼 읽히지 않게 한다.
+  const laid = result.sections.length - result.extra.length;
+  const fromForm = result.sections.filter(item => item.fromForm).length;
+  const parts = [`작성 항목 ${laid}개 중 ${result.filled}개 채움`, `서식 이름 적용 ${fromForm}개`];
   if (result.unfilled.length) parts.push(`빈 항목 ${result.unfilled.length}개`);
   if (result.over.length) parts.push(`분량 초과 ${result.over.length}개`);
   if (result.extra.length) parts.push(`서식 외 ${result.extra.length}개는 뒤에 붙임`);

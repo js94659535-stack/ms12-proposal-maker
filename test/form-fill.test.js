@@ -89,3 +89,33 @@ test('화면에서 서식대로 받는 길이 열려 있다', () => {
   assert.match(app, /id="final-form-docx"/);
   assert.match(app, /fillFormLayout\(/);
 });
+
+test('문서 종류를 잘못 골라도 서식을 읽는다', async () => {
+  const { buildFormSpec } = await import('../src/form-spec.js');
+  const form = fs.readFileSync(new URL('./fixtures/form-chest-2027-application.txt', import.meta.url), 'utf8');
+  // 사용자가 종류를 「기타 안내자료」로 두었어도 내용으로 신청서인 것을 알아본다.
+  const spec = buildFormSpec([{ id: 'f', fileName: '2027 배분신청서.txt', sourceType: '기타 안내자료', extractionStatus: 'success', extractedText: form }]);
+  assert.ok(spec, '서식을 읽지 못했다');
+  assert.ok(spec.items.length >= 20, `작성 항목 ${spec.items.length}개`);
+  const names = spec.items.map(item => item.name);
+  assert.ok(names.includes('문제 의식(사업 필요성)'), names.slice(0, 5).join(' | '));
+  assert.ok(names.includes('예산 편성'));
+});
+
+test('분량 표기는 항목 이름에 넣지 않는다', async () => {
+  const { buildFormSpec } = await import('../src/form-spec.js');
+  const spec = buildFormSpec([{
+    id: 'f', fileName: '서식.txt', sourceType: '사업계획서 서식', extractionStatus: 'success',
+    extractedText: '1. 사업 필요성 (1,000자 이내)\n2. 사업 목표 ※ 2쪽 이내\n3. 문제 의식(사업 필요성)'
+  }]);
+  const names = spec.items.map(item => item.name);
+  assert.ok(names.includes('사업 필요성'), names.join(' | '));
+  assert.ok(names.includes('문제 의식(사업 필요성)'), names.join(' | '));
+  assert.equal(spec.items.find(item => item.name === '사업 필요성').limitChars, 1000);
+});
+
+test('사용자 화면에서 내부 용어를 쓰지 않는다', () => {
+  assert.ok(!app.includes('패키지'), '「패키지」는 우리끼리 쓰던 말이다');
+  assert.match(app, /제출서류 한 벌/);
+  assert.match(app, /아직 제출본으로 굳힐 수 없습니다/);
+});
