@@ -6,6 +6,8 @@ import { contractState } from '../../server/premium.js';
 import { claimProposals, recordAccess } from '../../server/access-store.js';
 import { validateAsset } from '../../server/idea-assets.js';
 import { businessTypeOf, groupOf } from '../../server/notice-sources.js';
+import { workspaceOf } from '../../server/agency.js';
+import { stateFor, touchActivity } from '../../server/agency-store.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 const MAX_NOTICE_BATCH = 100;
@@ -25,12 +27,23 @@ export async function onRequest(context) {
     if (body.action === 'searchNotices') return json({ notices: await searchNotices(context.env.ARCHIVE_DB, body.filters, await owner(context.request)) });
     const ownerHash = await owner(context.request);
     if (!ownerHash) return json({ error: '자료보관함 식별키가 없습니다.' }, 401);
+    // 어느 작업공간의 자료인지 요청이 밝힌다. 값이 없으면 개인 작업공간이다.
+    const workspace = workspaceOf(body.workspace);
+    const sessionUser = context.data?.session?.user;
+    if (workspace === 'agency') {
+      // 자격이 없거나 해제·중지되었으면 대행 업무 자료는 다음 요청부터 닫힌다. 자료는 지우지 않는다.
+      const agency = await stateFor(context.env.ARCHIVE_DB, sessionUser?.id || '');
+      if (!agency.active) {
+        return json({ error: agency.reason || '대행회원만 열 수 있는 자료입니다.', agencyBlocked: true }, 403);
+      }
+      await touchActivity(context.env.ARCHIVE_DB, sessionUser.id);
+    }
     // 계획서 보관은 구독·프리미엄·기존 전체 이용권에서만 열린다.
     // 승인 대기 회원은 아무것도 저장하지 않고, 정식회원의 5쪽 제안서는 읽기 전용이다.
     if (body.action === 'saveProposal') {
       const refusal = await saveRefusal(context);
       if (refusal) return json(refusal.body, refusal.status);
-      return json(await saveProposal(context.env.ARCHIVE_DB, ownerHash, body.proposal, context.data?.session?.user?.id || ''));
+      return json(await saveProposal(context.env.ARCHIVE_DB, ownerHash, body.proposal, context.data?.session?.user?.id || '', workspace));
     }
     if (body.action === 'claimMine') {
       const user = context.data?.session?.user;
@@ -61,10 +74,10 @@ export async function onRequest(context) {
     if (body.action === 'listAssets') return json({ assets: await listAssets(context.env.ARCHIVE_DB, ownerHash) });
     if (body.action === 'saveAsset') return saveAsset(context.env.ARCHIVE_DB, ownerHash, context.data?.session?.user?.id || '', body.asset);
     if (body.action === 'deleteAsset') return json(await deleteAsset(context.env.ARCHIVE_DB, ownerHash, body.id));
-    if (body.action === 'listProposals') return json({ proposals: await listProposals(context.env.ARCHIVE_DB, ownerHash) });
+    if (body.action === 'listProposals') return json({ proposals: await listProposals(context.env.ARCHIVE_DB, ownerHash, workspace) });
     if (body.action === 'getProposal') return json({ proposal: await getProposal(context.env.ARCHIVE_DB, ownerHash, body.id) });
-    if (body.action === 'saveApplicant') return json(await saveApplicant(context.env.ARCHIVE_DB, ownerHash, body.applicant));
-    if (body.action === 'listApplicants') return json({ applicants: await listApplicants(context.env.ARCHIVE_DB, ownerHash) });
+    if (body.action === 'saveApplicant') return json(await saveApplicant(context.env.ARCHIVE_DB, ownerHash, body.applicant, sessionUser?.id || '', workspace));
+    if (body.action === 'listApplicants') return json({ applicants: await listApplicants(context.env.ARCHIVE_DB, ownerHash, workspace) });
     if (body.action === 'deleteApplicant') return json(await deleteApplicant(context.env.ARCHIVE_DB, ownerHash, body.id));
     return json({ error: '지원하지 않는 자료보관함 작업입니다.' }, 400);
   } catch (error) {
@@ -113,7 +126,7 @@ export async function searchNotices(db, filters = {}, ownerHash = '') {
   return (rows.results || []).map(row => ({ ...safeJson(row.notice_json), archiveNoticeKey: row.source_key, archivedAt: row.first_seen_at, archiveUpdatedAt: row.updated_at, linkedProposalCount: Number(row.linked_proposal_count || 0), linkedProposalId: row.linked_proposal_id || '' }));
 }
 
-export async function saveProposal(db, ownerHash, value, userId = '') {
+export async function saveProposal(db, ownerHash, value, userId = '', workspace = 'personal') {
   if (!value || typeof value !== 'object') throw new Error('invalid proposal');
   const id = clean(value.id, 80);
   const title = clean(value.title, 300);
@@ -123,15 +136,21 @@ export async function saveProposal(db, ownerHash, value, userId = '') {
   const existing = await db.prepare('SELECT created_at, user_id FROM archived_proposals WHERE id = ? AND owner_hash = ?').bind(id, ownerHash).first();
   // 한 번 회원과 이어진 계획서의 주인은 바꾸지 않는다. 비어 있을 때만 채운다.
   const owner = existing?.user_id || String(userId || '');
+  // 대행 업무 자료와 개인 작업공간을 갈라 둔다. 목록도 이 값으로 나뉜다.
+  const space = workspace === 'agency' ? 'agency' : 'personal';
+  const agencyId = space === 'agency' ? String(userId || '') : '';
   const now = new Date().toISOString();
-  await db.prepare(`INSERT INTO archived_proposals (id, owner_hash, notice_key, title, stage, proposal_json, created_at, updated_at, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  await db.prepare(`INSERT INTO archived_proposals (id, owner_hash, notice_key, title, stage, proposal_json, created_at, updated_at, user_id, workspace, agency_user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET title=excluded.title, stage=excluded.stage, notice_key=excluded.notice_key, proposal_json=excluded.proposal_json, updated_at=excluded.updated_at, user_id=excluded.user_id WHERE archived_proposals.owner_hash=excluded.owner_hash`)
-    .bind(id, ownerHash, clean(value.noticeKey, 180), title, stage, snapshot, existing?.created_at || now, now, owner).run();
+    .bind(id, ownerHash, clean(value.noticeKey, 180), title, stage, snapshot, existing?.created_at || now, now, owner, space, agencyId).run();
   return { id, updatedAt: now, userId: owner };
 }
 
-export async function listProposals(db, ownerHash) {
-  const rows = await db.prepare('SELECT id, notice_key, title, stage, created_at, updated_at FROM archived_proposals WHERE owner_hash = ? ORDER BY updated_at DESC LIMIT 100').bind(ownerHash).all();
+export async function listProposals(db, ownerHash, workspace = 'personal') {
+  // 개인 작업공간에는 대행 업무 자료가 섞이지 않는다. 반대도 마찬가지다.
+  const rows = await db.prepare(`SELECT id, notice_key, title, stage, created_at, updated_at FROM archived_proposals
+    WHERE owner_hash = ? AND COALESCE(workspace, 'personal') = ? ORDER BY updated_at DESC LIMIT 100`)
+    .bind(ownerHash, workspace === 'agency' ? 'agency' : 'personal').all();
   return (rows.results || []).map(row => ({ id: row.id, noticeKey: row.notice_key, title: row.title, stage: row.stage, createdAt: row.created_at, updatedAt: row.updated_at }));
 }
 
@@ -172,21 +191,26 @@ export function normalizeApplicantRecord(value) {
   };
 }
 
-export async function saveApplicant(db, ownerHash, value) {
+export async function saveApplicant(db, ownerHash, value, userId = '', workspace = 'personal') {
   const applicant = normalizeApplicantRecord(value);
   if (!applicant) throw new Error('invalid applicant');
   const payload = JSON.stringify(applicant);
   if (new TextEncoder().encode(payload).byteLength > MAX_APPLICANT_BYTES) throw new Error('invalid applicant');
   const existing = await db.prepare('SELECT created_at FROM applicant_organizations WHERE id = ? AND owner_hash = ?').bind(applicant.id, ownerHash).first();
+  // 대행회원이 등록한 고객 기관과 자기 기관을 갈라 둔다.
+  const space = workspace === 'agency' ? 'agency' : 'personal';
+  const agencyId = space === 'agency' ? String(userId || '') : '';
   const now = new Date().toISOString();
-  await db.prepare(`INSERT INTO applicant_organizations (id, owner_hash, name, note, confirmed_count, unverified_count, applicant_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  await db.prepare(`INSERT INTO applicant_organizations (id, owner_hash, name, note, confirmed_count, unverified_count, applicant_json, created_at, updated_at, workspace, agency_user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET name=excluded.name, note=excluded.note, confirmed_count=excluded.confirmed_count, unverified_count=excluded.unverified_count, applicant_json=excluded.applicant_json, updated_at=excluded.updated_at WHERE applicant_organizations.owner_hash=excluded.owner_hash`)
-    .bind(applicant.id, ownerHash, applicant.name, applicant.note, applicant.confirmedCount, applicant.unverifiedCount, payload, existing?.created_at || now, now).run();
+    .bind(applicant.id, ownerHash, applicant.name, applicant.note, applicant.confirmedCount, applicant.unverifiedCount, payload, existing?.created_at || now, now, space, agencyId).run();
   return { id: applicant.id, updatedAt: now };
 }
 
-export async function listApplicants(db, ownerHash) {
-  const rows = await db.prepare('SELECT applicant_json, created_at, updated_at FROM applicant_organizations WHERE owner_hash = ? ORDER BY updated_at DESC LIMIT 100').bind(ownerHash).all();
+export async function listApplicants(db, ownerHash, workspace = 'personal') {
+  const rows = await db.prepare(`SELECT applicant_json, created_at, updated_at FROM applicant_organizations
+    WHERE owner_hash = ? AND COALESCE(workspace, 'personal') = ? ORDER BY updated_at DESC LIMIT 100`)
+    .bind(ownerHash, workspace === 'agency' ? 'agency' : 'personal').all();
   return (rows.results || []).map(row => ({ ...safeJson(row.applicant_json), createdAt: row.created_at, updatedAt: row.updated_at }));
 }
 

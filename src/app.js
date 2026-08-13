@@ -5,11 +5,11 @@ import { localAnalyze } from './fallback.js';
 import { buildDocxBlob, downloadBlob, exportDocx, exportPdf, printDocument, submissionFileName } from './export.js';
 import { buildProposalPdfBlob, exportProposalPdf } from './pdf-export.js';
 import { MANIFEST_NAME, packageStale, planSubmissionZip, zipBytes } from './submission-zip.js';
-import { acknowledgePrivacyNotice, UNAUTHORIZED, accountProfile, clearOAuthCallback, currentUser, finishSocial, login, logout, readOAuthCallback, recoverPassword, saveAccountProfile, saveMemberInfo, signup as signupEmail, startSocial } from './auth.js';
+import { agencyMe, acknowledgePrivacyNotice, UNAUTHORIZED, accountProfile, clearOAuthCallback, currentUser, finishSocial, login, logout, readOAuthCallback, recoverPassword, saveAccountProfile, saveMemberInfo, signup as signupEmail, startSocial } from './auth.js';
 import { premiumNoticeHistory, premiumShowcase, premiumStatus } from './premium.js';
-import { adminOverviewCounts, adminSetNoticeSource, adminAccessOverview, adminAssignProposal, adminMemberUsage, adminProposalContent, adminRevokeGrant, adminSaveGrant, adminNoticeCollection, adminRunNoticeCollection, adminUsageReport, approveAccount, deleteShowcase, setAccountSubscription, transferSocialIdentity, disableAccount, listAccounts, listCollectedNotices, listShowcase, removeAccount, saveShowcase, setAccountPlan, setAccountPremium, setAccountRole, setNoticePublic, setShowcaseOrder, setShowcasePublic } from './admin.js';
+import { adminAgencyList, adminAgencyTransfer, adminAgencyTransferPreview, adminSetAgency, adminOverviewCounts, adminSetNoticeSource, adminAccessOverview, adminAssignProposal, adminMemberUsage, adminProposalContent, adminRevokeGrant, adminSaveGrant, adminNoticeCollection, adminRunNoticeCollection, adminUsageReport, approveAccount, deleteShowcase, setAccountSubscription, transferSocialIdentity, disableAccount, listAccounts, listCollectedNotices, listShowcase, removeAccount, saveShowcase, setAccountPlan, setAccountPremium, setAccountRole, setNoticePublic, setShowcaseOrder, setShowcasePublic } from './admin.js';
 import { fetchMembershipPlans, publicNoticeDetail, searchPublicNotices } from './notice-search.js';
-import { operatorNoticeCollection, operatorApprove, operatorDisable, operatorEndSessions, operatorIssueRecoveryCode, operatorOverview, operatorReactivate, operatorSetContractProgress, operatorUnlockLogin, operatorUsageReport, operatorUserDetail } from './operator.js';
+import { operatorAgencyList, operatorNoticeCollection, operatorApprove, operatorDisable, operatorEndSessions, operatorIssueRecoveryCode, operatorOverview, operatorReactivate, operatorSetContractProgress, operatorUnlockLogin, operatorUsageReport, operatorUserDetail } from './operator.js';
 import { codeLabel, statusLabel, warningLabel } from '../server/notice-run.js';
 import { ABILITIES, SCOPES } from '../server/permissions.js';
 import { BUSINESS_TYPES, SOURCE_GROUPS } from '../server/notice-sources.js';
@@ -18,13 +18,14 @@ import { ORG_TYPES, QUICK_FIELDS, followUpQuestions, quickToApplicantItems, read
 import { ANSWER_CHOICES, HIDDEN_EXPERT, MAX_QUESTIONS as SIMPLE_MAX_QUESTIONS, RESULT_ACTIONS, SIMPLE_STEPS, answerValue, currentStep as simpleStep, viewModeFor } from '../server/simple-flow.js';
 import { ASSIGNABLE_ROLES, ROLE_DUTY, canHoldClients, roleLabel } from '../server/roles.js';
 import { ADMIN_SHORTCUTS } from '../server/admin-overview.js';
+import { AGENCY_STATUS_LABEL, DEFAULT_LIMITS, LIMIT_FIELDS, remainingFor } from '../server/agency.js';
 import { REVISION_KINDS, canRevise, diffSections, keptFacts, newUnknowns, remainingOf, revisionSlot, settleRevision } from '../server/revision.js';
 import { CORE_AREAS, areaProgress, mergeProfileIntoApplicant } from '../server/org-profile.js';
 import { ASSET_KINDS, ASSET_STATUS, STATUS_LABELS as ASSET_STATUS_LABELS, assetSentence, suggestAssets, validateAsset } from '../server/idea-assets.js';
 import { MAX_QUESTIONS, UNKNOWN, checkNumbers, intakeState } from '../server/proposal-intake.js';
 import { reportError, reportStep, resetActivityDedupe } from './activity.js';
 import { fetchNoticeDetail, fetchNoticeList, importNoticeUrl, noticeBodyText } from './notices.js';
-import { claimMyArchive, deleteIdeaAsset, listIdeaAssets, saveIdeaAsset, deleteArchivedApplicant, getArchivedProposal, getArchiveRecoveryKey, listArchivedApplicants, listArchivedProposals, saveArchivedApplicant, saveArchivedProposal, searchArchivedNotices, syncArchivedNotices, useArchiveRecoveryKey } from './archive.js';
+import { setArchiveWorkspace, claimMyArchive, deleteIdeaAsset, listIdeaAssets, saveIdeaAsset, deleteArchivedApplicant, getArchivedProposal, getArchiveRecoveryKey, listArchivedApplicants, listArchivedProposals, saveArchivedApplicant, saveArchivedProposal, searchArchivedNotices, syncArchivedNotices, useArchiveRecoveryKey } from './archive.js';
 import { ASOF_UNKNOWN, applySafeCandidates, applyUpdateCandidate, buildUpdateCandidates, extractApplicantCandidates } from './applicant-extract.js';
 import { REFERENCE_TYPES, assessReferences, makeReference, projectContext, referenceNotices, referencePayload } from './reference-materials.js';
 import { analyzeProposalStructure, buildStructuralRevision, reviewProposalStructure } from './proposal-structure.js';
@@ -93,7 +94,7 @@ const initial = {
   // 간단 시작 입력과 뒤이은 확인 질문. 계획서 원문과 따로 둔다.
   quickOrg: {}, quickAnswers: {},
   // 간편·전문가 화면 전환과 한 번에 수정 요청. 계획서 원문과 따로 둔다.
-  viewMode: '', expertDetail: false, reviseOpen: false, reviseDraft: null, revisions: [], revisionBackup: null,
+  viewMode: '', expertDetail: false, workspace: 'personal', reviseOpen: false, reviseDraft: null, revisions: [], revisionBackup: null,
   applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
   revisionPlan: null, draftReview: null, projectNarrative: '',
   // 서버가 붙여 준 근거 검증·평가자 검토. 화면은 판정하지 않고 그대로 보여 준다.
@@ -123,7 +124,7 @@ let auth = {
   emailDraft: '', passwordDraft: '', confirmDraft: '', codeDraft: '', error: '', notice: '', busy: false,
   identities: [], profileDraft: { name: '', phone: '', orgName: '', isContact: null, agreeTerms: false, agreePrivacy: false },
   // 관리자 화면 자료. 로그인 상태와 함께만 살아 있고 localStorage에 저장하지 않는다.
-  accounts: [], accountsLoaded: false, confirmDelete: '', adminTab: 'accounts', notices: emptyAdminNotices(), usage: emptyUsage(),
+  accounts: [], accountsLoaded: false, confirmDelete: '', adminTab: 'accounts', agency: emptyAgency(), notices: emptyAdminNotices(), usage: emptyUsage(),
   // 정식 수주계약 편집과 공개용 우수 제안서. 화면에만 두고 저장하지 않는다.
   premiumDraft: {}, showcase: null, showcaseDraft: {}, showcaseEditing: '', progressDraft: {}, subscriptionDraft: {}, transferNotice: '',
   // 운영관리자 화면 자료. 발급한 복구코드는 화면에만 잠시 두고 저장하지 않는다.
@@ -272,6 +273,8 @@ async function checkSession() {
   setAuth({ status: 'anonymous', user: null, passwordDraft: '' });
 }
 function applySignedIn(user, notice = '') {
+  // 대행회원이면 자기 자격과 남은 편수를 함께 읽는다. 남의 자격은 읽지 않는다.
+  if (user?.role === 'agency') setTimeout(() => void loadAgencyMe(), 0);
   // 계정이 바뀌면 진행 기록의 중복 걸러내기를 처음부터 다시 센다.
   resetActivityDedupe();
   setAuth({ status: 'signedIn', user, error: '', notice, passwordDraft: '', emailDraft: '', codeDraft: '' });
@@ -1123,6 +1126,183 @@ async function assignProposalToMember(id) {
   setAuth({ busy: false, notice: '보관자료를 회원에게 지정했습니다.', access: { ...accessState(), usage: result } });
 }
 
+
+// ---------- 대행회원 관리 ----------
+// 대행회원은 파는 상품이 아니다. 최고관리자가 임명하고 한도를 정하고 필요하면 거둔다.
+// 요금·구독과 섞지 않는다. 여기서 바꾸는 값은 자격과 AI 한도뿐이다.
+function emptyAgency() {
+  return { loaded: false, list: [], defaults: DEFAULT_LIMITS, today: '', readOnly: false, editing: '', draft: null, transfer: null, preview: null };
+}
+
+async function loadAgencies() {
+  const call = isAdmin() ? adminAgencyList : operatorAgencyList;
+  setAuth({ busy: true, error: '' });
+  try {
+    const data = await call();
+    setAuth({ busy: false, agency: { ...emptyAgency(), loaded: true, list: data.agencies || [], defaults: data.defaults || DEFAULT_LIMITS, today: data.today || '', readOnly: Boolean(data.readOnly) } });
+  } catch (error) {
+    setAuth({ busy: false, error: String(error?.message || '대행회원 목록을 읽지 못했습니다.').slice(0, 120) });
+  }
+}
+
+function agencyPanel() {
+  const box = auth.agency || emptyAgency();
+  if (!box.loaded) return '<div class="card"><p class="muted">대행회원 현황을 읽는 중입니다.</p></div>';
+  const rows = box.list.length
+    ? box.list.map(agencyRow).join('')
+    : '<p class="muted">아직 지정한 대행회원이 없습니다. 아래에서 일반회원을 골라 지정하세요.</p>';
+  return `<div class="card" id="agency-panel">
+    <div class="card-title"><div><h3>대행회원 ${box.list.length}명</h3>
+      <span>최고관리자가 임명하는 자리입니다. 이용요금을 받지 않고 AI 한도로만 관리합니다.</span></div>
+      ${box.readOnly ? '<span class="status 확인-필요">조회 전용</span>' : ''}</div>
+    ${box.readOnly ? '<p class="muted">운영관리자는 현황만 볼 수 있습니다. 지정·해제·한도·인계는 최고관리자만 합니다.</p>' : agencyGrantForm()}
+    <div class="requirement-list">${rows}</div>
+  </div>`;
+}
+
+// 일반회원을 골라 대행회원으로 지정한다. 회원이 스스로 신청하거나 결제해서 올라오지 않는다.
+function agencyGrantForm() {
+  const candidates = (auth.accounts || []).filter(item => item.role === 'customer' && item.status === 'active');
+  return `<div class="two-col" style="margin:8px 0 12px">
+    <div class="field"><label for="agency-pick">대행회원으로 지정할 일반회원</label>
+      <select id="agency-pick"><option value="">고르세요</option>${candidates.map(item =>
+        `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name || item.email || item.id)}</option>`).join('')}</select></div>
+    <div class="field"><label for="agency-note">사유(감사기록에 남습니다)</label>
+      <input id="agency-note" value="${escapeHtml(auth.agency?.draft?.note || '')}" placeholder="예: 광주지회 협력 컨설턴트"></div>
+    <div class="actions"><span class="muted">지정하면 한도는 기본값으로 시작합니다.</span>
+      <button class="button primary" id="agency-grant" ${auth.busy ? 'disabled' : ''}>대행회원으로 지정</button></div>
+  </div>`;
+}
+
+function agencyRow(item) {
+  const box = auth.agency || emptyAgency();
+  const editing = box.editing === item.userId;
+  const left = remainingFor({ limits: item.limits }, item.usage);
+  const usage = item.usage || {};
+  return `<article class="requirement">
+    <div><strong>${escapeHtml(item.name || item.email || item.userId)}</strong>
+      <span class="status ${item.active ? '충족' : '확인-필요'}">${escapeHtml(AGENCY_STATUS_LABEL[item.status] || item.status)}</span>
+      <span class="muted">고객 ${item.footprint?.clients ?? 0}곳 · 의뢰 ${item.footprint?.proposals ?? 0}건(진행 ${item.footprint?.inProgress ?? 0})</span></div>
+    <small class="muted">자격 ${escapeHtml(item.startsOn || item.grantedAt?.slice(0, 10) || '지정일 미기록')} ~ ${escapeHtml(item.endsOn || '종료일 없음')}
+      · 마지막 활동 ${escapeHtml(item.lastActiveAt ? item.lastActiveAt.slice(0, 16).replace('T', ' ') : '기록 없음')}</small>
+    <small class="muted">이번 달 계획서 ${usage.plans ?? 0}/${item.limits.monthlyPlans}편 · 진단 ${usage.diagnoses ?? 0}/${item.limits.monthlyDiagnoses}회
+      · 토큰 ${Number(usage.tokens || 0).toLocaleString('ko-KR')}/${item.limits.monthlyTokens.toLocaleString('ko-KR')}
+      · 남은 편수 ${left.plans}편 · 갱신 ${escapeHtml(left.renewsOn)}</small>
+    ${item.reason ? `<small class="muted">${escapeHtml(item.reason)}</small>` : ''}
+    ${box.readOnly ? '' : `<div class="actions"><span></span><div>
+      <button class="button secondary" data-agency-edit="${escapeHtml(item.userId)}">${editing ? '한도 접기' : '한도 변경'}</button>
+      ${item.status === 'active'
+        ? `<button class="button secondary" data-agency-status="paused" data-agency-id="${escapeHtml(item.userId)}">일시중지</button>`
+        : item.status === 'paused'
+          ? `<button class="button secondary" data-agency-status="active" data-agency-id="${escapeHtml(item.userId)}">재개</button>` : ''}
+      ${item.status === 'revoked'
+        ? `<button class="button secondary" data-agency-status="active" data-agency-id="${escapeHtml(item.userId)}">자격 재부여</button>`
+        : `<button class="button secondary" data-agency-status="revoked" data-agency-id="${escapeHtml(item.userId)}">자격 해제</button>`}
+      <button class="button secondary" data-agency-transfer="${escapeHtml(item.userId)}">자료 인계</button>
+    </div></div>`}
+    ${editing ? agencyLimitForm(item) : ''}
+    ${box.transfer === item.userId ? agencyTransferForm(item) : ''}
+  </article>`;
+}
+
+function agencyLimitForm(item) {
+  const draft = auth.agency?.draft || { ...item.limits, startsOn: item.startsOn, endsOn: item.endsOn };
+  return `<div class="two-col" style="margin-top:8px">
+    ${LIMIT_FIELDS.map(([key, label, unit]) => `<div class="field"><label for="agency-${key}">${label} (${unit})</label>
+      <input id="agency-${key}" data-agency-limit="${key}" type="number" min="1" value="${escapeHtml(String(draft[key] ?? item.limits[key]))}"></div>`).join('')}
+    <div class="field"><label for="agency-startsOn">적용 시작일</label><input id="agency-startsOn" data-agency-limit="startsOn" type="date" value="${escapeHtml(draft.startsOn || '')}"></div>
+    <div class="field"><label for="agency-endsOn">적용 종료일</label><input id="agency-endsOn" data-agency-limit="endsOn" type="date" value="${escapeHtml(draft.endsOn || '')}"></div>
+    <div class="actions"><span class="muted">비워 두면 기본 한도를 씁니다. 무제한은 없습니다.</span>
+      <button class="button primary" data-agency-save="${escapeHtml(item.userId)}" ${auth.busy ? 'disabled' : ''}>한도 저장</button></div>
+  </div>`;
+}
+
+function agencyTransferForm(item) {
+  const others = (auth.agency?.list || []).filter(row => row.userId !== item.userId && row.status !== 'revoked');
+  const preview = auth.agency?.preview;
+  return `<div class="two-col" style="margin-top:8px">
+    <div class="field"><label for="agency-transfer-to">인계받을 대행회원</label>
+      <select id="agency-transfer-to"><option value="">고르세요</option>${others.map(row =>
+        `<option value="${escapeHtml(row.userId)}">${escapeHtml(row.name || row.email || row.userId)}</option>`).join('')}</select></div>
+    <div class="field"><label for="agency-transfer-reason">사유</label><input id="agency-transfer-reason" placeholder="감사기록에 남습니다"></div>
+    <div class="actions">
+      <span class="muted">${preview
+        ? `넘길 고객 ${preview.from?.clients ?? 0}곳 · 계획서 ${preview.from?.proposals ?? 0}건 · 진행 중 ${preview.from?.inProgress ?? 0}건`
+        : '먼저 건수를 확인하세요. 자료는 지우지 않고 소유만 옮깁니다.'}</span>
+      <div><button class="button secondary" data-agency-preview="${escapeHtml(item.userId)}" ${auth.busy ? 'disabled' : ''}>건수 확인</button>
+      <button class="button primary" data-agency-move="${escapeHtml(item.userId)}" ${auth.busy || !preview ? 'disabled' : ''}>확인했습니다. 인계</button></div></div>
+  </div>`;
+}
+
+async function runAgencyAction(patch, done) {
+  setAuth({ busy: true, error: '', notice: '' });
+  try {
+    await adminSetAgency(patch);
+    await loadAgencies();
+    setAuth({ notice: done });
+  } catch (error) {
+    setAuth({ busy: false, error: String(error?.message || '바꾸지 못했습니다.').slice(0, 120) });
+  }
+}
+
+function bindAgency() {
+  document.querySelector('#agency-grant')?.addEventListener('click', () => {
+    const id = document.querySelector('#agency-pick')?.value || '';
+    const note = document.querySelector('#agency-note')?.value || '';
+    if (!id) return setAuth({ error: '지정할 일반회원을 고르세요.' });
+    void runAgencyAction({ id, status: 'active', note }, '대행회원으로 지정했습니다. 다음 로그인부터 대행 화면이 열립니다.');
+  });
+  document.querySelectorAll('[data-agency-status]').forEach(el => el.onclick = () => {
+    const status = el.dataset.agencyStatus;
+    const label = { active: '자격을 다시 열었습니다.', paused: '사용을 일시중지했습니다.', revoked: '자격을 해제했습니다. 기존 자료는 보존됩니다.' }[status];
+    void runAgencyAction({ id: el.dataset.agencyId, status }, label);
+  });
+  document.querySelectorAll('[data-agency-edit]').forEach(el => el.onclick = () => {
+    const id = el.dataset.agencyEdit;
+    const item = (auth.agency?.list || []).find(row => row.userId === id);
+    setAuth({ agency: { ...auth.agency, editing: auth.agency?.editing === id ? '' : id, draft: item ? { ...item.limits, startsOn: item.startsOn, endsOn: item.endsOn } : null } });
+  });
+  document.querySelectorAll('[data-agency-limit]').forEach(el => el.onchange = () => {
+    const key = el.dataset.agencyLimit;
+    const value = key.endsWith('On') ? el.value : Number(el.value);
+    setAuth({ agency: { ...auth.agency, draft: { ...(auth.agency?.draft || {}), [key]: value } } });
+  });
+  document.querySelectorAll('[data-agency-save]').forEach(el => el.onclick = () => {
+    const draft = auth.agency?.draft || {};
+    void runAgencyAction({
+      id: el.dataset.agencySave, status: 'active',
+      limits: {
+        monthlyPlans: draft.monthlyPlans, revisionsPerPlan: draft.revisionsPerPlan, monthlyDiagnoses: draft.monthlyDiagnoses,
+        monthlyTokens: draft.monthlyTokens, monthlyCostMicro: draft.monthlyCostMicro
+      },
+      startsOn: draft.startsOn || '', endsOn: draft.endsOn || ''
+    }, '한도를 저장했습니다.');
+  });
+  document.querySelectorAll('[data-agency-transfer]').forEach(el => el.onclick = () => setAuth({
+    agency: { ...auth.agency, transfer: auth.agency?.transfer === el.dataset.agencyTransfer ? '' : el.dataset.agencyTransfer, preview: null }
+  }));
+  document.querySelectorAll('[data-agency-preview]').forEach(el => el.onclick = () => void (async () => {
+    const to = document.querySelector('#agency-transfer-to')?.value || '';
+    if (!to) return setAuth({ error: '인계받을 대행회원을 고르세요.' });
+    setAuth({ busy: true, error: '' });
+    try {
+      const preview = await adminAgencyTransferPreview(el.dataset.agencyPreview, to);
+      setAuth({ busy: false, agency: { ...auth.agency, preview, transferTo: to } });
+    } catch (error) { setAuth({ busy: false, error: String(error?.message || '건수를 읽지 못했습니다.').slice(0, 120) }); }
+  })());
+  document.querySelectorAll('[data-agency-move]').forEach(el => el.onclick = () => void (async () => {
+    const to = document.querySelector('#agency-transfer-to')?.value || auth.agency?.transferTo || '';
+    const reason = document.querySelector('#agency-transfer-reason')?.value || '';
+    if (!to) return setAuth({ error: '인계받을 대행회원을 고르세요.' });
+    setAuth({ busy: true, error: '' });
+    try {
+      const result = await adminAgencyTransfer(el.dataset.agencyMove, to, reason);
+      await loadAgencies();
+      setAuth({ notice: `고객 ${result.moved?.clients ?? 0}곳 · 계획서 ${result.moved?.proposals ?? 0}건을 인계했습니다. 이전 대행회원은 더 이상 열 수 없습니다.` });
+    } catch (error) { setAuth({ busy: false, error: String(error?.message || '인계하지 못했습니다.').slice(0, 120) }); }
+  })());
+}
+
 function accessPanel() {
   const view = accessState();
   if (!view.loaded) return '<div class="card-title" style="margin-top:18px"><div><h4>권한 관리</h4><span>불러오는 중입니다.</span></div></div>';
@@ -1262,8 +1442,9 @@ function adminView() {
     <div class="requirement-list">${waiting.map(accountRow).join('') || '<p class="muted">승인을 기다리는 계정이 없습니다.</p>'}</div>
     <h4>이용 중·중지된 계정 ${rest.length}건</h4>
     <div class="requirement-list">${rest.map(accountRow).join('') || '<p class="muted">표시할 계정이 없습니다.</p>'}</div>
-    <div class="actions"><span class="muted">관리자 계정과 내 계정은 이 화면에서 바꿀 수 없습니다.</span><div><button class="button secondary" id="reload-admin" ${auth.busy ? 'disabled' : ''}>목록 새로고침</button><button class="button secondary" id="open-admin-notices" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'notices' ? '공모정보 접기' : '공모정보 관리'}</button><button class="button secondary" id="open-admin-access" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'access' ? '권한 관리 접기' : '권한 관리'}</button><button class="button secondary" id="open-admin-collection" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'collection' ? '자동수집 접기' : '공고 자동수집'}</button><button class="button secondary" id="open-admin-usage" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'usage' ? '사용량 접기' : 'AI 사용량·비용'}</button><button class="button secondary" id="open-admin-showcase" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'showcase' ? '우수 제안서 접기' : '우수 제안서 관리'}</button><button class="button secondary" id="close-admin">계획서 포털로</button></div></div>
+    <div class="actions"><span class="muted">관리자 계정과 내 계정은 이 화면에서 바꿀 수 없습니다.</span><div><button class="button secondary" id="reload-admin" ${auth.busy ? 'disabled' : ''}>목록 새로고침</button><button class="button secondary" id="open-admin-notices" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'notices' ? '공모정보 접기' : '공모정보 관리'}</button><button class="button secondary" id="open-admin-agency" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'agency' ? '대행회원 접기' : '대행회원 관리'}</button><button class="button secondary" id="open-admin-access" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'access' ? '권한 관리 접기' : '권한 관리'}</button><button class="button secondary" id="open-admin-collection" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'collection' ? '자동수집 접기' : '공고 자동수집'}</button><button class="button secondary" id="open-admin-usage" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'usage' ? '사용량 접기' : 'AI 사용량·비용'}</button><button class="button secondary" id="open-admin-showcase" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'showcase' ? '우수 제안서 접기' : '우수 제안서 관리'}</button><button class="button secondary" id="close-admin">계획서 포털로</button></div></div>
     ${auth.adminTab === 'notices' ? adminNoticesPanel() : ''}
+    ${auth.adminTab === 'agency' ? agencyPanel() : ''}
     ${auth.adminTab === 'access' ? accessPanel() : ''}
     ${auth.adminTab === 'collection' ? collectionPanel() : ''}
     ${auth.adminTab === 'usage' ? usagePanel() : ''}
@@ -2296,6 +2477,8 @@ function navigateForward() {
 function escapeHtml(value = '') { return String(value).replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c])); }
 function nl(value = '') { return escapeHtml(value).replace(/\n/g, '<br>'); }
 function setState(patch) {
+  // 화면이 보는 작업공간과 서버로 가는 값을 하나로 맞춘다.
+  setArchiveWorkspace(inAgencyWorkspace() ? 'agency' : 'personal');
   if (Object.hasOwn(patch, 'busy')) {
     if (!patch.busy) {
       const result = closeAiTask(patch);
@@ -4031,7 +4214,7 @@ function viewModeBadge() {
   const label = simple ? '회원 화면(간편)' : '전문가 상세';
   const back = !simple && !canToggleView() ? '<button class="button secondary" id="back-to-simple">간편 화면으로</button>' : '';
   const toggle = canToggleView() ? `<button class="button secondary" id="toggle-view">${simple ? '전문가 상세 보기' : '회원 화면으로 보기'}</button>` : '';
-  return `<div class="view-mode-bar"><span class="view-mode-tag">지금 보는 화면</span><strong>${label}</strong>${back}${toggle}</div>`;
+  return `${agencyQuotaBar()}<div class="view-mode-bar"><span class="view-mode-tag">지금 보는 화면</span><strong>${label}</strong>${back}${toggle}</div>`;
 }
 function canToggleView() { return viewModeFor(auth.user, state.viewMode).canToggle; }
 
@@ -5178,6 +5361,12 @@ function bind() {
   document.querySelector('#business-type')?.addEventListener('change', event => { state.project.type = event.target.value; saveState(); render(); });
   document.querySelectorAll('[data-step]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(Number(el.dataset.step), { notice: '', error: '' }); });
   document.querySelector('#toggle-view')?.addEventListener('click', () => setState({ viewMode: viewMode() === 'simple' ? 'expert' : 'simple', expertDetail: false, activeTool: '', notice: '', error: '' }));
+  document.querySelector('#toggle-workspace')?.addEventListener('click', () => {
+    // 작업공간을 바꾸면 보관함을 다시 읽는다. 두 공간의 자료가 한 화면에 섞이지 않게 한다.
+    const next = state.workspace === 'agency' ? 'personal' : 'agency';
+    setState({ workspace: next, notice: next === 'agency' ? '대행 업무 자료만 보여 줍니다.' : '개인 작업공간 자료만 보여 줍니다.', error: '' });
+    void loadRecentArchive();
+  });
   document.querySelector('#back-to-simple')?.addEventListener('click', () => setState({ expertDetail: false, activeTool: '', notice: '간편 화면으로 돌아왔습니다. 작성 내용은 그대로입니다.', error: '' }));
   document.querySelector('#open-expert-detail')?.addEventListener('click', () => setState({ expertDetail: true, activeTool: '', notice: '작성 과정을 펼쳤습니다. 같은 공고·기관·계획서를 그대로 봅니다.', error: '' }));
   document.querySelector('#sign-out')?.addEventListener('click', () => void submitLogout());
@@ -5198,6 +5387,12 @@ function bind() {
     setAuth({ adminTab: opening ? 'notices' : 'accounts', error: '', notice: '' });
     if (opening && !auth.notices.loaded) void loadAdminNotices();
   });
+  document.querySelector('#open-admin-agency')?.addEventListener('click', () => {
+    const opening = auth.adminTab !== 'agency';
+    setAuth({ adminTab: opening ? 'agency' : 'accounts', error: '', notice: '' });
+    if (opening && !auth.agency?.loaded) void loadAgencies();
+  });
+  bindAgency();
   document.querySelector('#open-admin-access')?.addEventListener('click', () => {
     const opening = auth.adminTab !== 'access';
     setAuth({ adminTab: opening ? 'access' : 'accounts', error: '', notice: '' });
@@ -6831,6 +7026,31 @@ async function downloadProposalPdf() {
 
 
 // 간편 화면 처리기. 기존 처리기(bind)를 먼저 걸고 그 위에 얹는다.
+// 대행회원 본인의 자격·남은 편수. 화면에 그대로 적는다.
+async function loadAgencyMe() {
+  if (!isAgency()) return;
+  try { setAuth({ agencyMe: await agencyMe() }); }
+  catch { setAuth({ agencyMe: { has: false, unavailable: true } }); }
+}
+function isAgency() { return auth.status === 'signedIn' && auth.user?.role === 'agency'; }
+// 대행 업무 화면인지. 자격이 살아 있을 때만 켜진다.
+function inAgencyWorkspace() { return isAgency() && state.workspace === 'agency' && auth.agencyMe?.active === true; }
+
+// 남은 편수와 갱신일. 값이 없으면 「읽는 중」이라고만 적는다.
+function agencyQuotaBar() {
+  if (!isAgency()) return '';
+  const me = auth.agencyMe;
+  if (!me) return '<div class="view-mode-bar"><span class="view-mode-tag">대행회원</span><strong>한도를 읽는 중</strong></div>';
+  if (!me.has) return '';
+  const left = me.remaining || {};
+  const label = me.active
+    ? `남은 계획서 ${left.plans}편 · 남은 진단 ${left.diagnoses}회 · ${escapeHtml(left.renewsOn || '')} 갱신`
+    : escapeHtml(me.reason || '대행 업무를 쓸 수 없습니다.');
+  return `<div class="view-mode-bar"><span class="view-mode-tag">${state.workspace === 'agency' ? '대행 업무' : '개인 작업공간'}</span>
+    <strong>${label}</strong>
+    ${me.active ? `<button class="button secondary" id="toggle-workspace">${state.workspace === 'agency' ? '개인 작업공간으로' : '대행 업무로'}</button>` : ''}</div>`;
+}
+
 function bindSimple() {
   // 보기 전환과 「작성 과정 자세히 보기」는 bind()에서 한 번만 연결한다. 두 번 걸면 서로 되돌린다.
   document.querySelector('#simple-find')?.addEventListener('click', () => setState({ expertDetail: true, activeTool: '', step: 0, notice: '공고를 고르면 분석은 자동으로 합니다. 고르면 간편 화면으로 돌아옵니다.' }));

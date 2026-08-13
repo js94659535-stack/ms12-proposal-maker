@@ -8,6 +8,8 @@ import { contractState } from '../../server/premium.js';
 import { MARKS, guardSections, guardText, repetitionReport, sanitizeSourceText } from '../../server/fact-guard.js';
 import { claimTable, claimsFromGuard } from '../../server/evidence.js';
 import { evaluatorReview } from '../../server/evaluator-review.js';
+import { limitCheck, limitKindFor } from '../../server/agency.js';
+import { monthlyUsage, stateFor, touchActivity } from '../../server/agency-store.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 // 무료 생성은 공고 원문과 메모를 짧게만 받는다. 비용을 계정 단위로 묶어 두기 위해서다.
@@ -119,6 +121,17 @@ export async function onRequest(context) {
     }
     // 계획서 한 건과 계정 하루에 걸어 둔 사용량 상한을 부르기 전에 본다.
     const proposalId = String(body.payload?.proposalId || '').trim().slice(0, 80);
+    // 대행회원 한도. 요금은 받지 않지만 AI 비용은 여기서 막는다. OpenAI 호출보다 언제나 앞이다.
+    const clientOrgId = String(body.payload?.clientOrgId || '').trim().slice(0, 80);
+    const agency = await stateFor(context.env.ARCHIVE_DB, user.id);
+    if (agency.has) {
+      const usage = await monthlyUsage(context.env.ARCHIVE_DB, user.id, { proposalId });
+      const verdict = limitCheck({ state: agency, usage, kind: limitKindFor(body.action) });
+      if (!verdict.allowed) {
+        return json({ error: verdict.reason, agencyLimit: true, code: verdict.code, remaining: agency.limits }, 403);
+      }
+      await touchActivity(context.env.ARCHIVE_DB, user.id);
+    }
     const guard = await budgetRefusal(context.env.ARCHIVE_DB, context.env, { proposalId, userId: user.id });
     if (guard.refusal) return json({ error: guard.refusal.error, capReached: true, budget: guard.refusal.budget }, guard.refusal.status);
     // 무료 체험은 OpenAI를 부르기 전에 D1에서 한 번만 통과시킨다. 같은 계정이 동시에 눌러도 한 번만 열린다.
@@ -152,7 +165,8 @@ export async function onRequest(context) {
     // 사용량은 성공·실패를 가리지 않고 남긴다. 실패한 호출에도 토큰이 청구될 수 있다.
     const noteUsage = (data, ok, failureStage) => recordAiUsage(context.env.ARCHIVE_DB, context.env, {
       userId: user.id, userEmail: user.email, proposalId, task: body.action, model: context.env.OPENAI_MODEL,
-      usage: extractUsage(data), durationMs: Date.now() - startedAt, ok, failureStage
+      usage: extractUsage(data), durationMs: Date.now() - startedAt, ok, failureStage,
+      agencyUserId: agency.has ? user.id : '', clientOrgId
     });
     let response;
     let raw;

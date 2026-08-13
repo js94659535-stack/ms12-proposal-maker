@@ -5,6 +5,8 @@ import { recordAudit } from '../../server/audit.js';
 import { PREMIUM_LABEL, contractState } from '../../server/premium.js';
 import { MEMBER_FREE_PAGES, QUOTAS, membershipOf, membershipPlans } from '../../server/membership.js';
 import { SUBSCRIPTION_LABELS, loadSubscription, remaining } from '../../server/subscription.js';
+import { remainingFor } from '../../server/agency.js';
+import { monthlyUsage, stateFor } from '../../server/agency-store.js';
 import { EDITABLE_FIELDS, LOCKED_FIELDS, PROFILE_FIELDS, auditDetail, changedFields, needsReview, validateMemberProfile } from '../../server/member-profile.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
@@ -20,6 +22,8 @@ export async function onRequest(context) {
   let body;
   try { body = await request.json(); } catch { return json({ error: '요청 JSON 형식이 올바르지 않습니다.' }, 400); }
 
+  // 대행회원 본인이 보는 자격·한도·남은 편수. 남의 자격은 돌려주지 않는다.
+  if (body.action === 'agencyMe') return agencyMe(env.ARCHIVE_DB, data.session.user);
   if (body.action === 'profile') return profile(env.ARCHIVE_DB, data.session.user);
   if (body.action === 'completeProfile') return completeProfile(env.ARCHIVE_DB, data.session.user, body);
   // 본인정보 수정. 승인 대기·정식·프리미엄 회원 모두 쓴다.
@@ -157,4 +161,18 @@ async function acknowledgeNotice(db, user, body) {
   const now = new Date().toISOString();
   await db.prepare('UPDATE users SET privacy_notice_version = ?, privacy_notice_at = ? WHERE id = ?').bind(version, now, user.id).run();
   return json({ privacyNoticeVersion: version, privacyNoticeAt: now }, 200);
+}
+
+// 대행회원 본인 화면에 적을 값. 자격·한도·이번 달 사용량·남은 편수·갱신일만 돌려준다.
+// 다른 회원의 자격이나 비밀값은 담지 않는다.
+async function agencyMe(db, user) {
+  const state = await stateFor(db, user.id);
+  if (!state.has) return json({ has: false }, 200);
+  const usage = await monthlyUsage(db, user.id);
+  return json({
+    has: true, active: state.active, status: state.status, reason: state.reason,
+    startsOn: state.startsOn, endsOn: state.endsOn, limits: state.limits,
+    usage: { plans: usage.plans, diagnoses: usage.diagnoses, tokens: usage.tokens, calls: usage.calls, since: usage.since },
+    remaining: remainingFor(state, usage)
+  }, 200);
 }

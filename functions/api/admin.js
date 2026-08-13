@@ -17,6 +17,8 @@ import {
 import { membershipOf, membershipPlans } from '../../server/membership.js';
 import { ASSIGNABLE_ROLES, MEMBER_ROLES, roleLabel } from '../../server/roles.js';
 import { adminOverview } from '../../server/admin-overview.js';
+import { AGENCY_STATUSES, canManageAgency, rejectsSelfPromotion, transferCheck } from '../../server/agency.js';
+import { listAgencies, saveGrant as saveAgencyGrant, stateFor, transferAgencyData, transferPreview } from '../../server/agency-store.js';
 import { SUBSCRIPTION_LABELS, addMonth, remaining, validateSubscription } from '../../server/subscription.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
@@ -40,6 +42,14 @@ export async function onRequest(context) {
 
   // 관리자 랜딩 위쪽 운영 현황. 건수와 시각만 돌려준다.
   if (body.action === 'overview') return json(await adminOverview(env.ARCHIVE_DB), 200);
+  // ---------- 대행회원 ----------
+  // 파는 상품이 아니다. 최고관리자가 임명하고 최고관리자만 거둔다.
+  if (body.action === 'agencyList') return json(await listAgencies(env.ARCHIVE_DB), 200);
+  if (body.action === 'setAgency') return setAgency(env.ARCHIVE_DB, actor, body);
+  if (body.action === 'agencyTransferPreview') {
+    return json(await transferPreview(env.ARCHIVE_DB, String(body.fromId || ''), String(body.toId || '')), 200);
+  }
+  if (body.action === 'agencyTransfer') return runTransfer(env.ARCHIVE_DB, actor, body);
   if (body.action === 'listUsers') return json({ users: await listUsers(env.ARCHIVE_DB) }, 200);
   if (body.action === 'approveUser') return mutate(env.ARCHIVE_DB, actor, body.id, approve);
   if (body.action === 'disableUser') return mutate(env.ARCHIVE_DB, actor, body.id, disable);
@@ -88,6 +98,63 @@ export async function onRequest(context) {
   if (body.action === 'setShowcaseOrder') return setShowcaseOrder(env.ARCHIVE_DB, actor, body);
   if (body.action === 'deleteShowcase') return deleteShowcase(env.ARCHIVE_DB, actor, body);
   return json({ error: '지원하지 않는 작업입니다.' }, 400);
+}
+
+// ---------- 대행회원 지정·해제·한도 ----------
+// 자격과 한도를 한 번에 저장한다. 요금·구독과 섞지 않는다. 대행회원 자신은 이 경로를 통과하지 못한다.
+async function setAgency(db, actor, body) {
+  const targetId = String(body.id || '');
+  const gate = rejectsSelfPromotion(actor, targetId);
+  if (!gate.allowed) return json({ error: gate.reason }, 403);
+  const status = String(body.status || '');
+  if (!AGENCY_STATUSES.includes(status)) return json({ error: '자격 값은 이용 중·일시중지·자격 해제 중 하나여야 합니다.' }, 400);
+
+  const target = await db.prepare('SELECT id, email, role, status FROM users WHERE id = ?').bind(targetId).first();
+  if (!target) return json({ error: '대상 계정을 찾지 못했습니다.' }, 404);
+  if (target.role === 'admin' || target.role === 'operator') {
+    return json({ error: '운영 계정은 대행회원으로 지정하지 않습니다.' }, 400);
+  }
+
+  const before = await stateFor(db, targetId);
+  const state = await saveAgencyGrant(db, {
+    userId: targetId, status, actorId: actor.id, limits: body.limits || {},
+    startsOn: body.startsOn || '', endsOn: body.endsOn || '', note: body.note || ''
+  });
+
+  // 자격이 살아 있으면 역할도 대행회원으로, 거두면 일반회원으로 되돌린다. 로그인은 그대로 유지된다.
+  const nextRole = status === 'revoked' ? 'customer' : 'agency';
+  if (target.role !== nextRole) {
+    await db.prepare('UPDATE users SET role = ?, updated_at = ? WHERE id = ?').bind(nextRole, new Date().toISOString(), targetId).run();
+    // 역할이 바뀌면 쓰던 세션을 끊어 새 권한으로 다시 로그인하게 한다.
+    await db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(targetId).run();
+  }
+
+  await recordAudit(db, {
+    actor, action: `admin.agency.${status}`, targetId,
+    detail: `${before.status} → ${status}${body.note ? ` · ${String(body.note).slice(0, 80)}` : ''}`
+  });
+  return json({ ok: true, state, role: nextRole }, 200);
+}
+
+// 자료 인계. 건수를 세어 돌려주고 행은 지우지 않는다.
+async function runTransfer(db, actor, body) {
+  if (!canManageAgency(actor)) return json({ error: '자료 인계는 최고관리자만 할 수 있습니다.' }, 403);
+  const fromId = String(body.fromId || '');
+  const toId = String(body.toId || '');
+  const fromState = await stateFor(db, fromId);
+  const toState = await stateFor(db, toId);
+  const gate = transferCheck({ from: fromId, to: toId, fromState, toState });
+  if (!gate.allowed) return json({ error: gate.reason }, 400);
+  // 화면에서 건수를 확인했다는 표시가 있어야 실행한다.
+  if (body.confirm !== true) {
+    return json({ error: '인계할 건수를 확인한 뒤 다시 실행해 주세요.', preview: await transferPreview(db, fromId, toId) }, 409);
+  }
+  const result = await transferAgencyData(db, fromId, toId);
+  await recordAudit(db, {
+    actor, action: 'admin.agency.transfer', targetId: fromId,
+    detail: `${fromId} → ${toId} · 고객 ${result.moved.clients}곳 · 계획서 ${result.moved.proposals}건${body.reason ? ` · ${String(body.reason).slice(0, 80)}` : ''}`
+  });
+  return json({ ok: true, ...result }, 200);
 }
 
 // ---------- 소셜 연결 이전 ----------

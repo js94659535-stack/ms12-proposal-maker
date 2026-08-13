@@ -45,6 +45,11 @@ export const adminSaveGrant = grant => post('saveGrant', { grant });
 export const adminRevokeGrant = id => post('revokeGrant', { id });
 // 회원별 이용현황(메타정보)과 기존 보관자료 지정.
 export const adminOverviewCounts = () => post('overview');
+// 대행회원. 지정·해제·한도·인계는 모두 최고관리자 경로로만 간다.
+export const adminAgencyList = () => post('agencyList');
+export const adminSetAgency = value => post('setAgency', value);
+export const adminAgencyTransferPreview = (fromId, toId) => post('agencyTransferPreview', { fromId, toId });
+export const adminAgencyTransfer = (fromId, toId, reason) => post('agencyTransfer', { fromId, toId, reason, confirm: true });
 export const adminMemberUsage = () => post('memberUsage');
 export const adminProposalContent = id => post('proposalContent', { id });
 export const adminAssignProposal = (id, userId, note) => post('assignProposal', { id, userId, note });

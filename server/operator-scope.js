@@ -15,12 +15,17 @@ export const OPERATOR_ACTIONS = new Set([
   'setContractProgress', // 수주 작업 진행상태 변경. 권한 자체는 건드리지 않는다
   'noticeCollection', // 공고 자동수집 상태 조회(읽기 전용). 실행은 관리자만 한다
   'assignedProposals', // 관리자가 지정해 준 계획서 목록(메타정보)
-  'proposalContent'   // 지정받은 계획서의 원문. 프리미엄 계약이나 회원 동의가 함께 있어야 열린다
+  'proposalContent',  // 지정받은 계획서의 원문. 프리미엄 계약이나 회원 동의가 함께 있어야 열린다
+  'agencyList'        // 대행회원 현황 조회(읽기 전용). 지정·해제·한도·인계는 최고관리자만 한다
 ]);
 
 // 운영관리자 권한으로는 서버에서 거절하는 동작. 화면에 버튼이 없더라도 여기서 다시 막는다.
 export const BLOCKED_ACTIONS = new Map([
   ['setRole', '역할 변경'],
+  ['setAgency', '대행회원 지정·해제'],
+  ['agencyTransfer', '대행회원 자료 인계'],
+  ['agencyTransferPreview', '대행회원 자료 인계'],
+  ['setAgencyLimits', '대행회원 한도 변경'],
   ['grantOperator', '운영관리자 지정'],
   ['revokeOperator', '운영관리자 해제'],
   ['setPlan', '이용권 변경'],

@@ -7,7 +7,7 @@
 // 바로가기 목록. 화면 순서도 이 순서다.
 export const ADMIN_SHORTCUTS = Object.freeze([
   { key: 'pending', label: '승인 대기 회원', tool: 'admin', tab: 'accounts', unit: '명' },
-  { key: 'agency', label: '대행회원·고객 의뢰', tool: 'admin', tab: 'accounts', unit: '건' },
+  { key: 'agency', label: '대행회원·고객 의뢰', tool: 'admin', tab: 'agency', unit: '건' },
   { key: 'notices', label: '공고보관함', tool: 'admin', tab: 'notices', unit: '건' },
   { key: 'collection', label: '공고 수집 상태', tool: 'admin', tab: 'collection', unit: '' },
   { key: 'drafts', label: '작성 중인 계획서', tool: 'admin', tab: 'access', unit: '건' },

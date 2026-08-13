@@ -36,7 +36,7 @@ test('운영 바로가기는 아홉 가지이고 모두 있는 화면으로 이�
   // 없는 화면을 새로 만들지 않고 이미 있는 관리 화면의 갈래를 연다.
   for (const item of ADMIN_SHORTCUTS) {
     assert.ok(['admin', 'coaching'].includes(item.tool), item.key);
-    if (item.tool === 'admin') assert.ok(['accounts', 'notices', 'collection', 'access', 'usage'].includes(item.tab), item.key);
+    if (item.tool === 'admin') assert.ok(['accounts', 'agency', 'notices', 'collection', 'access', 'usage'].includes(item.tab), item.key);
   }
   assert.match(app, /function openAdmin\(tab = 'accounts'\) \{/);
   assert.match(view, /openAdmin\(item\.tab \|\| 'accounts'\)/);

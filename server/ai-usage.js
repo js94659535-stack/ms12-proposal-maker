@@ -54,14 +54,18 @@ export async function recordAiUsage(db, env, entry) {
     costMicro: costMicro(usage, price), priced: price.priced ? 1 : 0,
     durationMs: count(entry.durationMs), ok: entry.ok ? 1 : 0,
     // 실패 사유는 미리 정한 짧은 코드만 남긴다. 오류 문장이나 응답 본문은 남기지 않는다.
-    failureStage: clean(entry.failureStage, 40)
+    failureStage: clean(entry.failureStage, 40),
+    // 대행회원이 대신 쓴 것이면 실제 실행자와 대상 고객 기관을 함께 남긴다.
+    agencyUserId: clean(entry.agencyUserId, 80), clientOrgId: clean(entry.clientOrgId, 80)
   };
   try {
     await db.prepare(`INSERT INTO ai_usage_events (id, at, user_id, user_email, proposal_id, task, model,
-      input_tokens, cached_input_tokens, output_tokens, reasoning_tokens, total_tokens, cost_micro, priced, duration_ms, ok, failure_stage)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      input_tokens, cached_input_tokens, output_tokens, reasoning_tokens, total_tokens, cost_micro, priced, duration_ms, ok, failure_stage,
+      agency_user_id, client_org_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .bind(row.id, row.at, row.userId, row.userEmail, row.proposalId, row.task, row.model,
-        row.input, row.cached, row.output, row.reasoning, row.total, row.costMicro, row.priced, row.durationMs, row.ok, row.failureStage).run();
+        row.input, row.cached, row.output, row.reasoning, row.total, row.costMicro, row.priced, row.durationMs, row.ok, row.failureStage,
+        row.agencyUserId, row.clientOrgId).run();
   } catch { /* 기록 실패가 생성 결과를 막지 않는다. */ }
   return row;
 }

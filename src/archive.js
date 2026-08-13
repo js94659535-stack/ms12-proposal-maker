@@ -13,8 +13,13 @@ export function useArchiveRecoveryKey(value) {
   return normalized;
 }
 
+// 대행 업무와 개인 작업공간. 화면이 정한 값을 요청마다 붙인다. 기본은 개인이다.
+let workspace = 'personal';
+export function setArchiveWorkspace(value) { workspace = value === 'agency' ? 'agency' : 'personal'; }
+export function archiveWorkspace() { return workspace; }
+
 async function request(action, payload = {}) {
-  const response = await fetch('/api/archive', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Archive-Key': getArchiveRecoveryKey() }, body: JSON.stringify({ action, ...payload }) });
+  const response = await fetch('/api/archive', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Archive-Key': getArchiveRecoveryKey() }, body: JSON.stringify({ action, workspace, ...payload }) });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || `자료보관함 요청 실패 (${response.status})`);
   return data;
