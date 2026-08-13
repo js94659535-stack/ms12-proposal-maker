@@ -201,12 +201,12 @@ try {
   record(12, '재로그인 복원', Number(restored?.n || 0) > 0, `항목 ${restored?.n}개 · 확정 ${Boolean(restored?.at)}`);
 
   // ---------- 11. 출력 ----------
-  for (const [id, label] of [['final-docx-top', 'DOCX'], ['final-pdf-top', 'PDF'], ['final-form-docx', '서식대로 DOCX']]) {
+  for (const [id, label, ext] of [['final-docx-top', 'DOCX', '검토용.docx'], ['final-pdf-top', 'PDF', '.pdf'], ['final-form-docx', '서식대로 DOCX', '서식대로.docx']]) {
     const before = fs.readdirSync(downloads).length;
     const hit = await page.click(`#${id}`, 25000);
     const after = fs.readdirSync(downloads).filter(file => !file.endsWith('.crdownload'));
-    const grew = after.length > before;
-    record(13, `${label} 받기`, hit?.ok === true && grew, grew ? after[after.length - 1].slice(0, 50) : '파일 없음');
+    const made = after.find(file => file.endsWith(ext));
+    record(13, `${label} 받기`, hit?.ok === true && Boolean(made), made ? made.slice(0, 56) : '파일 없음');
   }
 
   // ---------- 12. 화면 크기 ----------

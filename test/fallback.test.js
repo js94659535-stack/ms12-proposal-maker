@@ -696,7 +696,10 @@ test('DOCX는 공식 양식이 아닌 검토용으로 표시한다', () => {
   const exportSource = fs.readFileSync(new URL('../src/export.js', import.meta.url), 'utf8');
   assert.match(appSource, /검토용 DOCX/);
   assert.match(appSource, /공식 신청서 양식이 아닌 검토본/);
-  assert.match(exportSource, /_검토용\.docx/);
+  // 기본은 검토용이고, 서식대로 받은 판은 이름을 달리해 앞서 받은 파일을 덮어쓰지 않는다.
+  assert.match(exportSource, /suffix = '검토용'/);
+  assert.match(exportSource, /_\$\{suffix\}\.docx/);
+  assert.match(appSource, /suffix: '서식대로'/);
 });
 
 test('PDF 버튼은 브라우저 인쇄 저장 방식으로 표시한다', () => {

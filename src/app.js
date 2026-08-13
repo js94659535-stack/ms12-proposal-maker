@@ -7266,7 +7266,7 @@ async function downloadFormFilled() {
   if (!laid.ok) return setState({ error: laid.reason });
   setState({ busy: '올린 서식에 맞춰 배치하는 중...', error: '', notice: '' });
   try {
-    await exportDocx(state.project, laid.sections, { tables: laid.tables });
+    await exportDocx(state.project, laid.sections, { tables: laid.tables, suffix: '서식대로' });
     setState({ busy: '', notice: `올린 서식대로 받았습니다. ${fillSummary(laid)}` });
   } catch (error) {
     setState({ busy: '', error: `서식대로 만들지 못했습니다. ${String(error?.message || '').slice(0, 60)}` });

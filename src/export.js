@@ -9,9 +9,10 @@ export function submissionFileName(project = {}, { applicantName = '', version =
 }
 
 export async function exportDocx(project, sections, options = {}) {
-  const { forSubmission = false, applicantName = '', version = 0 } = options;
+  // suffix로 어떤 판인지 이름에 남긴다. 이름이 같으면 앞서 받은 파일을 덮어써 무엇을 받았는지 알 수 없다.
+  const { forSubmission = false, applicantName = '', version = 0, suffix = '검토용' } = options;
   const blob = await buildDocxBlob(project, sections, options);
-  download(blob, forSubmission ? submissionFileName(project, { applicantName, version, kind: 'docx' }) : `${safeName(project.title)}_검토용.docx`);
+  download(blob, forSubmission ? submissionFileName(project, { applicantName, version, kind: 'docx' }) : `${safeName(project.title)}_${suffix}.docx`);
 }
 
 // 파일로 내려받지 않고 내용만 만든다. 제출 ZIP은 이 결과를 그대로 담는다.
