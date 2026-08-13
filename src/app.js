@@ -5198,8 +5198,8 @@ function coachingView() {
     ${coaching.pendingJob ? `<div class="alert warning"><strong>검증 중 · ${escapeHtml(coaching.pendingJob.status || 'queued')}</strong><p>작업 ID ${escapeHtml(coaching.pendingJob.id)} · polling ${Number(coaching.pendingJob.pollCount || 0)}회</p><p>새로고침 후에도 같은 탭에서 작업을 이어 확인합니다.<span data-ai-elapsed data-started-at="${Number(coaching.pendingJob.startedAt || Date.now())}" style="display:block">경과시간 00초</span></p></div>` : ''}
     ${state.archiveProposals.length ? `<div class="card"><h3>계획서보관함에서 불러오기</h3><div class="requirement-list">${state.archiveProposals.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(archiveStageLabel(item.stage))}</span><strong>${escapeHtml(item.title)}</strong></div><button class="button secondary" data-coach-archive="${escapeHtml(item.id)}">${String(item.stage).startsWith('coaching-v') ? '이 버전으로 돌아가기' : '검증 대상으로 불러오기'}</button></article>`).join('')}</div></div>` : ''}
     ${result ? coachingResultView(result) : ''}
-    ${result ? repairPlanView() : ''}
-    ${result ? coachingApplicantView() : ''}`;
+    ${result && state.reviewDetail ? repairPlanView() : ''}
+    ${result && state.reviewDetail ? coachingApplicantView() : ''}`;
 }
 
 // 계획서 원문을 항목별로 구조화하고 심사 관점으로 분석한다. AI 호출 없이 로컬 규칙만 사용한다.

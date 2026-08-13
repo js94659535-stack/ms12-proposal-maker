@@ -52,7 +52,8 @@ const look = () => page.run(`(() => {
     fixButton: Boolean(document.querySelector('#coaching-fix-first')),
     detailButton: (document.querySelector('#coaching-detail-toggle')?.textContent || '').trim(),
     overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
-    pageHeight: document.documentElement.scrollHeight
+    pageHeight: document.documentElement.scrollHeight,
+    blocks: [...document.querySelectorAll('#app .card, #app section.card, #app .review-panel')].map(el => ({ id: el.id || (el.querySelector('h3,h4,summary')?.textContent || '').trim().slice(0, 24), h: Math.round(el.getBoundingClientRect().height) })).filter(item => item.h > 300)
   });
 })()`);
 
@@ -82,6 +83,7 @@ try {
 
   const first = await look();
   await shot('overview-1280');
+  console.log('   큰 구역:', JSON.stringify((first?.blocks || []).slice(0, 8)));
   record(1.5, '첫 화면 길이', Number(first?.pageHeight || 0) < 6000, `총론만 ${first?.pageHeight}px`);
   record(2, '첫 화면에 종합소견서가 먼저 나온다', first?.overview === true && first?.strengths === true, `잘된 점 ${first?.strengths}`);
   record(3, '각론은 요청 전까지 접혀 있다', first?.detail === false, `각론 표시 ${first?.detail}`);
