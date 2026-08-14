@@ -9,14 +9,17 @@
 //   · 설계를 두 걸음(4,000토큰대)으로 나눈 뒤 → 2회 연속 성공
 //
 // 그래서 목표 분량을 기준으로 묶음 경계만 다시 잡는다. 항목·순서·문구·근거는 건드리지 않는다.
-// 큰 묶음은 쪼개고, 너무 작은 묶음은 옆과 합쳐 호출 수를 줄인다(호출마다 설계 문맥이 다시 들어간다).
+// 큰 묶음은 쪼갠다. 합치기는 실측에서 항목당 분량을 반 토막 내 기본으로 쓰지 않는다.
 
 // 한글 기준 대략 1토큰 ≈ 1.6자. 실측(출력 2,114토큰 ≈ 3,400자)에서 얻은 값이다.
 export const CHARS_PER_TOKEN = 1.6;
 // 한 호출이 뽑을 목표 분량. 위 기록에서 안전했던 구간(출력 4,000토큰 이하)을 자로 삼는다.
 export const SAFE_CHARS = 5_000;
-// 이보다 작으면 옆과 합친다. 호출 한 번에 붙는 고정 입력(설계 문맥·지시문)이 아깝다.
-export const SMALL_CHARS = 1_200;
+// 작은 묶음을 옆과 합치면 호출은 줄지만 항목당 분량이 반 토막 난다. 실측으로 확인했다.
+//   · 안 합친 묶음(2항목/호출): 항목당 약 700자 — 기준본보다 오히려 길었다
+//   · 합친 묶음(6항목/한 호출): 항목당 약 561자 — 기준본 1,259자의 절반 이하
+// 그래서 합치기는 기본으로 쓰지 않는다(0). 필요하면 부르는 쪽이 값을 넣어 켠다.
+export const SMALL_CHARS = 0;
 
 const list = value => (Array.isArray(value) ? value : []);
 const charsOf = (keys, outline) => list(keys).reduce((sum, key) => sum + (outline.find(item => item.key === key)?.targetChars || 0), 0);
@@ -65,7 +68,7 @@ export function rebalanceGroups(sectionPlan, outline, { safeChars = SAFE_CHARS, 
   for (const group of split) {
     const previous = merged[merged.length - 1];
     const size = charsOf(group.sectionKeys, outline);
-    const canMerge = previous && charsOf(previous.sectionKeys, outline) + size <= safeChars
+    const canMerge = smallChars > 0 && previous && charsOf(previous.sectionKeys, outline) + size <= safeChars
       && (charsOf(previous.sectionKeys, outline) < smallChars || size < smallChars);
     if (!canMerge) { merged.push({ ...group }); continue; }
     merged[merged.length - 1] = {

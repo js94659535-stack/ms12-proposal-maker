@@ -43,12 +43,21 @@ test('너무 작은 묶음은 옆과 합쳐 호출 수를 줄인다', () => {
   assert.deepEqual(result.groups.flatMap(group => group.sectionKeys), ['purpose', 'goals', 'programs']);
 });
 
-test('작은 꼬리 묶음은 앞과 합쳐 호출을 줄인다', () => {
-  // 수행체계 700자는 기준(1,200자)보다 작아 앞 묶음과 합쳐진다. 4묶음 → 3묶음, 호출 한 번이 준다.
+test('합치기는 기본으로 쓰지 않는다', () => {
+  // 합치면 호출은 줄지만 항목당 분량이 반 토막 났다(실측: 561자 대 1,259자). 그래서 기본은 끈다.
+  assert.equal(SMALL_CHARS, 0);
   const result = rebalanceGroups(plan, outline);
-  assert.equal(result.changed, true);
-  assert.equal(result.groups.length, 3);
-  assert.deepEqual(result.groups.flatMap(group => group.sectionKeys), plan.flatMap(group => group.sectionKeys));
+  assert.equal(result.changed, false);
+  assert.equal(result.groups.length, plan.length);
+});
+
+test('필요하면 부르는 쪽이 합치기를 켤 수 있다', () => {
+  const tiny = [
+    { id: 'a', title: '목적', sectionKeys: ['purpose'] },
+    { id: 'b', title: '목표', sectionKeys: ['goals'] }
+  ];
+  assert.equal(rebalanceGroups(tiny, outline, { smallChars: 700 }).groups.length, 1);
+  assert.equal(rebalanceGroups(tiny, outline).groups.length, 2);
 });
 
 test('모든 묶음이 적당한 크기면 손대지 않는다', () => {
