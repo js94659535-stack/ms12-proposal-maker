@@ -7,7 +7,7 @@ import { onRequest as authRoute } from '../functions/api/auth.js';
 import { onRequest as middleware } from '../functions/api/_middleware.js';
 import { createPasswordRecord } from '../server/password.js';
 import { SESSION_COOKIE } from '../server/session.js';
-import { MARKS, expandKoreanNumber, findUnsupportedClaims, guardSections, repetitionReport, sanitizeSourceText } from '../server/fact-guard.js';
+import { MARKS, expandKoreanNumber, findUnsupportedClaims, generalNotes, guardSections, repetitionReport, sanitizeSourceText } from '../server/fact-guard.js';
 import { SEVERITY, submissionReadiness, verifyAttachments, verifyBudget, verifyEvaluationCoverage, verifyHeadcount, verifyPeriods } from '../server/consistency.js';
 import { KINDS, STATUS, claimTable, conflictsOf, isAssertable, makeClaim, overstated } from '../server/evidence.js';
 import { evaluatorReview } from '../server/evaluator-review.js';
@@ -361,4 +361,50 @@ test('근거로 넘긴 자료 밖의 값은 통과하지 못한다', () => {
   // 다른 회원의 기관정보가 결과에 섞여 들어와도 이 요청의 근거에는 없으므로 표시된다.
   const claims = findUnsupportedClaims('○○복지관 소속 사회복지사 8명이 참여합니다.', [NOTICE, ORGANIZATION]);
   assert.ok(claims.some(claim => claim.value.includes('8명')));
+});
+
+// ---------- 자료가 없을 때 ----------
+
+test('널리 알려진 배경은 일반론임을 밝히고 적게 하되, 우리 기관 사실은 여전히 막는다', async () => {
+  const fs = await import('node:fs');
+  const api = fs.readFileSync(new URL('../functions/api/proposal.js', import.meta.url), 'utf8');
+  // 빈칸만 남은 계획서는 계획서가 아니다. 대신 무엇이 일반론인지 밝히게 한다.
+  assert.equal(MARKS.general, '[일반 정보]');
+  assert.match(api, /const GENERAL_KNOWLEDGE_RULE = `자료에 없는 내용은 두 가지로 나눠 다룬다\./);
+  assert.match(api, /이 기관·이 사업의 고유 사실\(이용자 수, 인력, 실적, 예산, 협약, 시설, 만족도, 자체 조사 결과\)은 지어내지 않는다/);
+  assert.match(api, /어떻게 확인하면 되는지\(자체 설문, 이용자 면담, 공공 통계 확인 등\) 한 문장 덧붙인다/);
+  // 본문 작성 세 곳이 같은 규칙을 쓴다.
+  assert.ok(api.split('${GENERAL_KNOWLEDGE_RULE}').length - 1 >= 3, '핵심제안서·draft·draftPart');
+
+  // 표시가 붙은 문장은 두 번 표시하지 않는다.
+  const marked = guardSections([{ id: 'necessity', title: '배경', content: '[일반 정보] 일반적으로 중장년층의 디지털 활용 수요는 늘고 있다.' }], []);
+  assert.equal(marked.sections[0].content, '[일반 정보] 일반적으로 중장년층의 디지털 활용 수요는 늘고 있다.');
+  // 일반론으로 적은 문장은 화면이 볼 수 있게 모아 준다. 표시만 붙이고 끝내면 아무도 다시 보지 않는다.
+  const notes = generalNotes(marked.sections);
+  assert.equal(notes.length, 1);
+  assert.equal(notes[0].sectionTitle, '배경');
+  assert.match(notes[0].text, /^\[일반 정보\]/);
+  assert.match(api, /general: generalNotes\(guarded\.sections\)/);
+  // 우리 기관 고유 사실은 그대로 막힌다.
+  const ours = guardSections([{ id: 'roles', title: '인력', content: '우리 기관 사회복지사 8명이 참여합니다.' }], []);
+  assert.ok(ours.claims.some(claim => claim.value.includes('8명')));
+});
+
+test('확인 필요 항목은 할 일별로 묶어서 보여 준다', async () => {
+  const fs = await import('node:fs');
+  const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  // 스무 줄이 한 줄로 이어지면 무엇부터 해야 하는지 알 수 없다.
+  assert.match(app, /const GUARD_GROUPS = \[/);
+  for (const [mark, title] of [['[기관 입력 필요]', '우리 기관이 채워야 하는 값'], ['[공고문 확인 필요]', '공고문에서 확인할 값'], ['[확인 필요]', '근거를 확인해야 하는 값']]) {
+    assert.ok(app.includes(mark) && app.includes(title), title);
+  }
+  // 어디서 어떻게 채우는지 함께 알려 준다.
+  assert.match(app, /국가통계포털\(KOSIS\)/);
+  assert.match(app, /자체 설문이나 이용자 면담/);
+  // 어느 묶음에도 없는 표시를 잃어버리지 않는다.
+  assert.match(app, /const rest = claims\.filter\(claim => !GUARD_GROUPS\.some\(group => group\.mark === claim\.mark\)\);/);
+  assert.match(app, /일반론으로 적은 내용/);
+  // 묶음 사이에 실제로 자리가 벌어진다.
+  const css = fs.readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+  assert.match(css, /\.guard-group\{[^}]*border-top/);
 });

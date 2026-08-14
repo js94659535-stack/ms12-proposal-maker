@@ -6,7 +6,7 @@ import { DIAGNOSIS_ACTION, QUOTA_SPENT, corePagesFor, membershipOf, membershipRe
 import { consumeQuota, loadSubscription, releaseQuota } from '../../server/subscription.js';
 import { DIAGNOSIS_SCHEMA, OUTPUT_TOKENS as DIAGNOSIS_TOKENS, diagnosisPrompt, normalizeDiagnosis, validateDiagnosisInput } from '../../server/diagnosis.js';
 import { contractState } from '../../server/premium.js';
-import { MARKS, guardSections, guardText, repetitionReport, sanitizeSourceText } from '../../server/fact-guard.js';
+import { MARKS, generalNotes, guardSections, guardText, repetitionReport, sanitizeSourceText } from '../../server/fact-guard.js';
 import { claimTable, claimsFromGuard } from '../../server/evidence.js';
 import { evaluatorReview } from '../../server/evaluator-review.js';
 import { limitCheck, limitKindFor } from '../../server/agency.js';
@@ -316,7 +316,7 @@ export async function onRequest(context) {
       };
       return json({
         ...result, ...titled, summary: summaryGuard.text, targetPages: plan.pages, audience: plan.audience.label, sections: guarded.sections,
-        guard: { claims: [...guarded.claims, ...summaryGuard.claims.map(claim => ({ ...claim, sectionId: '' }))], injectionCount, repetition, marks: MARKS },
+        guard: { claims: [...guarded.claims, ...summaryGuard.claims.map(claim => ({ ...claim, sectionId: '' }))], injectionCount, repetition, marks: MARKS, general: generalNotes(guarded.sections) },
         evidence: claimTable(claimsFromGuard(guarded.claims)),
         trialUsed: trialRun, oneTime: trialRun, tier: membership.tier, readOnly: membership.coreReadOnly,
         remaining: after ? { coreProposal: Math.max(0, 3 - Number(after.coreUsed || 0)), diagnosis: Math.max(0, 5 - Number(after.diagnosisUsed || 0)) } : null
@@ -336,7 +336,7 @@ export async function onRequest(context) {
       const sources = evidenceSources(body.payload);
       const guarded = guardSections(result.sections, sources);
       result.sections = guarded.sections;
-      result.guard = { claims: guarded.claims, injectionCount, repetition: repetitionReport(guarded.sections), marks: MARKS };
+      result.guard = { claims: guarded.claims, injectionCount, repetition: repetitionReport(guarded.sections), marks: MARKS, general: generalNotes(guarded.sections) };
       result.evidence = claimTable(claimsFromGuard(guarded.claims));
       // 평가자 관점 검토를 함께 붙인다. 점수 하나가 아니라 고칠 항목으로 돌려준다.
       result.evaluatorReview = evaluatorReview({
@@ -578,6 +578,13 @@ function labelConditions(conditions = {}) {
     .filter(([, value]) => value));
 }
 
+// 자료가 없다고 빈칸만 남기면 계획서가 아니다. 지어내지 않으면서 배경은 쓰게 하는 규칙.
+// 우리 기관 고유 사실과 세상이 다 아는 배경은 다르게 다룬다. 뒤엣것은 일반론임을 밝히고 쓴다.
+const GENERAL_KNOWLEDGE_RULE = `자료에 없는 내용은 두 가지로 나눠 다룬다.
+- 이 기관·이 사업의 고유 사실(이용자 수, 인력, 실적, 예산, 협약, 시설, 만족도, 자체 조사 결과)은 지어내지 않는다. 그 자리에 [확인 필요]를 남긴다.
+- 널리 알려진 배경(사회 변화 흐름, 정책 방향, 대상 집단이 겪는 일반적 어려움, 통상적인 사업 운영·조사 방법)은 빈칸으로 두지 말고 적는다. 문장 맨 앞에 [일반 정보]를 붙이고 「일반적으로」처럼 일반론임이 드러나게 쓴다. 특정 기관명·연도·조사명·조사 수치를 출처가 있는 것처럼 단정하지 않는다.
+- 조사 결과가 필요한 자리에는 없는 결과를 지어내는 대신, [일반 정보]로 알려진 경향을 적고 그 자리에서 무엇을 어떻게 확인하면 되는지(자체 설문, 이용자 면담, 공공 통계 확인 등) 한 문장 덧붙인다.`
+
 export function taskSpecification(action, payload) {
   // 선정 가능성 진단서. 계획서를 쓰지 않고 지원 판단에 필요한 것만 정리한다.
   if (action === DIAGNOSIS_ACTION) {
@@ -615,6 +622,7 @@ ${plan.sections.some(section => section.key === 'budget') ? `
 
 CONDITIONS는 제안자가 골라 적은 단답 조건(대상·인원·기간·횟수·방식)이다. 있는 값은 그대로 본문에 반영하고, 없는 값은 지어내지 말고 그 자리에 [확인 필요]를 남긴다.
 CORE_IDEA는 제안자가 직접 적은 내용이며 이 제안서의 중심이다. 여기에 없는 실적·인력·예산·협약·수치를 만들어 내지 않는다.
+${GENERAL_KNOWLEDGE_RULE}
 근거가 없는 값은 그 자리에 [확인 필요]라고 적고 checkNeeded에 무엇을 확인해야 하는지 모은다. 금액은 제안자가 적은 범위 안에서만 쓰고, 적지 않았으면 만들지 않는다.
 CONDITIONS의 값 하나에 「, 」로 여러 개가 들어 있으면 모두 반영한다. 그중 하나만 골라 쓰고 나머지를 버리지 않는다.
 WORKING_TITLE이 적혀 있으면 그것을 title에 그대로 쓴다. 비어 있으면 40자 이내로 짓는다.
@@ -687,7 +695,8 @@ APPROVED_DESIGN_PLAN은 고객·운영자가 승인한 설계안이며 이번 �
 계획서 본문은 호환용 10개 항목(necessity, purpose, goals, target, programs, schedule, roles, budget, indicators, outcomes)을 정확히 한 번씩, 설계안 목차 순서대로 작성한다. 각 항목의 id는 이 키를 그대로 쓰고 title은 설계안의 항목명을 쓴다.
 각 항목은 설계안 documentPlan의 목표 분량을 기준으로 ±30% 안에서 작성한다. 분량을 채우려고 같은 문장을 반복하거나 확인되지 않은 사실을 만들지 않는다.
 표로 보여야 하는 내용(예산·일정·성과지표·대상·인력)은 본문에 표를 그리지 말고 tables에 columns와 rows로 구조화해 넣는다. 본문에는 표가 무엇을 보여 주는지만 한 문장으로 적는다.
-확인되지 않은 인력·실적·자격·예산·수치는 만들지 말고 그 자리에 [확인 필요]로 남기고 missingInformation에 최대 5개까지 질문으로 남긴다. 확인된 기관 정보만 사실로 쓴다.`
+확인되지 않은 인력·실적·자격·예산·수치는 만들지 말고 그 자리에 [확인 필요]로 남기고 missingInformation에 최대 5개까지 질문으로 남긴다. 확인된 기관 정보만 사실로 쓴다.
+${GENERAL_KNOWLEDGE_RULE}`
   };
   if (action === 'draftPart') return {
     name: 'proposal_draft_part', schema: DRAFT_PART_SCHEMA,
@@ -697,6 +706,7 @@ MASTER_CONTEXT는 master 단계에서 이미 확정·검증된 기준이다. 다
 fixedBasis.applicationType의 조건만 사용하고 excludedApplicationTypes의 대상·사업내용은 쓰지 않는다. thisProject.confirmedValues와 projectSpecificValues의 값은 그대로 유지하고 다른 수치로 바꾸지 않는다. thisProject.unresolved 항목과 officialConflicts는 임의로 확정·해결하지 말고 두 값을 함께 드러내며 [확인 필요]를 유지한다. applicantConfirmed에 없는 기관 인력·실적·자격·예산은 사실로 쓰지 않는다.
 userNarrative와 userAnswers는 사용자가 직접 적은 요청이다. 근거 순위는 공식자료 → 이번 사업 확정값 → 기관 확인정보 → 사용자 입력 → 제안 순이며, 충돌하면 상위 근거를 따르고 사용자 입력만으로 사실·수치를 확정하지 않는다. 요청 중 근거가 없는 내용은 [확인 필요]로 남긴다.
 CONTINUITY_SUMMARY는 앞 분할에서 확정된 핵심 결정·용어·수치·논리의 압축본이며 RELEVANT_PREVIOUS_SECTIONS는 현재 항목 작성에 실제 필요한 이전 내용만 담는다. 두 자료를 기준으로 동일한 계획서를 이어 쓰되, 전달되지 않은 과거 분할 원문을 추측하거나 다시 작성하지 않는다. 사업명·대상 명칭·프로그램명·담당 역할·수치·단위·기간·성과지표 용어를 그대로 유지하고 충돌하는 새 값을 만들지 않는다. 앞 분할에서 이미 충분히 설명한 배경이나 목적을 반복하지 말고 현재 신청 항목에 필요한 연결 문장만 사용한다. 추상적 당위보다 누가·언제·어디서·누구에게·무엇을·몇 회·어떻게 수행하고 어떤 근거와 산출물을 남기는지 구체적으로 작성한다.
+${GENERAL_KNOWLEDGE_RULE}
 sections의 id는 sectionKeys와 정확히 같아야 하며 그 밖의 섹션은 반환하지 않는다. 제목은 necessity=사업 필요성, purpose=목적, goals=목표, target=대상, programs=세부 프로그램, schedule=추진 일정, roles=운영 인력·역할, budget=예산, indicators=성과지표, outcomes=기대효과를 사용한다. 공식 자료와 사용자 확정 정보에 없는 사실은 만들지 않고 필요한 위치에 [확인 필요]를 유지한다. 검토·심사·수정 의견은 작성하지 않는다.
 작성 후 continuityCheck에서 마스터 정합성, 공식 신청서 구조 대응, 용어·수치 일관성, 불필요한 반복 여부를 스스로 대조하라. 하나라도 충족하지 못하면 임의로 통과 처리하지 말고 issues에 구체적으로 기록하라. continuitySummary에는 이번 분할까지 확정된 핵심 결정만 압축하여 갱신하되 원문 문단을 복사하지 말고 항목당 짧은 문장으로 유지하라.`
   };

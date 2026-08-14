@@ -7,7 +7,9 @@ export const MARKS = Object.freeze({
   check: '[확인 필요]',
   organization: '[기관 입력 필요]',
   notice: '[공고문 확인 필요]',
-  proposed: '[제안값 — 확정 전]'
+  proposed: '[제안값 — 확정 전]',
+  // 우리 자료에는 없지만 널리 알려진 배경. 빈칸으로 두는 것보다 낫고, 우리 실적으로 읽히면 안 된다.
+  general: '[일반 정보]'
 });
 export const MARK_LIST = Object.freeze(Object.values(MARKS));
 
@@ -205,6 +207,25 @@ export function guardSections(sections, sources, field = 'content') {
     return result.changed ? { ...section, [field]: result.text } : section;
   });
   return { sections: guarded, claims };
+}
+
+// 일반론으로 적은 문장을 모은다. 표시만 붙이고 끝내면 그것이 일반론인지 아무도 다시 보지 않는다.
+export function generalNotes(sections, field = 'content') {
+  const rows = Array.isArray(sections) ? sections : [];
+  const notes = [];
+  for (const section of rows) {
+    const text = String(section?.[field] || '');
+    let at = text.indexOf(MARKS.general);
+    while (at >= 0) {
+      // 표시가 붙은 문장 하나를 그대로 가져온다. 앞뒤 문장을 끌어오지 않는다.
+      const start = Math.max(0, text.lastIndexOf('.', at - 1) + 1, text.lastIndexOf('\n', at) + 1);
+      const dot = text.indexOf('.', at);
+      const end = dot < 0 ? text.length : dot + 1;
+      notes.push({ sectionId: section?.id || '', sectionTitle: section?.title || '', text: text.slice(start, end).trim().slice(0, 200) });
+      at = text.indexOf(MARKS.general, end);
+    }
+  }
+  return notes;
 }
 
 // ---------- 같은 말로 분량 채우기 ----------

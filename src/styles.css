@@ -578,3 +578,9 @@ select{max-width:100%}
 .chip:hover:not(:disabled){border-color:#9aa6b8}
 .chip.on{background:#eaf2ff;border-color:#5b8def;color:#1a4fa8;font-weight:600}
 .chip:disabled{opacity:.5;cursor:default}
+
+/* 확인 필요 항목. 할 일이 다른 묶음끼리 자리를 벌린다. */
+.guard-group{margin:14px 0 0;padding:10px 0 0;border-top:1px solid var(--line,#e3e7ee)}
+.guard-group:first-of-type{border-top:0;padding-top:4px}
+.guard-group h4{margin:0 0 2px;font-size:14px}
+.guard-group>p.muted{margin:0 0 8px}

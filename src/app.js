@@ -496,6 +496,14 @@ const GUARD_KIND_LABELS = {
   period: '기간', law: '법령', research: '연구', quote: '인용'
 };
 
+// 표시별로 묶어서 보여 준다. 할 일이 다르면 자리도 나눈다. 스무 줄이 한 줄로 이어지면 아무도 읽지 않는다.
+const GUARD_GROUPS = [
+  { mark: '[기관 입력 필요]', title: '우리 기관이 채워야 하는 값', how: '「내 정보」의 기관정보에 적어 두면 이 제안서와 다음 문서에서 자동으로 채워집니다.' },
+  { mark: '[공고문 확인 필요]', title: '공고문에서 확인할 값', how: '공고문의 지원 규모·자부담 기준·모집 인원을 확인해 적어 주세요.' },
+  { mark: '[확인 필요]', title: '근거를 확인해야 하는 값', how: '통계·조사 결과는 국가통계포털(KOSIS)이나 지자체 통계연보에서, 법령은 국가법령정보센터에서 확인할 수 있습니다. 우리 사업의 수요는 자체 설문이나 이용자 면담으로 확인한 결과를 적어 주세요.' },
+  { mark: '[제안값 — 확정 전]', title: '아직 확정하지 않은 제안값', how: '그대로 쓸지 정한 뒤 확정해 주세요.' }
+];
+
 // 근거 없이 들어온 값 목록. 무엇을 확인해야 하는지 그대로 보여 준다.
 function guardPanel(guard) {
   if (!guard) return '';
@@ -504,15 +512,36 @@ function guardPanel(guard) {
   if (!claims.length && !guard.injectionCount && !repetition?.padded) {
     return '<div class="alert success"><strong>확인이 필요한 값이 발견되지 않았습니다.</strong><p>자료에 없는 숫자·기관·법령이 본문에 들어오지 않았습니다.</p></div>';
   }
+  const general = guard.general || [];
+  const claimCard = claim => `<article class="requirement"><div>
+      <div><strong>${escapeHtml(claim.value)}</strong> <span class="status 확인-필요">${escapeHtml(GUARD_KIND_LABELS[claim.kind] || claim.kind)}</span></div>
+      ${claim.sectionTitle ? `<small class="muted">${escapeHtml(claim.sectionTitle)}</small>` : ''}
+      <small class="muted">${escapeHtml(claim.context || '')}</small>
+    </div></article>`;
+  // 같은 표시끼리 모은다. 어느 묶음에도 없는 표시는 마지막에 그대로 붙인다.
+  const grouped = GUARD_GROUPS
+    .map(group => ({ ...group, rows: claims.filter(claim => claim.mark === group.mark) }))
+    .filter(group => group.rows.length);
+  const rest = claims.filter(claim => !GUARD_GROUPS.some(group => group.mark === claim.mark));
   return `<details class="card org-details" id="guard-panel" open>
     <summary><b>확인 필요 항목 ${claims.length}건</b> <small>자료에 없는 값에는 본문에 표시를 붙였습니다</small></summary>
     ${guard.injectionCount ? `<div class="alert warning"><strong>업로드한 자료 안의 명령형 문장 ${guard.injectionCount}건을 자료로만 처리했습니다.</strong><p>문서에 적힌 지시는 시스템 명령으로 실행하지 않습니다.</p></div>` : ''}
     ${repetition?.padded ? `<div class="alert warning"><strong>같은 문장이 ${repetition.repeatedCount}번 반복됩니다.</strong><p>분량을 채우기 위한 반복인지 확인해 주세요.</p></div>` : ''}
-    ${claims.length ? `<div class="requirement-list">${claims.map(claim => `<article class="requirement"><div>
-      <div><strong>${escapeHtml(claim.value)}</strong> <span class="status 확인-필요">${escapeHtml(GUARD_KIND_LABELS[claim.kind] || claim.kind)}</span> <span class="muted">${escapeHtml(claim.mark || '')}</span></div>
-      ${claim.sectionTitle ? `<small class="muted">${escapeHtml(claim.sectionTitle)}</small>` : ''}
-      <small class="muted">${escapeHtml(claim.context || '')}</small>
-    </div></article>`).join('')}</div>` : ''}
+    ${grouped.map(group => `<section class="guard-group">
+      <h4>${escapeHtml(group.title)} <span class="muted">${group.rows.length}건 · ${escapeHtml(group.mark)}</span></h4>
+      <p class="muted">${escapeHtml(group.how)}</p>
+      <div class="requirement-list">${group.rows.map(claimCard).join('')}</div>
+    </section>`).join('')}
+    ${rest.length ? `<section class="guard-group"><h4>그 밖에 확인할 값 <span class="muted">${rest.length}건</span></h4>
+      <div class="requirement-list">${rest.map(claimCard).join('')}</div></section>` : ''}
+    ${general.length ? `<section class="guard-group">
+      <h4>일반론으로 적은 내용 <span class="muted">${general.length}건 · [일반 정보]</span></h4>
+      <p class="muted">우리 기관의 조사 결과가 아니라 널리 알려진 일반적 경향입니다. 그대로 두어도 되지만, 우리 자료로 바꾸면 훨씬 설득력이 있습니다.</p>
+      <div class="requirement-list">${general.map(note => `<article class="requirement"><div>
+        ${note.sectionTitle ? `<div><strong>${escapeHtml(note.sectionTitle)}</strong></div>` : ''}
+        <small class="muted">${escapeHtml(note.text)}</small>
+      </div></article>`).join('')}</div>
+    </section>` : ''}
     <p class="muted">확인한 값은 「내 정보 수정」이나 공고문에서 근거를 채운 뒤 다시 만들어 주세요. 서버는 확인되지 않은 값을 확정 사실로 저장하지 않습니다.</p>
   </details>`;
 }
