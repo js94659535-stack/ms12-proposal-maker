@@ -580,6 +580,7 @@ export function taskSpecification(action, payload) {
       name: 'ms12_core_proposal', schema: CORE_PROPOSAL_SCHEMA,
       prompt: `<PROPOSER>\n${input.proposer || '(적지 않음)'}\n</PROPOSER>
 <CORE_IDEA>\n${input.coreIdea}\n</CORE_IDEA>
+<CONDITIONS>${JSON.stringify(input.conditions || {})}</CONDITIONS>
 <PURPOSE>\n${input.purpose || '(적지 않음)'}\n</PURPOSE>
 <RECIPIENT_TYPE>${audience.label}</RECIPIENT_TYPE>
 <RECIPIENT_NAME>${input.recipient || '(적지 않음)'}</RECIPIENT_NAME>
@@ -600,6 +601,7 @@ ${plan.sections.some(section => section.key === 'budget') ? `
 - 근거를 찾을 수 없으면 금액을 만들지 말고 그 자리에 [확인 필요: ${BUDGET_UNKNOWN}]이라고 적고 checkNeeded에도 같은 내용을 넣는다. 추정 금액을 근거처럼 적지 않는다.
 ` : ''}
 
+CONDITIONS는 제안자가 골라 적은 단답 조건(대상·인원·기간·횟수·방식)이다. 있는 값은 그대로 본문에 반영하고, 없는 값은 지어내지 말고 그 자리에 [확인 필요]를 남긴다.
 CORE_IDEA는 제안자가 직접 적은 내용이며 이 제안서의 중심이다. 여기에 없는 실적·인력·예산·협약·수치를 만들어 내지 않는다.
 근거가 없는 값은 그 자리에 [확인 필요]라고 적고 checkNeeded에 무엇을 확인해야 하는지 모은다. 금액은 제안자가 적은 범위 안에서만 쓰고, 적지 않았으면 만들지 않는다.
 title은 40자 이내의 제안서 제목, summary는 200자 이내로 받는 사람이 한눈에 보는 요약이다.`

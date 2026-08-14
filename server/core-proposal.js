@@ -115,6 +115,17 @@ export function planPages({ pages, audienceType }) {
 }
 
 // 첫 단계 입력 검사. 문제가 없으면 다듬은 값을, 있으면 사유를 돌려준다.
+// 장문 아이디어 아래에서 고르거나 적는 단답 조건. 모두 선택이고, 비우면 [확인 필요]로 남는다.
+// 골라 주는 보기는 화면과 서버가 같은 목록을 본다.
+export const CONDITION_FIELDS = Object.freeze([
+  Object.freeze({ key: 'target', label: '대상', options: ['영유아', '초등학생', '중·고등학생', '청년', '중장년', '어르신', '장애인', '가족 전체', '지역주민', '소상공인'] }),
+  Object.freeze({ key: 'people', label: '예상 인원', options: ['10명 내외', '20명 내외', '30명 내외', '50명 내외', '100명 이상', '가정 10곳', '가정 20곳'] }),
+  Object.freeze({ key: 'period', label: '사업 기간', options: ['3개월', '6개월', '9개월', '12개월', '연중'] }),
+  Object.freeze({ key: 'times', label: '진행 횟수', options: ['주 1회', '주 2회', '격주 1회', '월 1회', '월 2회', '총 8회', '총 12회', '총 16회'] }),
+  Object.freeze({ key: 'method', label: '진행 방식', options: ['집단 프로그램', '1:1 상담', '교육·강좌', '물품·급식 지원', '사례관리·가정방문', '캠페인·행사', '멘토링', '컨설팅'] })
+]);
+const MAX_CONDITION_CHARS = 60;
+
 export function validateCoreProposalInput(payload = {}) {
   const text = (value, max) => String(value ?? '').trim().slice(0, max);
   const coreIdea = text(payload.coreIdea, MAX_IDEA_CHARS);
@@ -136,6 +147,10 @@ export function validateCoreProposalInput(payload = {}) {
       proposer: text(payload.proposer, MAX_PROPOSER_CHARS),
       purpose: text(payload.purpose, MAX_PURPOSE_CHARS),
       recipient: text(payload.recipient, MAX_RECIPIENT_CHARS),
+      // 단답 조건. 적은 것만 담고 빈 칸은 아예 넘기지 않는다.
+      conditions: Object.fromEntries(CONDITION_FIELDS
+        .map(field => [field.key, text(payload.conditions?.[field.key], MAX_CONDITION_CHARS)])
+        .filter(([, value]) => value)),
       sourceText: text(payload.sourceText, MAX_SOURCE_CHARS)
     }
   };

@@ -501,3 +501,23 @@ test('핵심제안서는 두 가지만 묻는다 — 어디에 내는지, 내 �
   const order = [...view.matchAll(/<label for="(core-[a-z]+)"/g)].map(match => match[1]);
   assert.deepEqual(order.slice(0, 3), ['core-audience', 'core-recipient', 'core-idea']);
 });
+
+test('핵심 아이디어는 장문으로 적고, 아래 단답 칸에서 고르거나 적는다', async () => {
+  const fs = await import('node:fs');
+  const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  const api = fs.readFileSync(new URL('../functions/api/proposal.js', import.meta.url), 'utf8');
+  const { CONDITION_FIELDS, validateCoreProposalInput } = await import('../server/core-proposal.js');
+  // 대상·인원·기간·횟수·방식 다섯을 고르거나 직접 적는다.
+  assert.deepEqual(CONDITION_FIELDS.map(item => item.key), ['target', 'people', 'period', 'times', 'method']);
+  for (const item of CONDITION_FIELDS) assert.ok(item.options.length >= 5, item.key);
+  // 화면은 고르기와 직접 적기를 한 칸에서 함께 받는다.
+  assert.match(app, /list="cond-list-\$\{item\.key\}"/);
+  assert.match(app, /data-core-condition="\$\{item\.key\}"/);
+  assert.match(app, /고르지 않아도 됩니다\. 비운 칸은 지어내지 않고 \[확인 필요\]로 남습니다\./);
+  // 비운 칸은 아예 넘기지 않는다.
+  const checked = validateCoreProposalInput({ coreIdea: '초등 4~6학년 정서지원 집단 프로그램을 주 1회 16회기로 운영합니다.', targetPages: 5, audienceType: 'public', conditions: { target: '초등학생', people: '' } });
+  assert.deepEqual(checked.value.conditions, { target: '초등학생' });
+  // 서버는 적힌 값만 쓰고 없는 값은 지어내지 않는다.
+  assert.match(api, /<CONDITIONS>\$\{JSON\.stringify\(input\.conditions \|\| \{\}\)\}<\/CONDITIONS>/);
+  assert.match(api, /CONDITIONS는 제안자가 골라 적은 단답 조건/);
+});

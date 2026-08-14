@@ -26,6 +26,7 @@ import { ASSIGNABLE_ROLES, ROLE_DUTY, canHoldClients, roleLabel } from '../serve
 import { PASSWORD_MIN, validateSignup } from '../server/signup.js';
 import { MEMBER_STEPS, PREMIUM_STEP_NOTE } from '../server/membership.js';
 import { BILLING_NOTE, validateRequest } from '../server/subscription-request.js';
+import { CONDITION_FIELDS } from '../server/core-proposal.js';
 import { ADMIN_SHORTCUTS } from '../server/admin-overview.js';
 import { AGENCY_STATUS_LABEL, DEFAULT_LIMITS, LIMIT_FIELDS, remainingFor } from '../server/agency.js';
 import { buildOverview, detailPanels, mergeReviewIssues } from '../server/review-digest.js';
@@ -2403,7 +2404,7 @@ function memberFactsText() {
   return rows.map(([label, value]) => `${label}: ${String(value).trim()}`).join('\n');
 }
 function emptyCoreDraft() {
-  return { proposer: '', coreIdea: '', purpose: '', audienceType: 'public', recipient: '', targetPages: '3', sourceText: '' };
+  return { proposer: '', coreIdea: '', purpose: '', audienceType: 'public', recipient: '', targetPages: '3', sourceText: '', conditions: {} };
 }
 // 항목을 쪽별로 묶는다. 미리보기와 출력이 같은 쪽 나눔을 쓴다.
 function corePagesOf(result) {
@@ -2474,6 +2475,12 @@ function coreProposalView() {
         </div>
         ${auth.memberOpen ? memberProfileForm() : ''}
 <div class="field"><label for="core-idea">핵심 아이디어 <span class="status 확인-필요">필수</span></label><textarea id="core-idea" class="source-text" placeholder="무엇을, 누구에게, 어떻게 하려는지 적어 주세요.&#10;예1) 초등 4~6학년 정서지원 집단 프로그램을 주 1회 16회기로 운영합니다. 학교 상담교사 추천으로 12명을 모집하고, 회기마다 정서표현 활동과 보호자 상담을 함께 합니다.&#10;예2) 홀몸 어르신 30명에게 주 2회 반찬을 배달하며 안부를 확인하고, 이상 징후가 보이면 주민센터에 연계합니다.&#10;예3) 청년 자영업자 20팀에게 온라인 판로 교육 8회와 1:1 컨설팅 3회를 제공해 매출 회복을 돕습니다." ${done || busy ? 'disabled' : ''}>${escapeHtml(draft.coreIdea)}</textarea><small class="muted">${CORE_MIN_IDEA}자 이상 · 지금 ${draft.coreIdea.trim().length}자 · 대상·인원·횟수·방법이 들어가면 제안서가 구체해집니다. 모르는 숫자는 비워 두세요.</small></div>
+        <div class="two-col" id="core-conditions">${CONDITION_FIELDS.map(item => `<div class="field">
+          <label for="cond-${item.key}">${escapeHtml(item.label)} <span class="muted">(선택)</span></label>
+          <input id="cond-${item.key}" list="cond-list-${item.key}" data-core-condition="${item.key}" value="${escapeHtml((draft.conditions || {})[item.key] || '')}" placeholder="고르거나 직접 적기" ${done || busy ? 'disabled' : ''}>
+          <datalist id="cond-list-${item.key}">${item.options.map(option => `<option value="${escapeHtml(option)}"></option>`).join('')}</datalist>
+        </div>`).join('')}</div>
+        <p class="muted">고르지 않아도 됩니다. 비운 칸은 지어내지 않고 [확인 필요]로 남습니다.</p>
         <details><summary>더 적을 것이 있으면 (선택)</summary>
 
 <div class="field"><label for="core-pages">희망 페이지 수</label><input id="core-pages" type="number" min="${CORE_MIN_PAGES}" max="${CORE_MAX_PAGES}" step="1" value="${escapeHtml(draft.targetPages)}" ${done || busy ? 'disabled' : ''}><small class="muted">${CORE_MIN_PAGES}~${CORE_MAX_PAGES}쪽 · 쪽수에 따라 항목 수와 분량이 달라집니다</small></div>
@@ -2522,7 +2529,8 @@ async function runCoreProposal() {
   setAuth({ busy: true, error: '', notice: '' });
   const result = await coreProposalWithAI({
     proposer: draft.proposer.trim(), coreIdea: draft.coreIdea.trim(), purpose: draft.purpose.trim(),
-    audienceType: draft.audienceType, recipient: draft.recipient.trim(), targetPages: pages, sourceText: draft.sourceText.trim()
+    audienceType: draft.audienceType, recipient: draft.recipient.trim(), targetPages: pages, sourceText: draft.sourceText.trim(),
+    conditions: draft.conditions || {}
   }).catch(error => ({ error: error?.message || '핵심제안서를 만들지 못했습니다.' }));
   if (result?.error) {
     const spent = /한 번만/.test(result.error);
@@ -5456,6 +5464,10 @@ function bindCoreProposal() {
   field('#core-recipient', 'recipient');
   field('#core-pages', 'targetPages');
   field('#core-source', 'sourceText');
+  // 단답 조건. 고르든 직접 적든 같은 자리에 담는다.
+  document.querySelectorAll('[data-core-condition]').forEach(el => el.oninput = () => {
+    auth.core.draft.conditions = { ...(auth.core.draft.conditions || {}), [el.dataset.coreCondition]: el.value };
+  });
   // 제출처를 바꾸면 강조점 안내가 함께 바뀌므로 다시 그린다.
   document.querySelector('#core-audience')?.addEventListener('change', event => setAuth({ core: { ...auth.core, draft: { ...auth.core.draft, audienceType: event.target.value } } }));
   document.querySelector('#core-run')?.addEventListener('click', () => void runCoreProposal());
