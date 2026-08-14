@@ -2453,15 +2453,24 @@ function coreProposalView() {
         <p class="landing-lead">받는 곳과 원하는 쪽수에 맞춰 항목 구성과 분량을 먼저 설계하고, 그 구성대로 본문을 씁니다. 같은 말을 늘려 쪽수를 채우지 않습니다.</p>
         <p class="landing-note">${done ? '무료 생성을 이미 사용했습니다. 아래 결과는 다시 볼 수 있지만 새로 만들 수는 없습니다.' : '한 번만 실행됩니다. 아래 내용을 채운 뒤 눌러 주세요.'}</p>
       </div>
-      ${intakePanel()}
       <div class="landing-section">
-        <div class="landing-head"><h2>1단계 · 제안 조건</h2><p>적으신 내용만 근거로 씁니다. 적지 않은 실적·인력·예산은 만들어 넣지 않습니다.</p></div>
-        <div class="field"><label for="core-proposer">제안자·기관 기본정보</label><textarea id="core-proposer" placeholder="예: ○○지역아동센터. 초등 돌봄 12년, 상담 자격 인력 3명." ${done || busy ? 'disabled' : ''}>${escapeHtml(draft.proposer || memberFactsText())}</textarea>${memberFactsText() ? '<small class="muted">저장해 둔 내 기관정보를 불러왔습니다. 「계정 설정 → 내 정보 수정」에서 고치면 다음 문서부터 반영됩니다.</small>' : ''}</div>
-        <div class="field"><label for="core-idea">핵심 아이디어 <span class="status 확인-필요">필수</span></label><textarea id="core-idea" class="source-text" placeholder="무엇을 하려는지 적어 주세요. 예: 초등 고학년 정서지원 집단 프로그램을 주 1회 16회기로 운영하려 합니다." ${done || busy ? 'disabled' : ''}>${escapeHtml(draft.coreIdea)}</textarea><small class="muted">${CORE_MIN_IDEA}자 이상 · 지금 ${draft.coreIdea.trim().length}자</small></div>
-        <div class="field"><label for="core-purpose">제안 목적</label><textarea id="core-purpose" placeholder="예: 내년도 예산 지원을 받기 위한 제안" ${done || busy ? 'disabled' : ''}>${escapeHtml(draft.purpose)}</textarea></div>
-        <div class="field"><label for="core-audience">제출처 유형</label><select id="core-audience" ${done || busy ? 'disabled' : ''}>${AUDIENCE_OPTIONS.map(([key, label]) => `<option value="${key}" ${draft.audienceType === key ? 'selected' : ''}>${label}</option>`).join('')}</select><small class="muted">강조점: ${escapeHtml(audience[2])}</small></div>
-        <div class="field"><label for="core-recipient">실제 제출기관명 (선택)</label><input id="core-recipient" placeholder="예: ○○시청 아동청소년과" value="${escapeHtml(draft.recipient)}" ${done || busy ? 'disabled' : ''}></div>
-        <div class="field"><label for="core-pages">희망 페이지 수</label><input id="core-pages" type="number" min="${CORE_MIN_PAGES}" max="${CORE_MAX_PAGES}" step="1" value="${escapeHtml(draft.targetPages)}" ${done || busy ? 'disabled' : ''}><small class="muted">${CORE_MIN_PAGES}~${CORE_MAX_PAGES}쪽 · 쪽수에 따라 항목 수와 분량이 달라집니다</small></div>
+        <div class="landing-head"><h2>제안 조건</h2><p>두 가지만 적으면 됩니다. 어디에 내는지, 그리고 내가 무엇을 할 수 있고 무엇을 하려는지. 적으신 내용만 근거로 쓰고, 적지 않은 실적·인력·예산은 만들어 넣지 않습니다.</p></div>
+        
+        
+        
+        
+        
+        
+        <h3 style="margin:10px 0 4px">1. 어디에 제안하나요</h3>
+<div class="field"><label for="core-audience">제출처 유형</label><select id="core-audience" ${done || busy ? 'disabled' : ''}>${AUDIENCE_OPTIONS.map(([key, label]) => `<option value="${key}" ${draft.audienceType === key ? 'selected' : ''}>${label}</option>`).join('')}</select><small class="muted">강조점: ${escapeHtml(audience[2])}</small></div>
+<div class="field"><label for="core-recipient">실제 제출기관명 (선택)</label><input id="core-recipient" placeholder="예: ○○시청 아동청소년과" value="${escapeHtml(draft.recipient)}" ${done || busy ? 'disabled' : ''}></div>
+        <h3 style="margin:16px 0 4px">2. 내 여건과 하려는 일</h3>
+<div class="field"><label for="core-proposer">제안자·기관 기본정보</label><textarea id="core-proposer" placeholder="예: ○○지역아동센터. 초등 돌봄 12년, 상담 자격 인력 3명." ${done || busy ? 'disabled' : ''}>${escapeHtml(draft.proposer || memberFactsText())}</textarea>${memberFactsText() ? '<small class="muted">저장해 둔 내 기관정보를 불러왔습니다. 「계정 설정 → 내 정보 수정」에서 고치면 다음 문서부터 반영됩니다.</small>' : ''}</div>
+<div class="field"><label for="core-idea">핵심 아이디어 <span class="status 확인-필요">필수</span></label><textarea id="core-idea" class="source-text" placeholder="무엇을 하려는지 적어 주세요. 예: 초등 고학년 정서지원 집단 프로그램을 주 1회 16회기로 운영하려 합니다." ${done || busy ? 'disabled' : ''}>${escapeHtml(draft.coreIdea)}</textarea><small class="muted">${CORE_MIN_IDEA}자 이상 · 지금 ${draft.coreIdea.trim().length}자</small></div>
+        <details><summary>더 적을 것이 있으면 (선택)</summary>
+<div class="field"><label for="core-purpose">제안 목적</label><textarea id="core-purpose" placeholder="예: 내년도 예산 지원을 받기 위한 제안" ${done || busy ? 'disabled' : ''}>${escapeHtml(draft.purpose)}</textarea></div>
+<div class="field"><label for="core-pages">희망 페이지 수</label><input id="core-pages" type="number" min="${CORE_MIN_PAGES}" max="${CORE_MAX_PAGES}" step="1" value="${escapeHtml(draft.targetPages)}" ${done || busy ? 'disabled' : ''}><small class="muted">${CORE_MIN_PAGES}~${CORE_MAX_PAGES}쪽 · 쪽수에 따라 항목 수와 분량이 달라집니다</small></div>
+        </details>
         <details><summary>참고 자료 붙여넣기 (선택)</summary><div class="field"><label for="core-source">공고문·안내문 등</label><textarea id="core-source" placeholder="있으면 붙여넣어 주세요. 없어도 됩니다." ${done || busy ? 'disabled' : ''}>${escapeHtml(draft.sourceText)}</textarea></div></details>
         <div class="actions"><span class="muted">${done ? '사용 완료' : `${escapeHtml(audience[1])} · ${escapeHtml(draft.targetPages || '?')}쪽`}</span><button class="button primary" id="core-run" ${done || busy ? 'disabled' : ''}>${busy ? '만드는 중…' : '핵심제안서 만들기'}</button></div>
       </div>

@@ -482,3 +482,19 @@ test('미리보기와 내려받기가 같은 쪽 나눔을 쓰고 글자 크기�
   // 쪽수를 맞추려고 글자 크기·여백을 줄이지 않는다. 기존 값이 그대로다.
   assert.match(pdfSource, /export const PAGE = \{ width: 210, height: 297, top: 16, right: 15, bottom: 18, left: 15 \}/);
 });
+
+test('핵심제안서는 두 가지만 묻는다 — 어디에 내는지, 내 여건과 하려는 일', async () => {
+  const fs = await import('node:fs');
+  const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  const at = app.indexOf('function coreProposalView');
+  const view = app.slice(at, app.indexOf('\n}\n', at));
+  // 전체 계획서용 13개 질문 판은 이 화면에 없다.
+  assert.ok(!view.includes('intakePanel'), '작성정보 13문항은 핵심제안서에 넣지 않는다');
+  // 두 묶음으로만 묻는다.
+  assert.match(view, /1\. 어디에 제안하나요/);
+  assert.match(view, /2\. 내 여건과 하려는 일/);
+  // 나머지는 접어 둔다. 필수는 아이디어 하나뿐이다.
+  assert.match(view, /<details><summary>더 적을 것이 있으면 \(선택\)<\/summary>/);
+  const order = [...view.matchAll(/<label for="(core-[a-z]+)"/g)].map(match => match[1]);
+  assert.deepEqual(order.slice(0, 4), ['core-audience', 'core-recipient', 'core-proposer', 'core-idea']);
+});
