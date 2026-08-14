@@ -19,6 +19,7 @@ import { operatorAgencyList, operatorNoticeCollection, operatorApprove, operator
 import { codeLabel, statusLabel, warningLabel } from '../server/notice-run.js';
 import { ABILITIES, SCOPES } from '../server/permissions.js';
 import { BUSINESS_TYPES, SOURCE_GROUPS } from '../server/notice-sources.js';
+import { STAT_SKIP_LABELS, statSourceState } from '../server/stat-sources.js';
 import { FITNESS_LABELS } from '../server/notice-classify.js';
 import { ORG_TYPES, QUICK_FIELDS, followUpQuestions, quickToApplicantItems, readyToDraft } from '../server/quick-org.js';
 import { ANSWER_CHOICES, HIDDEN_EXPERT, MAX_QUESTIONS as SIMPLE_MAX_QUESTIONS, RESULT_ACTIONS, SIMPLE_STEPS, answerValue, currentStep as simpleStep, viewModeFor } from '../server/simple-flow.js';
@@ -1182,6 +1183,18 @@ function sourcePanel({ readOnly = false } = {}) {
 }
 
 // 상태판. 「공고 검색이 되는 것」과 「최신 공고가 들어오는 것」을 따로 보여 준다.
+// 통계 근거 출처. 아직 인증키가 없어 꺼져 있다는 사실을 숨기지 않는다.
+function statSourcePanel() {
+  const rows = statSourceState();
+  return `<h4 style="margin-top:16px">통계 근거 출처 ${rows.length}곳 <span class="status 확인-필요">미연동</span></h4>
+    <p class="muted">배경·필요성에 쓸 지역 수치를 공식 통계에서 가져오는 자리입니다. 우리 기관의 이용자 수·실적·만족도는 통계표에 없으므로 여기서 채워지지 않습니다. 인증키가 등록되기 전에는 아무 곳에도 요청하지 않고, 수치를 만들어 넣지도 않습니다.</p>
+    <div class="requirement-list">${rows.map(row => `<article class="requirement"><div>
+      <div><span class="status 확인-필요">${escapeHtml(STAT_SKIP_LABELS[row.blocked] || row.blocked)}</span> <strong>${escapeHtml(row.label)}</strong> <span class="muted">${escapeHtml(row.organization)}</span></div>
+      <small class="muted">${escapeHtml(row.gives)}</small>
+      <small class="muted">${escapeHtml(row.note)}</small>
+    </div></article>`).join('')}</div>`;
+}
+
 function collectionPanel({ readOnly = false } = {}) {
   const view = collectionState();
   const state = view.state;
@@ -1212,6 +1225,7 @@ function collectionPanel({ readOnly = false } = {}) {
       <small class="muted">${escapeHtml(`조회 ${source.listed}건 · 공모 후보 ${source.candidates}건 · 발급 ${source.collected}건${source.status === 'ok' ? '' : ` · ${codeLabel(source.code)}`}`)}</small>
     </div></article>`).join('')}</div>` : '<p class="muted">아직 실행 기록이 없습니다.</p>'}
     ${sourcePanel({ readOnly })}
+    ${statSourcePanel()}
     <h4>최근 실행</h4>
     <div class="requirement-list">${view.runs.map(run => `<article class="requirement"><div>
       <div><strong>${runStamp(run.startedAt)}</strong> <span class="status ${run.status === 'ok' ? '충족' : run.status === 'failed' ? '부족' : '확인-필요'}">${escapeHtml(statusLabel(run.status))}</span> <span class="tag">${run.trigger === 'manual' ? '수동' : '자동'}</span></div>
