@@ -323,7 +323,7 @@ test('검색 범위는 회원등급이 정하고 서버가 막는다', async () 
   assert.equal(blocked.status, 403);
   assert.equal((await blocked.json()).needsApproval, true);
 
-  // 정식회원은 현재 모집 중인 공고만 본다. 마감 공고 d는 나오지 않는다.
+  // 승인회원은 현재 모집 중인 공고만 본다. 마감 공고 d는 나오지 않는다.
   const member = await seedMember(db, { id: 'm-9', email: 'm9@ms12.test' });
   const open = await through(db, post('/api/public', { action: 'searchNotices', query: '' }, { cookie: member }), 'public');
   const openBody = await open.json();
@@ -343,7 +343,7 @@ test('검색 범위는 회원등급이 정하고 서버가 막는다', async () 
 });
 
 test('공개 화면 문구가 새 회원계약을 따른다', () => {
-  assert.match(app, /회원가입 후 관리자의 승인을 받은 정식회원은 현재 모집 중인 공모정보를 검색할 수 있습니다/);
+  assert.match(app, /회원가입 후 관리자의 승인을 받은 승인회원은 현재 모집 중인 공모정보를 검색할 수 있습니다/);
   assert.doesNotMatch(app, /회원가입 없이 지금 열려 있는 공모/);
   assert.doesNotMatch(app, /회원가입 없이 검색할 수 있습니다/);
 });

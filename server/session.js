@@ -56,7 +56,7 @@ export async function createSession(db, userId, now = new Date()) {
 }
 
 // 만료·비활성 계정은 세션이 있어도 통과시키지 않는다.
-// 임명이 살아 있는 동안만 대행회원으로 읽는다. 운영 계정의 역할은 바꾸지 않는다.
+// 임명이 살아 있는 동안만 에이전트로 읽는다. 운영 계정의 역할은 바꾸지 않는다.
 function roleWithAgency(row) {
   if (row.role === 'admin' || row.role === 'operator') return row.role;
   const today = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);

@@ -7,7 +7,7 @@
 // 바로가기 목록. 화면 순서도 이 순서다.
 export const ADMIN_SHORTCUTS = Object.freeze([
   { key: 'pending', label: '승인 대기 회원', tool: 'admin', tab: 'accounts', unit: '명' },
-  { key: 'agency', label: '대행회원·고객 의뢰', tool: 'admin', tab: 'agency', unit: '건' },
+  { key: 'agency', label: '에이전트·고객 의뢰', tool: 'admin', tab: 'agency', unit: '건' },
   { key: 'notices', label: '공고보관함', tool: 'admin', tab: 'notices', unit: '건' },
   { key: 'collection', label: '공고 수집 상태', tool: 'admin', tab: 'collection', unit: '' },
   { key: 'drafts', label: '작성 중인 계획서', tool: 'admin', tab: 'access', unit: '건' },
@@ -44,7 +44,7 @@ export async function adminOverview(db) {
       { key: 'pending', value: num(pending), note: num(pending) ? '승인을 기다리는 계정이 있습니다.' : '대기 중인 계정이 없습니다.' },
       {
         key: 'agency', value: Number(agencyProposals?.n || 0),
-        note: `대행회원 ${num(agency)}명 · 등록 고객 ${Number(agencyClients?.n || 0)}곳`
+        note: `에이전트 ${num(agency)}명 · 등록 고객 ${Number(agencyClients?.n || 0)}곳`
       },
       { key: 'notices', value: num(notices), note: '모아 둔 공고 전체입니다.' },
       {

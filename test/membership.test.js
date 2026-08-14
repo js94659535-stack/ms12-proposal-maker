@@ -462,7 +462,7 @@ test('회원 안내 비교표가 실제 권한과 어긋나지 않는다', async
   const fs = await import('node:fs');
   const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   // 전체 이용권(legacy)은 구독 없이도 편집·저장·출력이 열린다. 표에 그 칸이 있어야 한다.
-  assert.match(app, /\['legacy', '전체 이용권'\]/);
+  assert.match(app, /\['legacy', '일반회원'\]/);
   assert.match(app, /legacy: '생성·편집·저장·DOCX·PDF'/);
   assert.match(app, /legacy: '전체 계획서 작성·검증·출력'/);
   // 내 등급을 다른 칸으로 바꿔 강조하지 않는다.
@@ -471,4 +471,41 @@ test('회원 안내 비교표가 실제 권한과 어긋나지 않는다', async
   assert.match(app, /계정당 평생 1회 읽기/);
   // 정식회원의 기관정보는 전체 계획서에 바로 쓰이지 않는다.
   assert.match(app, /기관정보 관리 · 전체 계획서 작성은 구독 후 활용/);
+});
+
+test('회원 단계를 일곱으로 구조화하고 화면이 그 표 하나를 본다', async () => {
+  const fs = await import('node:fs');
+  const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  const steps = (await import('../server/membership.js')).MEMBER_STEPS;
+  assert.deepEqual(steps.map(step => step.label),
+    ['승인 대기', '승인회원', '일반회원', '구독회원', '에이전트', '운영자', '관리자']);
+  // 상태·등급·역할 세 축을 각 단계에 적어 둔다.
+  assert.deepEqual([...new Set(steps.map(step => step.axis))], ['상태', '등급', '역할']);
+  // 모든 단계에 열리는 것과 하는 일이 적혀 있다.
+  for (const step of steps) { assert.ok(step.open.length > 5, step.label); assert.ok(step.act.length > 5, step.label); }
+  // 화면은 문구를 따로 적지 않고 이 표를 그린다.
+  assert.match(app, /function memberStepsView\(\) \{/);
+  assert.match(app, /MEMBER_STEPS\.map\(\(step, index\)/);
+});
+
+test('프리미엄이라 부르지 않고 수주회원 이름 뒤에 왕관을 붙인다', async () => {
+  const fs = await import('node:fs');
+  const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  const { PREMIUM_LABEL, PREMIUM_MARK, withPremiumMark } = await import('../server/premium.js');
+  assert.equal(PREMIUM_LABEL, '수주회원');
+  assert.equal(PREMIUM_MARK, '👑');
+  assert.equal(withPremiumMark('홍요한', true), '홍요한 👑');
+  assert.equal(withPremiumMark('홍요한', false), '홍요한');
+  // 회원 목록에서 이름 뒤에 붙는다.
+  assert.match(app, /\$\{item\.contract \? ' 👑' : ''\}/);
+  assert.doesNotMatch(app, /프리미엄회원/);
+});
+
+test('대행회원이라는 말을 쓰지 않고 에이전트로 부른다', async () => {
+  const fs = await import('node:fs');
+  const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  const roles = fs.readFileSync(new URL('../server/roles.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(app, /대행회원/);
+  assert.doesNotMatch(roles, /대행회원/);
+  assert.match(roles, /agency: '에이전트'/);
 });

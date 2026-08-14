@@ -12,21 +12,21 @@ test('역할은 네 가지이고 하는 일이 각각 적혀 있다', () => {
   assert.deepEqual(ROLES, ['admin', 'operator', 'agency', 'customer']);
   assert.equal(ROLE_LABEL.admin, '최고관리자');
   assert.equal(ROLE_LABEL.operator, '운영관리자');
-  assert.equal(ROLE_LABEL.agency, '대행회원');
+  assert.equal(ROLE_LABEL.agency, '에이전트');
   assert.equal(ROLE_LABEL.customer, '일반회원');
   assert.match(ROLE_DUTY.agency, /자기 고객을 등록해 계획서 작성 대행/);
   assert.match(ROLE_DUTY.operator, /최고관리자가 허용한 운영업무/);
 });
 
-test('대행회원은 회원 쪽이고 고객 기관을 여럿 둔다', () => {
+test('에이전트는 회원 쪽이고 고객 기관을 여럿 둔다', () => {
   assert.ok(MEMBER_ROLES.includes('agency') && MEMBER_ROLES.includes('customer'));
-  assert.ok(!isStaffRole('agency'), '대행회원은 운영 계정이 아니다');
+  assert.ok(!isStaffRole('agency'), '에이전트는 운영 계정이 아니다');
   assert.ok(canHoldClients('agency'));
   assert.ok(!canHoldClients('customer'), '일반회원은 자기 기관만 쓴다');
 });
 
-test('관리자 화면의 역할 목록에는 대행회원이 없다', () => {
-  // 대행회원은 역할 목록이 아니라 임명 기록으로 정해진다. 「대행회원 관리」에서 다룬다.
+test('관리자 화면의 역할 목록에는 에이전트이 없다', () => {
+  // 에이전트는 역할 목록이 아니라 임명 기록으로 정해진다. 「에이전트 관리」에서 다룬다.
   assert.deepEqual(ASSIGNABLE_ROLES, ['customer', 'operator']);
   assert.ok(!ASSIGNABLE_ROLES.includes('admin'), '최고관리자는 화면에서 넘겨주지 않는다');
   // 서버가 같은 목록으로 막는다. 화면 목록만 늘려도 통과하지 않는다.
@@ -36,7 +36,7 @@ test('관리자 화면의 역할 목록에는 대행회원이 없다', () => {
   assert.match(app, /ASSIGNABLE_ROLES\.map\(role =>/);
 });
 
-test('대행회원 기본 화면은 간편이고 상세로 바꿔 볼 수 있다', () => {
+test('에이전트 기본 화면은 간편이고 상세로 바꿔 볼 수 있다', () => {
   const agency = viewModeFor({ role: 'agency' });
   assert.equal(agency.mode, 'simple');
   assert.equal(agency.canToggle, true);
@@ -47,7 +47,7 @@ test('대행회원 기본 화면은 간편이고 상세로 바꿔 볼 수 있다
 
 test('역할 이름을 화면마다 다르게 부르지 않는다', () => {
   assert.match(app, /const ROLE_LABELS = \{ admin: roleLabel\('admin'\)/);
-  assert.equal(roleLabel('agency'), '대행회원');
+  assert.equal(roleLabel('agency'), '에이전트');
   // 소셜 연결 이전은 회원 계정에만 열린다.
   assert.match(admin, /if \(!MEMBER_ROLES\.includes\(found\.role\)\)/);
 });

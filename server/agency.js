@@ -1,13 +1,13 @@
-// 대행회원 자격과 AI 사용 한도.
+// 에이전트 자격과 AI 사용 한도.
 //
 // 규칙 세 가지를 여기 한 곳에 둔다.
-//  1. 자격은 최고관리자만 준다. 신청·결제로 올라가지 않고 대행회원끼리 넘길 수도 없다.
+//  1. 자격은 최고관리자만 준다. 신청·결제로 올라가지 않고 에이전트끼리 넘길 수도 없다.
 //  2. 요금은 받지 않지만 AI 비용은 한도로 막는다. 한도를 정하지 않았으면 기본 한도를 쓴다(무제한 아님).
 //  3. 자격을 잃으면 대행 업무 자료는 다음 요청부터 닫힌다. 자료는 지우지 않고 최고관리자가 보존한다.
 
 export const AGENCY_STATUSES = Object.freeze(['active', 'paused', 'revoked']);
 export const AGENCY_STATUS_LABEL = Object.freeze({
-  active: '이용 중', paused: '일시중지', revoked: '자격 해제', none: '대행회원 아님'
+  active: '이용 중', paused: '일시중지', revoked: '자격 해제', none: '에이전트 아님'
 });
 
 // 최고관리자가 값을 정하지 않았을 때 적용하는 기본 한도. 비워 두어도 무제한이 되지 않는다.
@@ -49,16 +49,16 @@ export function limitsOf(row = {}) {
 
 // 화면·서버가 함께 보는 자격 상태. 날짜는 한국시간 기준 날짜 문자열(YYYY-MM-DD)로 비교한다.
 export function agencyState(row, today = todayInSeoul()) {
-  if (!row || !row.user_id) return { has: false, active: false, status: 'none', reason: '대행회원이 아닙니다.' };
+  if (!row || !row.user_id) return { has: false, active: false, status: 'none', reason: '에이전트이 아닙니다.' };
   const status = AGENCY_STATUSES.includes(row.status) ? row.status : 'revoked';
   const starts = String(row.starts_on || '');
   const ends = String(row.ends_on || '');
   const limits = limitsOf(row);
   const base = { has: true, status, limits, startsOn: starts, endsOn: ends, grantedAt: row.granted_at || '', note: row.note || '' };
-  if (status === 'revoked') return { ...base, active: false, reason: '대행회원 자격이 해제되었습니다. 기존 자료는 최고관리자가 보존합니다.' };
-  if (status === 'paused') return { ...base, active: false, reason: '대행회원 사용이 일시중지되었습니다. 최고관리자에게 문의해 주세요.' };
+  if (status === 'revoked') return { ...base, active: false, reason: '에이전트 자격이 해제되었습니다. 기존 자료는 최고관리자가 보존합니다.' };
+  if (status === 'paused') return { ...base, active: false, reason: '에이전트 사용이 일시중지되었습니다. 최고관리자에게 문의해 주세요.' };
   if (starts && today < starts) return { ...base, active: false, reason: `대행 업무는 ${starts}부터 시작합니다.` };
-  if (ends && today > ends) return { ...base, active: false, reason: `대행회원 자격이 ${ends}에 끝났습니다.` };
+  if (ends && today > ends) return { ...base, active: false, reason: `에이전트 자격이 ${ends}에 끝났습니다.` };
   return { ...base, active: true, reason: '' };
 }
 
@@ -119,19 +119,19 @@ export function limitKindFor(task) {
 export function canManageAgency(actor) {
   return Boolean(actor && actor.role === 'admin' && actor.status === 'active');
 }
-// 대행회원이 자기 자격이나 남의 자격을 건드리는 일을 막는다.
+// 에이전트이 자기 자격이나 남의 자격을 건드리는 일을 막는다.
 export function rejectsSelfPromotion(actor, targetId) {
-  if (!canManageAgency(actor)) return { allowed: false, reason: '대행회원 지정·해제는 최고관리자만 할 수 있습니다.' };
-  if (String(actor.id) === String(targetId)) return { allowed: false, reason: '자기 계정의 대행회원 자격은 이 화면에서 바꿀 수 없습니다.' };
+  if (!canManageAgency(actor)) return { allowed: false, reason: '에이전트 지정·해제는 최고관리자만 할 수 있습니다.' };
+  if (String(actor.id) === String(targetId)) return { allowed: false, reason: '자기 계정의 에이전트 자격은 이 화면에서 바꿀 수 없습니다.' };
   return { allowed: true, reason: '' };
 }
 
-// 인계는 자격이 살아 있는 다른 대행회원에게만 한다.
+// 인계는 자격이 살아 있는 다른 에이전트에게만 한다.
 export function transferCheck({ from, to, fromState, toState }) {
-  if (!from || !to) return { allowed: false, reason: '넘길 대행회원과 받을 대행회원을 모두 고르세요.' };
+  if (!from || !to) return { allowed: false, reason: '넘길 에이전트와 받을 에이전트를 모두 고르세요.' };
   if (String(from) === String(to)) return { allowed: false, reason: '같은 계정으로는 인계할 수 없습니다.' };
-  if (!fromState?.has) return { allowed: false, reason: '넘길 자료의 대행회원 기록이 없습니다.' };
-  if (!toState?.has) return { allowed: false, reason: '받을 계정이 대행회원이 아닙니다. 먼저 대행회원으로 지정하세요.' };
+  if (!fromState?.has) return { allowed: false, reason: '넘길 자료의 에이전트 기록이 없습니다.' };
+  if (!toState?.has) return { allowed: false, reason: '받을 계정이 에이전트이 아닙니다. 먼저 에이전트로 지정하세요.' };
   if (toState.status === 'revoked') return { allowed: false, reason: '자격이 해제된 계정으로는 인계할 수 없습니다.' };
   return { allowed: true, reason: '' };
 }

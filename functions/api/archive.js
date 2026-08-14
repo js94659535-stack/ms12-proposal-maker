@@ -34,12 +34,12 @@ export async function onRequest(context) {
       // 자격이 없거나 해제·중지되었으면 대행 업무 자료는 다음 요청부터 닫힌다. 자료는 지우지 않는다.
       const agency = await stateFor(context.env.ARCHIVE_DB, sessionUser?.id || '');
       if (!agency.active) {
-        return json({ error: agency.reason || '대행회원만 열 수 있는 자료입니다.', agencyBlocked: true }, 403);
+        return json({ error: agency.reason || '에이전트만 열 수 있는 자료입니다.', agencyBlocked: true }, 403);
       }
       await touchActivity(context.env.ARCHIVE_DB, sessionUser.id);
     }
     // 계획서 보관은 구독·프리미엄·기존 전체 이용권에서만 열린다.
-    // 승인 대기 회원은 아무것도 저장하지 않고, 정식회원의 5쪽 제안서는 읽기 전용이다.
+    // 승인 대기 회원은 아무것도 저장하지 않고, 승인회원의 5쪽 제안서는 읽기 전용이다.
     if (body.action === 'saveProposal') {
       const refusal = await saveRefusal(context);
       if (refusal) return json(refusal.body, refusal.status);
@@ -148,7 +148,7 @@ export async function saveProposal(db, ownerHash, value, userId = '', workspace 
 
 export async function listProposals(db, ownerHash, workspace = 'personal', agencyUserId = '') {
   // 개인 작업공간에는 대행 업무 자료가 섞이지 않는다. 반대도 마찬가지다.
-  // 대행 업무 자료는 대행회원 계정으로 찾는다. 인계로 주인이 바뀌어도 새 대행회원이 그대로 연다.
+  // 대행 업무 자료는 에이전트 계정으로 찾는다. 인계로 주인이 바뀌어도 새 에이전트이 그대로 연다.
   const rows = workspace === 'agency'
     ? await db.prepare(`SELECT id, notice_key, title, stage, created_at, updated_at FROM archived_proposals
         WHERE agency_user_id = ? AND workspace = 'agency' ORDER BY updated_at DESC LIMIT 100`).bind(String(agencyUserId || '')).all()
@@ -200,7 +200,7 @@ export async function saveApplicant(db, ownerHash, value, userId = '', workspace
   const payload = JSON.stringify(applicant);
   if (new TextEncoder().encode(payload).byteLength > MAX_APPLICANT_BYTES) throw new Error('invalid applicant');
   const existing = await db.prepare('SELECT created_at FROM applicant_organizations WHERE id = ? AND owner_hash = ?').bind(applicant.id, ownerHash).first();
-  // 대행회원이 등록한 고객 기관과 자기 기관을 갈라 둔다.
+  // 에이전트이 등록한 고객 기관과 자기 기관을 갈라 둔다.
   const space = workspace === 'agency' ? 'agency' : 'personal';
   const agencyId = space === 'agency' ? String(userId || '') : '';
   const now = new Date().toISOString();

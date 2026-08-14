@@ -15,10 +15,62 @@ export const APPROVAL_LABELS = Object.freeze({ pending: '승인 대기', active:
 
 // 고객등급. 운영관리자·관리자는 고객등급이 아니므로 여기 없다.
 export const TIERS = Object.freeze(['pending', 'member', 'subscriber', 'premium']);
+// 회원 단계는 일곱이다. 승인 대기 → 승인회원 → 일반회원 → 구독회원, 그리고 에이전트·운영자·관리자.
+// 수주계약은 등급으로 두지 않는다. 이름 뒤 왕관으로만 표시한다(PREMIUM_MARK).
 export const TIER_LABELS = Object.freeze({
-  pending: '승인 대기 회원', member: '정식회원', subscriber: '구독회원', premium: '프리미엄회원',
-  legacy: '정식회원(기존 전체 이용권)', staff: '운영 계정'
+  pending: '승인 대기', member: '승인회원', legacy: '일반회원', subscriber: '구독회원',
+  premium: '수주회원', staff: '운영 계정'
 });
+
+// 일곱 단계의 열림 범위와 활동 범위. 화면·안내표·보고가 모두 이 표 하나를 본다.
+// 문구를 화면마다 따로 적으면 실제 권한과 어긋난다. 실제로 「전체 이용권」 등급이 표에서 빠져
+// 회원이 자기와 다른 칸을 「지금 내 등급」으로 보고 있었다.
+export const MEMBER_STEPS = Object.freeze([
+  Object.freeze({
+    key: 'pending', label: '승인 대기', axis: '상태',
+    open: '기능 이름만 확인 · 실제 자료와 AI는 잠금',
+    act: '가입정보 입력, 관리자 승인 기다리기',
+    next: '관리자가 승인하면 승인회원이 된다'
+  }),
+  Object.freeze({
+    key: 'member', label: '승인회원', axis: '등급',
+    open: '핵심제안서 5쪽 · 계정당 평생 1회 · 읽기 전용, 공모정보 검색, 기관정보 관리',
+    act: '핵심제안서 한 번 만들어 보기, 기관정보 쌓아 두기',
+    next: '전체 이용권을 받거나 구독을 신청하면 편집·저장·출력이 열린다'
+  }),
+  Object.freeze({
+    key: 'legacy', label: '일반회원', axis: '등급',
+    open: '전체 계획서 작성·검증·출력 · 편집·저장·DOCX·PDF · 진단서',
+    act: '자기 기관 계획서를 처음부터 끝까지 작성',
+    next: '결제 없이 관리자가 부여한 이용권이다'
+  }),
+  Object.freeze({
+    key: 'subscriber', label: '구독회원', axis: '등급',
+    open: '월 편수 안에서 핵심제안서·진단서 · 편집·저장·출력',
+    act: '매달 정해진 편수만큼 작성',
+    next: '수주계약을 맺으면 이름 뒤에 왕관이 붙는다'
+  }),
+  Object.freeze({
+    key: 'agency', label: '에이전트', axis: '역할',
+    open: '고객 기관을 등록해 대신 작성 · 고객별 사용량 한도',
+    act: '여러 고객 기관의 계획서 작성 대행',
+    next: '최고관리자가 임명·해제한다. 요금 상품이 아니다'
+  }),
+  Object.freeze({
+    key: 'operator', label: '운영자', axis: '역할',
+    open: '허용된 운영업무 · 회원 승인·중지·검색 · 읽기 위주',
+    act: '가입 승인, 이용 흔적 확인, 잠금 해제',
+    next: '권한 범위는 최고관리자가 정한다'
+  }),
+  Object.freeze({
+    key: 'admin', label: '관리자', axis: '역할',
+    open: '전체 관리·열람 · 이용권 부여 · 에이전트 임명 · 수주계약 등록',
+    act: '플랫폼 운영 전반',
+    next: '화면에서 역할로 부여하지 않는다'
+  })
+]);
+// 수주계약은 등급이 아니다. 위 어느 단계든 계약이 있으면 이름 뒤에 왕관을 붙인다.
+export const PREMIUM_STEP_NOTE = '수주계약을 맺으면 등급과 별개로 이름 뒤에 👑이 붙고, 계약한 전문 작업이 열립니다.';
 
 // 값이 흩어지지 않게 가격·편수·쪽수를 여기 한 곳에 둔다.
 export const PRICING = Object.freeze({
@@ -31,7 +83,7 @@ export const PRICING = Object.freeze({
 export const QUOTAS = Object.freeze({
   // 구독 주기마다 새로 주어지는 편수.
   subscriber: Object.freeze({ coreProposal: 3, diagnosis: 5, maxPages: 20 }),
-  // 정식회원은 계정당 한 번, 5쪽 고정, 읽기 전용이다.
+  // 승인회원은 계정당 한 번, 5쪽 고정, 읽기 전용이다.
   member: Object.freeze({ coreProposal: 1, diagnosis: 0, maxPages: 5 })
 });
 export const MEMBER_FREE_PAGES = QUOTAS.member.maxPages;
@@ -44,8 +96,8 @@ export const DIAGNOSIS_ACTION = 'diagnosis';
 export const EXPERT_ACTIONS = Object.freeze(['analyze', 'master', 'draftPart', 'draft', 'fullProposal', 'preciseReview', 'patchSections', 'rewrite', 'finalize']);
 
 export const LOCKED_NOTICE = '승인 대기 중에는 볼 수만 있습니다. 관리자가 승인하면 열립니다.';
-export const MEMBER_ONE_SHOT = `정식회원은 ${MEMBER_FREE_PAGES}쪽 핵심제안서를 계정당 한 번, 읽기 전용으로 만들 수 있습니다.`;
-export const MEMBER_READ_ONLY = `정식회원의 핵심제안서는 읽기 전용입니다. 편집·재작성·저장·DOCX·PDF·ZIP 출력은 ${PRICING.applyLabel} 후에 열립니다.`;
+export const MEMBER_ONE_SHOT = `승인회원은 ${MEMBER_FREE_PAGES}쪽 핵심제안서를 계정당 한 번, 읽기 전용으로 만들 수 있습니다.`;
+export const MEMBER_READ_ONLY = `승인회원의 핵심제안서는 읽기 전용입니다. 편집·재작성·저장·DOCX·PDF·ZIP 출력은 ${PRICING.applyLabel} 후에 열립니다.`;
 export const NEED_SUBSCRIPTION = `${PRICING.applyLabel} 후에 쓸 수 있는 기능입니다.`;
 export const NEED_PREMIUM_WORK = '계약한 전문 전체 계획서 작업은 정식 수주계약이 진행 중일 때만 시작할 수 있습니다.';
 export const QUOTA_SPENT = Object.freeze({
@@ -100,7 +152,7 @@ export function membershipPlans() {
 export function membershipOf({ user = {}, subscription = null, contract = null, agencyActive = false } = {}) {
   const approval = approvalOf(user.status);
   const staff = ['admin', 'operator'].includes(user.role);
-  // 대행회원은 요금을 내지 않는다. 최고관리자가 연 자격이 이용 권한을 대신한다.
+  // 에이전트는 요금을 내지 않는다. 최고관리자가 연 자격이 이용 권한을 대신한다.
   const legacyFull = !staff && (user.plan === 'full' || agencyActive === true);
   const subscriptionActive = subscription?.status === 'active';
   // 프리미엄 여부는 계약으로만 판정한다. users.plan = 'full' 하나로 정하지 않는다.
@@ -156,7 +208,7 @@ export function membershipRefusal(state, action) {
   return null;
 }
 
-// 핵심제안서 쪽수는 등급이 정한다. 정식회원은 5쪽으로 고정한다.
+// 핵심제안서 쪽수는 등급이 정한다. 승인회원은 5쪽으로 고정한다.
 export function corePagesFor(state, requested) {
   const wanted = Number(requested) || MEMBER_FREE_PAGES;
   if (state.tier === 'member') return MEMBER_FREE_PAGES;

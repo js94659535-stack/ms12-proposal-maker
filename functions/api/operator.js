@@ -49,7 +49,7 @@ export async function onRequest(context) {
 
   // 공고 자동수집 상태는 운영관리자도 본다. 실행 단추는 주지 않는다.
   if (action === 'noticeCollection') return json({ ...await collectionStatus(db), readOnly: true }, 200);
-  // 대행회원 현황은 운영관리자도 본다. 지정·해제·한도·인계는 위 BLOCKED_ACTIONS에서 막힌다.
+  // 에이전트 현황은 운영관리자도 본다. 지정·해제·한도·인계는 위 BLOCKED_ACTIONS에서 막힌다.
   if (action === 'agencyList') return json({ ...await listAgencies(db), readOnly: true }, 200);
   if (action === 'overview') return json(await overview(db, body), 200);
   if (action === 'userDetail') return userDetail(db, body.id);

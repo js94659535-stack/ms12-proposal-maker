@@ -10,7 +10,7 @@ async function post(action, payload = {}) {
 }
 
 export const operatorOverview = (query = '') => post('overview', { query });
-// 대행회원 현황은 조회만 한다.
+// 에이전트 현황은 조회만 한다.
 export const operatorAgencyList = () => post('agencyList');
 export const operatorUserDetail = id => post('userDetail', { id });
 // 사용량·비용은 읽기만 한다. 단가·상한을 바꾸는 동작은 서버가 거절한다.

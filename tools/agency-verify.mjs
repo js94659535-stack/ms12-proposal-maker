@@ -1,4 +1,4 @@
-// 대행회원 정책을 역할별로 실제 확인한다. 시험계정만 쓰고 운영 회원 자료는 건드리지 않는다.
+// 에이전트 정책을 역할별로 실제 확인한다. 시험계정만 쓰고 운영 회원 자료는 건드리지 않는다.
 // 확인 순서: 지정 → 대행 화면 → 한도 → 해제 → 개인 작업공간 → 인계 → 차단.
 import fs from 'node:fs';
 import { SITE, attach, launch, scratch, step } from './e2e-lib.mjs';
@@ -44,13 +44,13 @@ const archiveCall = (action, body = {}) => page.run(`(async () => {
 try {
   await page.size(1280, 800);
 
-  // ---------- 1. 최고관리자가 일반회원을 대행회원으로 지정 ----------
+  // ---------- 1. 최고관리자가 일반회원을 에이전트로 지정 ----------
   record(1, '최고관리자 로그인', await signIn(byRole.admin), byRole.admin.email);
   const granted = await call('/api/admin', { action: 'setAgency', id: byRole.customer.id, status: 'active', note: 'E2E-AGENCY 시험 지정' });
-  record(2, '대행회원 지정', granted?.status === 200, `HTTP ${granted?.status} ${granted?.error || ''}`);
+  record(2, '에이전트 지정', granted?.status === 200, `HTTP ${granted?.status} ${granted?.error || ''}`);
   const list = await call('/api/admin', { action: 'agencyList' });
   const listed = (list?.data?.agencies || []).find(row => row.userId === byRole.customer.id);
-  record(3, '대행회원 목록·건수·한도 표시', Boolean(listed),
+  record(3, '에이전트 목록·건수·한도 표시', Boolean(listed),
     listed ? `${listed.status} · 고객 ${listed.footprint?.clients}곳 · 편수 한도 ${listed.limits?.monthlyPlans}편` : '목록에 없음');
 
   // 한도를 아주 낮게 바꿔 초과 상황을 만든다.
@@ -72,17 +72,17 @@ try {
   const memberGrant = await call('/api/admin', { action: 'setAgency', id: byRole.other.id, status: 'active' });
   record(7, '일반회원 지정 요청 차단', memberGrant?.status === 403, `HTTP ${memberGrant?.status}`);
 
-  // ---------- 3. 대행회원 본인 ----------
+  // ---------- 3. 에이전트 본인 ----------
   await signIn(byRole.customer);
   const me = await call('/api/account', { action: 'agencyMe' });
-  record(8, '대행회원 본인 자격·남은 한도 조회', me?.status === 200 && me?.data?.has === true,
+  record(8, '에이전트 본인 자격·남은 한도 조회', me?.status === 200 && me?.data?.has === true,
     `자격 ${me?.data?.status} · 남은 편수 ${me?.data?.remaining?.plans} · 갱신 ${me?.data?.remaining?.renewsOn}`);
   await page.go(SITE, 4000);
   const view = await page.run(`(() => JSON.stringify({
     quota: /남은 계획서/.test(document.body.innerText || ''),
     toggle: !!document.querySelector('#toggle-workspace')
   }))()`);
-  record(9, '대행회원 화면에 남은 편수·작업공간 전환 표시', view?.quota === true && view?.toggle === true, `표시 ${view?.quota} · 전환 ${view?.toggle}`);
+  record(9, '에이전트 화면에 남은 편수·작업공간 전환 표시', view?.quota === true && view?.toggle === true, `표시 ${view?.quota} · 전환 ${view?.toggle}`);
 
   // 토큰 상한을 1로 두었으므로 첫 호출은 통과하고(사용량 0), 그 호출이 남긴 토큰 때문에 다음 호출이 막힌다.
   // 가짜 사용기록을 만들지 않고 실제 사용량으로 확인한다.
@@ -136,7 +136,7 @@ try {
 
   await signIn(byRole.other);
   const received = await archiveCall('listApplicants', { workspace: 'agency' });
-  record(19, '인계받은 대행회원이 자료를 봄', received?.status === 200, `HTTP ${received?.status} · ${received?.n}곳`);
+  record(19, '인계받은 에이전트이 자료를 봄', received?.status === 200, `HTTP ${received?.status} · ${received?.n}곳`);
 
   // ---------- 6. 감사기록 ----------
   await signIn(byRole.admin);
@@ -150,5 +150,5 @@ try {
   page.close();
   chrome.kill();
 }
-console.log(failures ? `\n실패 ${failures}건` : '\n대행회원 정책 확인 통과');
+console.log(failures ? `\n실패 ${failures}건` : '\n에이전트 정책 확인 통과');
 process.exit(0);

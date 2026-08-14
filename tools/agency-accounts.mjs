@@ -1,4 +1,4 @@
-// 대행회원 확인용 시험계정을 운영 화면의 가입 절차로 만든다.
+// 에이전트 확인용 시험계정을 운영 화면의 가입 절차로 만든다.
 // 표식은 E2E-AGENCY. 확인이 끝나면 지운다. 운영 회원은 건드리지 않는다.
 import fs from 'node:fs';
 import { SITE, attach, launch, scratch, step } from './e2e-lib.mjs';

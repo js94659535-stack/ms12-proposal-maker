@@ -23,6 +23,7 @@ import { ORG_TYPES, QUICK_FIELDS, followUpQuestions, quickToApplicantItems, read
 import { ANSWER_CHOICES, HIDDEN_EXPERT, MAX_QUESTIONS as SIMPLE_MAX_QUESTIONS, RESULT_ACTIONS, SIMPLE_STEPS, answerValue, currentStep as simpleStep, viewModeFor } from '../server/simple-flow.js';
 import { ASSIGNABLE_ROLES, ROLE_DUTY, canHoldClients, roleLabel } from '../server/roles.js';
 import { PASSWORD_MIN, validateSignup } from '../server/signup.js';
+import { MEMBER_STEPS, PREMIUM_STEP_NOTE } from '../server/membership.js';
 import { ADMIN_SHORTCUTS } from '../server/admin-overview.js';
 import { AGENCY_STATUS_LABEL, DEFAULT_LIMITS, LIMIT_FIELDS, remainingFor } from '../server/agency.js';
 import { buildOverview, detailPanels, mergeReviewIssues } from '../server/review-digest.js';
@@ -161,7 +162,7 @@ let auth = {
   membership: null, plans: null, contract: null, lockedNotice: '',
   // 선정 가능성 진단서 화면. 입력과 결과는 화면에만 두고 저장하지 않는다.
   diagnosis: null,
-  // 프리미엄회원 화면 자료. 로그인 상태와 함께만 살아 있고 저장하지 않는다.
+  // 수주회원 화면 자료. 로그인 상태와 함께만 살아 있고 저장하지 않는다.
   premium: null
 };
 // 검색 기본값은 결과 정확도가 높은 맞춤검색이다.
@@ -177,7 +178,7 @@ function hasFullAccess() {
   if (!user) return false;
   return user.role === 'admin' || user.role === 'operator' || user.plan === 'full';
 }
-// 프리미엄회원(정식 수주회원). 화면 표시용이고 실제 차단은 /api/premium이 다시 확인한다.
+// 수주회원(수주계약 체결). 화면 표시용이고 실제 차단은 /api/premium이 다시 확인한다.
  function isPremium() { return auth.status === 'signedIn' && (Boolean(auth.user?.premium) || isStaff()); }
 // 승인은 받았지만 전체 이용권이 없는 회원. 핵심제안서 화면만 쓴다.
 function trialAccount() { return auth.status === 'signedIn' && auth.user?.status === 'active' && !hasFullAccess(); }
@@ -228,11 +229,11 @@ function portalLinks(cls = 'history-button') {
   if (!inAdminPortal()) return `${viewToggle}<button class="${cls}" data-portal="admin">관리자 포털</button>`;
   return `${isOperator() ? `<button class="${cls}" data-portal-open="operator" aria-pressed="${state.activeTool === 'operator'}">운영관리자</button>` : ''}${isAdmin() ? `<button class="${cls}" data-portal-open="admin" aria-pressed="${state.activeTool === 'admin'}">관리자</button>` : ''}<button class="${cls}" data-portal="proposal">계획서 포털</button>`;
 }
-// 프리미엄회원 전용 진입점. 계약이 있는 사람에게만 보인다.
+// 수주회원 전용 진입점. 계약이 있는 사람에게만 보인다.
 function premiumLink(cls = 'history-button') {
   const diagnosis = auth.membership?.canDiagnosis ? `<button class="${cls}" id="open-diagnosis" aria-pressed="${state.activeTool === 'diagnosis'}">선정 가능성 진단서</button>` : '';
   if (!isPremium()) return diagnosis;
-  return diagnosis + `<button class="${cls}" id="open-premium" aria-pressed="${state.activeTool === 'premium'}">프리미엄회원</button>`;
+  return diagnosis + `<button class="${cls}" id="open-premium" aria-pressed="${state.activeTool === 'premium'}">수주회원 👑</button>`;
 }
 function openPortal(portal) {
   if (!PORTALS.includes(portal)) return;
@@ -294,7 +295,7 @@ async function checkSession() {
   setAuth({ status: 'anonymous', user: null, passwordDraft: '' });
 }
 function applySignedIn(user, notice = '') {
-  // 대행회원이면 자기 자격과 남은 편수를 함께 읽는다. 남의 자격은 읽지 않는다.
+  // 에이전트이면 자기 자격과 남은 편수를 함께 읽는다. 남의 자격은 읽지 않는다.
   if (user?.role === 'agency') setTimeout(() => void loadAgencyMe(), 0);
   // 계정이 바뀌면 진행 기록의 중복 걸러내기를 처음부터 다시 센다.
   resetActivityDedupe();
@@ -459,7 +460,7 @@ async function claimArchiveToAccount() {
 
 // 로그인한 사람의 계정 설정 화면.
 function accountView() {
-  return `<div class="card"><div class="card-title"><div><h3>계정 설정</h3><span>${escapeHtml(accountEmail())} · ${escapeHtml(auth.user?.role || '')}${auth.user?.premium ? ` · ${escapeHtml(auth.user.premiumLabel || '프리미엄회원')}(${escapeHtml(auth.user.premiumStatusLabel || '')})` : ''}</span></div><span class="status 충족">${escapeHtml(auth.user?.status || '')}</span></div>
+  return `<div class="card"><div class="card-title"><div><h3>계정 설정</h3><span>${escapeHtml(accountEmail())} · ${escapeHtml(auth.user?.role || '')}${auth.user?.premium ? ` · ${escapeHtml(auth.user.premiumLabel || '수주회원')}(${escapeHtml(auth.user.premiumStatusLabel || '')})` : ''}</span></div><span class="status 충족">${escapeHtml(auth.user?.status || '')}</span></div>
     ${auth.error ? `<div class="alert danger"><strong>${escapeHtml(auth.error)}</strong></div>` : ''}
     ${auth.notice ? `<div class="alert success"><strong>${escapeHtml(auth.notice)}</strong></div>` : ''}
     ${membershipStatusPanel()}
@@ -650,7 +651,7 @@ async function loadMembershipPlans() {
 const COMPARE_COLUMNS = [
   // legacy(전체 이용권)는 구독 없이도 편집·저장·출력이 열리는 등급이다. 지금 쓰는 회원 대부분이 여기다.
   // 표에 없으면 본인 권한과 다른 칸이 「지금 내 등급」으로 강조된다.
-  ['pending', '승인 대기 회원'], ['member', '정식회원'], ['legacy', '전체 이용권'], ['subscriber', '구독회원'], ['premium', '프리미엄회원']
+  ['pending', '승인 대기'], ['member', '승인회원'], ['legacy', '일반회원'], ['subscriber', '구독회원'], ['premium', '수주회원 👑']
 ];
 // 편수·쪽수·가격은 서버 상품표에서 가져온다. 화면에 숫자를 따로 적어 두지 않는다.
 // 공개 우수 제안서 편수도 서버 값을 따른다.
@@ -690,6 +691,21 @@ function currentTierColumn() {
   return COMPARE_COLUMNS.some(([id]) => id === tier) ? tier : '';
 }
 
+// 일곱 단계의 열림·활동 범위. 화면마다 따로 적지 않고 서버 표 하나를 그대로 그린다.
+function memberStepsView() {
+  const mine = auth.membership?.tier;
+  const role = auth.user?.role;
+  const isMine = step => step.key === mine || (step.axis === '역할' && step.key === role);
+  return `<div class="requirement-list" id="member-steps">${MEMBER_STEPS.map((step, index) => `<article class="requirement ${isMine(step) ? 'current' : ''}">
+    <div><span class="tag">${index + 1}</span><div>
+      <strong>${escapeHtml(step.label)}</strong> <span class="muted">${escapeHtml(step.axis)}</span>${isMine(step) ? ' <span class="status 충족">지금 나</span>' : ''}
+      <small>열리는 것 · ${escapeHtml(step.open)}</small>
+      <small>하는 일 · ${escapeHtml(step.act)}</small>
+      <small class="muted">${escapeHtml(step.next)}</small>
+    </div></div></article>`).join('')}
+    <p class="muted">${escapeHtml(PREMIUM_STEP_NOTE)}</p></div>`;
+}
+
 function membershipGuideView({ compact = false } = {}) {
   const plans = membershipPlansState();
   const current = currentTierColumn();
@@ -705,7 +721,8 @@ function membershipGuideView({ compact = false } = {}) {
         </tr>`).join('')}</tbody>
       </table>
     </div>
-    ${compact ? '' : '<p class="muted">운영관리자·관리자는 고객 회원등급이 아니므로 이 표에 넣지 않습니다.</p>'}
+    ${memberStepsView()}
+    ${compact ? '' : '<p class="muted">운영자·관리자는 고객 회원등급이 아니라 역할입니다. 위 단계표에 함께 적어 두었습니다.</p>'}
   </section>`;
 }
 
@@ -722,7 +739,7 @@ function membershipStatusPanel() {
     ['남은 진단서', `${subscription.remaining.diagnosis}편`],
     ['다음 갱신일', subscription.renewsOn || '해당 없음'],
     ['월간 구독', subscription.statusLabel],
-    ['프리미엄 계약', auth.user?.premium ? `${auth.user.premiumStatusLabel || ''}${auth.contract?.progress ? ` · ${auth.contract.progress}` : ''}` : '없음']
+    ['수주계약', auth.user?.premium ? `${auth.user.premiumStatusLabel || ''}${auth.contract?.progress ? ` · ${auth.contract.progress}` : ''}` : '없음']
   ];
   const can = [
     ['핵심제안서 생성', info.canCoreProposal],
@@ -739,7 +756,7 @@ function membershipStatusPanel() {
     ${membershipGuideView({ compact: true })}
   </details>`;
 }
-const MEMBER_READ_ONLY_NOTE = '정식회원의 핵심제안서는 읽기 전용입니다. 편집·재작성·저장·DOCX·PDF·ZIP 출력은 월간 구독 신청 후에 열립니다.';
+const MEMBER_READ_ONLY_NOTE = '승인회원의 핵심제안서는 읽기 전용입니다. 편집·재작성·저장·DOCX·PDF·ZIP 출력은 월간 구독 신청 후에 열립니다.';
 
 // ---------- 승인 대기 잠금 ----------
 // 이름만 보여 주고 아무 요청도 보내지 않는다. 누르면 잠금 안내만 뜬다.
@@ -779,8 +796,8 @@ function bindMembership() {
 }
 
 // ---------- 내 정보 수정 (모든 회원) ----------
-// 승인 대기·정식·프리미엄 회원 모두 자기 정보를 직접 고친다.
-// 역할·승인·이용권·프리미엄 상태·사용량은 이 폼에 없다. 서버도 그 항목은 받지 않는다.
+// 승인 대기·승인·수주 회원 모두 자기 정보를 직접 고친다.
+// 역할·승인·이용권·수주계약 상태·사용량은 이 폼에 없다. 서버도 그 항목은 받지 않는다.
 const MEMBER_FIELDS = [
   ['name', '담당자 이름', 'input'], ['phone', '연락처', 'input'], ['orgName', '기관명', 'input'],
   ['orgType', '기관 유형', 'input'], ['orgAddress', '기관 주소', 'input'], ['orgIntro', '기관 소개', 'area'],
@@ -788,7 +805,7 @@ const MEMBER_FIELDS = [
   ['achievements', '사업 실적', 'area'], ['partners', '협력기관', 'area'],
   ['reuseNote', '계획서 작성에 재사용할 기관정보', 'area']
 ];
-const LOCKED_NOTE = '역할·승인 상태·이용권·프리미엄 상태·사용량·감사기록은 본인이 바꿀 수 없습니다. 로그인 이메일도 확인 절차가 준비되기 전까지는 바꿀 수 없습니다.';
+const LOCKED_NOTE = '역할·승인 상태·이용권·수주계약 상태·사용량·감사기록은 본인이 바꿀 수 없습니다. 로그인 이메일도 확인 절차가 준비되기 전까지는 바꿀 수 없습니다.';
 
 function memberProfileValue(key) {
   const draft = auth.memberDraft || {};
@@ -838,7 +855,7 @@ async function saveMemberProfile() {
   });
 }
 
-// ---------- 프리미엄회원 화면 ----------
+// ---------- 수주회원(왕관) 화면 ----------
 const PREMIUM_TABS = [['showcase', '우수 사업제안서'], ['history', '공고 수집 이력'], ['contract', '내 계약·진행상태']];
 const HISTORY_STATES = [['', '전체'], ['open', '모집 중'], ['closing', '마감 임박'], ['closed', '마감'], ['unknown', '마감일 확인 필요']];
 
@@ -853,7 +870,7 @@ function premiumView() {
   const view = premiumState();
   const contract = view.status?.contract || null;
   return `<div class="card">
-    <div class="card-title"><div><h3>프리미엄회원</h3><span>계약한 전체 공모사업계획서 작업공간과 전용 자료</span></div>
+    <div class="card-title"><div><h3>수주회원 👑</h3><span>계약한 전체 공모사업계획서 작업공간과 전용 자료</span></div>
       <span class="status ${contract?.canStartWork ? '충족' : '확인-필요'}">${escapeHtml(contract?.statusLabel || (view.status?.premium ? '계약 확인 중' : '계약 없음'))}</span></div>
     ${auth.error ? `<div class="alert danger"><strong>${escapeHtml(auth.error)}</strong></div>` : ''}
     ${auth.notice ? `<div class="alert success"><strong>${escapeHtml(auth.notice)}</strong></div>` : ''}
@@ -1153,8 +1170,8 @@ async function assignProposalToMember(id) {
 }
 
 
-// ---------- 대행회원 관리 ----------
-// 대행회원은 파는 상품이 아니다. 최고관리자가 임명하고 한도를 정하고 필요하면 거둔다.
+// ---------- 에이전트 관리 ----------
+// 에이전트는 파는 상품이 아니다. 최고관리자가 임명하고 한도를 정하고 필요하면 거둔다.
 // 요금·구독과 섞지 않는다. 여기서 바꾸는 값은 자격과 AI 한도뿐이다.
 function emptyAgency() {
   return { loaded: false, list: [], defaults: DEFAULT_LIMITS, today: '', readOnly: false, editing: '', draft: null, transfer: null, preview: null };
@@ -1167,18 +1184,18 @@ async function loadAgencies() {
     const data = await call();
     setAuth({ busy: false, agency: { ...emptyAgency(), loaded: true, list: data.agencies || [], defaults: data.defaults || DEFAULT_LIMITS, today: data.today || '', readOnly: Boolean(data.readOnly) } });
   } catch (error) {
-    setAuth({ busy: false, error: String(error?.message || '대행회원 목록을 읽지 못했습니다.').slice(0, 120) });
+    setAuth({ busy: false, error: String(error?.message || '에이전트 목록을 읽지 못했습니다.').slice(0, 120) });
   }
 }
 
 function agencyPanel() {
   const box = auth.agency || emptyAgency();
-  if (!box.loaded) return '<div class="card"><p class="muted">대행회원 현황을 읽는 중입니다.</p></div>';
+  if (!box.loaded) return '<div class="card"><p class="muted">에이전트 현황을 읽는 중입니다.</p></div>';
   const rows = box.list.length
     ? box.list.map(agencyRow).join('')
-    : '<p class="muted">아직 지정한 대행회원이 없습니다. 아래에서 일반회원을 골라 지정하세요.</p>';
+    : '<p class="muted">아직 지정한 에이전트이 없습니다. 아래에서 일반회원을 골라 지정하세요.</p>';
   return `<div class="card" id="agency-panel">
-    <div class="card-title"><div><h3>대행회원 ${box.list.length}명</h3>
+    <div class="card-title"><div><h3>에이전트 ${box.list.length}명</h3>
       <span>최고관리자가 임명하는 자리입니다. 이용요금을 받지 않고 AI 한도로만 관리합니다.</span></div>
       ${box.readOnly ? '<span class="status 확인-필요">조회 전용</span>' : ''}</div>
     ${box.readOnly ? '<p class="muted">운영관리자는 현황만 볼 수 있습니다. 지정·해제·한도·인계는 최고관리자만 합니다.</p>' : agencyGrantForm()}
@@ -1186,17 +1203,17 @@ function agencyPanel() {
   </div>`;
 }
 
-// 일반회원을 골라 대행회원으로 지정한다. 회원이 스스로 신청하거나 결제해서 올라오지 않는다.
+// 일반회원을 골라 에이전트로 지정한다. 회원이 스스로 신청하거나 결제해서 올라오지 않는다.
 function agencyGrantForm() {
   const candidates = (auth.accounts || []).filter(item => item.role === 'customer' && item.status === 'active');
   return `<div class="two-col" style="margin:8px 0 12px">
-    <div class="field"><label for="agency-pick">대행회원으로 지정할 일반회원</label>
+    <div class="field"><label for="agency-pick">에이전트로 지정할 일반회원</label>
       <select id="agency-pick"><option value="">고르세요</option>${candidates.map(item =>
         `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name || item.email || item.id)}</option>`).join('')}</select></div>
     <div class="field"><label for="agency-note">사유(감사기록에 남습니다)</label>
       <input id="agency-note" value="${escapeHtml(auth.agency?.draft?.note || '')}" placeholder="예: 광주지회 협력 컨설턴트"></div>
     <div class="actions"><span class="muted">지정하면 한도는 기본값으로 시작합니다.</span>
-      <button class="button primary" id="agency-grant" ${auth.busy ? 'disabled' : ''}>대행회원으로 지정</button></div>
+      <button class="button primary" id="agency-grant" ${auth.busy ? 'disabled' : ''}>에이전트로 지정</button></div>
   </div>`;
 }
 
@@ -1247,7 +1264,7 @@ function agencyTransferForm(item) {
   const others = (auth.agency?.list || []).filter(row => row.userId !== item.userId && row.status !== 'revoked');
   const preview = auth.agency?.preview;
   return `<div class="two-col" style="margin-top:8px">
-    <div class="field"><label for="agency-transfer-to">인계받을 대행회원</label>
+    <div class="field"><label for="agency-transfer-to">인계받을 에이전트</label>
       <select id="agency-transfer-to"><option value="">고르세요</option>${others.map(row =>
         `<option value="${escapeHtml(row.userId)}">${escapeHtml(row.name || row.email || row.userId)}</option>`).join('')}</select></div>
     <div class="field"><label for="agency-transfer-reason">사유</label><input id="agency-transfer-reason" placeholder="감사기록에 남습니다"></div>
@@ -1276,7 +1293,7 @@ function bindAgency() {
     const id = document.querySelector('#agency-pick')?.value || '';
     const note = document.querySelector('#agency-note')?.value || '';
     if (!id) return setAuth({ error: '지정할 일반회원을 고르세요.' });
-    void runAgencyAction({ id, status: 'active', note }, '대행회원으로 지정했습니다. 다음 로그인부터 대행 화면이 열립니다.');
+    void runAgencyAction({ id, status: 'active', note }, '에이전트로 지정했습니다. 다음 로그인부터 대행 화면이 열립니다.');
   });
   document.querySelectorAll('[data-agency-status]').forEach(el => el.onclick = () => {
     const status = el.dataset.agencyStatus;
@@ -1309,7 +1326,7 @@ function bindAgency() {
   }));
   document.querySelectorAll('[data-agency-preview]').forEach(el => el.onclick = () => void (async () => {
     const to = document.querySelector('#agency-transfer-to')?.value || '';
-    if (!to) return setAuth({ error: '인계받을 대행회원을 고르세요.' });
+    if (!to) return setAuth({ error: '인계받을 에이전트를 고르세요.' });
     setAuth({ busy: true, error: '' });
     try {
       const preview = await adminAgencyTransferPreview(el.dataset.agencyPreview, to);
@@ -1319,12 +1336,12 @@ function bindAgency() {
   document.querySelectorAll('[data-agency-move]').forEach(el => el.onclick = () => void (async () => {
     const to = document.querySelector('#agency-transfer-to')?.value || auth.agency?.transferTo || '';
     const reason = document.querySelector('#agency-transfer-reason')?.value || '';
-    if (!to) return setAuth({ error: '인계받을 대행회원을 고르세요.' });
+    if (!to) return setAuth({ error: '인계받을 에이전트를 고르세요.' });
     setAuth({ busy: true, error: '' });
     try {
       const result = await adminAgencyTransfer(el.dataset.agencyMove, to, reason);
       await loadAgencies();
-      setAuth({ notice: `고객 ${result.moved?.clients ?? 0}곳 · 계획서 ${result.moved?.proposals ?? 0}건을 인계했습니다. 이전 대행회원은 더 이상 열 수 없습니다.` });
+      setAuth({ notice: `고객 ${result.moved?.clients ?? 0}곳 · 계획서 ${result.moved?.proposals ?? 0}건을 인계했습니다. 이전 에이전트는 더 이상 열 수 없습니다.` });
     } catch (error) { setAuth({ busy: false, error: String(error?.message || '인계하지 못했습니다.').slice(0, 120) }); }
   })());
 }
@@ -1495,7 +1512,7 @@ function adminView() {
     <div class="requirement-list">${live.map(accountRow).join('') || '<p class="muted">이용 중인 계정이 없습니다.</p>'}</div>
     <h4>이용 중지 ${stopped.length}건</h4>
     <div class="requirement-list">${stopped.map(accountRow).join('') || '<p class="muted">중지된 계정이 없습니다.</p>'}</div>
-    <div class="actions"><span class="muted">관리자 계정과 내 계정은 이 화면에서 바꿀 수 없습니다.</span><div><button class="button secondary" id="reload-admin" ${auth.busy ? 'disabled' : ''}>목록 새로고침</button><button class="button secondary" id="open-admin-notices" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'notices' ? '공모정보 접기' : '공모정보 관리'}</button><button class="button secondary" id="open-admin-agency" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'agency' ? '대행회원 접기' : '대행회원 관리'}</button><button class="button secondary" id="open-admin-access" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'access' ? '권한 관리 접기' : '권한 관리'}</button><button class="button secondary" id="open-admin-collection" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'collection' ? '자동수집 접기' : '공고 자동수집'}</button><button class="button secondary" id="open-admin-usage" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'usage' ? '사용량 접기' : 'AI 사용량·비용'}</button><button class="button secondary" id="open-admin-showcase" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'showcase' ? '우수 제안서 접기' : '우수 제안서 관리'}</button><button class="button secondary" id="close-admin">계획서 포털로</button></div></div>
+    <div class="actions"><span class="muted">관리자 계정과 내 계정은 이 화면에서 바꿀 수 없습니다.</span><div><button class="button secondary" id="reload-admin" ${auth.busy ? 'disabled' : ''}>목록 새로고침</button><button class="button secondary" id="open-admin-notices" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'notices' ? '공모정보 접기' : '공모정보 관리'}</button><button class="button secondary" id="open-admin-agency" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'agency' ? '에이전트 접기' : '에이전트 관리'}</button><button class="button secondary" id="open-admin-access" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'access' ? '권한 관리 접기' : '권한 관리'}</button><button class="button secondary" id="open-admin-collection" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'collection' ? '자동수집 접기' : '공고 자동수집'}</button><button class="button secondary" id="open-admin-usage" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'usage' ? '사용량 접기' : 'AI 사용량·비용'}</button><button class="button secondary" id="open-admin-showcase" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'showcase' ? '우수 제안서 접기' : '우수 제안서 관리'}</button><button class="button secondary" id="close-admin">계획서 포털로</button></div></div>
     ${auth.adminTab === 'notices' ? adminNoticesPanel() : ''}
     ${auth.adminTab === 'agency' ? agencyPanel() : ''}
     ${auth.adminTab === 'access' ? accessPanel() : ''}
@@ -1519,7 +1536,7 @@ function accountRow(item) {
     item.trialUsed ? `무료 체험 사용 ${String(item.trialUsedAt).slice(0, 10)}` : '무료 체험 미사용'
   ].join(' · ');
   return `<article class="requirement"><div>
-    <div><strong>${escapeHtml(item.name || '이름 미입력')}</strong> <span class="status ${item.status === 'active' ? '충족' : '확인-필요'}">${escapeHtml(STATUS_LABELS[item.status] || item.status)}</span> <span class="muted">${escapeHtml(ROLE_LABELS[item.role] || item.role)}</span>${self ? ' <span class="muted">(내 계정)</span>' : ''}</div>
+    <div><strong>${escapeHtml(item.name || '이름 미입력')}${item.contract ? ' 👑' : ''}</strong> <span class="status ${item.status === 'active' ? '충족' : '확인-필요'}">${escapeHtml(STATUS_LABELS[item.status] || item.status)}</span> <span class="muted">${escapeHtml(ROLE_LABELS[item.role] || item.role)}</span>${self ? ' <span class="muted">(내 계정)</span>' : ''}</div>
     <small class="muted">${escapeHtml(detail)}</small>
     <div>${premiumBadge(item)}${item.profileReviewNeeded ? ' <span class="status 확인-필요">기관정보 변경 확인 필요</span>' : ''}${item.profileUpdatedAt ? ` <span class="muted">정보 변경 ${escapeHtml(String(item.profileUpdatedAt).slice(0, 10))}</span>` : ''}</div>
     ${locked ? '' : subscriptionRow(item)}
@@ -1546,7 +1563,7 @@ function subscriptionRow(item) {
       <div class="field"><label for="sub-start-${item.id}">시작일</label><input id="sub-start-${item.id}" type="date" data-sub-field="startedOn" data-sub-id="${item.id}" value="${escapeHtml(value('startedOn'))}"></div>
       <div class="field"><label for="sub-end-${item.id}">종료일(선택)</label><input id="sub-end-${item.id}" type="date" data-sub-field="endsOn" data-sub-id="${item.id}" value="${escapeHtml(value('endsOn'))}"></div>
     </div>
-    <div class="actions"><span class="muted">구독은 승인 상태·역할·프리미엄 계약과 별개입니다.</span>
+    <div class="actions"><span class="muted">구독은 승인 상태·역할·수주계약과 별개입니다.</span>
       <button class="button primary" data-sub-save="${item.id}" ${auth.busy ? 'disabled' : ''}>구독 저장</button></div>
   </details>`;
 }
@@ -1559,13 +1576,13 @@ async function runSubscription(id) {
   setAuth({ busy: false, accounts: result.users || auth.accounts, subscriptionDraft: {}, notice: '월간 구독을 저장했습니다.' });
 }
 
-// ---------- 정식 수주회원(프리미엄) 관리 ----------
+// ---------- 수주회원 관리 ----------
 
 // 부여·중지는 관리자만 한다. 운영관리자 경로에서는 서버가 언제나 거절한다.
 function premiumBadge(item) {
-  if (!item.contract) return '<span class="muted">일반 회원</span>';
+  if (!item.contract) return '<span class="muted">수주계약 없음</span>';
   const ok = item.contract.canStartWork;
-  return `<span class="status ${ok ? '충족' : '확인-필요'}">정식 수주회원 · ${escapeHtml(item.contract.statusLabel)}</span>`;
+  return `<span class="status ${ok ? '충족' : '확인-필요'}">수주회원 👑 · ${escapeHtml(item.contract.statusLabel)}</span>`;
 }
 
 function premiumRow(item) {
@@ -1803,7 +1820,7 @@ function operatorRow(item) {
   </div></article>`;
 }
 
-// 운영관리자는 수주 작업 진행상태만 바꾼다. 프리미엄 권한 부여·해제는 서버가 거절한다.
+// 운영관리자는 수주 작업 진행상태만 바꾼다. 수주회원 권한 부여·해제는 서버가 거절한다.
 const PROGRESS_OPTIONS = ['접수', '자료확인', '작성중', '검토중', '수정중', '전달완료', '보류'];
 function operatorContractRow(item) {
   if (!item.contract) return '<small class="muted">정식 수주계약 없음 · 계약 등록은 관리자만 할 수 있습니다.</small>';
@@ -1934,7 +1951,7 @@ function introSections({ forAdmin = false } = {}) {
     </div>
 
     <div class="landing-section" id="landing-notices">
-      <div class="landing-head"><h2>공모정보 검색</h2><p>회원가입 후 관리자의 승인을 받은 정식회원은 현재 모집 중인 공모정보를 검색할 수 있습니다. 프리미엄회원은 마감 공고를 포함한 전체 수집 이력을 확인할 수 있습니다.</p></div>
+      <div class="landing-head"><h2>공모정보 검색</h2><p>회원가입 후 관리자의 승인을 받은 승인회원은 현재 모집 중인 공모정보를 검색할 수 있습니다. 수주회원은 마감 공고를 포함한 전체 수집 이력을 확인할 수 있습니다.</p></div>
       <div class="landing-grid three">
         <article class="landing-card plain"><h3>맞춤검색</h3><p>공고 제목과 제목에 연결된 연관 키워드만 찾습니다. 기본으로 켜져 있고 결과가 정확합니다.</p></article>
         <article class="landing-card plain"><h3>광역검색</h3><p>맞춤검색 범위에 공고 요약 내용까지 넓혀 찾습니다. 제목에 걸린 결과를 먼저 보여 줍니다.</p></article>
@@ -2105,7 +2122,7 @@ const activeFilters = () => Object.entries(auth.search.filters).filter(([, value
 function searchScopeNotice() {
   const view = auth.search;
   if (view.locked) {
-    return `<div class="alert warning"><strong>${escapeHtml(view.locked)}</strong>${view.needsSignup ? '<p>회원가입 후 관리자의 승인을 받으면 현재 모집 중인 공모정보를 검색할 수 있습니다.</p>' : ''}${view.needsApproval ? '<p>승인 후 정식회원이 되면 열립니다.</p>' : ''}</div>`;
+    return `<div class="alert warning"><strong>${escapeHtml(view.locked)}</strong>${view.needsSignup ? '<p>회원가입 후 관리자의 승인을 받으면 현재 모집 중인 공모정보를 검색할 수 있습니다.</p>' : ''}${view.needsApproval ? '<p>승인 후 승인회원이 되면 열립니다.</p>' : ''}</div>`;
   }
   if (view.scopeLabel) return `<p class="muted">검색 범위: ${escapeHtml(view.scopeLabel)}</p>`;
   return '';
@@ -2125,7 +2142,7 @@ function noticeSearchView() {
       <div class="landing-hero">
         <p class="landing-eyebrow">공모정보 검색</p>
         <h1>어떤 공모가 열려 있는지 먼저 보세요</h1>
-        <p class="landing-lead">회원가입 후 관리자의 승인을 받은 정식회원은 현재 모집 중인 공모정보를 검색할 수 있습니다. 프리미엄회원은 마감 공고를 포함한 전체 수집 이력을 확인할 수 있습니다.</p>${searchScopeNotice()}
+        <p class="landing-lead">회원가입 후 관리자의 승인을 받은 승인회원은 현재 모집 중인 공모정보를 검색할 수 있습니다. 수주회원은 마감 공고를 포함한 전체 수집 이력을 확인할 수 있습니다.</p>${searchScopeNotice()}
         <div class="actions" style="justify-content:stretch;gap:8px;margin-top:18px">
           ${['focused', 'broad'].map(mode => `<button class="button ${view.mode === mode ? 'primary' : 'secondary'}" data-search-mode="${mode}" aria-pressed="${view.mode === mode}">${mode === 'focused' ? '맞춤검색' : '광역검색'}</button>`).join('')}
         </div>
@@ -3831,9 +3848,9 @@ async function saveBasicInfo({ thenWrite = false } = {}) {
 // 기관정보 화면. 페이지를 새로 만들지 않고 이 한 곳을 기본정보 → 상세정보 두 단계로 나눈다.
 function applicantsToolView() {
   // 지금 관리하는 기관은 열어 둔 기관이고, 열어 둔 것이 없으면 이번 사업 신청기관이다.
-  // 대행회원은 고른 고객기관의 정보를 그대로 관리하게 된다.
+  // 에이전트는 고른 고객기관의 정보를 그대로 관리하게 된다.
   const editing = findApplicant(state.applicants, state.applicantEditingId) || findApplicant(state.applicants, state.selectedApplicantId);
-  // 대행회원은 여러 고객 기관을 등록해 그 이름으로 계획서를 쓴다. 화면 이름만 바뀌고 자료 구조는 같다.
+  // 에이전트는 여러 고객 기관을 등록해 그 이름으로 계획서를 쓴다. 화면 이름만 바뀌고 자료 구조는 같다.
   const clients = canHoldClients(auth.user?.role);
   const who = clients ? '고객 기관' : '신청기관';
   return `<div class="page-heading"><div><h2>${who} 정보</h2><p>${clients ? '대신 계획서를 쓸 고객 기관을 등록·수정합니다' : '이번 사업을 신청하는 기관의 정보를 등록·수정합니다'}. 공고 분석 정보와는 분리해 보관하며, 확인된 정보만 계획서 작성에 전달합니다.</p><div class="actions">${sampleButton('applicant', '[샘플] 기관 보기')}</div></div><button class="button secondary" id="close-applicants">작성 흐름으로 돌아가기</button></div>
@@ -7555,7 +7572,7 @@ async function downloadProposalPdf() {
 
 
 // 간편 화면 처리기. 기존 처리기(bind)를 먼저 걸고 그 위에 얹는다.
-// 대행회원 본인의 자격·남은 편수. 화면에 그대로 적는다.
+// 에이전트 본인의 자격·남은 편수. 화면에 그대로 적는다.
 async function loadAgencyMe() {
   if (!isAgency()) return;
   try { setAuth({ agencyMe: await agencyMe() }); }
@@ -7569,7 +7586,7 @@ function inAgencyWorkspace() { return isAgency() && state.workspace === 'agency'
 function agencyQuotaBar() {
   if (!isAgency()) return '';
   const me = auth.agencyMe;
-  if (!me) return '<div class="view-mode-bar"><span class="view-mode-tag">대행회원</span><strong>한도를 읽는 중</strong></div>';
+  if (!me) return '<div class="view-mode-bar"><span class="view-mode-tag">에이전트</span><strong>한도를 읽는 중</strong></div>';
   if (!me.has) return '';
   const left = me.remaining || {};
   const label = me.active

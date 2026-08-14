@@ -36,7 +36,7 @@ export function viewModeFor(user, requested = '') {
     return { mode: wanted || 'simple', canToggle: true, reason: '허용된 범위의 상세 기능만 열립니다.' };
   }
   if (role === 'agency') {
-    // 대행회원은 고객 기관을 여럿 다루므로 상세 화면을 함께 쓴다. 기본은 간편 화면이다.
+    // 에이전트는 고객 기관을 여럿 다루므로 상세 화면을 함께 쓴다. 기본은 간편 화면이다.
     return { mode: wanted || 'simple', canToggle: true, reason: '고객 기관별로 상세 화면을 함께 볼 수 있습니다.' };
   }
   // 일반회원은 간편 화면을 쓴다. 전문 내용은 「작성 과정 자세히 보기」로 들어가 그대로 본다.

@@ -1,6 +1,6 @@
 // 기관정보 기본·상세 2단계 확인.
 // 기본정보만 저장하고 계획서를 만들 수 있는지, 상세정보를 나중에 넣어 다음 계획서에서 다시 쓰는지,
-// 상세정보가 비어도 흐름이 막히지 않는지, 일반회원과 대행회원의 기관정보가 섞이지 않는지,
+// 상세정보가 비어도 흐름이 막히지 않는지, 일반회원과 에이전트의 기관정보가 섞이지 않는지,
 // 좁은 화면에서 안내문·입력칸·버튼이 잘리지 않는지를 실제 브라우저로 확인한다.
 //
 // 기존 기관정보와 계획서는 건드리지 않는다. 이 도구가 만든 E2E-ORG 자료만 끝에 지운다.
@@ -236,17 +236,17 @@ try {
   }
   await page.size(1280, 900);
 
-  // ---------- 9. 대행회원과 섞이지 않는다 ----------
+  // ---------- 9. 에이전트와 섞이지 않는다 ----------
   const mineNames = await read("names: (s.applicants||[]).map(a => a.name)");
-  record(16, '대행회원 로그인', await signIn(agency), agency.email);
+  record(16, '에이전트 로그인', await signIn(agency), agency.email);
   await page.run("(() => { const el = document.querySelector('[data-open-applicants]'); if (el) el.click(); return '1'; })()", 3000);
   const agencyView = await page.run(`(() => JSON.stringify({
     heading: (document.querySelector('h2')?.textContent || '').trim().slice(0, 20),
     names: [...document.querySelectorAll('.requirement strong')].map(el => (el.textContent || '').trim()).slice(0, 10)
   }))()`);
   const leaked = (agencyView?.names || []).filter(name => name.includes(MARK));
-  record(17, '일반회원과 대행회원의 기관정보가 섞이지 않는다', agencyView?.heading.includes('고객 기관') && leaked.length === 0,
-    `제목 «${agencyView?.heading}» · 대행회원 목록 ${(agencyView?.names || []).length}곳 · 일반회원 기관 노출 ${leaked.length}건`);
+  record(17, '일반회원과 에이전트의 기관정보가 섞이지 않는다', agencyView?.heading.includes('고객 기관') && leaked.length === 0,
+    `제목 «${agencyView?.heading}» · 에이전트 목록 ${(agencyView?.names || []).length}곳 · 일반회원 기관 노출 ${leaked.length}건`);
   await shot('07-agency-view');
 
   // ---------- 10. 시험자료 정리 ----------

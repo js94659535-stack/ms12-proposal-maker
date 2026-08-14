@@ -57,7 +57,7 @@ export async function recordAiUsage(db, env, entry) {
     durationMs: count(entry.durationMs), ok: entry.ok ? 1 : 0,
     // 실패 사유는 미리 정한 짧은 코드만 남긴다. 오류 문장이나 응답 본문은 남기지 않는다.
     failureStage: clean(entry.failureStage, 40),
-    // 대행회원이 대신 쓴 것이면 실제 실행자와 대상 고객 기관을 함께 남긴다.
+    // 에이전트이 대신 쓴 것이면 실제 실행자와 대상 고객 기관을 함께 남긴다.
     agencyUserId: clean(entry.agencyUserId, 80), clientOrgId: clean(entry.clientOrgId, 80)
   };
   try {

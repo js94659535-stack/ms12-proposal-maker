@@ -3,7 +3,11 @@
 // 사용자에게는 「프리미엄회원」, 관리자·운영관리자 화면에서는 「정식 수주회원」으로 부른다.
 // 월간 이용권(users.plan)과는 별개다. 계약 시작일·종료일·진행상태를 따로 관리한다.
 
-export const PREMIUM_LABEL = '프리미엄회원';
+// 프리미엄이라 부르지 않는다. 수주계약을 맺은 회원이라는 사실을 그대로 적는다.
+export const PREMIUM_LABEL = '수주회원';
+// 이름 뒤에 붙이는 표시. 등급 칸을 따로 만들지 않고 이 왕관 하나로 알아보게 한다.
+export const PREMIUM_MARK = '👑';
+export const withPremiumMark = (name, premium) => `${String(name ?? '').trim()}${premium ? ` ${PREMIUM_MARK}` : ''}`;
 export const PREMIUM_ADMIN_LABEL = '정식 수주회원';
 
 export const CONTRACT_STATUSES = Object.freeze(['active', 'suspended', 'ended']);

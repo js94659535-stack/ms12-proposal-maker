@@ -1,4 +1,4 @@
-// 대행회원 자격·한도·인계. 파는 상품이 아니라 최고관리자가 임명하는 자리다.
+// 에이전트 자격·한도·인계. 파는 상품이 아니라 최고관리자가 임명하는 자리다.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -21,14 +21,14 @@ test('지정·해제는 활성 최고관리자만 하고 스스로 올라갈 수
     { role: 'customer', status: 'active' }, { role: 'admin', status: 'disabled' }]) {
     assert.ok(!canManageAgency(actor), actor.role + '/' + actor.status);
   }
-  // 대행회원이 다른 대행회원을 만들거나 자기 자격을 건드릴 수 없다.
+  // 에이전트이 다른 에이전트를 만들거나 자기 자격을 건드릴 수 없다.
   assert.equal(rejectsSelfPromotion({ id: 'a', role: 'agency', status: 'active' }, 'b').allowed, false);
   assert.equal(rejectsSelfPromotion({ id: 'a', role: 'admin', status: 'active' }, 'a').allowed, false);
   assert.equal(rejectsSelfPromotion({ id: 'a', role: 'admin', status: 'active' }, 'b').allowed, true);
   // 서버도 같은 판정을 쓴다.
   assert.match(admin, /const gate = rejectsSelfPromotion\(actor, targetId\);/);
   assert.match(admin, /if \(!gate\.allowed\) return json\(\{ error: gate\.reason \}, 403\);/);
-  // 운영 계정은 대행회원으로 지정하지 않는다.
+  // 운영 계정은 에이전트로 지정하지 않는다.
   assert.match(admin, /if \(target\.role === 'admin' \|\| target\.role === 'operator'\)/);
 });
 
@@ -85,7 +85,7 @@ test('한도를 넘으면 AI를 부르기 전에 막는다', () => {
   // 자격이 멈춰 있으면 종류를 가리지 않고 막는다.
   const paused = agencyState({ user_id: 'u1', status: 'paused' }, '2026-08-13');
   assert.equal(limitCheck({ state: paused, usage: {}, kind: 'other' }).code, 'inactive');
-  // 대행회원이 아니면 이 한도는 걸리지 않는다.
+  // 에이전트이 아니면 이 한도는 걸리지 않는다.
   assert.equal(limitCheck({ state: { has: false }, usage: {}, kind: 'plan' }).allowed, true);
 
   // 서버가 OpenAI를 부르기 전에 본다.
@@ -130,11 +130,11 @@ test('자격을 잃으면 대행 업무 자료가 다음 요청부터 닫힌다'
   assert.equal(workspaceOf('other'), 'personal');
   // 두 공간의 자료가 목록에서 섞이지 않는다.
   assert.match(archive, /COALESCE\(workspace, 'personal'\) = 'personal'/);
-  // 대행 업무 자료의 주인은 브라우저 키가 아니라 대행회원 계정이다. 인계 뒤에도 새 주인이 연다.
+  // 대행 업무 자료의 주인은 브라우저 키가 아니라 에이전트 계정이다. 인계 뒤에도 새 주인이 연다.
   assert.match(archive, /WHERE agency_user_id = \? AND workspace = 'agency'/);
 });
 
-test('인계는 살아 있는 다른 대행회원에게만 하고 건수를 먼저 보여 준다', () => {
+test('인계는 살아 있는 다른 에이전트에게만 하고 건수를 먼저 보여 준다', () => {
   const live = { has: true, status: 'active' };
   assert.equal(transferCheck({ from: 'a', to: 'a', fromState: live, toState: live }).allowed, false);
   assert.equal(transferCheck({ from: 'a', to: 'b', fromState: live, toState: { has: false } }).allowed, false);
@@ -173,7 +173,7 @@ test('자격을 거두면 로그인은 남고 역할만 일반회원으로 돌�
   assert.ok(!/UPDATE users SET role = 'agency'/.test(admin));
 });
 
-test('대행회원은 요금 없이 최고관리자가 연 자격으로 전문 작업을 쓴다', () => {
+test('에이전트는 요금 없이 최고관리자가 연 자격으로 전문 작업을 쓴다', () => {
   const paid = membershipOf({ user: { role: 'customer', status: 'active', plan: 'trial' }, agencyActive: true });
   const unpaid = membershipOf({ user: { role: 'customer', status: 'active', plan: 'trial' } });
   assert.equal(paid.canExpertWork, true, '자격이 살아 있으면 전문 작업이 열린다');
@@ -188,7 +188,7 @@ test('대행회원은 요금 없이 최고관리자가 연 자격으로 전문 �
   assert.match(proposal, /agencyActive: agency\.active/);
 });
 
-test('대행회원 본인 자격은 계정 경로로 읽는다', () => {
+test('에이전트 본인 자격은 계정 경로로 읽는다', () => {
   const client = fs.readFileSync(new URL('../src/auth.js', import.meta.url), 'utf8');
   assert.match(client, /export const agencyMe = \(\) => post\('\/api\/account', 'agencyMe'\);/);
   const account = fs.readFileSync(new URL('../functions/api/account.js', import.meta.url), 'utf8');

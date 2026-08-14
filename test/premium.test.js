@@ -113,8 +113,8 @@ test('프리미엄회원만 우수 제안서와 수집 이력을 열 수 있다'
   assert.equal(history.total, 1);
 });
 
-test('사용자에게는 프리미엄회원, 운영 화면에서는 정식 수주회원으로 부른다', async () => {
-  assert.equal(PREMIUM_LABEL, '프리미엄회원');
+test('프리미엄이라 부르지 않는다. 수주회원이라 적고 이름 뒤에 왕관을 붙인다', async () => {
+  assert.equal(PREMIUM_LABEL, '수주회원');
   assert.equal(PREMIUM_ADMIN_LABEL, '정식 수주회원');
   const db = fakeDb();
   await seedUser(db, { id: 'admin-1', email: 'admin@example.com', role: 'admin' });
@@ -127,7 +127,9 @@ test('사용자에게는 프리미엄회원, 운영 화면에서는 정식 수�
   assert.equal(target.premiumLabel, PREMIUM_ADMIN_LABEL);
   assert.equal(target.contract.contractName, '2027년 공모 대행');
   // 회원 화면 문구는 프리미엄회원이다.
-  assert.match(app, /프리미엄회원/);
+  // 화면에는 수주회원으로 적고 이름 뒤에 왕관을 붙인다.
+  assert.match(app, /수주회원/);
+  assert.match(app, /👑/);
   assert.match(app, /정식 수주회원/);
 });
 

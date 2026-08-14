@@ -113,7 +113,7 @@ export async function onRequest(context) {
     const legacyGate = ![CORE_PROPOSAL_ACTION, DIAGNOSIS_ACTION].includes(body.action) ? planRefusal(user, body.action) : null;
     // 회원등급으로 한 번 더 본다. 승인 상태·구독·프리미엄 계약은 서로 별개라 따로 읽는다.
     // 권한을 입력 검사보다 먼저 본다. OpenAI 호출보다 언제나 앞이다.
-    // 대행회원 자격을 먼저 읽는다. 요금이 아니라 이 자격이 이용 권한을 연다.
+    // 에이전트 자격을 먼저 읽는다. 요금이 아니라 이 자격이 이용 권한을 연다.
     const clientOrgId = String(body.payload?.clientOrgId || '').trim().slice(0, 80);
     const agency = await stateFor(context.env.ARCHIVE_DB, user.id);
     const subscription = await loadSubscription(context.env.ARCHIVE_DB, user.id);
@@ -134,7 +134,7 @@ export async function onRequest(context) {
       }).catch(() => {});
       return json({ error: validation, rejected: true }, 400);
     }
-    // 쪽수는 등급이 정한다. 정식회원은 5쪽 고정, 구독·프리미엄은 편당 최대 20쪽이다.
+    // 쪽수는 등급이 정한다. 승인회원은 5쪽 고정, 구독·프리미엄은 편당 최대 20쪽이다.
     if (body.action === CORE_PROPOSAL_ACTION) {
       const pages = corePagesFor(membership, body.payload.core.targetPages);
       if (pages !== body.payload.plan.pages) body.payload.plan = planPages({ pages, audienceType: body.payload.core.audienceType });
@@ -143,7 +143,7 @@ export async function onRequest(context) {
     const proposalId = String(body.payload?.proposalId || '').trim().slice(0, 80);
     const guard = await budgetRefusal(context.env.ARCHIVE_DB, context.env, { proposalId, userId: user.id });
     if (guard.refusal) return json({ error: guard.refusal.error, capReached: true, budget: guard.refusal.budget }, guard.refusal.status);
-    // 대행회원 한도. 요금은 받지 않지만 AI 비용은 여기서 막는다. OpenAI 호출보다 언제나 앞이다.
+    // 에이전트 한도. 요금은 받지 않지만 AI 비용은 여기서 막는다. OpenAI 호출보다 언제나 앞이다.
     if (agency.has) {
       const usage = await monthlyUsage(context.env.ARCHIVE_DB, user.id, { proposalId });
       const verdict = limitCheck({ state: agency, usage, kind: limitKindFor(body.action) });

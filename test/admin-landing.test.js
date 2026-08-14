@@ -63,7 +63,7 @@ test('운영 현황은 실제 표에서 세고 비밀값을 담지 않는다', a
   const cards = new Map(result.cards.map(card => [card.key, card]));
   assert.equal(cards.get('pending').value, 3);
   assert.equal(cards.get('collection').text, '정상');
-  assert.match(cards.get('agency').note, /대행회원 3명 · 등록 고객 3곳/);
+  assert.match(cards.get('agency').note, /에이전트 3명 · 등록 고객 3곳/);
   // 회원 원문·비밀값은 어떤 질의에도 없다.
   const all = asked.join(' | ');
   for (const forbidden of ['password', 'hash', 'salt', 'session', 'recovery', 'token_secret']) {
@@ -75,7 +75,7 @@ test('운영 현황은 실제 표에서 세고 비밀값을 담지 않는다', a
   assert.ok(all.includes('FROM ai_usage_events'), 'ai_usage_events');
 });
 
-test('일반회원·대행회원에게는 관리자 랜딩과 운영현황이 열리지 않는다', () => {
+test('일반회원·에이전트에게는 관리자 랜딩과 운영현황이 열리지 않는다', () => {
   // 화면: 관리자 포털에 들어간 운영 계정만 이 화면을 그린다.
   assert.match(app, /if \(inAdminPortal\(\) && state\.activeTool === 'home'\)/);
   assert.match(app, /function inAdminPortal\(\) \{ return isStaff\(\) && state\.portal === 'admin'; \}/);

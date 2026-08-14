@@ -1,4 +1,4 @@
-// 대행회원 화면에 무엇이 그려지는지만 본다. 자료를 바꾸지 않는다.
+// 에이전트 화면에 무엇이 그려지는지만 본다. 자료를 바꾸지 않는다.
 import fs from 'node:fs';
 import { SITE, attach, launch, scratch } from './e2e-lib.mjs';
 

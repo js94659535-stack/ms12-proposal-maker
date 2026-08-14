@@ -1,4 +1,4 @@
-// 대행회원 자격·한도·사용량을 D1에서 읽고 쓴다.
+// 에이전트 자격·한도·사용량을 D1에서 읽고 쓴다.
 //
 // 자료는 지우지 않는다. 자격 해제도 인계도 행을 남긴 채 소유와 상태만 바꾼다.
 import { DEFAULT_LIMITS, agencyState, limitsOf, monthStart, todayInSeoul } from './agency.js';
@@ -40,7 +40,7 @@ export async function monthlyUsage(db, userId, { proposalId = '' } = {}) {
   } catch { return empty; }
 }
 
-// 대행회원별 고객·의뢰 건수. 자료를 열지 않고 숫자만 센다.
+// 에이전트별 고객·의뢰 건수. 자료를 열지 않고 숫자만 센다.
 export async function agencyFootprint(db, userId) {
   const one = async sql => {
     try { return count(await db.prepare(sql).bind(String(userId)).first()); } catch { return 0; }
@@ -52,7 +52,7 @@ export async function agencyFootprint(db, userId) {
   };
 }
 
-// 대행회원 목록. 최고관리자 화면과 운영관리자 조회가 같은 자료를 본다.
+// 에이전트 목록. 최고관리자 화면과 운영관리자 조회가 같은 자료를 본다.
 export async function listAgencies(db) {
   let rows = [];
   try { rows = (await db.prepare(`SELECT g.*, u.email, u.name, u.role, u.status AS account_status

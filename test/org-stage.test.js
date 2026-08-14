@@ -125,7 +125,7 @@ test('첫 화면 안내 배너는 기존 기관정보 페이지로 연결한다'
   assert.match(app, /\[data-open-applicants\]'\)\.forEach\(el => el\.onclick = \(\) => setState\(\{ activeTool: 'applicants'/);
 });
 
-test('대행회원은 지금 고른 고객기관의 기관정보를 관리한다', () => {
+test('에이전트는 지금 고른 고객기관의 기관정보를 관리한다', () => {
   // 열어 둔 기관이 없으면 이번 사업 신청기관을 그대로 관리한다. 다른 회원 자료가 섞이지 않는다.
   assert.match(app, /function focusedApplicantId\(\) \{/);
   assert.match(app, /const editing = findApplicant\(state\.applicants, state\.applicantEditingId\) \|\| findApplicant\(state\.applicants, state\.selectedApplicantId\);/);

@@ -42,7 +42,7 @@ export async function onRequest(context) {
 
   // 관리자 랜딩 위쪽 운영 현황. 건수와 시각만 돌려준다.
   if (body.action === 'overview') return json(await adminOverview(env.ARCHIVE_DB), 200);
-  // ---------- 대행회원 ----------
+  // ---------- 에이전트 ----------
   // 파는 상품이 아니다. 최고관리자가 임명하고 최고관리자만 거둔다.
   if (body.action === 'agencyList') return json(await listAgencies(env.ARCHIVE_DB), 200);
   if (body.action === 'setAgency') return setAgency(env.ARCHIVE_DB, actor, body);
@@ -100,8 +100,8 @@ export async function onRequest(context) {
   return json({ error: '지원하지 않는 작업입니다.' }, 400);
 }
 
-// ---------- 대행회원 지정·해제·한도 ----------
-// 자격과 한도를 한 번에 저장한다. 요금·구독과 섞지 않는다. 대행회원 자신은 이 경로를 통과하지 못한다.
+// ---------- 에이전트 지정·해제·한도 ----------
+// 자격과 한도를 한 번에 저장한다. 요금·구독과 섞지 않는다. 에이전트 자신은 이 경로를 통과하지 못한다.
 async function setAgency(db, actor, body) {
   const targetId = String(body.id || '');
   const gate = rejectsSelfPromotion(actor, targetId);
@@ -112,7 +112,7 @@ async function setAgency(db, actor, body) {
   const target = await db.prepare('SELECT id, email, role, status FROM users WHERE id = ?').bind(targetId).first();
   if (!target) return json({ error: '대상 계정을 찾지 못했습니다.' }, 404);
   if (target.role === 'admin' || target.role === 'operator') {
-    return json({ error: '운영 계정은 대행회원으로 지정하지 않습니다.' }, 400);
+    return json({ error: '운영 계정은 에이전트로 지정하지 않습니다.' }, 400);
   }
 
   const before = await stateFor(db, targetId);
@@ -121,7 +121,7 @@ async function setAgency(db, actor, body) {
     startsOn: body.startsOn || '', endsOn: body.endsOn || '', note: body.note || ''
   });
 
-  // users.role은 그대로 둔다. 대행회원은 임명 기록으로 읽는 역할이고, 로그인 계정은 일반회원 그대로다.
+  // users.role은 그대로 둔다. 에이전트는 임명 기록으로 읽는 역할이고, 로그인 계정은 일반회원 그대로다.
   // 자격을 거두면 다음 요청부터 곧바로 일반회원으로 돌아간다. 세션을 끊지 않는다.
   const nextRole = status === 'revoked' ? 'customer' : 'agency';
 
@@ -186,7 +186,7 @@ async function transferIdentity(db, actor, body, session) {
     await recordAudit(db, { actor, action: 'admin.transferIdentity', targetId: found.user_id, result: 'blocked', detail: `보존할 자료 ${kept.total}건` });
     return json({ error: '옮겨 올 계정에 보존할 자료가 있어 자동으로 옮기지 않았습니다.', conflict: true, footprint: kept }, 409);
   }
-  // 회원 계정(일반회원·대행회원)의 연결만 옮긴다. 운영 계정은 옮기지 않는다.
+  // 회원 계정(일반회원·에이전트)의 연결만 옮긴다. 운영 계정은 옮기지 않는다.
   if (!MEMBER_ROLES.includes(found.role)) {
     return json({ error: '회원 계정의 연결만 옮길 수 있습니다.', conflict: true }, 409);
   }

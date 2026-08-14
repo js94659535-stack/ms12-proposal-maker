@@ -22,7 +22,7 @@ export async function onRequest(context) {
   let body;
   try { body = await request.json(); } catch { return json({ error: '요청 JSON 형식이 올바르지 않습니다.' }, 400); }
 
-  // 대행회원 본인이 보는 자격·한도·남은 편수. 남의 자격은 돌려주지 않는다.
+  // 에이전트 본인이 보는 자격·한도·남은 편수. 남의 자격은 돌려주지 않는다.
   if (body.action === 'agencyMe') return agencyMe(env.ARCHIVE_DB, data.session.user);
   if (body.action === 'profile') return profile(env.ARCHIVE_DB, data.session.user);
   if (body.action === 'completeProfile') return completeProfile(env.ARCHIVE_DB, data.session.user, body);
@@ -163,7 +163,7 @@ async function acknowledgeNotice(db, user, body) {
   return json({ privacyNoticeVersion: version, privacyNoticeAt: now }, 200);
 }
 
-// 대행회원 본인 화면에 적을 값. 자격·한도·이번 달 사용량·남은 편수·갱신일만 돌려준다.
+// 에이전트 본인 화면에 적을 값. 자격·한도·이번 달 사용량·남은 편수·갱신일만 돌려준다.
 // 다른 회원의 자격이나 비밀값은 담지 않는다.
 async function agencyMe(db, user) {
   const state = await stateFor(db, user.id);

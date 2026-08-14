@@ -19,7 +19,7 @@ const OVERVIEW = {
   at: '2026-08-13T00:00:00Z',
   cards: [
     { key: 'pending', value: 2, note: '승인을 기다리는 계정이 있습니다.' },
-    { key: 'agency', value: 5, note: '대행회원 1명 · 등록 고객 3곳' },
+    { key: 'agency', value: 5, note: '에이전트 1명 · 등록 고객 3곳' },
     { key: 'notices', value: 21, note: '모아 둔 공고 전체입니다.' },
     { key: 'collection', value: null, text: '정상', note: '마지막 성공 2026-08-12' },
     { key: 'drafts', value: 4, note: '' }, { key: 'unchecked', value: 3, note: '' },
@@ -51,7 +51,7 @@ test('최고관리자는 관리자 포털 홈에서 운영 현황과 서비스 �
     { activeTool: 'home', homeSeen: true, portal: 'admin' }, 'admin');
   assert.match(html, /class="admin-shortcuts"/, '운영 바로가기가 없다');
   // 아홉 가지 바로가기가 모두 그려진다.
-  for (const label of ['승인 대기 회원', '대행회원·고객 의뢰', '공고보관함', '공고 수집 상태', '작성 중인 계획서',
+  for (const label of ['승인 대기 회원', '에이전트·고객 의뢰', '공고보관함', '공고 수집 상태', '작성 중인 계획서',
     '확인 필요 계획서', 'AI 사용량·비용', '회원·이용권·계약', '관리자 AI 도우미']) {
     assert.ok(html.includes(label), label);
   }
@@ -78,13 +78,13 @@ test('일반회원의 첫 화면은 간편 작성이고 전문 기능 입구가 
   assert.doesNotMatch(html, /class="admin-shortcuts"/);
 });
 
-test('대행회원은 간편 화면을 쓰고 고객 기관 화면을 함께 쓴다', async () => {
+test('에이전트는 간편 화면을 쓰고 고객 기관 화면을 함께 쓴다', async () => {
   const user = { id: 'g1', email: 'agency@example.com', role: 'agency', status: 'active', plan: 'full', provider: 'email' };
   const simple = await draw(user, { activeTool: 'home', homeSeen: true }, 'agency-home');
   assert.match(simple, /id="simple-generate"/);
   assert.doesNotMatch(simple, /class="admin-shortcuts"/);
   const clients = await draw(user, { activeTool: 'applicants', homeSeen: true }, 'agency-clients');
-  assert.match(clients, /고객 기관 정보/, '대행회원 화면 이름이 반영되지 않았다');
+  assert.match(clients, /고객 기관 정보/, '에이전트 화면 이름이 반영되지 않았다');
   assert.match(clients, /등록된 고객 기관/);
 });
 
@@ -96,8 +96,8 @@ test('운영관리자는 관리자 랜딩이 아니라 허용된 운영 화면�
   assert.ok(html.length > 500);
 });
 
-test('대행회원 관리 화면에 목록·한도·인계 단추가 그려진다', async () => {
-  // 관리자 화면의 대행회원 갈래. 목록은 서버가 센 값만 그린다.
+test('에이전트 관리 화면에 목록·한도·인계 단추가 그려진다', async () => {
+  // 관리자 화면의 에이전트 갈래. 목록은 서버가 센 값만 그린다.
   const previous = globalThis.fetch;
   globalThis.fetch = async (path, options = {}) => {
     const body = JSON.parse(options?.body || '{}');
@@ -127,5 +127,5 @@ test('대행회원 관리 화면에 목록·한도·인계 단추가 그려진�
     { id: 'a1', email: 'admin@example.com', role: 'admin', status: 'active', plan: 'full', provider: 'email' },
     { activeTool: 'admin', homeSeen: true, portal: 'admin' }, 'agency-panel');
   globalThis.fetch = previous;
-  assert.match(html, /id="open-admin-agency"/, '대행회원 관리 진입점이 없다');
+  assert.match(html, /id="open-admin-agency"/, '에이전트 관리 진입점이 없다');
 });
