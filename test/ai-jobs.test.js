@@ -99,3 +99,27 @@ test('비용은 그때 단가와 함께 남기고, 모르면 계산 불가로 �
   assert.match(app, /const money = \(value, priced = true\) => \(priced \? `\$\$\{Number\(value \|\| 0\)\.toFixed\(4\)\}` : '계산 불가'\);/);
   assert.match(app, /money\(report\.totals\.costUsd, report\.priced\)/);
 });
+
+test('화면이 부르는 작업 이름은 서버 허용 목록에 반드시 있다', () => {
+  // 목록에 없으면 서버가 400으로 거절하고 사용자는 결과를 못 받는다. 실제로 한 번 그랬다.
+  const used = [...client.matchAll(/request\('([a-zA-Z]+)'/g)].map(match => match[1]);
+  const line = api.slice(api.indexOf('const ACTIONS = ['), api.indexOf('];', api.indexOf('const ACTIONS = [')));
+  for (const action of new Set(used)) {
+    assert.ok(line.includes(`'${action}'`) || /CORE_PROPOSAL_ACTION|DIAGNOSIS_ACTION/.test(line), `${action} 이 허용 목록에 없다`);
+  }
+  // 두 걸음 이름도 실제로 들어 있다.
+  for (const action of ['masterDesign', 'masterPlan', 'draftPart', 'jobs']) assert.ok(line.includes(`'${action}'`), action);
+});
+
+test('거절도 기록에 남기고, 오래 걸리면 창을 닫아도 된다고 알린다', () => {
+  // 우리 쪽 거절이 기록에 없으면 「가끔 결과가 안 나온다」를 확인할 방법이 없다.
+  assert.match(api, /failureStage: 'input-rejected'/);
+  assert.match(api, /return json\(\{ error: validation, rejected: true \}, 400\);/);
+  // 기다리는 시간을 늘리되, 기다리지 않아도 되게 알린다.
+  assert.match(client, /const MAX_WAIT_MS = 25 \* 60 \* 1000;/);
+  assert.match(client, /keepGoing: waited \* 1000 >= KEEP_GOING_MS/);
+  assert.match(app, /창을 닫아도 됩니다\. 다시 들어오면 이어서 받습니다/);
+  // 다시 들어오면 스스로 이어받는다.
+  assert.match(app, /async function resumeDesignJob\(\) \{/);
+  assert.match(app, /void resumeDesignJob\(\);/);
+});

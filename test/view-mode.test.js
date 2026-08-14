@@ -8,7 +8,7 @@ const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
 
 test('일반회원의 기본 화면은 홈 자리에서도 간편 작성이다', () => {
   assert.match(app, /function showSimpleHome\(\) \{ return viewMode\(\) === 'simple' && !state\.expertDetail && \['', 'home'\]\.includes\(state\.activeTool\); \}/);
-  assert.match(app, /if \(showSimpleHome\(\)\) \{ app\.innerHTML = shell\(simpleWriteView\(\)\); bind\(\); bindSimple\(\); fitAutoGrow\(\); void loadAiJobs\(\); return; \}/);
+  assert.match(app, /if \(showSimpleHome\(\)\) \{ app\.innerHTML = shell\(simpleWriteView\(\)\); bind\(\); bindSimple\(\); fitAutoGrow\(\); void loadAiJobs\(\); void resumeDesignJob\(\); return; \}/);
   // 간편 화면에서도 머리띠(보관함·계정·포털 이동)가 사라지지 않는다.
   assert.match(app, /if \(state\.activeTool === 'home' && !showSimpleHome\(\)\) return/);
 });

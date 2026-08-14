@@ -126,7 +126,14 @@ export async function onRequest(context) {
     // 업로드·붙여넣은 글 안의 명령형 문장을 먼저 무력화한다. 자료는 자료로만 쓴다.
     const injectionCount = sanitizeInputs(body.payload);
     const validation = validate(body.action, body.payload);
-    if (validation) return json({ error: validation }, 400);
+    // 우리 쪽에서 거절한 것도 남긴다. 기록에 없으면 「가끔 결과가 안 나온다」를 아무도 확인할 수 없다.
+    if (validation) {
+      await recordAiUsage(context.env.ARCHIVE_DB, context.env, {
+        userId: user.id, userEmail: user.email, proposalId: String(body.payload?.proposalId || '').trim().slice(0, 80),
+        task: body.action, model: context.env.OPENAI_MODEL, usage: null, durationMs: 0, ok: false, failureStage: 'input-rejected'
+      }).catch(() => {});
+      return json({ error: validation, rejected: true }, 400);
+    }
     // 쪽수는 등급이 정한다. 정식회원은 5쪽 고정, 구독·프리미엄은 편당 최대 20쪽이다.
     if (body.action === CORE_PROPOSAL_ACTION) {
       const pages = corePagesFor(membership, body.payload.core.targetPages);

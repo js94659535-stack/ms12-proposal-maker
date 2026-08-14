@@ -31,7 +31,11 @@ export const draftWithAI = payload => request('draft', payload);
 // 그래도 끊기면 그 걸음만 배경으로 다시 돌리고, 작업번호를 밖에 알려 주어 다시 부르지 않게 한다.
 const GATEWAY_CUT = new Set([502, 503, 504, 522, 524]);
 const POLL_MS = 5000;
-const MAX_WAIT_MS = 15 * 60 * 1000;
+// 배경작업을 기다리는 시간. 상류가 느린 날 15분에 걸려 결과를 못 받은 일이 두 번 있었다.
+// 기다림 자체는 돈이 들지 않는다(작업은 이미 돌고 있다). 그래서 넉넉히 잡는다.
+const MAX_WAIT_MS = 25 * 60 * 1000;
+// 이만큼 지나면 「창을 닫아도 된다」고 알린다. 작업번호를 저장해 두었으므로 잃지 않는다.
+export const KEEP_GOING_MS = 5 * 60 * 1000;
 
 async function pollJob(action, payload, jobId, onWait, since = 0) {
   const until = Date.now() + MAX_WAIT_MS;
@@ -39,11 +43,12 @@ async function pollJob(action, payload, jobId, onWait, since = 0) {
   while (Date.now() < until) {
     await new Promise(resolve => setTimeout(resolve, POLL_MS));
     waited += POLL_MS / 1000;
-    if (onWait) onWait(waited);
+    // 오래 걸리면 기다리는 방법을 알려 준다. 창을 닫아도 결과는 남는다.
+    if (onWait) onWait(waited, { jobId, keepGoing: waited * 1000 >= KEEP_GOING_MS });
     const step = await request(action, payload, { jobId });
     if (!step?.pending) return step;
   }
-  const error = new Error('설계 작성이 너무 오래 걸립니다. 잠시 후 「이어서 받기」로 결과를 다시 확인할 수 있습니다.');
+  const error = new Error('설계 작성이 25분을 넘었습니다. 작업번호를 저장해 두었으니 다시 들어오면 「이어서 받기」로 같은 결과를 받습니다. 새로 결제되지 않습니다.');
   error.jobId = jobId;
   throw error;
 }

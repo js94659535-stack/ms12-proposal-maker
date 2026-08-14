@@ -5209,7 +5209,7 @@ function render() {
   // 간편 화면. 일반회원의 기본이고 최고관리자·운영관리자는 전환해서 본다.
   // 화면만 단순해질 뿐 분석·검증·권한 차단은 서버에서 그대로 돈다.
   // 홈도 간편 화면으로 연다. 「작성 과정 자세히 보기」로 들어가 있는 동안에만 전문 화면을 그린다.
-  if (showSimpleHome()) { app.innerHTML = shell(simpleWriteView()); bind(); bindSimple(); fitAutoGrow(); void loadAiJobs(); return; }
+  if (showSimpleHome()) { app.innerHTML = shell(simpleWriteView()); bind(); bindSimple(); fitAutoGrow(); void loadAiJobs(); void resumeDesignJob(); return; }
   const views = [noticeImportView, noticeConfirmView, applicantSelectView, businessSelectView, documentView, documentView];
   // 관리자 화면은 관리자에게만 열린다. 저장된 화면 위치가 남아 있어도 역할이 아니면 되돌린다.
   if (state.activeTool === 'admin' && !isAdmin()) state.activeTool = 'home';
@@ -7608,6 +7608,17 @@ function aiBusy(what = '이미 만들고 있습니다') {
   return true;
 }
 
+// 진행 중이던 설계가 있으면 스스로 이어받는다. 사람이 다시 누를 필요도, 다시 결제할 일도 없다.
+let resumeTried = false;
+async function resumeDesignJob() {
+  if (resumeTried || state.busy) return;
+  const jobs = state.designJobs || {};
+  if (!Object.keys(jobs).length || state.stagedGeneration?.master) return;
+  resumeTried = true;
+  setAiBusy('진행 중이던 설계 결과를 이어받는 중...', { error: '', notice: '' }, 'master');
+  await generateCompleteProposal().catch(() => setState({ busy: '' }));
+}
+
 // 이 계획서의 AI 작업 기록을 한 번만 불러온다. AI를 부르지 않는 조회다.
 async function loadAiJobs() {
   const id = state.archiveProposalId || '';
@@ -7749,8 +7760,11 @@ async function generateCompleteProposal() {
   try {
     // 설계는 background로 돌아간다. 기다리는 동안 몇 초가 지났는지 화면에 이어서 보여 준다.
     const stepAt = {};
-    const result = await masterWithAI(completePayload, seconds => {
-      if (state.busy) setState({ busy: `공고문을 분석하고 마스터 설계를 작성하는 중... (${aiTaskLabel(seconds)} 경과)` });
+    const result = await masterWithAI(completePayload, (seconds, info = {}) => {
+      if (!state.busy) return;
+      // 오래 걸려도 잃지 않는다. 작업번호를 저장해 두었으니 창을 닫아도 다시 받을 수 있다.
+      const keep = info.keepGoing ? ' · 창을 닫아도 됩니다. 다시 들어오면 이어서 받습니다' : '';
+      setState({ busy: `공고문을 분석하고 마스터 설계를 작성하는 중... (${aiTaskLabel(seconds)} 경과)${keep}` });
     }, {
       // 배경으로 넘어간 걸음의 작업번호를 남긴다. 다시 눌러도 새로 만들지 않고 그 결과를 받는다.
       resume: state.designJobs || {},

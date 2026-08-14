@@ -82,7 +82,7 @@ test('모든 계획서는 마스터 설계와 신청서 항목별 분할 생성�
   const appSource = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   const apiSource = fs.readFileSync(new URL('../functions/api/proposal.js', import.meta.url), 'utf8');
   // 설계는 background로 돌아간다. 시작하고 결과를 물어 가져오며 기다린 시간을 보여 준다.
-  assert.match(appSource, /masterWithAI\(completePayload, seconds =>/);
+  assert.match(appSource, /masterWithAI\(completePayload, \(seconds, info = \{\}\) =>/);
   const masterApi = fs.readFileSync(new URL('../src/api.js', import.meta.url), 'utf8');
   // 설계는 두 걸음(masterDesign → masterPlan)으로 나눠 부르고, 끊긴 걸음만 배경으로 다시 돌린다.
   assert.match(masterApi, /const design = await designStep\('masterDesign', payload, settings\);/);
