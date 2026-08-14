@@ -23,6 +23,9 @@ export const finishSocial = (provider, code, state) => post('/api/oauth', 'callb
 // 에이전트 본인의 자격·남은 편수. 남의 자격은 이 경로로 볼 수 없다.
 export const agencyMe = () => post('/api/account', 'agencyMe');
 export const accountProfile = () => post('/api/account', 'profile');
+// 구독 신청서. 결제가 아니라 신청이며, 실제 개설은 관리자가 확인한 뒤에 한다.
+export const submitSubscriptionRequest = request => post('/api/account', 'subscriptionRequest', { request });
+export const mySubscriptionRequest = () => post('/api/account', 'mySubscriptionRequest');
 export const saveAccountProfile = value => post('/api/account', 'completeProfile', value);
 
 // 공급자가 돌려보낸 주소에서 code·state만 읽는다. 읽고 나면 주소에서 지운다.

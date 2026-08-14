@@ -12,7 +12,8 @@ import { applyOpenMarks, collectOpenMarks, openMarkTotal } from './open-marks.js
 import { MANIFEST_NAME, packageStale, planSubmissionZip, zipBytes } from './submission-zip.js';
 import { agencyMe, acknowledgePrivacyNotice, UNAUTHORIZED, accountProfile, clearOAuthCallback, currentUser, finishSocial, login, logout, readOAuthCallback, recoverPassword, saveAccountProfile, saveMemberInfo, signup as signupEmail, startSocial } from './auth.js';
 import { premiumNoticeHistory, premiumShowcase, premiumStatus } from './premium.js';
-import { adminAgencyList, adminAgencyTransfer, adminAgencyTransferPreview, adminSetAgency, adminOverviewCounts, adminSetNoticeSource, adminAccessOverview, adminAssignProposal, adminMemberUsage, adminProposalContent, adminRevokeGrant, adminSaveGrant, adminNoticeCollection, adminRunNoticeCollection, adminUsageReport, approveAccount, deleteShowcase, setAccountSubscription, transferSocialIdentity, disableAccount, listAccounts, listCollectedNotices, listShowcase, removeAccount, saveShowcase, setAccountPlan, setAccountPremium, setAccountRole, setNoticePublic, setShowcaseOrder, setShowcasePublic } from './admin.js';
+import { mySubscriptionRequest, submitSubscriptionRequest } from './auth.js';
+import { adminSubscriptionRequests, adminDecideSubscription, adminAgencyList, adminAgencyTransfer, adminAgencyTransferPreview, adminSetAgency, adminOverviewCounts, adminSetNoticeSource, adminAccessOverview, adminAssignProposal, adminMemberUsage, adminProposalContent, adminRevokeGrant, adminSaveGrant, adminNoticeCollection, adminRunNoticeCollection, adminUsageReport, approveAccount, deleteShowcase, setAccountSubscription, transferSocialIdentity, disableAccount, listAccounts, listCollectedNotices, listShowcase, removeAccount, saveShowcase, setAccountPlan, setAccountPremium, setAccountRole, setNoticePublic, setShowcaseOrder, setShowcasePublic } from './admin.js';
 import { fetchMembershipPlans, publicNoticeDetail, searchPublicNotices } from './notice-search.js';
 import { operatorAgencyList, operatorNoticeCollection, operatorApprove, operatorDisable, operatorEndSessions, operatorIssueRecoveryCode, operatorOverview, operatorReactivate, operatorSetContractProgress, operatorUnlockLogin, operatorUsageReport, operatorUserDetail } from './operator.js';
 import { codeLabel, statusLabel, warningLabel } from '../server/notice-run.js';
@@ -24,6 +25,7 @@ import { ANSWER_CHOICES, HIDDEN_EXPERT, MAX_QUESTIONS as SIMPLE_MAX_QUESTIONS, R
 import { ASSIGNABLE_ROLES, ROLE_DUTY, canHoldClients, roleLabel } from '../server/roles.js';
 import { PASSWORD_MIN, validateSignup } from '../server/signup.js';
 import { MEMBER_STEPS, PREMIUM_STEP_NOTE } from '../server/membership.js';
+import { BILLING_NOTE, validateRequest } from '../server/subscription-request.js';
 import { ADMIN_SHORTCUTS } from '../server/admin-overview.js';
 import { AGENCY_STATUS_LABEL, DEFAULT_LIMITS, LIMIT_FIELDS, remainingFor } from '../server/agency.js';
 import { buildOverview, detailPanels, mergeReviewIssues } from '../server/review-digest.js';
@@ -151,6 +153,8 @@ let auth = {
   premiumDraft: {}, showcase: null, showcaseDraft: {}, showcaseEditing: '', progressDraft: {}, subscriptionDraft: {}, transferNotice: '',
   // 운영관리자 화면 자료. 발급한 복구코드는 화면에만 잠시 두고 저장하지 않는다.
   operator: emptyOperator(),
+  subRequest: emptySubscriptionRequest(),
+  subRequests: { loaded: false, list: [] },
   // 핵심제안서 화면. 입력과 결과는 화면에만 두고 브라우저 저장소에 넣지 않는다.
   core: { draft: emptyCoreDraft(), result: null },
   // 공모정보 검색 화면. 로그인 없이도 쓰며 이미 모아 둔 자료만 읽는다.
@@ -183,6 +187,11 @@ function hasFullAccess() {
 // 승인은 받았지만 전체 이용권이 없는 회원. 핵심제안서 화면만 쓴다.
 function trialAccount() { return auth.status === 'signedIn' && auth.user?.status === 'active' && !hasFullAccess(); }
 // 발급된 복구코드(issued)는 이 객체 안에서만 살고 localStorage·sessionStorage에 절대 넣지 않는다.
+// 구독 신청서 화면 상태. 로그인 상태와 함께만 살아 있고 저장하지 않는다.
+function emptySubscriptionRequest() {
+  return { open: false, loaded: false, mine: null, draft: { orgName: '', contactName: '', phone: '', purpose: '', wantedStart: '', monthlyPlans: '', noticeAck: false } };
+}
+
 function emptyOperator() {
   return { loaded: false, users: [], audit: [], notIntegrated: [], query: '', queryDraft: '', selected: '', detail: null, issued: null, tab: 'users', confirmEnd: '' };
 }
@@ -753,9 +762,45 @@ function membershipStatusPanel() {
     <div class="stat-badges">${can.map(([label, ok]) => `<span class="stat-badge"><strong>${ok ? '○' : '×'}</strong><span>${escapeHtml(label)}</span></span>`).join('')}</div>
     ${info.tier === 'member' ? `<p class="muted">${escapeHtml(MEMBER_READ_ONLY_NOTE)}</p>` : ''}
     ${info.tier === 'member' || info.tier === 'pending' ? `<div class="actions"><span class="muted">${escapeHtml(membershipPlansState()?.pricing?.billingNote || '')}</span><button class="button primary" id="apply-subscription">${escapeHtml(membershipPlansState()?.pricing?.applyLabel || '월간 구독 신청')}</button></div>` : ''}
+    ${subscriptionRequestView()}
     ${membershipGuideView({ compact: true })}
   </details>`;
 }
+// 구독 신청서. 결제가 아니라 신청이다. 관리자가 확인한 뒤에 열린다.
+function subscriptionRequestView() {
+  const view = auth.subRequest || emptySubscriptionRequest();
+  const mine = view.mine;
+  if (mine && mine.status === 'pending') {
+    return `<div class="alert" id="sub-request"><strong>구독 신청서를 접수했습니다 · 검토 중</strong>
+      <p>${escapeHtml(mine.orgName)} · ${escapeHtml(mine.contactName)} · 신청일 ${escapeHtml(String(mine.createdAt).slice(0, 10))}</p>
+      <p class="muted">${escapeHtml(BILLING_NOTE)}</p></div>`;
+  }
+  if (mine && mine.status === 'rejected') {
+    return `<div class="alert warning" id="sub-request"><strong>지난 신청은 열리지 않았습니다</strong>
+      <p>${escapeHtml(mine.decisionNote || '사유가 적혀 있지 않습니다.')}</p>
+      <div class="actions"><span class="muted">고쳐서 다시 신청할 수 있습니다.</span>
+        <button class="button primary" id="open-sub-request">구독 신청서 다시 쓰기</button></div></div>`;
+  }
+  if (!view.open) return '';
+  const draft = view.draft;
+  const field = (key, label, placeholder = '', type = 'text') => `<div class="field">
+    <label for="sub-${key}">${escapeHtml(label)}</label>
+    <input id="sub-${key}" type="${type}" data-sub-field="${key}" value="${escapeHtml(draft[key] || '')}" placeholder="${escapeHtml(placeholder)}"></div>`;
+  return `<div class="card" id="sub-request"><div class="card-title"><div><h3>구독 신청서</h3>
+      <span>적어 주시면 관리자가 확인하고 열어 드립니다. 결제는 아직 연결되어 있지 않습니다.</span></div></div>
+    <div class="two-col">${field('orgName', '기관명', '예: 사단법인 ○○센터')}${field('contactName', '담당자 이름', '예: 김담당')}</div>
+    <div class="two-col">${field('phone', '연락처', '010-0000-0000')}${field('wantedStart', '희망 시작일 (선택)', '2027-01-05', 'date')}</div>
+    <div class="two-col">${field('monthlyPlans', '월 예상 사용 편수 (선택)', '예: 2편')}<div class="field"><label>&nbsp;</label><span class="muted">편수는 참고용입니다. 실제 편수는 상품표를 따릅니다.</span></div></div>
+    <div class="field"><label for="sub-purpose">무엇에 쓰실지</label>
+      <textarea id="sub-purpose" data-sub-field="purpose" class="source-text" style="min-height:70px" placeholder="예: 매달 복지 공모사업 2건을 직접 작성하려고 합니다.">${escapeHtml(draft.purpose || '')}</textarea></div>
+    <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="sub-ack" ${draft.noticeAck ? 'checked' : ''}>
+      <span>${escapeHtml(BILLING_NOTE)} 이 내용을 확인했습니다.</span></label>
+    <div class="actions"><span class="muted">결제수단은 받지 않습니다. 카드번호를 적는 칸은 없습니다.</span>
+      <div><button class="button secondary" id="cancel-sub-request">닫기</button>
+        <button class="button primary" id="send-sub-request" ${auth.busy ? 'disabled' : ''}>신청서 보내기</button></div></div>
+  </div>`;
+}
+
 const MEMBER_READ_ONLY_NOTE = '승인회원의 핵심제안서는 읽기 전용입니다. 편집·재작성·저장·DOCX·PDF·ZIP 출력은 월간 구독 신청 후에 열립니다.';
 
 // ---------- 승인 대기 잠금 ----------
@@ -787,9 +832,21 @@ function bindMembership() {
     // 잠금 안내만 띄운다. 서버를 부르지 않는다.
     setAuth({ lockedNotice: `${el.dataset.lockedFeature}은(는) 관리자 승인 후에 열립니다. 승인 전에는 자료를 불러오지 않습니다.` });
   });
-  document.querySelector('#apply-subscription')?.addEventListener('click', () => setAuth({
-    notice: `${membershipPlansState()?.pricing?.applyLabel || '월간 구독 신청'}: ${membershipPlansState()?.pricing?.billingNote || ''}`
-  }));
+  // 구독 신청서. 문구만 띄우지 않고 실제로 적어 보낼 자리를 연다.
+  document.querySelector('#apply-subscription')?.addEventListener('click', () => openSubscriptionRequest());
+  document.querySelector('#open-sub-request')?.addEventListener('click', () => openSubscriptionRequest());
+  document.querySelector('#cancel-sub-request')?.addEventListener('click', () => setAuth({ subRequest: { ...(auth.subRequest || emptySubscriptionRequest()), open: false } }));
+  document.querySelectorAll('[data-sub-field]').forEach(el => el.oninput = () => {
+    const view = auth.subRequest || emptySubscriptionRequest();
+    view.draft = { ...view.draft, [el.dataset.subField]: el.value };
+    auth.subRequest = view;
+  });
+  document.querySelector('#sub-ack')?.addEventListener('change', event => {
+    const view = auth.subRequest || emptySubscriptionRequest();
+    view.draft = { ...view.draft, noticeAck: event.target.checked };
+    auth.subRequest = view;
+  });
+  document.querySelector('#send-sub-request')?.addEventListener('click', () => void sendSubscriptionRequest());
   document.querySelectorAll('[data-open-membership]').forEach(el => el.onclick = () => {
     document.querySelector('#membership-guide')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
@@ -853,6 +910,33 @@ async function saveMemberProfile() {
     busy: false, memberDraft: {}, memberOpen: true,
     notice: result.changed?.length ? `내 정보를 저장했습니다. 변경 항목: ${result.changed.join('·')}` : '바뀐 항목이 없습니다.'
   });
+}
+
+// 신청서를 연다. 이미 낸 것이 있으면 그 상태를 먼저 읽는다.
+async function openSubscriptionRequest() {
+  const view = auth.subRequest || emptySubscriptionRequest();
+  const profile = auth.memberProfile || {};
+  setAuth({ subRequest: { ...view, open: true, draft: {
+    ...view.draft,
+    orgName: view.draft.orgName || profile.orgName || auth.user?.orgName || '',
+    contactName: view.draft.contactName || profile.name || auth.user?.name || '',
+    phone: view.draft.phone || profile.phone || auth.user?.phone || ''
+  } }, notice: '', error: '' });
+  if (view.loaded) return;
+  const result = await mySubscriptionRequest().catch(() => null);
+  if (result) setAuth({ subRequest: { ...(auth.subRequest || view), loaded: true, mine: result.request || null } });
+}
+
+async function sendSubscriptionRequest() {
+  const view = auth.subRequest || emptySubscriptionRequest();
+  // 화면과 서버가 같은 규칙을 본다. 못 낼 신청서를 보내 400을 받게 두지 않는다.
+  const checked = validateRequest(view.draft);
+  if (!checked.ok) return setAuth({ error: checked.errors.join(' '), notice: '' });
+  setAuth({ busy: true, error: '', notice: '' });
+  const result = await submitSubscriptionRequest(view.draft).catch(() => ({ error: '신청서를 보내지 못했습니다. 잠시 후 다시 시도해 주세요.' }));
+  if (result?.error) return setAuth({ busy: false, error: result.error });
+  setAuth({ busy: false, subRequest: { ...view, open: false, loaded: true, mine: result.request || null },
+    notice: '구독 신청서를 보냈습니다. 관리자가 확인한 뒤 열어 드립니다.' });
 }
 
 // ---------- 수주회원(왕관) 화면 ----------
@@ -1458,6 +1542,27 @@ async function loadAccounts() {
   const result = await listAccounts().catch(() => ({ ok: false }));
   if (!result.ok) return setAuth({ accountsLoaded: true, error: result.error || '계정 목록을 불러오지 못했습니다.' });
   setAuth({ accounts: result.users || [], accountsLoaded: true });
+  void loadSubscriptionRequests();
+}
+
+// 구독 신청서 목록. 계정 목록과 함께 한 번 읽는다.
+async function loadSubscriptionRequests() {
+  const result = await adminSubscriptionRequests().catch(() => null);
+  if (!result?.requests) return setAuth({ subRequests: { loaded: true, list: auth.subRequests?.list || [] } });
+  setAuth({ subRequests: { loaded: true, list: result.requests } });
+}
+
+// 승인하면 서버가 실제 구독까지 연다. 거절은 사유를 함께 남긴다.
+async function decideSubscriptionRequest(id, status) {
+  if (auth.busy) return;
+  const note = document.querySelector(`[data-sub-note="${id}"]`)?.value || '';
+  if (status === 'rejected' && !note.trim()) return setAuth({ error: '거절 사유를 적어 주세요. 신청한 회원이 무엇을 고쳐야 하는지 알 수 있어야 합니다.' });
+  setAuth({ busy: true, error: '', notice: '' });
+  const result = await adminDecideSubscription(id, status, note).catch(() => ({ error: '처리하지 못했습니다.' }));
+  if (result?.error) return setAuth({ busy: false, error: result.error });
+  setAuth({ busy: false, subRequests: { loaded: true, list: result.requests || [] },
+    notice: status === 'approved' ? '구독을 열었습니다. 회원 화면에서 바로 쓸 수 있습니다.' : '신청을 거절했습니다. 사유를 남겼습니다.' });
+  void loadAccounts();
 }
 // 승인·중지·삭제. 서버가 다시 확인하므로 화면은 결과만 반영한다.
 async function runAdminAction(kind, id) {
@@ -1495,6 +1600,30 @@ function signupHintView() {
     ${reason && !short ? ` · ${escapeHtml(reason)}` : ''}</p>`;
 }
 
+// 구독 신청서 목록. 승인하면 서버가 그 자리에서 실제 구독까지 연다.
+function subscriptionRequestsPanel() {
+  const view = auth.subRequests || { loaded: false, list: [] };
+  const waiting = (view.list || []).filter(item => item.status === 'pending');
+  const done = (view.list || []).filter(item => item.status !== 'pending');
+  return `<h4>구독 신청 ${waiting.length}건${done.length ? ` <span class="muted">· 처리함 ${done.length}건</span>` : ''}</h4>
+    ${view.loaded ? '' : '<p class="muted">구독 신청서를 불러오는 중입니다.</p>'}
+    <div class="requirement-list">${waiting.map(item => `<article class="requirement"><div>
+      <div><strong>${escapeHtml(item.orgName)}</strong> <span class="status 확인-필요">검토 중</span>
+        <small>${escapeHtml(item.contactName)} · ${escapeHtml(item.phone)} · ${escapeHtml(item.userEmail)}</small>
+        <small>${escapeHtml(item.purpose)}</small>
+        <small class="muted">신청 ${escapeHtml(String(item.createdAt).slice(0, 10))}${item.wantedStart ? ` · 희망 시작 ${escapeHtml(item.wantedStart)}` : ''}${item.monthlyPlans ? ` · 월 ${escapeHtml(item.monthlyPlans)}` : ''}</small></div>
+      <div class="field"><label for="sub-note-${escapeHtml(item.id)}">처리 메모 (거절 사유)</label>
+        <input id="sub-note-${escapeHtml(item.id)}" data-sub-note="${escapeHtml(item.id)}" placeholder="거절할 때는 사유를 적어 주세요"></div>
+      <div class="actions" style="margin:0"><span class="muted">승인하면 월간 구독이 바로 열립니다.</span>
+        <div><button class="button primary" data-sub-approve="${escapeHtml(item.id)}" ${auth.busy ? 'disabled' : ''}>승인하고 구독 열기</button>
+          <button class="button secondary" data-sub-reject="${escapeHtml(item.id)}" ${auth.busy ? 'disabled' : ''}>거절</button></div></div>
+    </div></article>`).join('') || '<p class="muted">새 구독 신청이 없습니다.</p>'}</div>
+    ${done.length ? `<details class="card org-details"><summary>처리한 신청 ${done.length}건</summary><div class="requirement-list">${done.map(item => `<article class="requirement"><div>
+      <div><strong>${escapeHtml(item.orgName)}</strong> <span class="status ${item.status === 'approved' ? '충족' : '부족'}">${escapeHtml(item.statusLabel)}</span>
+        <small>${escapeHtml(item.userEmail)} · ${escapeHtml(String(item.decidedAt).slice(0, 10))}${item.decisionNote ? ` · ${escapeHtml(item.decisionNote)}` : ''}</small></div>
+    </div></article>`).join('')}</div></details>` : ''}`;
+}
+
 function adminView() {
   // 세 통으로 나눈다. 승인하면 「승인 대기」에서 「이용 중」으로, 중지하면 「이용 중지」로 실제로 옮겨진다.
   // 예전에는 이용 중과 중지를 한 통에 담아, 승인해도 중지해도 같은 자리에 남아 있는 것처럼 보였다.
@@ -1506,6 +1635,7 @@ function adminView() {
     ${auth.error ? `<div class="alert danger"><strong>${escapeHtml(auth.error)}</strong></div>` : ''}
     ${auth.notice ? `<div class="alert success"><strong>${escapeHtml(auth.notice)}</strong></div>` : ''}
     ${auth.accountsLoaded ? '' : '<p class="muted">계정 목록을 불러오는 중입니다.</p>'}
+    ${subscriptionRequestsPanel()}
     <h4>승인 대기 ${waiting.length}건</h4>
     <div class="requirement-list">${waiting.map(accountRow).join('') || '<p class="muted">승인을 기다리는 계정이 없습니다.</p>'}</div>
     <h4>이용 중 ${live.length}건</h4>
@@ -5812,6 +5942,8 @@ function bind() {
   document.querySelectorAll('[data-portal]').forEach(el => el.onclick = () => openPortal(el.dataset.portal));
   document.querySelectorAll('[data-portal-open]').forEach(el => el.onclick = () => (el.dataset.portalOpen === 'admin' ? openAdmin() : openOperator()));
   document.querySelector('#reload-admin')?.addEventListener('click', () => void loadAccounts());
+  document.querySelectorAll('[data-sub-approve]').forEach(el => el.onclick = () => void decideSubscriptionRequest(el.dataset.subApprove, 'approved'));
+  document.querySelectorAll('[data-sub-reject]').forEach(el => el.onclick = () => void decideSubscriptionRequest(el.dataset.subReject, 'rejected'));
   document.querySelector('#close-admin')?.addEventListener('click', () => openPortal('proposal'));
   document.querySelectorAll('[data-admin-approve]').forEach(el => el.onclick = () => void runAdminAction('approve', el.dataset.adminApprove));
   document.querySelectorAll('[data-admin-disable]').forEach(el => el.onclick = () => void runAdminAction('disable', el.dataset.adminDisable));

@@ -47,6 +47,9 @@ export const adminRevokeGrant = id => post('revokeGrant', { id });
 export const adminOverviewCounts = () => post('overview');
 // 에이전트. 지정·해제·한도·인계는 모두 최고관리자 경로로만 간다.
 export const adminAgencyList = () => post('agencyList');
+// 구독 신청서 목록과 처리. 승인하면 서버가 실제 구독까지 연다.
+export const adminSubscriptionRequests = () => post('subscriptionRequests');
+export const adminDecideSubscription = (id, status, note = '') => post('decideSubscriptionRequest', { id, status, note });
 export const adminSetAgency = value => post('setAgency', value);
 export const adminAgencyTransferPreview = (fromId, toId) => post('agencyTransferPreview', { fromId, toId });
 export const adminAgencyTransfer = (fromId, toId, reason) => post('agencyTransfer', { fromId, toId, reason, confirm: true });

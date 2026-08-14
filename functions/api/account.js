@@ -8,6 +8,7 @@ import { SUBSCRIPTION_LABELS, loadSubscription, remaining } from '../../server/s
 import { remainingFor } from '../../server/agency.js';
 import { monthlyUsage, stateFor } from '../../server/agency-store.js';
 import { EDITABLE_FIELDS, LOCKED_FIELDS, PROFILE_FIELDS, auditDetail, changedFields, needsReview, validateMemberProfile } from '../../server/member-profile.js';
+import { BILLING_NOTE, canSubmit, latestRequest, saveRequest, validateRequest } from '../../server/subscription-request.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 
@@ -30,7 +31,23 @@ export async function onRequest(context) {
   if (body.action === 'saveProfile') return saveProfile(env.ARCHIVE_DB, data.session.user, body);
   // 개인정보·열람 안내 확인. 회원이 직접 누를 때만 기록한다. 기존 계정을 자동 동의로 만들지 않는다.
   if (body.action === 'acknowledgeNotice') return acknowledgeNotice(env.ARCHIVE_DB, data.session.user, body);
+  // 구독 신청서. 결제가 아니라 신청이다. 실제 개설은 관리자가 확인한 뒤에 한다.
+  if (body.action === 'subscriptionRequest') return submitSubscriptionRequest(env.ARCHIVE_DB, data.session.user, body);
+  if (body.action === 'mySubscriptionRequest') {
+    return json({ request: await latestRequest(env.ARCHIVE_DB, data.session.user.id), paymentNote: BILLING_NOTE });
+  }
   return json({ error: '지원하지 않는 작업입니다.' }, 400);
+}
+
+// 구독 신청서를 접수한다. 같은 회원이 검토 중인 신청을 또 내지는 못한다.
+async function submitSubscriptionRequest(db, user, body) {
+  const existing = await latestRequest(db, user.id);
+  const gate = canSubmit(existing);
+  if (!gate.allowed) return json({ error: gate.reason, request: existing }, 409);
+  const checked = validateRequest(body.request || body);
+  if (!checked.ok) return json({ error: checked.errors.join(' ') }, 400);
+  const saved = await saveRequest(db, { userId: user.id, userEmail: user.email, value: checked.value });
+  return json({ request: saved, paymentNote: BILLING_NOTE });
 }
 
 async function profile(db, user) {

@@ -20,6 +20,7 @@ import { adminOverview } from '../../server/admin-overview.js';
 import { AGENCY_STATUSES, canManageAgency, rejectsSelfPromotion, transferCheck } from '../../server/agency.js';
 import { listAgencies, saveGrant as saveAgencyGrant, stateFor, transferAgencyData, transferPreview } from '../../server/agency-store.js';
 import { SUBSCRIPTION_LABELS, addMonth, remaining, validateSubscription } from '../../server/subscription.js';
+import { decideRequest, listRequests } from '../../server/subscription-request.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 const SOCIAL_KEY_SUFFIX = '@social.ms12.invalid';
@@ -51,6 +52,9 @@ export async function onRequest(context) {
   }
   if (body.action === 'agencyTransfer') return runTransfer(env.ARCHIVE_DB, actor, body);
   if (body.action === 'listUsers') return json({ users: await listUsers(env.ARCHIVE_DB) }, 200);
+  // 구독 신청서. 승인하면 기존 「월간 구독 부여」를 그대로 실행한다. 별도 경로를 만들지 않는다.
+  if (body.action === 'subscriptionRequests') return json({ requests: await listRequests(env.ARCHIVE_DB) }, 200);
+  if (body.action === 'decideSubscriptionRequest') return decideSubscription(env.ARCHIVE_DB, actor, body);
   if (body.action === 'approveUser') return mutate(env.ARCHIVE_DB, actor, body.id, approve);
   if (body.action === 'disableUser') return mutate(env.ARCHIVE_DB, actor, body.id, disable);
   if (body.action === 'deleteUser') return mutate(env.ARCHIVE_DB, actor, body.id, remove);
@@ -220,6 +224,22 @@ async function accountFootprint(db, userId) {
     contracts: Number(row?.contracts || 0), profileDone: Number(row?.profileDone || 0)
   };
   return { ...counts, total: Object.values(counts).reduce((sum, value) => sum + value, 0) };
+}
+
+// 구독 신청서 처리. 승인하면 그 회원에게 실제 구독을 연다(기존 setSubscription을 그대로 쓴다).
+async function decideSubscription(db, actor, body) {
+  const decided = await decideRequest(db, { id: body.id, status: body.status, note: body.note, actorId: actor?.id || '' });
+  if (!decided.ok) return json({ error: decided.error }, 400);
+  let detail = `구독 신청 ${decided.request.statusLabel}`;
+  if (body.status === 'approved') {
+    const target = await db.prepare('SELECT id, email, role, status FROM users WHERE id = ?').bind(decided.request.userId).first();
+    if (!target) return json({ error: '신청한 회원을 찾지 못했습니다.' }, 404);
+    const result = await setSubscription(db, target, { subscription: { status: 'active', startedOn: decided.request.wantedStart || undefined, note: `구독 신청서 승인 · ${decided.request.orgName}` } }, actor);
+    if (result.error) return json({ error: result.error }, 400);
+    detail = `${detail} · ${result.detail}`;
+  }
+  await recordAudit(db, { actor, action: 'admin.subscriptionRequest', targetId: decided.request.userId, targetEmail: decided.request.userEmail, detail });
+  return json({ requests: await listRequests(db), request: decided.request }, 200);
 }
 
 // ---------- 월간 구독(시험용) ----------
