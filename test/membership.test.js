@@ -457,3 +457,18 @@ test('승인 대기·구독 없음에는 거절 사유가 서로 다르다', () 
   assert.equal(membershipRefusal(subscriber, 'diagnosis'), null);
   assert.equal(membershipRefusal(subscriber, 'fullProposal').needsPremium, true);
 });
+
+test('회원 안내 비교표가 실제 권한과 어긋나지 않는다', async () => {
+  const fs = await import('node:fs');
+  const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  // 전체 이용권(legacy)은 구독 없이도 편집·저장·출력이 열린다. 표에 그 칸이 있어야 한다.
+  assert.match(app, /\['legacy', '전체 이용권'\]/);
+  assert.match(app, /legacy: '생성·편집·저장·DOCX·PDF'/);
+  assert.match(app, /legacy: '전체 계획서 작성·검증·출력'/);
+  // 내 등급을 다른 칸으로 바꿔 강조하지 않는다.
+  assert.doesNotMatch(app, /if \(tier === 'legacy'\) return 'subscriber';/);
+  // 계정당 1회는 주기 갱신이 없다.
+  assert.match(app, /계정당 평생 1회 읽기/);
+  // 정식회원의 기관정보는 전체 계획서에 바로 쓰이지 않는다.
+  assert.match(app, /기관정보 관리 · 전체 계획서 작성은 구독 후 활용/);
+});

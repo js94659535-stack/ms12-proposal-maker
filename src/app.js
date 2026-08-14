@@ -648,7 +648,9 @@ async function loadMembershipPlans() {
 // 회원 안내는 카드 넷을 나란히 두지 않고 가로 비교표로 보여 준다.
 // 좁은 화면에서 칸이 눌리면 한글이 한 글자씩 끊기므로, 표는 자기 상자 안에서만 좌우로 움직인다.
 const COMPARE_COLUMNS = [
-  ['pending', '승인 대기 회원'], ['member', '정식회원'], ['subscriber', '구독회원'], ['premium', '프리미엄회원']
+  // legacy(전체 이용권)는 구독 없이도 편집·저장·출력이 열리는 등급이다. 지금 쓰는 회원 대부분이 여기다.
+  // 표에 없으면 본인 권한과 다른 칸이 「지금 내 등급」으로 강조된다.
+  ['pending', '승인 대기 회원'], ['member', '정식회원'], ['legacy', '전체 이용권'], ['subscriber', '구독회원'], ['premium', '프리미엄회원']
 ];
 // 편수·쪽수·가격은 서버 상품표에서 가져온다. 화면에 숫자를 따로 적어 두지 않는다.
 // 공개 우수 제안서 편수도 서버 값을 따른다.
@@ -660,20 +662,24 @@ function compareRows(plans) {
   const diagnosis = quota.diagnosis ? `월 ${quota.diagnosis}편` : '월 정해진 편수';
   const price = plans?.pricing?.priceLabel || '구독 신청';
   const freePages = plans?.quotas?.member?.maxPages;
-  const freeCore = freePages ? `${freePages}쪽 · 계정당 1회 읽기` : '계정당 1회 읽기';
+  // 계정당 1회는 주기마다 새로 주어지지 않는다. 「평생 1회」라고 적어야 오해가 없다.
+  const freeCore = freePages ? `${freePages}쪽 · 계정당 평생 1회 읽기` : '계정당 평생 1회 읽기';
   return [
-    ['승인 상태', { pending: '관리자 승인 대기', member: '승인 완료', subscriber: '승인 완료', premium: '정식 수주계약 회원' }],
-    ['기관정보', { pending: '기관정보 입력·수정', member: '기관정보 관리', subscriber: '기관정보 관리', premium: '기관정보 관리' }],
-    ['핵심제안서', { pending: '기능 이름만 확인', member: freeCore, subscriber: `${core} · ${pages}`, premium: '구독회원과 같음' }],
-    ['선정 가능성 진단', { pending: '잠금', member: '잠금', subscriber: diagnosis, premium: diagnosis }],
-    ['편집·저장·출력', { pending: '잠금', member: '잠금', subscriber: '생성·편집·저장·DOCX·PDF', premium: '생성·편집·저장·DOCX·PDF' }],
+    ['승인 상태', { pending: '관리자 승인 대기', member: '승인 완료', legacy: '승인 완료', subscriber: '승인 완료', premium: '정식 수주계약 회원' }],
+    ['기관정보', {
+      pending: '기관정보 입력·수정', member: '기관정보 관리 · 전체 계획서 작성은 구독 후 활용',
+      legacy: '기관정보 관리 · 계획서마다 다시 씀', subscriber: '기관정보 관리 · 계획서마다 다시 씀', premium: '기관정보 관리 · 계획서마다 다시 씀'
+    }],
+    ['핵심제안서', { pending: '기능 이름만 확인', member: freeCore, legacy: `${core} · ${pages}`, subscriber: `${core} · ${pages}`, premium: '구독회원과 같음' }],
+    ['선정 가능성 진단', { pending: '잠금', member: '잠금', legacy: diagnosis, subscriber: diagnosis, premium: diagnosis }],
+    ['편집·저장·출력', { pending: '잠금', member: '잠금', legacy: '생성·편집·저장·DOCX·PDF', subscriber: '생성·편집·저장·DOCX·PDF', premium: '생성·편집·저장·DOCX·PDF' }],
     ['공모정보 검색', {
-      pending: '메뉴만 보임 · 결과 잠금', member: '현재 모집 중인 공개 공고',
+      pending: '메뉴만 보임 · 결과 잠금', member: '현재 모집 중인 공개 공고', legacy: '현재 모집 중인 공개 공고',
       subscriber: '현재 모집 중인 공개 공고', premium: '마감 공고를 포함한 전체 공개 수집 이력'
     }],
-    ['전문 전체 계획서', { pending: '잠금', member: '잠금', subscriber: '포함되지 않음', premium: '계약한 전문 전체 사업계획서 작성·검토·수행' }],
+    ['전문 전체 계획서', { pending: '잠금', member: '잠금', legacy: '전체 계획서 작성·검증·출력', subscriber: '포함되지 않음', premium: '계약한 전문 전체 사업계획서 작성·검토·수행' }],
     ['이용방법', {
-      pending: '실제 자료·AI 생성 잠금', member: '가입 후 관리자 승인',
+      pending: '실제 자료·AI 생성 잠금', member: '가입 후 관리자 승인', legacy: '관리자가 부여한 전체 이용권 · 결제 없음',
       subscriber: price, premium: `우수 사업제안서 ${showcaseLimit(plans)}편 · 계약 문의`
     }]
   ];
@@ -681,7 +687,6 @@ function compareRows(plans) {
 // 지금 로그인한 사람의 등급. 강조할 열을 정한다.
 function currentTierColumn() {
   const tier = auth.membership?.tier;
-  if (tier === 'legacy') return 'subscriber';
   return COMPARE_COLUMNS.some(([id]) => id === tier) ? tier : '';
 }
 
