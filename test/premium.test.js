@@ -436,6 +436,7 @@ test('마이그레이션은 더하기만 하고 기존 자료를 지우지 않�
 test('저장한 기관정보를 새 문서 입력칸에 먼저 채워 준다', () => {
   // 다음에 만드는 핵심제안서부터 최신 기관정보를 쓴다.
   assert.match(app, /function memberFactsText\(\)/);
-  assert.match(app, /escapeHtml\(draft\.proposer \|\| memberFactsText\(\)\)/);
-  assert.match(app, /저장해 둔 내 기관정보를 불러왔습니다/);
+  // 제안서에서 다시 적지 않는다. 「내 정보」에 적어 둔 것을 그대로 보여 주고 쓴다.
+  assert.match(app, /escapeHtml\(memberFactsText\(\)\)/);
+  assert.match(app, /「내 정보」에 적어 둔 기관정보를 그대로 씁니다/);
 });

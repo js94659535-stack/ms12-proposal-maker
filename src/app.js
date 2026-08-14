@@ -2465,10 +2465,17 @@ function coreProposalView() {
 <div class="field"><label for="core-audience">제출처 유형</label><select id="core-audience" ${done || busy ? 'disabled' : ''}>${AUDIENCE_OPTIONS.map(([key, label]) => `<option value="${key}" ${draft.audienceType === key ? 'selected' : ''}>${label}</option>`).join('')}</select><small class="muted">강조점: ${escapeHtml(audience[2])}</small></div>
 <div class="field"><label for="core-recipient">실제 제출기관명 (선택)</label><input id="core-recipient" placeholder="예: ○○시청 아동청소년과" value="${escapeHtml(draft.recipient)}" ${done || busy ? 'disabled' : ''}></div>
         <h3 style="margin:16px 0 4px">2. 내 여건과 하려는 일</h3>
-<div class="field"><label for="core-proposer">제안자·기관 기본정보</label><textarea id="core-proposer" placeholder="예: ○○지역아동센터. 초등 돌봄 12년, 상담 자격 인력 3명." ${done || busy ? 'disabled' : ''}>${escapeHtml(draft.proposer || memberFactsText())}</textarea>${memberFactsText() ? '<small class="muted">저장해 둔 내 기관정보를 불러왔습니다. 「계정 설정 → 내 정보 수정」에서 고치면 다음 문서부터 반영됩니다.</small>' : ''}</div>
-<div class="field"><label for="core-idea">핵심 아이디어 <span class="status 확인-필요">필수</span></label><textarea id="core-idea" class="source-text" placeholder="무엇을 하려는지 적어 주세요. 예: 초등 고학년 정서지원 집단 프로그램을 주 1회 16회기로 운영하려 합니다." ${done || busy ? 'disabled' : ''}>${escapeHtml(draft.coreIdea)}</textarea><small class="muted">${CORE_MIN_IDEA}자 이상 · 지금 ${draft.coreIdea.trim().length}자</small></div>
+<div class="field"><label>제안자·기관 기본정보</label>
+          ${memberFactsText()
+            ? `<p class="muted" style="white-space:pre-wrap;margin:0">${escapeHtml(memberFactsText())}</p><small class="muted">「내 정보」에 적어 둔 기관정보를 그대로 씁니다. 여기서 다시 적지 않습니다.</small>`
+            : '<p class="muted" style="margin:0">아직 적어 둔 기관정보가 없습니다. 아래에서 한 번 적어 두면 이 제안서와 다음 문서에 계속 쓰입니다.</p>'}
+          <div class="actions" style="margin:6px 0 0"><span class="muted">기관명·인력·실적을 적어 두면 [확인 필요]가 줄어듭니다.</span>
+            <button class="button secondary" id="core-open-profile" type="button">${memberFactsText() ? '기관정보 고치기' : '기관정보 적기'}</button></div>
+        </div>
+        ${auth.memberOpen ? memberProfileForm() : ''}
+<div class="field"><label for="core-idea">핵심 아이디어 <span class="status 확인-필요">필수</span></label><textarea id="core-idea" class="source-text" placeholder="무엇을, 누구에게, 어떻게 하려는지 적어 주세요.&#10;예1) 초등 4~6학년 정서지원 집단 프로그램을 주 1회 16회기로 운영합니다. 학교 상담교사 추천으로 12명을 모집하고, 회기마다 정서표현 활동과 보호자 상담을 함께 합니다.&#10;예2) 홀몸 어르신 30명에게 주 2회 반찬을 배달하며 안부를 확인하고, 이상 징후가 보이면 주민센터에 연계합니다.&#10;예3) 청년 자영업자 20팀에게 온라인 판로 교육 8회와 1:1 컨설팅 3회를 제공해 매출 회복을 돕습니다." ${done || busy ? 'disabled' : ''}>${escapeHtml(draft.coreIdea)}</textarea><small class="muted">${CORE_MIN_IDEA}자 이상 · 지금 ${draft.coreIdea.trim().length}자 · 대상·인원·횟수·방법이 들어가면 제안서가 구체해집니다. 모르는 숫자는 비워 두세요.</small></div>
         <details><summary>더 적을 것이 있으면 (선택)</summary>
-<div class="field"><label for="core-purpose">제안 목적</label><textarea id="core-purpose" placeholder="예: 내년도 예산 지원을 받기 위한 제안" ${done || busy ? 'disabled' : ''}>${escapeHtml(draft.purpose)}</textarea></div>
+
 <div class="field"><label for="core-pages">희망 페이지 수</label><input id="core-pages" type="number" min="${CORE_MIN_PAGES}" max="${CORE_MAX_PAGES}" step="1" value="${escapeHtml(draft.targetPages)}" ${done || busy ? 'disabled' : ''}><small class="muted">${CORE_MIN_PAGES}~${CORE_MAX_PAGES}쪽 · 쪽수에 따라 항목 수와 분량이 달라집니다</small></div>
         </details>
         <details><summary>참고 자료 붙여넣기 (선택)</summary><div class="field"><label for="core-source">공고문·안내문 등</label><textarea id="core-source" placeholder="있으면 붙여넣어 주세요. 없어도 됩니다." ${done || busy ? 'disabled' : ''}>${escapeHtml(draft.sourceText)}</textarea></div></details>
@@ -5439,6 +5446,9 @@ function bindNoticeSearch() {
 }
 // 핵심제안서 화면. 실행은 한 번뿐이고 나머지 기능은 서버가 막는다.
 function bindCoreProposal() {
+  // 기관정보는 「내 정보」 한 곳에서만 적는다. 여기서 열고 저장하면 제안서가 그대로 가져다 쓴다.
+  document.querySelector('#core-open-profile')?.addEventListener('click', () => setAuth({ memberOpen: !auth.memberOpen }));
+  if (auth.memberOpen) bindMemberProfile();
   const field = (id, key) => document.querySelector(id)?.addEventListener('input', event => { auth.core.draft[key] = event.target.value; });
   field('#core-proposer', 'proposer');
   field('#core-idea', 'coreIdea');

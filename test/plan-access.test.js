@@ -443,13 +443,16 @@ test('핵심제안서 화면만 열리고 잠긴 기능은 이용권 문의로 �
   const view = app.slice(app.indexOf('// ---------- MS12 핵심제안서 ----------'), app.indexOf('// 로그인과 회원가입을 한 화면에서'));
   assert.match(app, /function trialAccount\(\) \{ return auth\.status === 'signedIn' && auth\.user\?\.status === 'active' && !hasFullAccess\(\); \}/);
   assert.match(app, /if \(trialAccount\(\)\) \{ app\.innerHTML = coreProposalView\(\); bindCoreProposal\(\); return; \}/);
-  // 첫 단계에서 받는 여섯 가지가 화면에 모두 있다.
-  for (const id of ['core-proposer', 'core-idea', 'core-purpose', 'core-audience', 'core-recipient', 'core-pages']) {
+  // 받는 것은 넷이다. 제안 목적은 제출처 유형과 아이디어에서 드러나므로 없앴다.
+  for (const id of ['core-idea', 'core-audience', 'core-recipient', 'core-pages']) {
     assert.ok(view.includes(`id="${id}"`), id);
   }
-  for (const label of ['제안자·기관 기본정보', '핵심 아이디어', '제안 목적', '제출처 유형', '실제 제출기관명', '희망 페이지 수']) {
+  assert.ok(!view.includes('id="core-purpose"'), '제안 목적은 묻지 않는다');
+  // 제안자·기관 정보는 「내 정보」에서 가져온다. 여기서 다시 적지 않는다.
+  for (const label of ['제안자·기관 기본정보', '핵심 아이디어', '제출처 유형', '실제 제출기관명', '희망 페이지 수']) {
     assert.ok(view.includes(label), label);
   }
+  assert.ok(view.includes('id="core-open-profile"'), '기관정보를 적으러 가는 자리가 있다');
   // 제출처 여섯 갈래를 모두 고를 수 있다.
   for (const label of ['관공서·공공기관', '기업', '재단·복지기관', '학교·교육기관', '내부보고', '기타']) assert.ok(view.includes(label), label);
   // 3페이지에 묶인 이름과 고정 분량이 화면에서 사라졌다.
@@ -496,5 +499,5 @@ test('핵심제안서는 두 가지만 묻는다 — 어디에 내는지, 내 �
   // 나머지는 접어 둔다. 필수는 아이디어 하나뿐이다.
   assert.match(view, /<details><summary>더 적을 것이 있으면 \(선택\)<\/summary>/);
   const order = [...view.matchAll(/<label for="(core-[a-z]+)"/g)].map(match => match[1]);
-  assert.deepEqual(order.slice(0, 4), ['core-audience', 'core-recipient', 'core-proposer', 'core-idea']);
+  assert.deepEqual(order.slice(0, 3), ['core-audience', 'core-recipient', 'core-idea']);
 });

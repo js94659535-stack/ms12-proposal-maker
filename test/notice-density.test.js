@@ -54,9 +54,11 @@ test('현황 넷은 숫자가 먼저 보이는 작은 배지로 가로 나열된
   const badges = rule('.stat-badges');
   assert.match(badges, /display:flex/);
   assert.match(badges, /flex-wrap:wrap/);
-  assert.match(rule('.stat-badge strong'), /font-size:18px/);
+  // 배지가 카드처럼 커서 부담스럽다는 지적으로 높이를 절반으로 줄였다. 내용이 길면 늘어난다.
+  assert.match(rule('.stat-badge strong'), /font-size:13px/);
+  assert.match(rule('.stat-badge'), /min-height:22px/);
   // 큰 카드가 아니라 40~48px 소형 배지다.
-  assert.match(rule('.stat-badge'), /min-height:42px/);
+  assert.match(rule('.stat-badge'), /min-height:22px/);
   // 긴 설명은 배지에서 빼고 도움말로만 남긴다.
   assert.match(rule('.stat-badge small'), /display:none/);
   // 좁은 화면에서 접히는 설명은 배지 제목으로 남겨 둔다.
