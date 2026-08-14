@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { GUARDED_ACTIONS, STALE_MS, decideReuse, jobKey, stableInput, stableJson } from '../server/ai-jobs.js';
+import { GUARDED_ACTIONS, LEASE_MS, decideReuse, jobKey, stableInput, stableJson } from '../server/ai-jobs.js';
 
 const api = fs.readFileSync(new URL('../functions/api/proposal.js', import.meta.url), 'utf8');
 const client = fs.readFileSync(new URL('../src/api.js', import.meta.url), 'utf8');
@@ -20,17 +20,34 @@ test('같은 입력은 키 순서가 달라도 같은 지문이 된다', () => {
 
 test('끝난 작업은 다시 부르지 않고, 도는 작업은 이어받는다', () => {
   const now = Date.now();
+  const soon = new Date(now + 60_000).toISOString();
+  const past = new Date(now - 60_000).toISOString();
   assert.equal(decideReuse(null).kind, 'new');
   assert.equal(decideReuse({ status: 'done', result_json: '{"a":1}' }, now).kind, 'done');
   // 결과 사본이 없으면 다시 부를 수밖에 없다.
   assert.equal(decideReuse({ status: 'done', result_json: '' }, now).kind, 'new');
-  const running = { status: 'running', job_id: 'resp_1', updated_at: new Date(now - 1000).toISOString() };
-  assert.deepEqual(decideReuse(running, now), { kind: 'poll', jobId: 'resp_1' });
-  // 앞단으로 도는 중이면 새로 부르지 않고 기다린다.
-  assert.equal(decideReuse({ status: 'running', job_id: '', updated_at: new Date(now - 1000).toISOString() }, now).kind, 'wait');
-  // 오래 방치된 기록이 영원히 길을 막지 않는다.
-  assert.equal(decideReuse({ ...running, updated_at: new Date(now - STALE_MS - 1000).toISOString() }, now).kind, 'new');
+  // 배경으로 넘어간 작업은 시간이 아니라 작업번호로 이어받는다.
+  assert.deepEqual(decideReuse({ status: 'running', job_id: 'resp_1', updated_at: new Date(now - 1000).toISOString() }, now), { kind: 'poll', jobId: 'resp_1' });
+  // 앞단 호출은 요청 수명 상한(lease)까지만 막는다.
+  const waiting = decideReuse({ status: 'running', job_id: '', lease_until: soon, updated_at: past }, now);
+  assert.equal(waiting.kind, 'wait');
+  assert.ok(waiting.seconds > 0);
+  // 수명이 끝난 기록은 죽은 요청이다. 막지 않는다. 20분을 기다리게 하지 않는다.
+  assert.equal(decideReuse({ status: 'running', job_id: '', lease_until: past, updated_at: past }, now).kind, 'new');
+  // 사람이 「그래도 다시 만들기」를 누르면 무엇도 막지 않는다.
+  assert.deepEqual(decideReuse({ status: 'running', job_id: '', lease_until: soon }, now, { force: true }), { kind: 'new', forced: true });
+  assert.ok(LEASE_MS <= 6 * 60 * 1000, '앞단 대기는 몇 분을 넘지 않는다');
   assert.deepEqual([...GUARDED_ACTIONS], ['master', 'masterDesign', 'masterPlan', 'draftPart', 'fullProposal']);
+});
+
+test('막혀서 결과가 안 나오는 일이 없게 한다', () => {
+  // 서버는 남은 시간과 강제 실행 가능 여부를 함께 알려 준다.
+  assert.match(api, /return json\(\{ pending: true, duplicate: true, status: 'running', retryAfter: decision\.seconds, canForce: true \}, 200\);/);
+  // 어디서 터지든 기록을 열어 둔다.
+  assert.ok(api.includes("  let jobRecordId = '';") && api.indexOf("let jobRecordId") < api.indexOf("  try {"));
+  assert.ok(api.includes("어디서 터졌든 기록을 열어 둔다"));
+  // 화면은 기다리다 막히면 한 번은 강제로 새로 부른다.
+  assert.match(client, /if \(result\?\.pending && result\?\.canForce\) return request\(action, \{ \.\.\.payload \}, \{ force: true \}\);/);
 });
 
 test('서버는 AI를 부르기 전에 기록을 남기고 같은 입력을 막는다', () => {
@@ -40,7 +57,6 @@ test('서버는 AI를 부르기 전에 기록을 남기고 같은 입력을 막�
   assert.match(api, /if \(decision\.kind === 'done'\) \{[\s\S]{0,200}return json\(\{ \.\.\.JSON\.parse\(existing\.result_json\), reused: true \}\);/);
   // 이미 도는 작업은 그 번호로 이어 보고, 앞단으로 도는 중이면 새로 부르지 않는다.
   assert.match(api, /if \(decision\.kind === 'poll'\) resumedJobId = decision\.jobId;/);
-  assert.match(api, /if \(decision\.kind === 'wait'\) return json\(\{ pending: true, duplicate: true, status: 'running' \}, 200\);/);
   // 작업번호를 받자마자 남긴다.
   assert.match(api, /await noteJobId\(context\.env\.ARCHIVE_DB, jobRecordId, startedId\)/);
   // 끝나면 결과를 사본으로 남기고, 실패는 실패로 남겨 다음 시도를 막지 않는다.

@@ -86,6 +86,8 @@ function evidenceSources(payload) {
 }
 
 export async function onRequest(context) {
+  // 기록 식별자는 try 밖에 둔다. 어디서 터지든 catch에서 기록을 열어 줘야 다음 시도가 막히지 않는다.
+  let jobRecordId = '';
   try {
     if (context.request.method !== 'POST') return json({ error: 'POST 요청만 허용됩니다.' }, 405, { Allow: 'POST' });
     const mediaType = (context.request.headers.get('content-type') || '').split(';', 1)[0].trim().toLowerCase();
@@ -178,19 +180,20 @@ export async function onRequest(context) {
     // 창을 닫거나 기다리다 포기해도 이 기록으로 같은 작업을 이어받는다. 두 번 결제하지 않기 위해서다.
     const guarded = GUARDED_ACTIONS.has(body.action);
     const inputHash = guarded ? await hashInput(body.action, body.payload) : '';
-    let jobRecordId = '';
     let resumedJobId = '';
     if (guarded && !body.jobId) {
       const existing = await findJob(context.env.ARCHIVE_DB, user.id, body.action, inputHash).catch(() => null);
-      const decision = decideReuse(existing);
+      // 사람이 「그래도 다시 만들기」를 누르면 무엇도 막지 않는다. 결과가 안 나오는 것이 더 나쁘다.
+      const decision = decideReuse(existing, Date.now(), { force: body.force === true });
       if (decision.kind === 'done') {
         await countReuse(context.env.ARCHIVE_DB, existing.id).catch(() => {});
         return json({ ...JSON.parse(existing.result_json), reused: true });
       }
       // 이미 돌고 있다. 새로 부르지 않고 그 작업을 그대로 이어 본다.
       if (decision.kind === 'poll') resumedJobId = decision.jobId;
-      if (decision.kind === 'wait') return json({ pending: true, duplicate: true, status: 'running' }, 200);
-      jobRecordId = await startJob(context.env.ARCHIVE_DB, { userId: user.id, proposalId, action: body.action, inputHash }).catch(() => '');
+      // 앞단 호출이 살아 있을 수 있는 시간까지만 막는다. 남은 시간을 함께 알려 준다.
+      if (decision.kind === 'wait') return json({ pending: true, duplicate: true, status: 'running', retryAfter: decision.seconds, canForce: true }, 200);
+      jobRecordId = await startJob(context.env.ARCHIVE_DB, { userId: user.id, proposalId, action: body.action, inputHash, forced: decision.forced === true }).catch(() => '');
     }
     if (guarded && body.jobId) jobRecordId = await startJob(context.env.ARCHIVE_DB, { userId: user.id, proposalId, action: body.action, inputHash }).catch(() => '');
 
@@ -365,6 +368,8 @@ export async function onRequest(context) {
     await finishJob(context.env.ARCHIVE_DB, jobRecordId, result, extractUsage(raw).total).catch(() => {});
     return json(result);
   } catch (error) {
+    // 어디서 터졌든 기록을 열어 둔다. running으로 남으면 그동안 사용자가 아무것도 받지 못한다.
+    await failJob(context.env.ARCHIVE_DB, jobRecordId).catch(() => {});
     return json({ error: '서버 처리 중 오류가 발생했습니다. 입력을 확인하거나 관리자에게 문의하세요.' }, 500);
   }
 }

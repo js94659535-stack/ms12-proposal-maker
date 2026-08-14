@@ -80,13 +80,17 @@ export async function masterWithAI(payload, onWait = null, options = {}) {
 }
 // 서버가 「같은 작업이 이미 돌고 있다」고 하면 새로 부르지 않고 끝날 때까지 기다린다.
 // 같은 입력을 두 번 결제하지 않기 위해서다. 끝난 결과가 있으면 서버가 그 사본을 돌려준다.
-async function awaitResult(action, payload, { limitMs = MAX_WAIT_MS } = {}) {
+async function awaitResult(action, payload, { limitMs = MAX_WAIT_MS, onWaitInfo = null } = {}) {
   const until = Date.now() + limitMs;
   let result = await request(action, payload);
   while (result?.pending && Date.now() < until) {
+    if (onWaitInfo) onWaitInfo(result);
     await new Promise(resolve => setTimeout(resolve, POLL_MS));
     result = await request(action, payload);
   }
+  // 기다려도 안 끝나면 막힌 채로 두지 않는다. 한 번은 강제로 새로 부른다.
+  // 결과가 아예 안 나오는 것이 두 번 결제보다 나쁘다.
+  if (result?.pending && result?.canForce) return request(action, { ...payload }, { force: true });
   if (result?.pending) throw new Error('같은 작업이 아직 끝나지 않았습니다. 잠시 후 「이어받기」로 결과를 확인해 주세요.');
   return result;
 }

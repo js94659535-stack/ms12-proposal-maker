@@ -56,6 +56,7 @@ import { SAMPLE_REAL_COACHING } from './sample-coaching-run.js';
 import { SOURCE_KINDS, makeApplicantSource, APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, mergeApplicantItems, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
 import { BASIC_AREAS, DETAIL_GROUPS, DETAIL_INTRO, basicStatus, detailProgress, draftFromApplicant, reusableCount } from './org-stage.js';
 import { partialBlockReason, recordTiming, remainingGroups, timelineRows, writingState } from './writing-progress.js';
+import { gapCoverSection, gapReport } from './gap-report.js';
 
 const TYPES = [
   ['chest', '사랑의열매', '복지·지원사업'], ['family', '가족센터', '가족지원사업'],
@@ -4476,6 +4477,26 @@ function partialWritingView() {
   </div>`;
 }
 
+// 계획서 첫머리 보완 안내. 무엇이 없어서 어디가 얇아졌는지, 채우려면 무엇이 드는지 적는다.
+function gapNoticeView() {
+  const report = currentGapReport();
+  if (!report.total && !report.baseline.length) return '';
+  const effort = report.effort;
+  return `<div class="alert warning" id="gap-notice">
+    <strong>기관 자료가 부족해 일부 항목이 얇습니다 — 계획서는 끝까지 만들었습니다</strong>
+    <p>${escapeHtml(report.headline)}</p>
+    ${report.topics.length ? `<div class="stat-badges">${report.topics.map(item => `<span class="stat-badge" title="${escapeHtml(item.sections.slice(0, 3).join(' / '))}"><strong>${item.count}곳</strong><span>${escapeHtml(item.topic)}</span></span>`).join('')}</div>` : ''}
+    ${report.baseline.length ? `<p class="muted">아직 정해지지 않은 기준값: ${report.baseline.slice(0, 6).map(item => escapeHtml(item.item)).join(' · ')}</p>` : ''}
+    ${report.thin.length ? `<p class="muted">자료가 없어 짧게 남은 항목: ${report.thin.slice(0, 4).map(item => `${escapeHtml(item.title)} ${item.chars.toLocaleString('ko-KR')}자`).join(' · ')}</p>` : ''}
+    ${report.emptyAreas.length ? `<p class="muted">비어 있는 기관정보: ${report.emptyAreas.slice(0, 6).map(escapeHtml).join(' · ')}</p>` : ''}
+    <p><b>채우는 데 드는 품</b> · 확인할 항목 ${effort.items}개 · 예상 입력 ${effort.minutes}분 · 값을 넣은 뒤 AI 재작성 ${effort.rewrites}회 · 대행 비용 ${escapeHtml(effort.cost)}</p>
+    <div class="actions"><span class="muted">이 안내는 내부용입니다. 제출본 출력에는 들어가지 않습니다.</span>
+      <div><button class="button primary" id="gap-fill-marks">확인 필요 항목 채우기</button>
+        <button class="button secondary" data-open-applicants="1">기관정보 채우러 가기</button>
+        <button class="button secondary" id="gap-ask-support">대행 작업 문의</button></div></div>
+  </div>`;
+}
+
 function simpleResultActions() {
   const saved = Boolean(state.archiveProposalId);
   const left = remainingOf(state.revisions || []);
@@ -4557,6 +4578,7 @@ function simpleWriteView() {
       <div class="actions"><span class="muted">부족한 정보가 있어도 [확인 필요]로 남기고 만듭니다.</span>
         <button class="button primary" id="simple-generate" ${guard(chosen ? '' : '먼저 공고를 고르거나 공고문을 붙여넣어 주세요.', 'notice')}>AI가 계획서 만들기</button></div>
     </div>
+    ${done ? gapNoticeView() : ''}
     ${done ? `<div class="card"><div class="card-title"><div><h3>4 계획서 완성</h3><span>항목 ${state.sections.length}개</span></div>
       <span class="status 충족">완성</span></div>${simpleResultActions()}</div>` : ''}
     ${!writing ? aiJobsView() : ''}
@@ -5922,7 +5944,7 @@ function bind() {
   document.querySelector('#archive-restore-hidden')?.addEventListener('click', () => setState({ archiveHiddenNotices: [], notice: '숨긴 공고를 다시 목록에 표시했습니다.' }));
   // 환류 작업흐름: 완성본 → 수정 요청 → 검토 제출 → 버전 이력 → 최종 승인.
   document.querySelector('#open-full-proposal')?.addEventListener('click', () => document.querySelector('#final-submission, #result-pipeline')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-  document.querySelector('#final-docx-top')?.addEventListener('click', () => { if (!refusePartial()) exportDocx(state.project, state.sections); });
+  document.querySelector('#final-docx-top')?.addEventListener('click', () => { if (!refusePartial()) exportDocx(state.project, reviewSections()); });
   document.querySelector('#final-hwpx-top')?.addEventListener('click', () => { if (!refusePartial()) downloadProposalHwpx(); });
   document.querySelector('#final-form-docx')?.addEventListener('click', () => { if (!refusePartial()) void downloadFormFilled(); });
   document.querySelector('#preview-form-docx')?.addEventListener('click', () => void downloadFormFilled());
@@ -6008,6 +6030,9 @@ function bind() {
   document.querySelector('#generate-parts')?.addEventListener('click', () => generateProposalParts());
   // 멈춤과 이어쓰기. 멈춰도 끝난 묶음은 지우지 않고, 이어쓰기는 남은 묶음부터 시작한다.
   document.querySelector('#stop-writing')?.addEventListener('click', requestStopWriting);
+  // 보완 안내에서 바로 채우러 간다. 새 화면을 만들지 않고 기존 자리로 보낸다.
+  document.querySelector('#gap-fill-marks')?.addEventListener('click', () => setState({ markOpen: true, notice: '확인이 필요한 값을 한 화면에서 채웁니다.', error: '' }));
+  document.querySelector('#gap-ask-support')?.addEventListener('click', () => setState({ notice: `대행 작업은 ${CONTACT_LABEL}로 연락해 주세요. 필요한 자료 수와 예상 시간은 위 안내에 적어 두었습니다.`, error: '' }));
   document.querySelector('#resume-writing')?.addEventListener('click', () => void generateProposalParts());
   document.querySelector('#generate-proposal')?.addEventListener('click', () => generateFullProposal());
   document.querySelector('#proposal-freeform')?.addEventListener('input', event => { state.projectNarrative = event.target.value; saveState(); });
@@ -7457,7 +7482,7 @@ async function downloadFormFilled() {
 function downloadProposalHwpx() {
   if (!state.sections.length) return setState({ error: '먼저 계획서를 만들어 주세요.' });
   try {
-    const blob = buildHwpxBlob({ project: state.project, sections: state.sections, tables: state.proposalTables || [] });
+    const blob = buildHwpxBlob({ project: state.project, sections: reviewSections(), tables: state.proposalTables || [] });
     downloadBlob(blob, `${String(state.project.title || '사업계획서').replace(/[\/:*?"<>|]/g, ' ').trim().slice(0, 80)}_검토용.hwpx`);
     setState({ notice: '한글 파일(HWPX)을 내려받았습니다. 한글 2014 이상에서 열립니다. 표 서식이 그대로 필요하면 DOCX를 쓰세요.', error: '' });
   } catch (error) {
@@ -7470,7 +7495,7 @@ async function downloadProposalPdf() {
   setState({ busy: 'PDF를 만드는 중...', error: '', notice: '' });
   try {
     await exportProposalPdf({
-      project: state.project, sections: state.sections,
+      project: state.project, sections: reviewSections(),
       tables: state.proposalTables || [], pageBreaks: state.stagedGeneration?.pageBreaks || [],
       fileName: `${state.project.title || '사업계획서'}_검토용.pdf`
     });
@@ -8070,6 +8095,17 @@ function validateFinalAssembly(master, sections, initialIssues = [], evidenceMap
   return { valid: issues.length === 0, issues: [...new Set(issues)], checkedAt: new Date().toISOString(), sourcePolicy: '분할 원문 보존·새 사실 추가 없음' };
 }
 function compactText(value) { return String(value || '').replace(/[\s,·:~～-]/g, '').toLowerCase(); }
+
+// 무엇이 없어서 어디가 미진한지. 값이 없다고 멈추지 않고, 끝까지 만든 뒤 앞에 붙여 알린다.
+function currentGapReport() {
+  const applicant = findApplicant(state.applicants, state.selectedApplicantId);
+  return gapReport({ sections: state.sections, master: state.stagedGeneration?.master, orgAreas: applicant ? detailProgress(applicant) : [] });
+}
+// 검토본에만 보완 안내를 맨 앞에 붙인다. 제출본에는 넣지 않는다.
+function reviewSections() {
+  const cover = gapCoverSection(currentGapReport());
+  return cover ? [{ ...cover, status: '내부 안내' }, ...state.sections] : state.sections;
+}
 
 // 부분 결과로 저장·출력을 막는 사유. 화면과 처리기가 같은 판단을 쓴다.
 function partialBlock() {
