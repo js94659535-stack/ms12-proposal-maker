@@ -309,8 +309,13 @@ export async function onRequest(context) {
       const guarded = guardSections(aligned, sources);
       const summaryGuard = guardText(result.summary, sources);
       const repetition = repetitionReport(guarded.sections);
+      // 제안자가 적어 준 가제·부제는 모델이 다듬었더라도 적은 그대로 돌려준다.
+      const titled = {
+        title: body.payload.core.title || result.title,
+        subtitle: body.payload.core.subtitle || guardText(result.subtitle, sources).text
+      };
       return json({
-        ...result, summary: summaryGuard.text, targetPages: plan.pages, audience: plan.audience.label, sections: guarded.sections,
+        ...result, ...titled, summary: summaryGuard.text, targetPages: plan.pages, audience: plan.audience.label, sections: guarded.sections,
         guard: { claims: [...guarded.claims, ...summaryGuard.claims.map(claim => ({ ...claim, sectionId: '' }))], injectionCount, repetition, marks: MARKS },
         evidence: claimTable(claimsFromGuard(guarded.claims)),
         trialUsed: trialRun, oneTime: trialRun, tier: membership.tier, readOnly: membership.coreReadOnly,
@@ -585,7 +590,7 @@ export function taskSpecification(action, payload) {
     const audience = plan.audience;
     return {
       name: 'ms12_core_proposal', schema: CORE_PROPOSAL_SCHEMA,
-      prompt: `<PROPOSER>\n${input.proposer || '(적지 않음)'}\n</PROPOSER>
+      prompt: `<WORKING_TITLE>${input.title || '(적지 않음)'}</WORKING_TITLE>\n<SUBTITLE>${input.subtitle || '(적지 않음)'}</SUBTITLE>\n<PROPOSER>\n${input.proposer || '(적지 않음)'}\n</PROPOSER>
 <CORE_IDEA>\n${input.coreIdea}\n</CORE_IDEA>
 <CONDITIONS>${JSON.stringify(labelConditions(input.conditions))}</CONDITIONS>
 <PURPOSE>\n${input.purpose || '(적지 않음)'}\n</PURPOSE>
@@ -611,7 +616,10 @@ ${plan.sections.some(section => section.key === 'budget') ? `
 CONDITIONS는 제안자가 골라 적은 단답 조건(대상·인원·기간·횟수·방식)이다. 있는 값은 그대로 본문에 반영하고, 없는 값은 지어내지 말고 그 자리에 [확인 필요]를 남긴다.
 CORE_IDEA는 제안자가 직접 적은 내용이며 이 제안서의 중심이다. 여기에 없는 실적·인력·예산·협약·수치를 만들어 내지 않는다.
 근거가 없는 값은 그 자리에 [확인 필요]라고 적고 checkNeeded에 무엇을 확인해야 하는지 모은다. 금액은 제안자가 적은 범위 안에서만 쓰고, 적지 않았으면 만들지 않는다.
-title은 40자 이내의 제안서 제목, summary는 200자 이내로 받는 사람이 한눈에 보는 요약이다.`
+CONDITIONS의 값 하나에 「, 」로 여러 개가 들어 있으면 모두 반영한다. 그중 하나만 골라 쓰고 나머지를 버리지 않는다.
+WORKING_TITLE이 적혀 있으면 그것을 title에 그대로 쓴다. 비어 있으면 40자 이내로 짓는다.
+SUBTITLE이 적혀 있으면 그것을 subtitle에 그대로 쓴다. 비어 있으면 제목을 보충하는 한 줄을 60자 이내로 짓는다.
+summary는 200자 이내로 받는 사람이 한눈에 보는 요약이다.`
     };
   }
   if (action === 'analyze') return {
@@ -785,13 +793,13 @@ const coreTable = {
 const CORE_PROPOSAL_SCHEMA = {
   type: 'object', additionalProperties: false,
   properties: {
-    title: { type: 'string' }, summary: { type: 'string' },
+    title: { type: 'string' }, subtitle: { type: 'string' }, summary: { type: 'string' },
     outline: { type: 'array', minItems: 1, maxItems: 20, items: corePage },
     sections: { type: 'array', minItems: 4, maxItems: 12, items: coreSection },
     tables: { type: 'array', maxItems: 3, items: coreTable },
     checkNeeded: { type: 'array', maxItems: 8, items: { type: 'string' } }
   },
-  required: ['title', 'summary', 'outline', 'sections', 'tables', 'checkNeeded']
+  required: ['title', 'subtitle', 'summary', 'outline', 'sections', 'tables', 'checkNeeded']
 };
 
 const requirement = {

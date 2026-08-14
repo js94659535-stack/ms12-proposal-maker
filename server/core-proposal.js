@@ -125,7 +125,24 @@ export const CONDITION_FIELDS = Object.freeze([
   Object.freeze({ key: 'times', label: '진행 횟수', hint: '얼마나 자주, 모두 몇 번 하는지', options: ['주 1회', '주 2회', '격주 1회', '월 1회', '월 2회', '총 8회', '총 12회', '총 16회'] }),
   Object.freeze({ key: 'method', label: '진행 방식', hint: '어떤 방법으로 하는지', options: ['집단 프로그램', '1:1 상담', '교육·강좌', '물품·급식 지원', '사례관리·가정방문', '캠페인·행사', '멘토링', '컨설팅'] })
 ]);
-const MAX_CONDITION_CHARS = 60;
+// 한 칸에서 여러 개를 고를 수 있다. 대상이 「초등학생」 하나뿐인 사업은 드물다.
+const MAX_CONDITION_CHARS = 120;
+const MAX_CONDITION_PICKS = 6;
+export const CONDITION_SEPARATOR = ', ';
+export const MAX_TITLE_CHARS = 60;
+export const MAX_SUBTITLE_CHARS = 80;
+
+// 고른 것들을 한 줄로 담고 다시 꺼낸다. 저장 형태는 지금처럼 글자 하나다.
+export const splitCondition = value => String(value ?? '').split(/[,·]/).map(part => part.trim()).filter(Boolean);
+export const joinCondition = list => [...new Set(list.map(part => String(part ?? '').trim()).filter(Boolean))]
+  .slice(0, MAX_CONDITION_PICKS).join(CONDITION_SEPARATOR).slice(0, MAX_CONDITION_CHARS);
+// 보기를 눌렀을 때. 이미 골라 둔 것이면 뺀다. 직접 적은 값은 건드리지 않는다.
+export function toggleCondition(value, option) {
+  const picks = splitCondition(value);
+  const at = picks.indexOf(String(option ?? '').trim());
+  if (at >= 0) picks.splice(at, 1); else picks.push(option);
+  return joinCondition(picks);
+}
 
 // 제출처와 적은 내용에 따라 보기를 바꾼다. 학교에 내는데 「소상공인」이 먼저 보이면 고를 것이 없다.
 // 보기를 바꿀 뿐 값을 정해 주지는 않는다. 비우면 여전히 [확인 필요]로 남는다.
@@ -184,8 +201,11 @@ export function validateCoreProposalInput(payload = {}) {
       recipient: text(payload.recipient, MAX_RECIPIENT_CHARS),
       // 단답 조건. 적은 것만 담고 빈 칸은 아예 넘기지 않는다.
       conditions: Object.fromEntries(CONDITION_FIELDS
-        .map(field => [field.key, text(payload.conditions?.[field.key], MAX_CONDITION_CHARS)])
+        .map(field => [field.key, joinCondition(splitCondition(payload.conditions?.[field.key]))])
         .filter(([, value]) => value)),
+      // 제안자가 붙인 가제와 부제. 적었으면 그대로 쓰고, 비웠으면 AI가 짓는다.
+      title: text(payload.title, MAX_TITLE_CHARS),
+      subtitle: text(payload.subtitle, MAX_SUBTITLE_CHARS),
       sourceText: text(payload.sourceText, MAX_SOURCE_CHARS)
     }
   };

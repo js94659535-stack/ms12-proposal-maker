@@ -200,7 +200,7 @@ test('핵심제안서 실패는 사용 기록을 남기지 않고 잘못된 입�
 
   // 출력 상한은 쪽수를 따른다.
   assert.match(proposalSource, /max_output_tokens: body\.action === CORE_PROPOSAL_ACTION \? outputTokensFor\(body\.payload\.plan\.pages\)/);
-  assert.match(proposalSource, /required: \['title', 'summary', 'outline', 'sections', 'tables', 'checkNeeded'\]/);
+  assert.match(proposalSource, /required: \['title', 'subtitle', 'summary', 'outline', 'sections', 'tables', 'checkNeeded'\]/);
   // 닿지 않는 옛 분기와 스키마는 남겨 두지 않는다.
   for (const dead of ['trialCorePlanLegacy', 'TRIAL_CORE_PLAN_SCHEMA', 'settleBudget']) {
     assert.ok(!proposalSource.includes(dead), `${dead}가 남아 있다`);

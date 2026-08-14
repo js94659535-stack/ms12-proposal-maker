@@ -571,3 +571,10 @@ select{max-width:100%}
   .review-panel .actions .button{flex:1 1 auto;min-width:0;font-size:12.5px;padding:6px 8px}
   .review-panel select{max-width:100%}
 }
+
+/* 단답 조건 보기. 여러 개를 눌러 고른다. 고른 것은 눈에 띄게 남는다. */
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 0}
+.chip{border:1px solid var(--line,#d5dae3);background:#fff;color:inherit;border-radius:999px;padding:4px 10px;font-size:12.5px;line-height:1.4;cursor:pointer}
+.chip:hover:not(:disabled){border-color:#9aa6b8}
+.chip.on{background:#eaf2ff;border-color:#5b8def;color:#1a4fa8;font-weight:600}
+.chip:disabled{opacity:.5;cursor:default}
