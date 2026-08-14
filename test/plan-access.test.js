@@ -509,7 +509,12 @@ test('핵심 아이디어는 장문으로 적고, 아래 단답 칸에서 고르
   const { CONDITION_FIELDS, validateCoreProposalInput } = await import('../server/core-proposal.js');
   // 대상·인원·기간·횟수·방식 다섯을 고르거나 직접 적는다.
   assert.deepEqual(CONDITION_FIELDS.map(item => item.key), ['target', 'people', 'period', 'times', 'method']);
-  for (const item of CONDITION_FIELDS) assert.ok(item.options.length >= 5, item.key);
+  for (const item of CONDITION_FIELDS) { assert.ok(item.options.length >= 5, item.key); assert.ok(item.hint, item.key + ' 설명'); }
+  // 「예상 인원」은 우리 인력으로 읽힌다. 참여할 사람 수라고 분명히 적는다.
+  assert.equal(CONDITION_FIELDS.find(item => item.key === 'people').label, '참여 대상 인원');
+  assert.match(CONDITION_FIELDS.find(item => item.key === 'people').hint, /우리 기관 인력이 아닙니다/);
+  // 서버에도 키가 아니라 사람이 읽는 이름으로 넘긴다.
+  assert.match(api, /function labelConditions\(conditions = \{\}\)/);
   // 화면은 고르기와 직접 적기를 한 칸에서 함께 받는다.
   assert.match(app, /list="cond-list-\$\{item\.key\}"/);
   assert.match(app, /data-core-condition="\$\{item\.key\}"/);
@@ -518,6 +523,33 @@ test('핵심 아이디어는 장문으로 적고, 아래 단답 칸에서 고르
   const checked = validateCoreProposalInput({ coreIdea: '초등 4~6학년 정서지원 집단 프로그램을 주 1회 16회기로 운영합니다.', targetPages: 5, audienceType: 'public', conditions: { target: '초등학생', people: '' } });
   assert.deepEqual(checked.value.conditions, { target: '초등학생' });
   // 서버는 적힌 값만 쓰고 없는 값은 지어내지 않는다.
-  assert.match(api, /<CONDITIONS>\$\{JSON\.stringify\(input\.conditions \|\| \{\}\)\}<\/CONDITIONS>/);
+  assert.match(api, /<CONDITIONS>\$\{JSON\.stringify\(labelConditions\(input\.conditions\)\)\}<\/CONDITIONS>/);
   assert.match(api, /CONDITIONS는 제안자가 골라 적은 단답 조건/);
+});
+
+test('단답 보기는 제출처와 적은 내용에 따라 바뀐다', async () => {
+  const fs = await import('node:fs');
+  const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  const { CONDITION_FIELDS, conditionFieldsFor } = await import('../server/core-proposal.js');
+  const options = (fields, key) => fields.find(item => item.key === key).options;
+  // 학교에 내는데 「소상공인」이 먼저 보이면 고를 것이 없다.
+  const school = conditionFieldsFor({ audienceType: 'school', text: '초등 4~6학년 정서지원 집단 프로그램' });
+  assert.equal(options(school, 'target')[0], '초등학생');
+  assert.equal(options(school, 'method')[0], '집단 프로그램');
+  // 적은 낱말이 보기를 앞으로 끌어올린다.
+  const senior = conditionFieldsFor({ audienceType: 'foundation', text: '홀몸 어르신 반찬 배달' });
+  assert.equal(options(senior, 'target')[0], '어르신');
+  assert.ok(options(senior, 'method').includes('물품·급식 지원'));
+  // 기본 보기는 사라지지 않고 뒤에 남는다. 고를 것이 줄어들면 안 된다.
+  for (const field of CONDITION_FIELDS) {
+    const now = conditionFieldsFor({ audienceType: 'school', text: '어르신' }).find(item => item.key === field.key);
+    for (const option of field.options) assert.ok(now.options.includes(option), field.key + ' ' + option);
+    assert.equal(new Set(now.options).size, now.options.length, field.key + ' 보기가 겹치지 않는다');
+  }
+  // 아무것도 고르지 않았을 때도 그대로 쓸 수 있다.
+  assert.deepEqual(conditionFieldsFor().map(item => item.key), CONDITION_FIELDS.map(item => item.key));
+  // 화면은 적는 동안 목록만 갈아 끼운다. 다시 그리면 글자를 치던 자리를 잃는다.
+  assert.match(app, /conditionFieldsFor\(\{ audienceType: draft\.audienceType, text: `\$\{draft\.coreIdea\} \$\{draft\.recipient\}` \}\)/);
+  assert.match(app, /const refreshConditionOptions = \(\) => \{/);
+  assert.match(app, /#core-idea'\)\?\.addEventListener\('input', refreshConditionOptions\)/);
 });

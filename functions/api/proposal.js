@@ -1,6 +1,6 @@
 import { budgetRefusal, extractUsage, recordAiUsage } from '../../server/ai-usage.js';
 import { GUARDED_ACTIONS, countReuse, decideReuse, failJob, finishJob, findJob, hashInput, jobsForProposal, noteJobId, startJob } from '../../server/ai-jobs.js';
-import { outputTokensFor, planPages, validateCoreProposalInput } from '../../server/core-proposal.js';
+import { CONDITION_FIELDS, outputTokensFor, planPages, validateCoreProposalInput } from '../../server/core-proposal.js';
 import { CORE_PROPOSAL_ACTION, TRIAL_ACTION, TRIAL_SPENT, consumeTrial, hasFullAccess, planRefusal, releaseTrial } from '../../server/plan.js';
 import { DIAGNOSIS_ACTION, QUOTA_SPENT, corePagesFor, membershipOf, membershipRefusal } from '../../server/membership.js';
 import { consumeQuota, loadSubscription, releaseQuota } from '../../server/subscription.js';
@@ -566,6 +566,13 @@ const BLUEPRINT_RULE = `PROJECT_BLUEPRINT는 이번 사업의 확정된 설계 �
 officialConflicts에 공고 기준과 사용자 확정값의 충돌이 있으면 어느 쪽도 임의로 고치거나 한쪽만 채택하지 말고, 두 값을 함께 드러내고 확인이 필요하다는 사실을 남긴다.
 설계도의 문제 → 대상 → 목적 → 프로그램 → 회기·인력 → 예산 → 성과목표 → 성과지표 흐름을 계획서 각 항목에 같은 대상·같은 용어로 일관되게 반영한다.`;
 
+// 단답 조건을 사람이 읽는 이름으로 바꿔 넘긴다. key만 넘기면 「people」이 우리 인력인지 참여자인지 모른다.
+function labelConditions(conditions = {}) {
+  return Object.fromEntries(CONDITION_FIELDS
+    .map(field => [field.label, String(conditions?.[field.key] ?? '').trim()])
+    .filter(([, value]) => value));
+}
+
 export function taskSpecification(action, payload) {
   // 선정 가능성 진단서. 계획서를 쓰지 않고 지원 판단에 필요한 것만 정리한다.
   if (action === DIAGNOSIS_ACTION) {
@@ -580,7 +587,7 @@ export function taskSpecification(action, payload) {
       name: 'ms12_core_proposal', schema: CORE_PROPOSAL_SCHEMA,
       prompt: `<PROPOSER>\n${input.proposer || '(적지 않음)'}\n</PROPOSER>
 <CORE_IDEA>\n${input.coreIdea}\n</CORE_IDEA>
-<CONDITIONS>${JSON.stringify(input.conditions || {})}</CONDITIONS>
+<CONDITIONS>${JSON.stringify(labelConditions(input.conditions))}</CONDITIONS>
 <PURPOSE>\n${input.purpose || '(적지 않음)'}\n</PURPOSE>
 <RECIPIENT_TYPE>${audience.label}</RECIPIENT_TYPE>
 <RECIPIENT_NAME>${input.recipient || '(적지 않음)'}</RECIPIENT_NAME>

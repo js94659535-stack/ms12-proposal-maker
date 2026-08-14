@@ -118,13 +118,48 @@ export function planPages({ pages, audienceType }) {
 // 장문 아이디어 아래에서 고르거나 적는 단답 조건. 모두 선택이고, 비우면 [확인 필요]로 남는다.
 // 골라 주는 보기는 화면과 서버가 같은 목록을 본다.
 export const CONDITION_FIELDS = Object.freeze([
-  Object.freeze({ key: 'target', label: '대상', options: ['영유아', '초등학생', '중·고등학생', '청년', '중장년', '어르신', '장애인', '가족 전체', '지역주민', '소상공인'] }),
-  Object.freeze({ key: 'people', label: '예상 인원', options: ['10명 내외', '20명 내외', '30명 내외', '50명 내외', '100명 이상', '가정 10곳', '가정 20곳'] }),
-  Object.freeze({ key: 'period', label: '사업 기간', options: ['3개월', '6개월', '9개월', '12개월', '연중'] }),
-  Object.freeze({ key: 'times', label: '진행 횟수', options: ['주 1회', '주 2회', '격주 1회', '월 1회', '월 2회', '총 8회', '총 12회', '총 16회'] }),
-  Object.freeze({ key: 'method', label: '진행 방식', options: ['집단 프로그램', '1:1 상담', '교육·강좌', '물품·급식 지원', '사례관리·가정방문', '캠페인·행사', '멘토링', '컨설팅'] })
+  Object.freeze({ key: 'target', label: '대상', hint: '누구를 위한 사업인지', options: ['영유아', '초등학생', '중·고등학생', '청년', '중장년', '어르신', '장애인', '가족 전체', '지역주민', '소상공인'] }),
+  // 「예상 인원」은 우리 기관 인력으로 읽힐 수 있다. 참여할 사람 수라고 분명히 적는다.
+  Object.freeze({ key: 'people', label: '참여 대상 인원', hint: '사업에 참여할 사람 수입니다. 우리 기관 인력이 아닙니다.', options: ['10명 내외', '20명 내외', '30명 내외', '50명 내외', '100명 이상', '가정 10곳', '가정 20곳'] }),
+  Object.freeze({ key: 'period', label: '사업 기간', hint: '전체를 몇 달 동안 하는지', options: ['3개월', '6개월', '9개월', '12개월', '연중'] }),
+  Object.freeze({ key: 'times', label: '진행 횟수', hint: '얼마나 자주, 모두 몇 번 하는지', options: ['주 1회', '주 2회', '격주 1회', '월 1회', '월 2회', '총 8회', '총 12회', '총 16회'] }),
+  Object.freeze({ key: 'method', label: '진행 방식', hint: '어떤 방법으로 하는지', options: ['집단 프로그램', '1:1 상담', '교육·강좌', '물품·급식 지원', '사례관리·가정방문', '캠페인·행사', '멘토링', '컨설팅'] })
 ]);
 const MAX_CONDITION_CHARS = 60;
+
+// 제출처와 적은 내용에 따라 보기를 바꾼다. 학교에 내는데 「소상공인」이 먼저 보이면 고를 것이 없다.
+// 보기를 바꿀 뿐 값을 정해 주지는 않는다. 비우면 여전히 [확인 필요]로 남는다.
+const BY_AUDIENCE = Object.freeze({
+  public: { target: ['지역주민', '취약계층 가구', '아동·청소년', '어르신', '장애인'], method: ['사례관리·가정방문', '집단 프로그램', '캠페인·행사'] },
+  company: { target: ['임직원', '협력사', '지역주민', '고객'], method: ['교육·강좌', '멘토링', '캠페인·행사', '컨설팅'], people: ['20명 내외', '50명 내외', '100명 이상'] },
+  foundation: { target: ['저소득 아동', '한부모 가정', '독거 어르신', '장애인', '위기 가정'], method: ['집단 프로그램', '1:1 상담', '물품·급식 지원', '사례관리·가정방문'] },
+  school: { target: ['초등학생', '중학생', '고등학생', '교사', '학부모'], method: ['교육·강좌', '집단 프로그램', '멘토링', '진로 체험'], times: ['주 1회', '주 2회', '총 8회', '총 16회', '방학 중 집중'] },
+  internal: { target: ['부서 구성원', '전사', '신규 입사자'], method: ['교육·강좌', '워크숍', '컨설팅'], period: ['1개월', '3개월', '6개월'] },
+  etc: {}
+});
+
+// 적은 글에서 읽히는 낱말. 맞는 보기를 앞으로 올린다.
+const KEYWORD_HINTS = Object.freeze([
+  { test: /(어르신|노인|고령)/, target: ['어르신', '독거 어르신'], method: ['사례관리·가정방문', '물품·급식 지원'] },
+  { test: /(아동|초등|학생|청소년)/, target: ['초등학생', '중·고등학생', '아동·청소년'], method: ['집단 프로그램', '멘토링'] },
+  { test: /(장애)/, target: ['장애인'], method: ['1:1 상담', '집단 프로그램'] },
+  { test: /(가정|가족|보호자)/, target: ['가족 전체', '위기 가정'], people: ['가정 10곳', '가정 20곳'] },
+  { test: /(창업|소상공|자영업|매출)/, target: ['소상공인'], method: ['컨설팅', '교육·강좌'] },
+  { test: /(급식|반찬|도시락|물품)/, method: ['물품·급식 지원'] },
+  { test: /(상담|심리|정서)/, method: ['1:1 상담', '집단 프로그램'] }
+]);
+
+const unique = list => [...new Set(list.filter(Boolean))];
+
+// 지금 고른 제출처와 적어 둔 글에 맞춰 보기를 다시 세운다. 기본 보기는 뒤에 그대로 남긴다.
+export function conditionFieldsFor({ audienceType = '', text = '' } = {}) {
+  const byAudience = BY_AUDIENCE[audienceType] || {};
+  const hits = KEYWORD_HINTS.filter(item => item.test.test(String(text || '')));
+  return CONDITION_FIELDS.map(field => {
+    const front = unique([...hits.flatMap(item => item[field.key] || []), ...(byAudience[field.key] || [])]);
+    return { ...field, options: unique([...front, ...field.options]) };
+  });
+}
 
 export function validateCoreProposalInput(payload = {}) {
   const text = (value, max) => String(value ?? '').trim().slice(0, max);
