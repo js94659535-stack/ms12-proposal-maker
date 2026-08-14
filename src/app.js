@@ -57,6 +57,7 @@ import { SOURCE_KINDS, makeApplicantSource, APPLICANT_AREAS, APPLICANT_STATUSES,
 import { BASIC_AREAS, DETAIL_GROUPS, DETAIL_INTRO, basicStatus, detailProgress, draftFromApplicant, reusableCount } from './org-stage.js';
 import { partialBlockReason, recordTiming, remainingGroups, timelineRows, writingState } from './writing-progress.js';
 import { gapCoverSection, gapReport } from './gap-report.js';
+import { balanceSummary, rebalanceGroups } from './group-balance.js';
 
 const TYPES = [
   ['chest', '사랑의열매', '복지·지원사업'], ['family', '가족센터', '가족지원사업'],
@@ -4410,6 +4411,7 @@ function designSoFarView() {
   if (!rows.length) return '';
   return `<div class="summary-grid">${rows.map(([label, value]) =>
     `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value).slice(0, 60))}</strong></div>`).join('')}</div>
+    ${state.stagedGeneration?.balance ? `<p class="muted">${escapeHtml(state.stagedGeneration.balance.reason)} · 가장 큰 묶음 ${state.stagedGeneration.balance.maxAfter.toLocaleString('ko-KR')}자 (항목·순서는 그대로입니다)</p>` : ''}
     <p class="muted">설계가 먼저 나왔습니다. 방향이 다르면 지금 멈추고 한 줄 요청을 고쳐 다시 시작해도 됩니다.</p>`;
 }
 
@@ -7780,8 +7782,17 @@ async function generateCompleteProposal() {
     state.qualityCheck = result.qualityCheck;
     state.analysis = engineAnalysis(result);
     state.sections = [];
+    // 한 번에 얼마나 쓸지 정한다. 항목·순서·문구는 그대로 두고 묶음 경계만 목표 분량으로 다시 잡는다.
+    // 너무 작은 묶음은 합쳐 호출을 줄이고, 너무 큰 묶음은 쪼개 결과가 안 나오는 일을 막는다.
+    const outline = buildDocumentPlan(currentNoticeContract(), currentFormSpec()).outline;
+    const balanced = rebalanceGroups(result.sectionPlan, outline);
+    const balance = balanced.changed
+      ? { ...balanceSummary(result.sectionPlan, balanced.groups, outline), reason: balanced.reason }
+      : null;
+    if (balanced.changed) result.sectionPlan = balanced.groups;
     // 설계 요약이 화면에 처음 나오는 시각을 그대로 남긴다. 나중에 지어내지 않는다.
     state.stagedGeneration = {
+      balance,
       phase: 'master-ready', master: result, parts: [], completedGroupIds: [], continuitySummary: null,
       timeline: [
         { kind: 'design', title: '설계 뼈대', at: new Date(stepAt.design || Date.now()).toISOString(), ms: (stepAt.design || Date.now()) - designStartedAt },
