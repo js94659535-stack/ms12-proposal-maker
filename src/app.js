@@ -22,6 +22,7 @@ import { FITNESS_LABELS } from '../server/notice-classify.js';
 import { ORG_TYPES, QUICK_FIELDS, followUpQuestions, quickToApplicantItems, readyToDraft } from '../server/quick-org.js';
 import { ANSWER_CHOICES, HIDDEN_EXPERT, MAX_QUESTIONS as SIMPLE_MAX_QUESTIONS, RESULT_ACTIONS, SIMPLE_STEPS, answerValue, currentStep as simpleStep, viewModeFor } from '../server/simple-flow.js';
 import { ASSIGNABLE_ROLES, ROLE_DUTY, canHoldClients, roleLabel } from '../server/roles.js';
+import { PASSWORD_MIN, validateSignup } from '../server/signup.js';
 import { ADMIN_SHORTCUTS } from '../server/admin-overview.js';
 import { AGENCY_STATUS_LABEL, DEFAULT_LIMITS, LIMIT_FIELDS, remainingFor } from '../server/agency.js';
 import { buildOverview, detailPanels, mergeReviewIssues } from '../server/review-digest.js';
@@ -1451,9 +1452,33 @@ async function runAdminAction(kind, id) {
   setAuth({ busy: false, accounts: result.users || auth.accounts, notice: ADMIN_DONE[kind] || '' });
 }
 
+// 가입 요건을 못 갖췄으면 누르기 전에 알려 준다. 못 만들 비밀번호로 요청을 보내 400을 받게 두지 않는다.
+function signupBlock() {
+  const checked = validateSignup({ email: auth.emailDraft, password: auth.passwordDraft, passwordConfirm: auth.confirmDraft });
+  if (checked.ok) return '';
+  // 아직 아무것도 안 적었으면 잔소리하지 않는다.
+  if (!String(auth.emailDraft || '').trim() && !String(auth.passwordDraft || '')) return '이메일과 비밀번호를 먼저 적어 주세요.';
+  return checked.errors.join(' ');
+}
+
+// 지금 몇 자인지, 무엇이 모자란지 입력하는 동안 그대로 보여 준다.
+function signupHintView() {
+  const password = String(auth.passwordDraft || '');
+  const short = password.length > 0 && password.length < PASSWORD_MIN;
+  const reason = signupBlock();
+  const ready = !reason;
+  return `<p class="muted" id="signup-hint">
+    <span class="status ${ready ? '충족' : '확인-필요'}">${ready ? '가입할 수 있습니다' : '아직 안 됩니다'}</span>
+    ${password.length ? `비밀번호 ${password.length}자` : '비밀번호 미입력'}${short ? ` · ${PASSWORD_MIN - password.length}자 더 필요합니다` : ''}
+    ${reason && !short ? ` · ${escapeHtml(reason)}` : ''}</p>`;
+}
+
 function adminView() {
+  // 세 통으로 나눈다. 승인하면 「승인 대기」에서 「이용 중」으로, 중지하면 「이용 중지」로 실제로 옮겨진다.
+  // 예전에는 이용 중과 중지를 한 통에 담아, 승인해도 중지해도 같은 자리에 남아 있는 것처럼 보였다.
   const waiting = auth.accounts.filter(item => item.status === 'pending');
-  const rest = auth.accounts.filter(item => item.status !== 'pending');
+  const live = auth.accounts.filter(item => item.status === 'active');
+  const stopped = auth.accounts.filter(item => item.status === 'disabled');
   return `<div class="card">
     <div class="card-title"><div><h3>관리자</h3><span>가입 승인과 계정 상태를 여기서 처리합니다.</span></div><span class="status ${waiting.length ? '확인-필요' : '충족'}">승인 대기 ${waiting.length}건</span></div>
     ${auth.error ? `<div class="alert danger"><strong>${escapeHtml(auth.error)}</strong></div>` : ''}
@@ -1461,8 +1486,10 @@ function adminView() {
     ${auth.accountsLoaded ? '' : '<p class="muted">계정 목록을 불러오는 중입니다.</p>'}
     <h4>승인 대기 ${waiting.length}건</h4>
     <div class="requirement-list">${waiting.map(accountRow).join('') || '<p class="muted">승인을 기다리는 계정이 없습니다.</p>'}</div>
-    <h4>이용 중·중지된 계정 ${rest.length}건</h4>
-    <div class="requirement-list">${rest.map(accountRow).join('') || '<p class="muted">표시할 계정이 없습니다.</p>'}</div>
+    <h4>이용 중 ${live.length}건</h4>
+    <div class="requirement-list">${live.map(accountRow).join('') || '<p class="muted">이용 중인 계정이 없습니다.</p>'}</div>
+    <h4>이용 중지 ${stopped.length}건</h4>
+    <div class="requirement-list">${stopped.map(accountRow).join('') || '<p class="muted">중지된 계정이 없습니다.</p>'}</div>
     <div class="actions"><span class="muted">관리자 계정과 내 계정은 이 화면에서 바꿀 수 없습니다.</span><div><button class="button secondary" id="reload-admin" ${auth.busy ? 'disabled' : ''}>목록 새로고침</button><button class="button secondary" id="open-admin-notices" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'notices' ? '공모정보 접기' : '공모정보 관리'}</button><button class="button secondary" id="open-admin-agency" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'agency' ? '대행회원 접기' : '대행회원 관리'}</button><button class="button secondary" id="open-admin-access" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'access' ? '권한 관리 접기' : '권한 관리'}</button><button class="button secondary" id="open-admin-collection" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'collection' ? '자동수집 접기' : '공고 자동수집'}</button><button class="button secondary" id="open-admin-usage" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'usage' ? '사용량 접기' : 'AI 사용량·비용'}</button><button class="button secondary" id="open-admin-showcase" ${auth.busy ? 'disabled' : ''}>${auth.adminTab === 'showcase' ? '우수 제안서 접기' : '우수 제안서 관리'}</button><button class="button secondary" id="close-admin">계획서 포털로</button></div></div>
     ${auth.adminTab === 'notices' ? adminNoticesPanel() : ''}
     ${auth.adminTab === 'agency' ? agencyPanel() : ''}
@@ -2375,9 +2402,10 @@ function loginView() {
     <p class="muted">— 또는 이메일로 ${joining ? '가입' : '로그인'} —</p>
     <form id="login-form" autocomplete="on">
       <div class="field"><label for="login-email">이메일</label><input id="login-email" type="email" autocomplete="${joining ? 'email' : 'username'}" placeholder="name@example.com" value="${escapeHtml(auth.emailDraft)}" ${checking ? 'disabled' : ''}></div>
-      <div class="field"><label for="login-password">비밀번호</label><input id="login-password" type="password" autocomplete="${joining ? 'new-password' : 'current-password'}" value="${escapeHtml(auth.passwordDraft)}" ${checking ? 'disabled' : ''}>${joining ? '<small class="muted">10자 이상으로 정해 주세요.</small>' : ''}</div>
+      <div class="field"><label for="login-password">비밀번호</label><input id="login-password" type="password" autocomplete="${joining ? 'new-password' : 'current-password'}" value="${escapeHtml(auth.passwordDraft)}" ${checking ? 'disabled' : ''}>${joining ? '<small class="muted">6자 이상으로 정해 주세요.</small>' : ''}</div>
       ${joining ? `<div class="field"><label for="login-password-confirm">비밀번호 확인</label><input id="login-password-confirm" type="password" autocomplete="new-password" value="${escapeHtml(auth.confirmDraft)}" ${checking ? 'disabled' : ''}></div>` : ''}
-      <div class="actions"><span class="muted">${joining ? '네이버·다음 등 어떤 이메일이든 됩니다.' : ''}</span><button class="button primary" id="login-submit" type="submit" ${checking || auth.busy ? 'disabled' : ''}>${auth.busy ? '처리 중…' : joining ? '가입 신청' : '로그인'}</button></div>
+      ${joining ? signupHintView() : ''}
+      <div class="actions"><span class="muted">${joining ? '네이버·다음 등 어떤 이메일이든 됩니다.' : ''}</span><button class="button primary" id="login-submit" type="submit" ${checking || auth.busy ? 'disabled' : ''} >${auth.busy ? '처리 중…' : joining ? '가입 신청' : '로그인'}</button></div>
     </form>
     <p class="muted">${joining ? '가입한 뒤 관리자가 승인해야 작업 화면이 열립니다. 가입 직후에는 기관·담당자 정보를 입력하는 화면이 나옵니다.' : '비밀번호를 잊었으면 운영관리자에게 일회용 복구코드를 요청한 뒤 위의 「복구코드」를 누르세요.'}</p>`}
     ${membershipGuideView({ compact: true })}
@@ -2389,7 +2417,7 @@ function recoveryForm(checking) {
   return `<form id="recovery-form" autocomplete="off">
     <div class="field"><label for="recovery-email">이메일</label><input id="recovery-email" type="email" autocomplete="username" placeholder="name@example.com" value="${escapeHtml(auth.emailDraft)}" ${checking ? 'disabled' : ''}></div>
     <div class="field"><label for="recovery-code">복구코드</label><input id="recovery-code" autocomplete="one-time-code" placeholder="ABCD-EFGH-JKMN" value="${escapeHtml(auth.codeDraft)}" ${checking ? 'disabled' : ''}><small class="muted">발급 후 10분 동안 한 번만 쓸 수 있습니다.</small></div>
-    <div class="field"><label for="recovery-password">새 비밀번호</label><input id="recovery-password" type="password" autocomplete="new-password" value="${escapeHtml(auth.passwordDraft)}" ${checking ? 'disabled' : ''}><small class="muted">10자 이상으로 정해 주세요.</small></div>
+    <div class="field"><label for="recovery-password">새 비밀번호</label><input id="recovery-password" type="password" autocomplete="new-password" value="${escapeHtml(auth.passwordDraft)}" ${checking ? 'disabled' : ''}><small class="muted">6자 이상으로 정해 주세요.</small></div>
     <div class="field"><label for="recovery-password-confirm">새 비밀번호 확인</label><input id="recovery-password-confirm" type="password" autocomplete="new-password" value="${escapeHtml(auth.confirmDraft)}" ${checking ? 'disabled' : ''}></div>
     <div class="actions"><span class="muted">정하고 나면 기존 로그인 상태와 남은 복구코드가 모두 해제됩니다.</span><button class="button primary" id="recovery-submit" type="submit" ${checking || auth.busy ? 'disabled' : ''}>${auth.busy ? '처리 중…' : '새 비밀번호 정하기'}</button></div>
   </form>
@@ -5272,12 +5300,25 @@ function bindLogin() {
   if (!auth.plans) void loadMembershipPlans();
   document.querySelector('#back-to-landing')?.addEventListener('click', () => setAuth({ view: 'landing', error: '', notice: '' }));
   document.querySelector('#login-email')?.addEventListener('input', event => { auth.emailDraft = event.target.value; });
-  document.querySelector('#login-password')?.addEventListener('input', event => { auth.passwordDraft = event.target.value; });
-  document.querySelector('#login-password-confirm')?.addEventListener('input', event => { auth.confirmDraft = event.target.value; });
+  // 적는 동안 안내 줄만 갈아 끼운다. 전체를 다시 그리면 입력칸에서 커서가 튄다.
+  const redrawHint = () => {
+    const hint = document.querySelector('#signup-hint');
+    if (auth.mode === 'signup' && hint) hint.outerHTML = signupHintView();
+  };
+  document.querySelector('#login-password')?.addEventListener('input', event => { auth.passwordDraft = event.target.value; redrawHint(); });
+  document.querySelector('#login-password-confirm')?.addEventListener('input', event => { auth.confirmDraft = event.target.value; redrawHint(); });
   document.querySelector('#mode-login')?.addEventListener('click', () => setAuth({ mode: 'login', error: '', notice: '', confirmDraft: '', codeDraft: '' }));
   document.querySelector('#mode-signup')?.addEventListener('click', () => setAuth({ mode: 'signup', error: '', notice: '', confirmDraft: '', codeDraft: '' }));
   document.querySelector('#mode-recover')?.addEventListener('click', () => setAuth({ mode: 'recover', error: '', notice: '', passwordDraft: '', confirmDraft: '', codeDraft: '' }));
-  document.querySelector('#login-form')?.addEventListener('submit', event => { event.preventDefault(); void (auth.mode === 'signup' ? submitSignup() : submitLogin()); });
+  document.querySelector('#login-form')?.addEventListener('submit', event => {
+    event.preventDefault();
+    // 못 만들 비밀번호로 요청을 보내지 않는다. 무엇이 모자란지 그 자리에서 알려 준다.
+    if (auth.mode === 'signup') {
+      const reason = signupBlock();
+      if (reason) return setAuth({ error: reason, notice: '' });
+    }
+    void (auth.mode === 'signup' ? submitSignup() : submitLogin());
+  });
   document.querySelector('#recovery-email')?.addEventListener('input', event => { auth.emailDraft = event.target.value; });
   document.querySelector('#recovery-code')?.addEventListener('input', event => { auth.codeDraft = event.target.value; });
   document.querySelector('#recovery-password')?.addEventListener('input', event => { auth.passwordDraft = event.target.value; });

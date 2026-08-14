@@ -1,6 +1,8 @@
 // 이메일 가입 입력 검사. 브라우저와 서버가 같은 규칙을 쓰도록 한 곳에 둔다.
 // 네이버·다음을 비롯해 어떤 이메일이든 받는다. 공급자를 가리지 않는다.
-export const PASSWORD_MIN = 10;
+// 10자는 너무 길다는 요청으로 6자로 낮춘다. 대신 나머지 방어는 그대로 둔다.
+// 같은 글자 반복 금지, 이메일 아이디 포함 금지, 로그인 시도 제한(계정 5회·같은 곳 10회/15분).
+export const PASSWORD_MIN = 6;
 export const PASSWORD_MAX = 200;
 export const SIGNUP_ROLE = 'customer';
 export const SIGNUP_STATUS = 'pending';

@@ -226,3 +226,23 @@ test('로그인 화면이 로그인과 회원가입을 구분해 보여 준다',
   const persisted = app.slice(app.indexOf('function saveState()'), app.indexOf('function saveState()') + 1500);
   assert.doesNotMatch(persisted, /passwordDraft|confirmDraft/);
 });
+
+test('요건을 못 갖춘 비밀번호는 요청을 보내지 않고 그 자리에서 알려 준다', async () => {
+  const fs = await import('node:fs');
+  const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  // 화면과 서버가 같은 규칙(validateSignup)을 쓴다.
+  assert.match(app, /import \{ PASSWORD_MIN, validateSignup \} from '\.\.\/server\/signup\.js';/);
+  assert.match(app, /function signupBlock\(\) \{/);
+  // 제출 전에 막는다. 400을 받으러 가지 않는다.
+  assert.match(app, /if \(auth\.mode === 'signup'\) \{\s*\n\s*const reason = signupBlock\(\);\s*\n\s*if \(reason\) return setAuth\(\{ error: reason, notice: '' \}\);/);
+  // 지금 몇 자인지, 몇 자 더 필요한지 적는다.
+  assert.match(app, /자 더 필요합니다/);
+  // 적는 동안 안내만 갈아 끼운다. 전체를 다시 그리면 커서가 튄다.
+  assert.match(app, /hint\.outerHTML = signupHintView\(\);/);
+});
+
+test('비밀번호 최소 길이는 6자다', () => {
+  assert.equal(PASSWORD_MIN, 6);
+  assert.equal(validateSignup({ email: 'kim@naver.com', password: 'ab12cd', passwordConfirm: 'ab12cd' }).ok, true);
+  assert.equal(validateSignup({ email: 'kim@naver.com', password: 'ab12', passwordConfirm: 'ab12' }).ok, false);
+});
