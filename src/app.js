@@ -20,6 +20,7 @@ import { codeLabel, statusLabel, warningLabel } from '../server/notice-run.js';
 import { ABILITIES, SCOPES } from '../server/permissions.js';
 import { BUSINESS_TYPES, SOURCE_GROUPS } from '../server/notice-sources.js';
 import { STAT_SKIP_LABELS, statSourceState } from '../server/stat-sources.js';
+import { statLookup } from './stats-api.js';
 import { FITNESS_LABELS } from '../server/notice-classify.js';
 import { ORG_TYPES, QUICK_FIELDS, followUpQuestions, quickToApplicantItems, readyToDraft } from '../server/quick-org.js';
 import { ANSWER_CHOICES, HIDDEN_EXPERT, MAX_QUESTIONS as SIMPLE_MAX_QUESTIONS, RESULT_ACTIONS, SIMPLE_STEPS, answerValue, currentStep as simpleStep, viewModeFor } from '../server/simple-flow.js';
@@ -1183,6 +1184,37 @@ function sourcePanel({ readOnly = false } = {}) {
 }
 
 // 상태판. 「공고 검색이 되는 것」과 「최신 공고가 들어오는 것」을 따로 보여 준다.
+// 통계 조회 결과. 찾은 것만 담고, 못 찾으면 못 찾았다고 담는다.
+function statLookupState() {
+  return auth.statLookup || { loading: false, done: false, result: null };
+}
+
+async function runStatLookup(region) {
+  if (statLookupState().loading) return;
+  setAuth({ statLookup: { loading: true, done: false, result: null } });
+  const result = await statLookup(region).catch(() => ({ ok: false, message: '통계를 조회하지 못했습니다.' }));
+  setAuth({ statLookup: { loading: false, done: true, result } });
+}
+
+// 찾아 온 근거 후보. 후보일 뿐이며 계획서에 자동으로 들어가지 않는다.
+function statCandidateView() {
+  const view = statLookupState();
+  if (view.loading) return '<p class="muted">공식 통계를 조회하는 중입니다…</p>';
+  if (!view.done) return '';
+  const result = view.result || {};
+  if (!result.ok) return `<div class="alert warning"><strong>${escapeHtml(result.message || '적합한 공식 통계를 찾지 못했습니다.')}</strong>
+    <p>없는 값을 대신 넣지 않습니다. 조사 결과가 필요하면 자체 설문·면담 결과를 적어 주세요.</p></div>`;
+  const rows = result.candidates || [];
+  if (!rows.length) return '<div class="alert warning"><strong>적합한 공식 통계를 찾지 못했습니다.</strong></div>';
+  return `<div class="alert success"><strong>공식 통계 근거 후보 ${rows.length}건</strong>
+      <p>후보입니다. 계획서에 자동으로 넣지 않습니다. 쓸지 말지는 사람이 정합니다.${result.reused ? ' (이미 조회해 둔 결과를 다시 씁니다)' : ''}</p></div>
+    <div class="requirement-list">${rows.map(row => `<article class="requirement"><div>
+      <div><strong>${escapeHtml(row.itemName || row.tableName)}</strong> <span class="tag">${escapeHtml(row.region)}</span> <span class="status 충족">${escapeHtml(String(row.value.toLocaleString('ko-KR')))}${escapeHtml(row.unit)}</span></div>
+      <small class="muted">${escapeHtml(row.tableName)} · ${escapeHtml(row.survey || '조사명 미표기')} · ${escapeHtml(row.organization || '작성기관 미표기')} · ${escapeHtml(row.period)}년 기준</small>
+      <small class="muted">조회일 ${escapeHtml((result.fetchedAt || '').slice(0, 10))} · 통계표 ${escapeHtml(row.tblId)} · <a href="${escapeHtml(row.link)}" target="_blank" rel="noreferrer noopener">KOSIS에서 원자료 보기</a></small>
+    </div></article>`).join('')}</div>`;
+}
+
 // 통계 근거 출처. 아직 인증키가 없어 꺼져 있다는 사실을 숨기지 않는다.
 function statSourcePanel() {
   const rows = statSourceState();
@@ -1192,7 +1224,10 @@ function statSourcePanel() {
       <div><span class="status 확인-필요">${escapeHtml(STAT_SKIP_LABELS[row.blocked] || row.blocked)}</span> <strong>${escapeHtml(row.label)}</strong> <span class="muted">${escapeHtml(row.organization)}</span></div>
       <small class="muted">${escapeHtml(row.gives)}</small>
       <small class="muted">${escapeHtml(row.note)}</small>
-    </div></article>`).join('')}</div>`;
+    </div></article>`).join('')}</div>
+    <div class="actions" style="margin-top:8px"><span class="muted">한 번 조회한 결과는 저장해 두고 다시 씁니다. 같은 조회로 다시 부르지 않습니다.</span>
+      <button class="button secondary" id="stat-lookup-gwangsan" ${statLookupState().loading ? 'disabled' : ''}>광산구 아동·청소년 통계 조회</button></div>
+    ${statCandidateView()}`;
 }
 
 function collectionPanel({ readOnly = false } = {}) {
@@ -6108,6 +6143,7 @@ function bind() {
     explainBlocked(el.dataset.blocked, el.dataset.goto || '');
   }, true));
   document.querySelectorAll('[data-source-toggle]').forEach(el => el.onclick = () => void toggleNoticeSource(el.dataset.sourceToggle, Boolean(el.dataset.sourceNext)));
+  document.querySelector('#stat-lookup-gwangsan')?.addEventListener('click', () => void runStatLookup('광산구'));
   document.querySelector('#open-admin-showcase')?.addEventListener('click', () => setAuth({ adminTab: auth.adminTab === 'showcase' ? 'accounts' : 'showcase', error: '', notice: '' }));
   document.querySelector('#open-admin-usage')?.addEventListener('click', () => {
     const opening = auth.adminTab !== 'usage';
