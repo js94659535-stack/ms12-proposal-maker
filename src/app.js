@@ -6043,7 +6043,9 @@ function bindDropzone(selector, onFiles) {
 // 내용에 맞춰 세로로만 늘린다. 최대 높이를 넘으면 칸 안에서 스크롤한다.
 function fitTextarea(el) {
   if (!el) return;
-  const limit = Math.min(window.innerHeight * 0.45, 480);
+  // 얼마나 커질 수 있는지는 그 칸의 CSS가 정한다. 칸마다 알맞은 크기가 다르다.
+  const declared = Number.parseFloat(getComputedStyle(el).maxHeight);
+  const limit = Number.isFinite(declared) ? declared : Math.min(window.innerHeight * 0.45, 480);
   // 빈칸은 CSS가 정한 시작 높이로 둔다. 좁은 화면에서는 예시문이 여러 줄로 감겨
   // 빈칸인데도 화면 절반을 차지한다. 예시문 길이가 칸 높이를 정하게 두지 않는다.
   if (!el.value) { el.style.height = ''; el.style.overflowY = 'auto'; return; }
