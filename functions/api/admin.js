@@ -76,6 +76,9 @@ export async function onRequest(context) {
   // 자동수집 상태판. 읽기만 한다.
   if (body.action === 'noticeCollection') return json(await collectionStatus(env.ARCHIVE_DB), 200);
   // 수동 재수집. 자동 실행과 같은 경로를 쓰고 같은 잠금에 걸린다.
+  // 새 출처가 왜 안 열리는지 서버에서 직접 한 번 열어 본다. 저장하지 않고 응답 상태만 돌려준다.
+  // 내 컴퓨터에서는 열리는데 서버에서는 막히는 일이 있어, 도는 자리에서 확인해야 안다.
+  if (body.action === 'probeSource') return probeSource(String(body.id || ''));
   if (body.action === 'runNoticeCollection') return runNoticeCollection(env.ARCHIVE_DB, actor, env);
   // 출처별 켜고 끄기. 최고관리자만 바꾼다.
   if (body.action === 'setNoticeSource') {
@@ -664,3 +667,19 @@ async function assignProposal(db, actor, body) {
 
 // 저장된 계획서 원문을 객체로 되돌린다. 깨져 있으면 빈 객체로 둔다.
 function safeJson(value) { try { return JSON.parse(value); } catch { return {}; } }
+
+// 출처 한 곳을 서버에서 열어 본다. 저장하지 않는다. 제목·본문은 돌려주지 않는다.
+async function probeSource(id) {
+  const { SOURCES } = await import('../../server/notice-sources.js');
+  const source = SOURCES.find(item => item.id === id);
+  if (!source) return json({ error: '그 출처를 찾지 못했습니다.' }, 400);
+  const target = `${source.origin}${source.path}`;
+  const UA = 'Mozilla/5.0 (compatible; MS12NoticeBot/1.0; +https://pro.ms12.org)';
+  try {
+    const response = await fetch(target, { headers: { 'User-Agent': UA, Accept: 'text/html', 'Accept-Language': 'ko-KR,ko;q=0.9' }, redirect: 'follow' });
+    const text = await response.text();
+    return json({ ok: true, id, status: response.status, bytes: text.length, server: response.headers.get('server') || '', looksLikeBoard: /li_body/.test(text) }, 200);
+  } catch (error) {
+    return json({ ok: false, id, name: String(error?.name || ''), error: String(error?.message || error).slice(0, 160) }, 200);
+  }
+}
