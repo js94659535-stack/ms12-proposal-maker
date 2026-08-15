@@ -107,6 +107,10 @@ export async function syncNotices(db, values) {
   return result;
 }
 
+// 한 번에 돌려주는 공고 수. 모아 둔 것이 이보다 많으면 최근 것부터 이만큼만 준다.
+// 잘렸다는 사실은 화면에 알린다. 조용히 자르면 「예전 공고가 사라졌다」로 보인다.
+export const NOTICE_LIMIT = 500;
+
 export async function searchNotices(db, filters = {}, ownerHash = '') {
   const clauses = [];
   const bindings = [];
@@ -122,7 +126,7 @@ export async function searchNotices(db, filters = {}, ownerHash = '') {
   const rows = await db.prepare(`SELECT n.notice_json, n.source_key, n.first_seen_at, n.updated_at,
     (SELECT COUNT(*) FROM archived_proposals p WHERE p.notice_key = n.source_key AND p.owner_hash = ?) AS linked_proposal_count,
     (SELECT p.id FROM archived_proposals p WHERE p.notice_key = n.source_key AND p.owner_hash = ? ORDER BY p.updated_at DESC LIMIT 1) AS linked_proposal_id
-    FROM archived_notices n ${where.replaceAll(/\b(source_label|source|title|summary|eligibility|support_details|deadline|notice_json)\b/g, 'n.$1')} ORDER BY n.updated_at DESC, n.deadline DESC LIMIT 100`).bind(ownerHash, ownerHash, ...bindings).all();
+    FROM archived_notices n ${where.replaceAll(/\b(source_label|source|title|summary|eligibility|support_details|deadline|notice_json)\b/g, 'n.$1')} ORDER BY n.updated_at DESC, n.deadline DESC LIMIT ${NOTICE_LIMIT}`).bind(ownerHash, ownerHash, ...bindings).all();
   return (rows.results || []).map(row => ({ ...safeJson(row.notice_json), archiveNoticeKey: row.source_key, archivedAt: row.first_seen_at, archiveUpdatedAt: row.updated_at, linkedProposalCount: Number(row.linked_proposal_count || 0), linkedProposalId: row.linked_proposal_id || '' }));
 }
 

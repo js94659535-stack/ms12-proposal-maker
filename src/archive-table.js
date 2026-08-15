@@ -1,6 +1,8 @@
 // 자료보관함 목록(표) 규칙. 검색·필터·정렬·페이지 계산만 담당하며 공고 수집·계획서 로직은 건드리지 않는다.
 export const ARCHIVE_STATUSES = ['신규', '검토중', '작성중', '수정중', '제출준비', '완료', '보류', '마감'];
-export const ARCHIVE_PAGE_SIZES = [5, 10, 20, 50];
+// 0은 「전체」다. 모아 둔 것을 한눈에 훑고 싶을 때 쪽 나눔을 끈다.
+export const ARCHIVE_PAGE_SIZES = [5, 10, 20, 50, 100, 0];
+export const ARCHIVE_PAGE_SIZE_LABEL = size => (Number(size) === 0 ? '전체' : `${size}개`);
 export const ARCHIVE_SORT_KEYS = ['collectedAt', 'institution', 'field', 'title', 'deadline'];
 export const ARCHIVE_FIELD_UNKNOWN = '기타';
 
@@ -161,18 +163,20 @@ export function archiveTableRows(notices = [], options = {}) {
   const filtered = all.filter(row => matchesQuery(row, String(query).trim()) && matchesFilters(row, filters))
     .sort((left, right) => String(sortValue(left, key)).localeCompare(String(sortValue(right, key)), 'ko') * direction);
   const size = ARCHIVE_PAGE_SIZES.includes(Number(pageSize)) ? Number(pageSize) : 20;
-  const pageCount = Math.max(1, Math.ceil(filtered.length / size));
-  const current = Math.min(Math.max(1, Number(page) || 1), pageCount);
-  const start = (current - 1) * size;
+  // 「전체」는 쪽을 나누지 않는다. 한 쪽에 전부 담고 쪽 번호도 1쪽으로 둔다.
+  const showAll = size === 0;
+  const pageCount = showAll ? 1 : Math.max(1, Math.ceil(filtered.length / size));
+  const current = showAll ? 1 : Math.min(Math.max(1, Number(page) || 1), pageCount);
+  const start = showAll ? 0 : (current - 1) * size;
   return {
-    rows: filtered.slice(start, start + size),
+    rows: showAll ? filtered : filtered.slice(start, start + size),
     total: all.length,
     matched: filtered.length,
     page: current,
     pageCount,
     pageSize: size,
     from: filtered.length ? start + 1 : 0,
-    to: Math.min(start + size, filtered.length),
+    to: showAll ? filtered.length : Math.min(start + size, filtered.length),
     institutions: [...new Set(all.map(row => row.institution))].sort((a, b) => a.localeCompare(b, 'ko')),
     fields: [...new Set(all.map(row => row.field))].sort((a, b) => a.localeCompare(b, 'ko')),
     collectedDates: [...new Set(all.map(row => row.collectedAt).filter(Boolean))].sort().reverse()

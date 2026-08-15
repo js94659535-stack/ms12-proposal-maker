@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { ARCHIVE_STATUSES, applicantLabel, archiveField, archiveTableRows, deadlineInfo, noticeSourceUrl, noticeStatus, shortDate, stageStatus } from '../src/archive-table.js';
+import { ARCHIVE_PAGE_SIZES, ARCHIVE_PAGE_SIZE_LABEL, ARCHIVE_STATUSES, applicantLabel, archiveField, archiveTableRows, deadlineInfo, noticeSourceUrl, noticeStatus, shortDate, stageStatus } from '../src/archive-table.js';
 
 const appSource = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
 
@@ -104,4 +104,36 @@ test('마감임박과 마감일 확인 필요를 따로 골라 볼 수 있다', 
   assert.deepEqual(pick('7일이내'), ['임박 공고']);
   assert.deepEqual(pick('마감일 확인 필요'), ['기간 미표기 공고']);
   assert.deepEqual(pick('진행중'), ['임박 공고', '진행 공고']);
+});
+
+test('전체 보기는 쪽을 나누지 않고 모두 보여 준다', () => {
+  const notices = Array.from({ length: 47 }, (_, index) => ({
+    archiveNoticeKey: `k${index}`, title: `공고 ${index}`, sourceLabel: '중앙회', deadline: '2026-12-31', archivedAt: '2026-08-01'
+  }));
+  const paged = archiveTableRows(notices, { pageSize: 20, page: 1 });
+  assert.equal(paged.rows.length, 20);
+  assert.ok(paged.pageCount > 1);
+  // 0은 전체다. 한 쪽에 전부 담고 쪽 번호도 1쪽으로 둔다.
+  const all = archiveTableRows(notices, { pageSize: 0, page: 3 });
+  assert.equal(all.rows.length, 47);
+  assert.equal(all.pageCount, 1);
+  assert.equal(all.page, 1);
+  assert.equal(all.from, 1);
+  assert.equal(all.to, 47);
+  assert.ok(ARCHIVE_PAGE_SIZES.includes(0));
+  assert.equal(ARCHIVE_PAGE_SIZE_LABEL(0), '전체');
+  assert.equal(ARCHIVE_PAGE_SIZE_LABEL(20), '20개');
+  // 비어 있을 때도 셈이 어긋나지 않는다.
+  assert.equal(archiveTableRows([], { pageSize: 0 }).from, 0);
+});
+
+test('전체 보기 단추는 걸어 둔 조건도 함께 푼다', async () => {
+  const fs = await import('node:fs');
+  const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  assert.match(app, /id="archive-show-all">전체 보기<\/button>/);
+  assert.match(app, /query: '', filters: structuredClone\(initial\.archiveTable\.filters\), page: 1, pageSize: 0/);
+  // 서버가 잘라 준 경우를 감추지 않는다.
+  assert.match(app, /최근 500건만 불러왔습니다/);
+  const api = fs.readFileSync(new URL('../functions/api/archive.js', import.meta.url), 'utf8');
+  assert.match(api, /export const NOTICE_LIMIT = 500;/);
 });

@@ -60,7 +60,7 @@ import { buildSubmissionPackage, sectionsFingerprint } from './submission-packag
 import { ENGAGEMENT_STAGES, PROPOSAL_OUTLINE, buildDocumentPlan, buildEngagement, canGenerateProposal, designSnapshotStale, designStatus, makeClient, makeDesignApproval, makeNoticeRequest, normalizeEngagement } from './engagement.js';
 import { EXTERNAL_SOURCE, appendProposalVersion, findVersionById, normalizeProposalVersions, resolveSavedVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, matchSectionsForIssue, proposalTextFromSections, proposalTextFromSnapshot, revisionInstruction, sectionsFromProposalText, verifyLockedValues } from './coaching-handoff.js';
 import { splitApplicantProfile } from './applicants.js';
-import { ARCHIVE_PAGE_SIZES, ARCHIVE_STATUSES, archiveTableRows, shortDate } from './archive-table.js';
+import { ARCHIVE_PAGE_SIZES, ARCHIVE_PAGE_SIZE_LABEL, ARCHIVE_STATUSES, archiveTableRows, shortDate } from './archive-table.js';
 import { SAMPLE_MARK, SAMPLE_NOTE, SAMPLE_NOTICE, SAMPLE_NOTICE_KEY, SAMPLE_STAGES, SAMPLE_STAGE_BY_STEP, buildSampleProject } from './sample-project.js';
 import { SAMPLE_REAL_COACHING } from './sample-coaching-run.js';
 import { SOURCE_KINDS, makeApplicantSource, APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, mergeApplicantItems, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
@@ -3607,6 +3607,7 @@ function archiveView() {
     ].map(([label, value, detail]) => `<span class="stat-badge" title="${escapeHtml(`${label} ${value}건 · ${detail}`)}"><strong>${value}</strong><span>${escapeHtml(label)}</span><small>${escapeHtml(detail)}</small></span>`).join('')}</div>
     <div class="archive-toolbar"><input id="archive-query" value="${escapeHtml(table.query)}" placeholder="사업명·기관명·키워드 검색 후 Enter">
       <button class="button secondary" id="archive-apply-query">목록 검색</button>
+      <button class="button secondary" id="archive-show-all">전체 보기</button>
       <button class="button secondary" id="search-archive">공고보관함 다시 불러오기</button>
       <button class="button primary" id="find-matching-notices">맞춤 공고 찾기</button>
       <button class="button secondary" id="list-archived-proposals">계획서보관함</button></div>
@@ -3629,8 +3630,9 @@ function archiveView() {
       <th>${archiveSortButton('deadline', '마감일', table)}</th>
       <th>상태</th><th>신청기관</th><th>삭제</th>
     </tr></thead><tbody>${data.rows.map(row => archiveTableRow(row, { ...table, selected })).join('') || '<tr><td colspan="9" class="muted">조건에 맞는 공고가 없습니다. 필터를 초기화해 보세요.</td></tr>'}</tbody></table></div>
-    <div class="archive-pager"><span>총 ${data.matched}건 중 ${data.from}–${data.to} · ${data.page}/${data.pageCount}쪽</span>
-      <label>페이지당 <select id="archive-page-size">${ARCHIVE_PAGE_SIZES.map(size => `<option value="${size}" ${data.pageSize === size ? 'selected' : ''}>${size}개</option>`).join('')}</select></label>
+    ${data.total >= 500 ? '<p class="muted">보관 공고가 많아 최근 500건만 불러왔습니다. 더 예전 것은 「서버 검색 조건」에서 기간·기관을 좁혀 찾아 주세요.</p>' : ''}
+    <div class="archive-pager"><span>총 ${data.matched}건 중 ${data.from}–${data.to}${data.pageSize === 0 ? ' (전체 보기)' : ` · ${data.page}/${data.pageCount}쪽`}</span>
+      <label>페이지당 <select id="archive-page-size">${ARCHIVE_PAGE_SIZES.map(size => `<option value="${size}" ${data.pageSize === size ? 'selected' : ''}>${ARCHIVE_PAGE_SIZE_LABEL(size)}</option>`).join('')}</select></label>
       <button class="button secondary" data-archive-page="${data.page - 1}" ${data.page <= 1 ? 'disabled' : ''}>이전</button>
       <button class="button secondary" data-archive-page="${data.page + 1}" ${data.page >= data.pageCount ? 'disabled' : ''}>다음</button></div>` : '<p class="muted">보관된 공고가 없습니다. 공고를 한 번 가져오면 자동으로 보관됩니다.</p>'}
     ${(state.archiveHiddenNotices || []).length ? `<div class="archive-bulk"><span>목록에서 숨긴 공고 ${(state.archiveHiddenNotices || []).length}건 (보관 원본과 연결된 계획서는 남아 있습니다)</span><button class="button secondary" id="archive-restore-hidden">숨긴 공고 되돌리기</button></div>` : ''}
@@ -6605,6 +6607,10 @@ function bind() {
   }
   document.querySelector('#archive-apply-query')?.addEventListener('click', () => setArchiveTable({ query: document.querySelector('#archive-query')?.value || '', page: 1 }));
   document.querySelectorAll('[data-archive-filter]').forEach(el => el.onchange = () => setArchiveTable({ filters: { ...archiveTableState().filters, [el.dataset.archiveFilter]: el.value }, page: 1 }));
+  // 전체 보기. 걸어 둔 조건과 쪽 나눔을 함께 풀어 모아 둔 것을 한 화면에 늘어놓는다.
+  document.querySelector('#archive-show-all')?.addEventListener('click', () => setArchiveTable({
+    query: '', filters: structuredClone(initial.archiveTable.filters), page: 1, pageSize: 0
+  }));
   document.querySelector('#archive-reset-filters')?.addEventListener('click', () => setArchiveTable({ query: '', filters: structuredClone(initial.archiveTable.filters), page: 1 }));
   document.querySelectorAll('[data-archive-sort]').forEach(el => el.onclick = () => {
     const table = archiveTableState();
