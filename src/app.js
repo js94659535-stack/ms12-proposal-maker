@@ -2461,7 +2461,9 @@ function openNoticeSearch() {
 async function runNoticeSearch(patch = {}) {
   const next = { ...auth.search, ...patch };
   setSearch({ ...patch, busy: true });
-  const result = await searchPublicNotices(next.query, next.mode, next.filters).catch(() => ({ ok: false }));
+  // 머리띠에서 고른 공고 출처·기관을 찾는 범위로 함께 보낸다. 계획서 연결과는 무관하다.
+  const scoped = { ...next.filters, businessTypes: orgScope() };
+  const result = await searchPublicNotices(next.query, next.mode, scoped).catch(() => ({ ok: false }));
   if (!result.ok) {
     // 잠긴 이유를 그대로 보여 준다. 화면을 채우려고 가짜 공고를 만들지 않는다.
     return setAuth({
@@ -2486,8 +2488,13 @@ function searchScopeNotice() {
   if (view.locked) {
     return `<div class="alert warning"><strong>${escapeHtml(view.locked)}</strong>${view.needsSignup ? '<p>회원가입 후 관리자의 승인을 받으면 현재 모집 중인 공모정보를 검색할 수 있습니다.</p>' : ''}${view.needsApproval ? '<p>승인 후 승인회원이 되면 열립니다.</p>' : ''}</div>`;
   }
-  if (view.scopeLabel) return `<p class="muted">검색 범위: ${escapeHtml(view.scopeLabel)}</p>`;
-  return '';
+  // 머리띠에서 고른 기관 범위도 함께 알린다. 왜 적게 나오는지 화면이 말해야 한다.
+  const chosen = orgScope();
+  const scope = chosen.length && chosen.length < orgList().length
+    ? `<p class="muted">공고 출처·기관 범위: ${escapeHtml(selectionSummary(chosen, orgList()))} · 머리띠에서 바꿉니다.</p>`
+    : '';
+  if (view.scopeLabel) return `<p class="muted">검색 범위: ${escapeHtml(view.scopeLabel)}</p>${scope}`;
+  return scope;
 }
 function noticeSearchView() {
   const view = auth.search;

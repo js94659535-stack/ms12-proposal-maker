@@ -163,7 +163,12 @@ export function passesFilters(row, filters = {}, now = new Date()) {
   if (organizer && !compactText(`${row.source_label} ${row.source}`).includes(compactText(organizer))) return false;
   // 사업 유형과 수집 출처. 기존 사랑의열매 자료는 값이 비어 있어 chest로 본다.
   const businessType = clean(filters.businessType, 40);
-  if (businessType && (clean(row.business_type, 40) || 'chest') !== businessType) return false;
+  const rowType = clean(row.business_type, 40) || 'chest';
+  if (businessType && rowType !== businessType) return false;
+  // 머리띠에서 고른 공고 출처·기관 범위. 여러 곳을 고르면 그 안에서만 찾는다.
+  // 아무 곳도 고르지 않았으면 좁히지 않는다. 빈 화면을 주는 것보다 전부 보여 주는 편이 낫다.
+  const scope = Array.isArray(filters.businessTypes) ? filters.businessTypes.map(item => clean(item, 40)).filter(Boolean) : [];
+  if (scope.length && !scope.includes(rowType)) return false;
   const sourceGroup = clean(filters.sourceGroup, 40);
   if (sourceGroup && (clean(row.source_group, 40) || 'chest') !== sourceGroup) return false;
   // 기본 공모검색에는 제안·지원 가능과 입찰·위탁 참여 가능만 나온다.

@@ -125,3 +125,21 @@ test('처음 여섯 곳을 같은 열쇠로 옮긴다', () => {
   assert.match(migration, /CREATE TABLE IF NOT EXISTS notice_orgs/);
   assert.match(migration, /INSERT OR IGNORE INTO notice_orgs/);
 });
+
+test('고른 범위는 공고 검색에만 쓰이고 계획서 연결은 건드리지 않는다', async () => {
+  const { passesFilters } = await import('../server/notice-search.js');
+  const row = { business_type: 'family', title: '가족센터 공고', deadline: '' };
+  // 고른 곳 안에 있으면 보이고, 밖이면 걸러진다.
+  assert.equal(passesFilters(row, { businessTypes: ['chest', 'family'] }), true);
+  assert.equal(passesFilters(row, { businessTypes: ['chest'] }), false);
+  // 아무 곳도 고르지 않았으면 좁히지 않는다. 빈 화면을 주지 않는다.
+  assert.equal(passesFilters(row, { businessTypes: [] }), true);
+  assert.equal(passesFilters(row, {}), true);
+  // 값이 비어 있는 옛 자료는 지금까지처럼 사랑의열매로 본다.
+  assert.equal(passesFilters({ business_type: '', title: '옛 공고' }, { businessTypes: ['chest'] }), true);
+  // 화면은 고른 범위를 검색 결과 위에 적는다.
+  assert.match(app, /공고 출처·기관 범위: \$\{escapeHtml\(selectionSummary\(chosen, orgList\(\)\)\)\} · 머리띠에서 바꿉니다/);
+  assert.match(app, /const scoped = \{ \.\.\.next\.filters, businessTypes: orgScope\(\) \};/);
+  // 계획서에 붙는 유형은 여전히 하나다.
+  assert.match(app, /if \(kept\.length\) state\.project\.type = kept\[0\];/);
+});
