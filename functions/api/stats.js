@@ -7,7 +7,7 @@
 // - 찾지 못하면 비슷한 값으로 대신하지 않고 찾지 못했다고 답한다.
 import {
   MAX_OBJ_LEVELS, NOT_FOUND_MESSAGE, NO_KEY_MESSAGE, cacheKey, chooseCandidates,
-  dataUrl, kosisError, maskKey, needsMoreLevels, pickTables, regionCodeOf, rowsForRegion, searchUrl, tooManyCells
+  dataUrl, kosisError, maskKey, needsMoreLevels, pickTables, regionCodeOf, rowsForRegion, searchUrl, sumAges, tooManyCells
 } from '../../server/kosis.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
@@ -21,7 +21,9 @@ export const TOPICS = Object.freeze({
     label: '아동·청소년 인구',
     searchNm: '연령별 인구',
     tableKeywords: ['연령', '인구'],
-    itemKeywords: ['0~9세', '10~19세', '0-9세', '10-19세', '아동', '청소년', '연령']
+    itemKeywords: ['0~9세', '10~19세', '0-9세', '10-19세', '아동', '청소년', '세'],
+    // 나이별로 갈려 있으면 아동·청소년 나이만 더해 한 줄을 더 보여 준다. 더한 값임을 함께 적는다.
+    sum: { maxAge: 19, itemName: '총인구수' }
   }
 });
 
@@ -78,11 +80,14 @@ export async function lookup(apiKey, { region, topic, fetcher = fetch }) {
     }, { keywords: topic.itemKeywords });
     if (!candidates.length) { tried.push({ tblId: table.tblId, reason: 'incomplete' }); continue; }
 
+    const summed = topic.sum ? sumAges(chooseCandidates(picked, {
+      orgId: table.orgId, tblId: table.tblId, survey: table.survey, org: table.org
+    }, { keywords: topic.itemKeywords, limit: 200 }), topic.sum) : null;
     return {
       ok: true, calls, tried,
       topic: topic.label, region: candidates[0].region,
       fetchedAt: new Date().toISOString(),
-      candidates
+      summary: summed, candidates
     };
   }
   return { ok: false, reason: 'not-found', message: NOT_FOUND_MESSAGE, calls, tried };

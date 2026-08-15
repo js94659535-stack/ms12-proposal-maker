@@ -1206,10 +1206,16 @@ function statCandidateView() {
     <p>없는 값을 대신 넣지 않습니다. 조사 결과가 필요하면 자체 설문·면담 결과를 적어 주세요.</p></div>`;
   const rows = result.candidates || [];
   if (!rows.length) return '<div class="alert warning"><strong>적합한 공식 통계를 찾지 못했습니다.</strong></div>';
+  const summary = result.summary;
   return `<div class="alert success"><strong>공식 통계 근거 후보 ${rows.length}건</strong>
       <p>후보입니다. 계획서에 자동으로 넣지 않습니다. 쓸지 말지는 사람이 정합니다.${result.reused ? ' (이미 조회해 둔 결과를 다시 씁니다)' : ''}</p></div>
+    ${summary ? `<article class="requirement"><div>
+      <div><strong>${escapeHtml(summary.label)}</strong> <span class="tag">${escapeHtml(summary.region)}</span> <span class="status 확인-필요">우리가 더한 값</span> <span class="status 충족">${escapeHtml(summary.value.toLocaleString('ko-KR'))}${escapeHtml(summary.unit)}</span></div>
+      <small class="muted">${escapeHtml(summary.note)}</small>
+      <small class="muted">${escapeHtml(summary.tableName)} · ${escapeHtml(summary.survey || '조사명 미표기')} · ${escapeHtml(summary.organization || '작성기관 미표기')} · ${escapeHtml(summary.period)}년 기준</small>
+    </div></article>` : ''}
     <div class="requirement-list">${rows.map(row => `<article class="requirement"><div>
-      <div><strong>${escapeHtml(row.itemName || row.tableName)}</strong> <span class="tag">${escapeHtml(row.region)}</span> <span class="status 충족">${escapeHtml(String(row.value.toLocaleString('ko-KR')))}${escapeHtml(row.unit)}</span></div>
+      <div><strong>${escapeHtml(row.itemName || row.tableName)}${row.breakdown ? ` · ${escapeHtml(row.breakdown)}` : ''}</strong> <span class="tag">${escapeHtml(row.region)}</span> <span class="status 충족">${escapeHtml(String(row.value.toLocaleString('ko-KR')))}${escapeHtml(row.unit)}</span></div>
       <small class="muted">${escapeHtml(row.tableName)} · ${escapeHtml(row.survey || '조사명 미표기')} · ${escapeHtml(row.organization || '작성기관 미표기')} · ${escapeHtml(row.period)}년 기준</small>
       <small class="muted">조회일 ${escapeHtml((result.fetchedAt || '').slice(0, 10))} · 통계표 ${escapeHtml(row.tblId)} · <a href="${escapeHtml(row.link)}" target="_blank" rel="noreferrer noopener">KOSIS에서 원자료 보기</a></small>
     </div></article>`).join('')}</div>`;

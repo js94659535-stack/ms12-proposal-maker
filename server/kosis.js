@@ -89,6 +89,8 @@ export function normalizeRow(row, { orgId = '', tblId = '', survey = '', org = '
   const period = yearOf(row?.PRD_DE);
   const unit = text(row?.UNIT_NM);
   const region = text(row?.C1_NM) || text(regionName);
+  // 두 번째 분류(연령 등). 이것이 없으면 「387,604명」과 「1,921명」이 같은 이름으로 보인다.
+  const breakdown = [text(row?.C2_NM), text(row?.C3_NM)].filter(Boolean).join(' · ');
   const tableName = text(row?.TBL_NM);
   const organization = text(org) || KOSIS_ORG_NAMES[text(row?.ORG_ID) || text(orgId)] || '';
   const missing = [];
@@ -103,7 +105,7 @@ export function normalizeRow(row, { orgId = '', tblId = '', survey = '', org = '
     candidate: {
       orgId: text(orgId) || text(row?.ORG_ID), tblId: text(tblId) || text(row?.TBL_ID),
       tableName, organization, survey: text(survey),
-      itemName: text(row?.ITM_NM), region, period, value, unit,
+      itemName: text(row?.ITM_NM), breakdown, region, period, value, unit,
       link: statHtmlLink(text(orgId) || text(row?.ORG_ID), text(tblId) || text(row?.TBL_ID))
     }
   };
@@ -131,11 +133,37 @@ export function chooseCandidates(rows, context = {}, { keywords = [], limit = 5 
   for (const row of list) {
     const result = normalizeRow(row, context);
     if (!result.ok) continue;
-    const hay = `${result.candidate.itemName} ${result.candidate.tableName}`;
+    const hay = `${result.candidate.itemName} ${result.candidate.breakdown} ${result.candidate.tableName}`;
     scored.push({ candidate: result.candidate, hit: wanted.some(word => hay.includes(word)) ? 1 : 0 });
   }
   scored.sort((a, b) => b.hit - a.hit);
   return scored.slice(0, limit).map(item => item.candidate);
+}
+
+// 나이별로 갈린 값을 더해 「0~19세」 같은 한 줄을 만든다.
+//
+// 더한 값은 KOSIS가 준 숫자가 아니라 우리가 만든 숫자다. 그래서 몇 줄을 더했는지 함께 남기고,
+// 화면에서도 원자료와 구분해 적는다. 기준연도·단위·항목이 하나라도 섞이면 더하지 않는다.
+export function sumAges(candidates, { maxAge = 19, itemName = '총인구수' } = {}) {
+  const list = (Array.isArray(candidates) ? candidates : []).filter(row => row.itemName === itemName);
+  const rows = list.filter(row => {
+    const match = /^(\d+)세$/.exec(text(row.breakdown));
+    return match && Number(match[1]) <= maxAge;
+  });
+  if (!rows.length) return null;
+  const periods = new Set(rows.map(row => row.period));
+  const units = new Set(rows.map(row => row.unit));
+  if (periods.size !== 1 || units.size !== 1) return null;
+  return {
+    label: `0~${maxAge}세 합계`,
+    value: rows.reduce((sum, row) => sum + row.value, 0),
+    unit: [...units][0], period: [...periods][0],
+    region: rows[0].region, tableName: rows[0].tableName, organization: rows[0].organization,
+    survey: rows[0].survey, orgId: rows[0].orgId, tblId: rows[0].tblId, link: rows[0].link,
+    // 우리가 더한 값이라는 사실을 값과 함께 들고 다닌다.
+    derived: true, rowCount: rows.length,
+    note: `공식 원자료 ${rows.length}줄(${rows[0].period}년 ${rows[0].tableName})을 더한 값입니다. KOSIS가 그대로 발표한 숫자가 아닙니다.`
+  };
 }
 
 // 같은 조회는 다시 부르지 않는다. 키는 열쇠에 넣지 않는다.

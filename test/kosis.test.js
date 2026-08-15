@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MAX_CALLS, TOPICS, lookup, onRequest as statsRoute } from '../functions/api/stats.js';
-import { MAX_OBJ_LEVELS, NOT_FOUND_MESSAGE, NO_KEY_MESSAGE, cacheKey, dataUrl, kosisError, maskKey, needsMoreLevels, normalizeRow, pickTables, regionCodeOf, rowsForRegion, statHtmlLink, tooManyCells } from '../server/kosis.js';
+import { MAX_OBJ_LEVELS, NOT_FOUND_MESSAGE, NO_KEY_MESSAGE, cacheKey, dataUrl, kosisError, maskKey, needsMoreLevels, normalizeRow, pickTables, regionCodeOf, rowsForRegion, statHtmlLink, sumAges, tooManyCells } from '../server/kosis.js';
 
 const KEY = 'test-key-must-never-appear';
 
@@ -239,4 +239,30 @@ test('화면은 후보로만 보여 주고 계획서에 자동으로 넣지 않�
   // 계획서 생성 경로는 이 결과를 쓰지 않는다. 조회 결과는 화면에만 머문다.
   const run = app.slice(app.indexOf('async function runCoreProposal()'), app.indexOf('function coreResultView('));
   assert.ok(!run.includes('statLookup'), '핵심제안서 생성이 통계 조회 결과를 보내지 않는다');
+});
+
+test('나이별로 갈린 값은 나이를 함께 적고, 더한 값은 더했다고 적는다', async () => {
+  // 나이 이름이 없으면 387,604명과 1,921명이 같은 이름으로 보인다.
+  const row = normalizeRow({ TBL_NM: '행정구역(시군구)별/1세별 주민등록인구', PRD_DE: '2025', ITM_NM: '총인구수', C1_NM: '광산구', C2_NM: '10세', DT: '3,912', UNIT_NM: '명' }, { orgId: '101', tblId: 'DT_1B04006' });
+  assert.equal(row.candidate.breakdown, '10세');
+
+  const ages = [0, 1, 2].map(age => normalizeRow({ TBL_NM: '표', PRD_DE: '2025', ITM_NM: '총인구수', C1_NM: '광산구', C2_NM: `${age}세`, DT: '100', UNIT_NM: '명' }, {}).candidate);
+  const other = normalizeRow({ TBL_NM: '표', PRD_DE: '2025', ITM_NM: '남자인구수', C1_NM: '광산구', C2_NM: '1세', DT: '50', UNIT_NM: '명' }, {}).candidate;
+  const old = normalizeRow({ TBL_NM: '표', PRD_DE: '2025', ITM_NM: '총인구수', C1_NM: '광산구', C2_NM: '40세', DT: '900', UNIT_NM: '명' }, {}).candidate;
+  const summed = sumAges([...ages, other, old], { maxAge: 19 });
+  // 남자·여자를 겹쳐 세지 않고, 범위 밖 나이도 넣지 않는다.
+  assert.equal(summed.value, 300);
+  assert.equal(summed.rowCount, 3);
+  assert.equal(summed.derived, true);
+  assert.match(summed.note, /더한 값입니다\. KOSIS가 그대로 발표한 숫자가 아닙니다/);
+  // 기준연도나 단위가 섞이면 더하지 않는다.
+  const mixed = normalizeRow({ TBL_NM: '표', PRD_DE: '2024', ITM_NM: '총인구수', C1_NM: '광산구', C2_NM: '3세', DT: '100', UNIT_NM: '명' }, {}).candidate;
+  assert.equal(sumAges([...ages, mixed], { maxAge: 19 }), null);
+  assert.equal(sumAges([], {}), null);
+
+  // 화면도 나이를 적고, 더한 값에는 표시를 붙인다.
+  const fs = (await import('node:fs')).default;
+  const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  assert.match(app, /row\.breakdown \? ` · \$\{escapeHtml\(row\.breakdown\)\}`/);
+  assert.match(app, /우리가 더한 값/);
 });
