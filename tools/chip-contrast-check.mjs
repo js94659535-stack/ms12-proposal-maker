@@ -80,10 +80,21 @@ const AUDIT = `(() => {
   };
 
   const chipNamed = text => [...document.querySelectorAll('.chip')].find(el => (el.textContent || '').trim() === text) || null;
+  // 자식 span이 위 단추의 색·굵기를 덮어쓰는지 함께 본다.
+  const inner = el => {
+    if (!el) return null;
+    const kids = [...el.children].map(kid => {
+      const style = getComputedStyle(kid);
+      return { tag: kid.tagName, cls: String(kid.className || ''), color: style.color, weight: style.fontWeight, size: style.fontSize, opacity: style.opacity };
+    });
+    return { childCount: el.childElementCount, kids, classes: String(el.className || ''), parent: el.parentElement ? String(el.parentElement.className || '') + ' ' + (el.parentElement.dataset?.conditionChips || '') : '' };
+  };
   const rows = [
     report('예시문 · 대상 칸', document.querySelector('#cond-target'), '::placeholder'),
     report('예시문 · 핵심 아이디어', document.querySelector('#core-idea'), '::placeholder'),
     ...['지역주민', '10명 내외', '3개월', '주 1회'].map(text => report('보기 단추 ' + text, chipNamed(text))),
+    ...['사례관리·가정방문', '집단 프로그램', '캠페인·행사', '1:1 상담', '교육·강좌', '물품·급식 지원', '멘토링', '컨설팅']
+      .map(text => ({ ...report('진행 방식 ' + text, chipNamed(text)), inner: inner(chipNamed(text)) })),
     report('설명문(비교용)', document.querySelector('#cond-target ~ small')),
     report('사용자 입력칸(비교용)', document.querySelector('#core-idea'))
   ];
@@ -119,6 +130,7 @@ for (const [screen, rows] of Object.entries(report)) {
   for (const row of rows) {
     if (row.missing) { console.log(`${screen} ${row.name} — 화면에 없음`); continue; }
     console.log(`${screen} | ${row.name} | 「${row.text}」 | ${row.color} on ${row.background} | weight ${row.weight} | ${row.size} | opacity ${row.opacity}${row.opacityNotes.length ? ' (' + row.opacityNotes.join(', ') + ')' : ''} | 테두리 ${row.border} | 명암비 ${row.contrast}`);
+    if (row.inner?.childCount) console.log(`      └ 자식 요소 ${row.inner.childCount}개: ${row.inner.kids.map(kid => `${kid.tag}.${kid.cls} ${kid.color} ${kid.weight} ${kid.size} opacity ${kid.opacity}`).join(' / ')}`);
   }
 }
 fs.writeFileSync(path.join(shots, `${label}.json`), JSON.stringify(report, null, 1));

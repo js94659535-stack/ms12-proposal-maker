@@ -548,6 +548,14 @@ test('프로그램이 보여 주는 글자는 색과 굵기를 함께 올린다'
   // 눌러야 하는 글자가 설명하는 글자보다 흐리면 순서가 뒤집힌다.
   assert.match(css, /\.chip\{color:#453a32;font-weight:500;opacity:1;border-color:#998a78\}/);
   assert.match(css, /\.chips\{opacity:1;filter:none\}/);
+  // 진행 방식 보기만 글자를 키우고 굵힌다. 700 이상은 쓰지 않는다.
+  const method = css.split('\n').filter(line => line.startsWith('[data-condition-chips="method"]')).join('\n');
+  assert.ok(method.includes('font-size:14px;font-weight:600;color:#3a3028;opacity:1'), '진행 방식 보기 글자');
+  assert.ok(!/font-weight:[789]00/.test(method), '700 이상을 쓰지 않는다');
+  assert.ok(method.includes('.chip.on{font-weight:600}'), '고른 것도 600을 넘기지 않는다');
+  // 다른 칸의 보기는 건드리지 않는다.
+  assert.ok(!css.includes('[data-condition-chips="target"]'));
+  assert.ok(!css.includes('[data-condition-chips="people"]'));
   assert.match(css, /\.chip\.on\{background:#eaf2ff;border-color:#5b8def/);
   // 제목·항목명은 그대로 굵다. 전체를 일괄로 굵게 하지 않는다.
   assert.match(css, /\.field label\{font-size:13px;font-weight:800\}/);
