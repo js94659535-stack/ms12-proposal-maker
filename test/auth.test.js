@@ -350,7 +350,9 @@ test('로그인한 사람은 지금 비밀번호를 알아야 새 비밀번호�
   const fn = api.slice(api.indexOf('async function changePassword('), api.indexOf('// 구독 신청서를 접수한다'));
   assert.ok(!/detail:[^;]*body\.password/.test(fn), '기록에 새 비밀번호를 적지 않는다');
   // 화면에도 자리가 있다.
-  assert.match(app, /function passwordChangePanel\(\)/);
+  assert.match(app, /function passwordChangePanel\(\{ open = false \} = \{\}\)/);
+  // 내 정보 화면에서는 접지 않고 펼쳐 둔다.
+  assert.match(app, /passwordChangePanel\(\{ open: true \}\)/);
   assert.match(app, /id="pw-current"/);
   // 들어갈 문이 있어야 기능이다. 홈과 관리자 포털 머리띠에서 바로 연다.
   assert.equal((app.match(/id="open-account"/g) || []).length, 3, '작업 화면·홈·관리자 포털 세 곳');
@@ -362,8 +364,8 @@ test('로그인한 사람은 지금 비밀번호를 알아야 새 비밀번호�
   assert.ok(!app.includes('>계정 설정</button>'), '머리띠 이름도 내 정보로 맞춘다');
   // 내가 고칠 수 있는 것이 위에 온다.
   const view = app.slice(app.indexOf('function accountView()'), app.indexOf('// 비밀번호 바꾸기. 지금 비밀번호를 아는 사람만'));
-  assert.ok(view.indexOf('memberProfileForm()') < view.indexOf('passwordChangePanel()'));
-  assert.ok(view.indexOf('passwordChangePanel()') < view.indexOf('membershipStatusPanel()'));
+  assert.ok(view.indexOf('memberProfileForm()') < view.indexOf('passwordChangePanel('));
+  assert.ok(view.indexOf('passwordChangePanel(') < view.indexOf('membershipStatusPanel()'));
   assert.match(view, /이메일 주소와 회원 등급은 본인이 바꿀 수 없고/);
   assert.match(app, /id="pw-next"/);
   assert.match(app, /id="pw-confirm"/);
