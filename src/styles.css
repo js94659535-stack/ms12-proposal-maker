@@ -602,7 +602,11 @@ select{max-width:100%}
    제목·항목명·배지는 이미 굵으므로 건드리지 않고, 꺼져 있는 기능만 흐린 채로 둔다. */
 .muted, small, .tip, .alert p, .empty-inline, .outline a, th,
 .landing-lead, .landing-note, .home-lead, .sidebar-note p,
-.section-meta, .requirement details, .question > div span{
+.section-meta, .requirement details, .question > div span,
+/* 첫 화면·카드의 안내 문단과 머리말의 계정 표시도 프로그램이 보여 주는 글자다. */
+.landing-head p, .landing-card p, .landing-footer span, .landing-hero p,
+.home-head p, .home-card p, .home-step p, .home-final p,
+.home-header span, .home-brand span, .card-title span{
   font-weight:500;
 }
 
