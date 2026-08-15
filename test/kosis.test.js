@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MAX_CALLS, TOPICS, lookup, onRequest as statsRoute } from '../functions/api/stats.js';
-import { NOT_FOUND_MESSAGE, NO_KEY_MESSAGE, cacheKey, findRegionCode, kosisError, maskKey, normalizeRow, pickTables, statHtmlLink } from '../server/kosis.js';
+import { MAX_OBJ_LEVELS, NOT_FOUND_MESSAGE, NO_KEY_MESSAGE, cacheKey, dataUrl, kosisError, maskKey, needsMoreLevels, normalizeRow, pickTables, rowsForRegion, statHtmlLink } from '../server/kosis.js';
 
 const KEY = 'test-key-must-never-appear';
 
@@ -31,11 +31,11 @@ function fakeKosis(steps) {
   return { fetcher, seen };
 }
 
-test('검색 → 지역코드 → 값 순서로 한 번만 찾아온다', async () => {
-  const { fetcher, seen } = fakeKosis([SEARCH, META, DATA]);
+test('검색한 표에서 이 지역 줄만 골라 온다', async () => {
+  const { fetcher, seen } = fakeKosis([SEARCH, DATA]);
   const result = await lookup(KEY, { region: '광산구', topic: TOPICS.children, fetcher });
   assert.equal(result.ok, true);
-  assert.equal(result.calls, 3);
+  assert.equal(result.calls, 2);
   assert.equal(result.region, '광주광역시 광산구');
   const first = result.candidates[0];
   // 통계표명·작성기관·조사명·지역·기준연도·값·단위·출처 링크가 모두 있어야 후보다.
@@ -55,13 +55,37 @@ test('검색 → 지역코드 → 값 순서로 한 번만 찾아온다', async 
 });
 
 test('없는 지역은 다른 지역 값으로 대신하지 않는다', async () => {
-  // 지역 코드를 못 찾으면 그 표의 값은 아예 부르지 않는다.
-  const { fetcher, seen } = fakeKosis([SEARCH, META, META]);
+  const { fetcher } = fakeKosis([SEARCH, DATA]);
   const result = await lookup(KEY, { region: '없는구', topic: TOPICS.children, fetcher });
   assert.equal(result.ok, false);
   assert.equal(result.message, NOT_FOUND_MESSAGE);
-  assert.ok(!seen.some(address => address.includes('method=getList&apiKey') && address.includes('objL1')));
   assert.ok(result.tried.some(item => item.reason === 'region'));
+  // 이름이 정확히 맞는 줄만 고른다. 「광산」으로는 광산구 값을 가져오지 않는다.
+  assert.equal(rowsForRegion(DATA, '광산').length, 0);
+  assert.equal(rowsForRegion(DATA, '광산구').length, 2);
+  assert.equal(rowsForRegion(DATA, '광주광역시 광산구').length, 2);
+});
+
+test('분류 겹수가 모자라면 겹수를 늘려 다시 묻는다', async () => {
+  // KOSIS는 표마다 분류 겹수가 다르고, 모자라면 (objL)이라고만 알려 준다.
+  const short = { err: '20', errMsg: '필수요청변수값이 누락되었습니다. (objL)' };
+  const { fetcher, seen } = fakeKosis([SEARCH, short, DATA]);
+  const result = await lookup(KEY, { region: '광산구', topic: TOPICS.children, fetcher });
+  assert.equal(result.ok, true);
+  assert.equal(result.calls, 3);
+  assert.ok(seen[1].includes('objL1=ALL') && !seen[1].includes('objL2'));
+  assert.ok(seen[2].includes('objL1=ALL') && seen[2].includes('objL2=ALL'));
+  assert.equal(needsMoreLevels('필수요청변수값이 누락되었습니다. (objL)'), true);
+  assert.equal(needsMoreLevels('유효하지 않은 인증KEY입니다.'), false);
+  assert.ok(dataUrl('k', { orgId: '101', tblId: 'T', levels: 9 }).includes(`objL${MAX_OBJ_LEVELS}=ALL`));
+});
+
+test('겹수를 늘려도 안 되면 조르지 않고 멈춘다', async () => {
+  const short = { err: '20', errMsg: '필수요청변수값이 누락되었습니다. (objL)' };
+  const { fetcher } = fakeKosis([SEARCH, short, short, short, short, short, short, short]);
+  const result = await lookup(KEY, { region: '광산구', topic: TOPICS.children, fetcher });
+  assert.equal(result.ok, false);
+  assert.ok(result.calls <= MAX_CALLS);
 });
 
 test('결과가 없으면 찾지 못했다고 답한다', async () => {
@@ -80,9 +104,7 @@ test('지역·연도·단위가 불분명한 값은 후보로 쓰지 않는다',
     { TBL_NM: '표', PRD_DE: '2025', C1_NM: '광주광역시 광산구', DT: '-', UNIT_NM: '명' }         // 값 없음
   ];
   for (const row of broken) assert.equal(normalizeRow(row, { orgId: '101', tblId: 'T' }).ok, false);
-  // 지역만 빈 줄은 예외다. 우리가 광산구 코드로 좁혀 부른 응답이므로 그 지역이 맞다.
-  assert.equal(normalizeRow(broken[2], { regionName: '광주광역시 광산구' }).candidate.region, '광주광역시 광산구');
-  const { fetcher } = fakeKosis([SEARCH, META, [broken[0], broken[1], broken[3]]]);
+  const { fetcher } = fakeKosis([SEARCH, [broken[0], broken[1], broken[3]]]);
   const result = await lookup(KEY, { region: '광산구', topic: TOPICS.children, fetcher });
   assert.equal(result.ok, false);
   assert.ok(result.tried.some(item => item.reason === 'incomplete'));
@@ -104,18 +126,13 @@ test('인증키는 응답·오류 어디에도 나오지 않는다', async () =>
   assert.ok(!cacheKey('kosis-lookup', { region: '광산구', topic: 'children' }).includes(KEY));
   assert.equal(kosisError([]), null);
   // 성공한 결과에도 키가 섞여 나가지 않는다.
-  const good = fakeKosis([SEARCH, META, DATA]);
+  const good = fakeKosis([SEARCH, DATA]);
   const ok = await lookup(KEY, { region: '광산구', topic: TOPICS.children, fetcher: good.fetcher });
   assert.ok(!JSON.stringify(ok).includes(KEY));
 });
 
-test('통계표와 지역 이름은 정확히 맞는 것만 쓴다', () => {
+test('찾는 말과 맞는 통계표만 연다', () => {
   assert.deepEqual(pickTables(SEARCH, { keywords: ['연령', '인구'] }).map(row => row.tblId), ['DT_1B04005N']);
-  assert.equal(findRegionCode(META, '광산구').code, '29200');
-  assert.equal(findRegionCode(META, '광주광역시 광산구').code, '29200');
-  // 부분만 겹치는 이름은 쓰지 않는다.
-  assert.equal(findRegionCode(META, '광산'), null);
-  assert.equal(findRegionCode(META, ''), null);
   assert.ok(MAX_CALLS <= 8);
 });
 

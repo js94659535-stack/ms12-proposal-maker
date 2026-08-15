@@ -20,15 +20,20 @@ export const searchUrl = (apiKey, { searchNm, startCount = 1, resultCount = 10 }
   sort: 'RANK', format: 'json', jsonVD: 'Y'
 });
 
-// 통계표의 분류 코드표. 「광산구」가 어떤 코드인지 알아야 그 지역만 조회할 수 있다.
-export const metaUrl = (apiKey, { orgId, tblId, type = 'OBJ' }) => url('/openapi/Param/statisticsParameterData.do', {
-  method: 'getMeta', apiKey, orgId, tblId, type, format: 'json', jsonVD: 'Y'
-});
+// 통계표마다 분류가 몇 겹인지 다르다(지역만, 지역×연령, …). 겹수를 못 맞추면 KOSIS가
+// 「필수요청변수값이 누락되었습니다. (objL)」로 거절한다. 그래서 겹수를 늘려 가며 다시 묻는다.
+export const MAX_OBJ_LEVELS = 3;
+export const dataUrl = (apiKey, { orgId, tblId, levels = 1, itmId = 'ALL', prdSe = 'Y', newEstPrdCnt = 1 }) => {
+  const objs = {};
+  for (let level = 1; level <= Math.max(1, Math.min(levels, MAX_OBJ_LEVELS)); level += 1) objs[`objL${level}`] = 'ALL';
+  return url('/openapi/Param/statisticsParameterData.do', {
+    method: 'getList', apiKey, orgId, tblId, itmId, ...objs,
+    format: 'json', jsonVD: 'Y', prdSe, newEstPrdCnt: String(newEstPrdCnt)
+  });
+};
 
-export const dataUrl = (apiKey, { orgId, tblId, objL1, itmId = 'ALL', prdSe = 'Y', newEstPrdCnt = 1 }) => url('/openapi/Param/statisticsParameterData.do', {
-  method: 'getList', apiKey, orgId, tblId, itmId, objL1,
-  format: 'json', jsonVD: 'Y', prdSe, newEstPrdCnt: String(newEstPrdCnt)
-});
+// 분류 겹수가 모자라 거절당한 것인지. 그때만 겹수를 늘려 다시 묻는다.
+export const needsMoreLevels = message => /objL/i.test(String(message || ''));
 
 // 화면·기록·오류 어디에도 키가 나가지 않게 한다. 지우지 않고 가린다(무엇을 불렀는지는 남아야 한다).
 export function maskKey(text) {
@@ -65,20 +70,6 @@ export function pickTables(rows, { keywords = [], limit = 5 } = {}) {
     .filter(row => row.orgId && row.tblId && row.tableName)
     .filter(row => !wanted.length || wanted.some(word => row.tableName.includes(word)))
     .slice(0, limit);
-}
-
-// 분류 코드표에서 이 지역 코드를 찾는다. 이름이 정확히 맞는 것만 쓴다.
-export function findRegionCode(meta, regionName) {
-  const list = Array.isArray(meta) ? meta : [];
-  const name = text(regionName);
-  if (!name) return null;
-  const rows = list
-    .map(row => ({ code: text(row.OBJ_ITM_ID || row.ITM_ID || row.C1), label: text(row.OBJ_ITM_NM || row.ITM_NM || row.C1_NM) }))
-    .filter(row => row.code && row.label);
-  // 「광산구」와 「광주광역시 광산구」 둘 다 받는다. 부분만 겹치는 이름(예: 「광산」)은 쓰지 않는다.
-  return rows.find(row => row.label === name)
-    || rows.find(row => row.label.split(/\s+/).at(-1) === name.split(/\s+/).at(-1) && row.label.includes(name.split(/\s+/)[0]))
-    || null;
 }
 
 // 한 줄을 사람이 읽는 근거 후보로 바꾼다. 빠진 것이 있으면 후보로 삼지 않는다.

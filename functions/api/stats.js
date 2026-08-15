@@ -6,8 +6,8 @@
 // - 지역·기준연도·단위가 분명하지 않은 값은 후보로 삼지 않는다.
 // - 찾지 못하면 비슷한 값으로 대신하지 않고 찾지 못했다고 답한다.
 import {
-  NOT_FOUND_MESSAGE, NO_KEY_MESSAGE, cacheKey, chooseCandidates, dataUrl,
-  findRegionCode, kosisError, maskKey, metaUrl, pickTables, rowsForRegion, searchUrl
+  MAX_OBJ_LEVELS, NOT_FOUND_MESSAGE, NO_KEY_MESSAGE, cacheKey, chooseCandidates,
+  dataUrl, kosisError, maskKey, needsMoreLevels, pickTables, rowsForRegion, searchUrl
 } from '../../server/kosis.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
@@ -67,30 +67,36 @@ export async function lookup(apiKey, { region, topic, fetcher = fetch }) {
   if (!tables.length) return { ok: false, reason: 'not-found', message: NOT_FOUND_MESSAGE, calls, tried };
 
   for (const table of tables) {
-    if (calls + 2 > MAX_CALLS) break;
-    const meta = await call(metaUrl(apiKey, { orgId: table.orgId, tblId: table.tblId, type: 'OBJ' }));
-    // 코드표를 못 읽으면 전체를 받아 이름으로 고른다. 이름이 맞는 줄만 쓰므로 다른 지역이 섞이지 않는다.
-    const code = meta.error ? null : findRegionCode(meta.payload, region);
-    if (meta.error) tried.push({ tblId: table.tblId, reason: 'meta', detail: meta.error.message });
-    else if (!code) { tried.push({ tblId: table.tblId, reason: 'region' }); continue; }
-
-    const rows = await call(dataUrl(apiKey, { orgId: table.orgId, tblId: table.tblId, objL1: code ? code.code : 'ALL' }));
+    if (calls >= MAX_CALLS) break;
+    const rows = await readTable(call, apiKey, table, MAX_CALLS - calls);
     if (rows.error) { tried.push({ tblId: table.tblId, reason: 'data', detail: rows.error.message }); continue; }
-    const picked = code ? rows.payload : rowsForRegion(rows.payload, region);
+    // 이름이 정확히 맞는 줄만 고른다. 옆 동네 값으로 대신하지 않는다.
+    const picked = rowsForRegion(rows.payload, region);
     if (!picked.length) { tried.push({ tblId: table.tblId, reason: 'region' }); continue; }
     const candidates = chooseCandidates(picked, {
-      orgId: table.orgId, tblId: table.tblId, survey: table.survey, org: table.org, regionName: code ? code.label : ''
+      orgId: table.orgId, tblId: table.tblId, survey: table.survey, org: table.org
     }, { keywords: topic.itemKeywords });
     if (!candidates.length) { tried.push({ tblId: table.tblId, reason: 'incomplete' }); continue; }
 
     return {
       ok: true, calls, tried,
-      topic: topic.label, region: code ? code.label : (candidates[0]?.region || region),
+      topic: topic.label, region: candidates[0].region,
       fetchedAt: new Date().toISOString(),
       candidates
     };
   }
   return { ok: false, reason: 'not-found', message: NOT_FOUND_MESSAGE, calls, tried };
+}
+
+// 분류 겹수를 하나씩 늘려 가며 묻는다. 겹수 때문이 아닌 오류면 더 조르지 않는다.
+async function readTable(call, apiKey, table, budget) {
+  let last = null;
+  for (let levels = 1; levels <= Math.min(MAX_OBJ_LEVELS, budget); levels += 1) {
+    last = await call(dataUrl(apiKey, { orgId: table.orgId, tblId: table.tblId, levels }));
+    if (!last.error) return last;
+    if (!needsMoreLevels(last.error.message)) return last;
+  }
+  return last || { error: { code: 'budget', message: '조회 횟수 안에서 값을 받지 못했습니다.' } };
 }
 
 async function getJson(address, fetcher) {
