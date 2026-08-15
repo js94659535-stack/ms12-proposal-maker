@@ -46,3 +46,6 @@ export const saveMemberInfo = value => post('/api/account', 'saveProfile', value
 
 // 개인정보·업무자료 열람 안내 확인. 회원이 직접 누를 때만 부른다.
 export const acknowledgePrivacyNotice = version => post('/api/account', 'acknowledgeNotice', { version });
+// 비밀번호 바꾸기. 지금 비밀번호를 함께 보내고, 바꾸면 모든 기기의 로그인이 끊긴다.
+export const changePassword = (currentPassword, password, passwordConfirm) =>
+  post('/api/account', 'changePassword', { currentPassword, password, passwordConfirm });

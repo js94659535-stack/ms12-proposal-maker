@@ -10,7 +10,7 @@ import { classifyDocument, intakeSummary, markDuplicates } from './doc-classify.
 import { trimManualSources } from './payload-trim.js';
 import { applyOpenMarks, collectOpenMarks, openMarkTotal } from './open-marks.js';
 import { MANIFEST_NAME, packageStale, planSubmissionZip, zipBytes } from './submission-zip.js';
-import { agencyMe, acknowledgePrivacyNotice, UNAUTHORIZED, accountProfile, clearOAuthCallback, currentUser, finishSocial, login, logout, readOAuthCallback, recoverPassword, saveAccountProfile, saveMemberInfo, signup as signupEmail, startSocial } from './auth.js';
+import { agencyMe, acknowledgePrivacyNotice, changePassword, UNAUTHORIZED, accountProfile, clearOAuthCallback, currentUser, finishSocial, login, logout, readOAuthCallback, recoverPassword, saveAccountProfile, saveMemberInfo, signup as signupEmail, startSocial } from './auth.js';
 import { premiumNoticeHistory, premiumShowcase, premiumStatus } from './premium.js';
 import { mySubscriptionRequest, submitSubscriptionRequest } from './auth.js';
 import { adminSubscriptionRequests, adminDecideSubscription, adminAgencyList, adminAgencyTransfer, adminAgencyTransferPreview, adminSetAgency, adminOverviewCounts, adminSetNoticeSource, adminAccessOverview, adminAssignProposal, adminMemberUsage, adminProposalContent, adminRevokeGrant, adminSaveGrant, adminNoticeCollection, adminRunNoticeCollection, adminUsageReport, approveAccount, deleteShowcase, setAccountSubscription, transferSocialIdentity, disableAccount, listAccounts, listCollectedNotices, listShowcase, removeAccount, saveShowcase, setAccountPlan, setAccountPremium, setAccountRole, setNoticePublic, setShowcaseOrder, setShowcasePublic } from './admin.js';
@@ -477,12 +477,41 @@ function accountView() {
     ${auth.error ? `<div class="alert danger"><strong>${escapeHtml(auth.error)}</strong></div>` : ''}
     ${auth.notice ? `<div class="alert success"><strong>${escapeHtml(auth.notice)}</strong></div>` : ''}
     ${membershipStatusPanel()}
+    ${passwordChangePanel()}
     ${identityTransferPanel()}
     ${memberProfileForm()}
     ${archiveClaimPanel()}
     ${privacyNoticePanel()}
     ${accountLinkPanel()}</div>`;
 }
+// 비밀번호 바꾸기. 지금 비밀번호를 아는 사람만 바꾼다.
+function passwordChangePanel() {
+  const busy = auth.busy;
+  return `<details id="password-panel" ${auth.passwordOpen ? 'open' : ''}><summary>비밀번호 바꾸기</summary>
+    <p class="muted">지금 쓰는 비밀번호를 함께 적어야 바꿀 수 있습니다. 바꾸면 이 기기를 포함해 로그인해 둔 모든 곳에서 다시 로그인해야 합니다.</p>
+    <div class="two-col">
+      <div class="field"><label for="pw-current">지금 비밀번호</label><input id="pw-current" type="password" autocomplete="current-password" ${busy ? 'disabled' : ''}></div>
+      <div class="field"><label for="pw-next">새 비밀번호</label><input id="pw-next" type="password" autocomplete="new-password" ${busy ? 'disabled' : ''}><small class="muted">${PASSWORD_MIN}자 이상</small></div>
+      <div class="field"><label for="pw-confirm">새 비밀번호 확인</label><input id="pw-confirm" type="password" autocomplete="new-password" ${busy ? 'disabled' : ''}></div>
+    </div>
+    <div class="actions"><span class="muted">비밀번호는 저장되지 않고 해시만 남습니다. 관리자도 볼 수 없습니다.</span>
+      <button class="button primary" id="pw-save" ${busy ? 'disabled' : ''}>비밀번호 바꾸기</button></div>
+  </details>`;
+}
+
+async function submitPasswordChange() {
+  if (auth.busy) return;
+  const current = document.querySelector('#pw-current')?.value || '';
+  const next = document.querySelector('#pw-next')?.value || '';
+  const confirm = document.querySelector('#pw-confirm')?.value || '';
+  if (!current || !next) return setAuth({ error: '지금 비밀번호와 새 비밀번호를 모두 적어 주세요.', notice: '', passwordOpen: true });
+  setAuth({ busy: true, error: '', notice: '', passwordOpen: true });
+  const result = await changePassword(current, next, confirm).catch(() => ({ ok: false, error: '요청을 보내지 못했습니다.' }));
+  if (!result.ok) return setAuth({ busy: false, error: result.error || '비밀번호를 바꾸지 못했습니다.', passwordOpen: true });
+  // 서버가 모든 세션을 끊었다. 화면도 로그인 화면으로 되돌린다.
+  signOutLocally('비밀번호를 바꿨습니다. 새 비밀번호로 다시 로그인해 주세요.', { toLogin: true });
+}
+
 // 로그인한 사람이 두 번째 소셜 계정을 연결하는 곳.
 function accountLinkPanel() {
   const linked = new Set(auth.identities.map(item => item.provider));
@@ -6119,6 +6148,9 @@ function bind() {
   updateInputs();
   bindTopMenus();
   bindMemberProfile();
+  // 비밀번호 바꾸기. 계정 설정 화면에서만 나온다.
+  document.querySelector('#pw-save')?.addEventListener('click', () => void submitPasswordChange());
+  document.querySelector('#password-panel')?.addEventListener('toggle', event => { auth.passwordOpen = event.target.open; });
   bindPremium();
   bindMembership();
   if (!auth.plans) void loadMembershipPlans();

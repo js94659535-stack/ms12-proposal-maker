@@ -330,3 +330,29 @@ test('앱은 로그인하기 전 작업 화면을 그리지 않고 토큰을 저
   assert.doesNotMatch(authBlock, /localStorage|sessionStorage/);
   assert.match(client, /credentials: 'same-origin'/);
 });
+
+test('로그인한 사람은 지금 비밀번호를 알아야 새 비밀번호를 정할 수 있다', async () => {
+  const fs = await import('node:fs');
+  const api = fs.readFileSync(new URL('../functions/api/account.js', import.meta.url), 'utf8');
+  const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  // 지금 비밀번호를 확인하지 않으면 잠깐 자리를 비운 화면에서 계정을 빼앗긴다.
+  assert.match(api, /if \(body\.action === 'changePassword'\) return changePassword\(env\.ARCHIVE_DB, data\.session\.user, body\);/);
+  assert.match(api, /constantTimeEqual\(derived, row\.password_hash\)/);
+  assert.match(api, /지금 쓰는 비밀번호가 맞지 않습니다/);
+  // 같은 값으로 다시 정하지 못한다.
+  assert.match(api, /지금 쓰는 비밀번호와 다른 값으로 정해 주세요/);
+  // 가입 때와 같은 규칙을 쓴다.
+  assert.match(api, /validateNewPassword\(\{ email: row\.email, password: body\.password, passwordConfirm: body\.passwordConfirm \}\)/);
+  // 바꾸면 어디에 남아 있던 로그인도 모두 끊는다.
+  assert.match(api, /DELETE FROM sessions WHERE user_id = \?/);
+  assert.match(api, /action: 'member\.changePassword'/);
+  // 원문은 기록에 적지 않는다.
+  const fn = api.slice(api.indexOf('async function changePassword('), api.indexOf('// 구독 신청서를 접수한다'));
+  assert.ok(!/detail:[^;]*body\.password/.test(fn), '기록에 새 비밀번호를 적지 않는다');
+  // 화면에도 자리가 있다.
+  assert.match(app, /function passwordChangePanel\(\)/);
+  assert.match(app, /id="pw-current"/);
+  assert.match(app, /id="pw-next"/);
+  assert.match(app, /id="pw-confirm"/);
+  assert.match(app, /signOutLocally\('비밀번호를 바꿨습니다\. 새 비밀번호로 다시 로그인해 주세요\.', \{ toLogin: true \}\)/);
+});

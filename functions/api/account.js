@@ -2,6 +2,8 @@
 import { CONSENT_VERSIONS, PROVIDER_LABELS, validateProfileForm } from '../../server/social-identity.js';
 import { CONTACT_LABEL, effectivePlan } from '../../server/plan.js';
 import { recordAudit } from '../../server/audit.js';
+import { PASSWORD_ALGO, constantTimeEqual, createPasswordRecord, derivePassword } from '../../server/password.js';
+import { validateNewPassword } from '../../server/signup.js';
 import { PREMIUM_LABEL, contractState } from '../../server/premium.js';
 import { MEMBER_FREE_PAGES, QUOTAS, membershipOf, membershipPlans } from '../../server/membership.js';
 import { SUBSCRIPTION_LABELS, loadSubscription, remaining } from '../../server/subscription.js';
@@ -30,6 +32,8 @@ export async function onRequest(context) {
   // 본인정보 수정. 승인 대기·정식·프리미엄 회원 모두 쓴다.
   if (body.action === 'saveProfile') return saveProfile(env.ARCHIVE_DB, data.session.user, body);
   // 개인정보·열람 안내 확인. 회원이 직접 누를 때만 기록한다. 기존 계정을 자동 동의로 만들지 않는다.
+  // 비밀번호 바꾸기. 지금 비밀번호를 아는 사람만 바꿀 수 있다. 새 값은 해시로만 남는다.
+  if (body.action === 'changePassword') return changePassword(env.ARCHIVE_DB, data.session.user, body);
   if (body.action === 'acknowledgeNotice') return acknowledgeNotice(env.ARCHIVE_DB, data.session.user, body);
   // 구독 신청서. 결제가 아니라 신청이다. 실제 개설은 관리자가 확인한 뒤에 한다.
   if (body.action === 'subscriptionRequest') return submitSubscriptionRequest(env.ARCHIVE_DB, data.session.user, body);
@@ -37,6 +41,42 @@ export async function onRequest(context) {
     return json({ request: await latestRequest(env.ARCHIVE_DB, data.session.user.id), paymentNote: BILLING_NOTE });
   }
   return json({ error: '지원하지 않는 작업입니다.' }, 400);
+}
+
+// 비밀번호를 바꾼다.
+//
+// 지금 비밀번호를 확인하지 않으면, 잠깐 자리를 비운 화면에서 남이 계정을 가져갈 수 있다.
+// 바꾼 뒤에는 쓰던 세션을 모두 버린다. 다른 기기에 남아 있던 로그인도 함께 끊긴다.
+// 원문 비밀번호는 저장하지도, 기록에 적지도 않는다.
+async function changePassword(db, user, body) {
+  const row = await db.prepare('SELECT id, email, role, status, password_algo, password_iterations, password_salt, password_hash FROM users WHERE id = ?')
+    .bind(user.id).first();
+  if (!row) return json({ error: '계정을 찾지 못했습니다.' }, 404);
+
+  const current = String(body.currentPassword || '');
+  let derived = '';
+  try {
+    derived = await derivePassword(current, {
+      salt: row.password_salt, iterations: Number(row.password_iterations) || 600_000, algo: row.password_algo || PASSWORD_ALGO
+    });
+  } catch { derived = ''; }
+  if (!row.password_hash || !derived || !constantTimeEqual(derived, row.password_hash)) {
+    await recordAudit(db, { actor: user, action: 'member.changePassword', targetId: user.id, targetEmail: user.email, result: 'fail', detail: '지금 비밀번호가 맞지 않습니다.' });
+    return json({ error: '지금 쓰는 비밀번호가 맞지 않습니다.' }, 401);
+  }
+
+  const checked = validateNewPassword({ email: row.email, password: body.password, passwordConfirm: body.passwordConfirm });
+  if (!checked.ok) return json({ error: checked.errors.join(' ') }, 400);
+  if (constantTimeEqual(current, checked.value.password)) return json({ error: '지금 쓰는 비밀번호와 다른 값으로 정해 주세요.' }, 400);
+
+  const record = await createPasswordRecord(checked.value.password);
+  const now = new Date().toISOString();
+  await db.prepare('UPDATE users SET password_algo = ?, password_iterations = ?, password_salt = ?, password_hash = ?, updated_at = ? WHERE id = ?')
+    .bind(record.password_algo, record.password_iterations, record.password_salt, record.password_hash, now, row.id).run();
+  // 바꾸고 나면 어디에 남아 있던 로그인도 모두 끊는다.
+  await db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(row.id).run();
+  await recordAudit(db, { actor: user, action: 'member.changePassword', targetId: row.id, targetEmail: row.email, detail: '본인이 비밀번호를 바꾸고 모든 세션을 끊었습니다.' });
+  return json({ ok: true, changed: true });
 }
 
 // 구독 신청서를 접수한다. 같은 회원이 검토 중인 신청을 또 내지는 못한다.
