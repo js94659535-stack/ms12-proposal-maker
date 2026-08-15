@@ -139,7 +139,8 @@ test('고른 범위는 공고 검색에만 쓰이고 계획서 연결은 건드�
   assert.equal(passesFilters({ business_type: '', title: '옛 공고' }, { businessTypes: ['chest'] }), true);
   // 화면은 고른 범위를 검색 결과 위에 적는다.
   assert.match(app, /공고 출처·기관 범위: \$\{escapeHtml\(selectionSummary\(chosen, orgList\(\)\)\)\} · 머리띠에서 바꿉니다/);
-  assert.match(app, /const scoped = \{ \.\.\.next\.filters, businessTypes: orgScope\(\) \};/);
+  // 「고른」 것만 범위로 쓴다. 예전 단일 값을 물려받은 것만으로 목록을 좁히지 않는다.
+  assert.match(app, /businessTypes: Array\.isArray\(state\.orgScope\) \? orgScope\(\) : \[\]/);
   // 계획서에 붙는 유형은 여전히 하나다.
   assert.match(app, /if \(kept\.length\) state\.project\.type = kept\[0\];/);
 });
