@@ -281,3 +281,19 @@ test('돌리지 않은 출처는 실패로 세지 않는다', async () => {
   const allFailed = decideRun({ sources: [{ ...ok, status: 'failed', reason: '연결 실패' }, skipped], collected: 0 });
   assert.equal(allFailed.status, RUN_STATUS.failed);
 });
+
+test('실행할 때마다 시작 출처를 옮긴다', async () => {
+  const { rotate } = await import('../server/extra-collect.js');
+  const rows = ['a', 'b', 'c', 'd'];
+  const twelveHours = 12 * 60 * 60 * 1000;
+  const first = rotate(rows, new Date(0));
+  const second = rotate(rows, new Date(twelveHours));
+  const third = rotate(rows, new Date(2 * twelveHours));
+  // 목록은 그대로고 시작점만 한 칸씩 옮긴다. 뒤쪽 출처도 앞자리에 선다.
+  assert.equal(first.length, rows.length);
+  assert.deepEqual([...first].sort(), [...rows].sort());
+  assert.notDeepEqual(first, second);
+  assert.deepEqual(second, ['b', 'c', 'd', 'a']);
+  assert.deepEqual(third, ['c', 'd', 'a', 'b']);
+  assert.deepEqual(rotate(['only'], new Date(0)), ['only']);
+});

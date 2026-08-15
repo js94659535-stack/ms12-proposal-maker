@@ -217,7 +217,9 @@ export async function collectExtraSources(fetcher = fetch, { settings = {}, secr
   const today = todayInSeoul(now);
   const sources = [];
   const notices = [];
-  for (const source of SOURCES) {
+  // 한 번에 부를 수 있는 횟수에 한도가 있다. 늘 같은 차례로 돌면 뒤쪽 출처는 영영 차례가 오지 않는다.
+  // 그래서 실행할 때마다 시작 지점을 한 칸씩 옮긴다. 하루 두 번 도는 동안 모든 곳이 앞자리에 선다.
+  for (const source of rotate(SOURCES, now)) {
     const gate = runnable(source, { settings, secrets });
     if (!gate.ok) {
       // 돌리지 않은 것은 실패가 아니다. 따로 표시한다.
@@ -239,11 +241,23 @@ export async function collectExtraSources(fetcher = fetch, { settings = {}, secr
   return { sources, notices };
 }
 
+// 실행할 때마다 시작 지점을 옮긴다. 순서만 돌리고 목록은 그대로 둔다.
+export function rotate(list, now = new Date()) {
+  const rows = Array.isArray(list) ? list : [];
+  if (rows.length < 2) return rows;
+  // 하루 두 번(08시·18시) 도는 것을 반 칸씩 옮기는 기준으로 삼는다.
+  const half = Math.floor(now.getTime() / (12 * 60 * 60 * 1000));
+  const at = ((half % rows.length) + rows.length) % rows.length;
+  return [...rows.slice(at), ...rows.slice(0, at)];
+}
+
 function failureReason(error) {
   const message = String(error?.message || '');
   if (error?.name === 'SyntaxError') return FAILURE.shape;
   if (/^http \d+/.test(message)) return FAILURE.http;
   if (message === 'origin not allowed') return '허용되지 않은 주소라 요청하지 않았습니다.';
+  // 한 번 실행에서 부를 수 있는 횟수를 다 쓴 경우. 출처가 죽은 것이 아니므로 그렇게 적는다.
+  if (/subrequest/i.test(message)) return '이번 실행에서 부를 수 있는 횟수를 다 썼습니다. 다음 실행에서 먼저 돌립니다.';
   return FAILURE.network;
 }
 
