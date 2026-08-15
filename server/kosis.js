@@ -23,9 +23,18 @@ export const searchUrl = (apiKey, { searchNm, startCount = 1, resultCount = 10 }
 // 통계표마다 분류가 몇 겹인지 다르다(지역만, 지역×연령, …). 겹수를 못 맞추면 KOSIS가
 // 「필수요청변수값이 누락되었습니다. (objL)」로 거절한다. 그래서 겹수를 늘려 가며 다시 묻는다.
 export const MAX_OBJ_LEVELS = 3;
-export const dataUrl = (apiKey, { orgId, tblId, levels = 1, itmId = 'ALL', prdSe = 'Y', newEstPrdCnt = 1 }) => {
+
+// 지역을 좁히지 않으면 KOSIS가 「40,000셀을 초과한 결과값은 요청하실 수 없습니다」로 거절한다.
+// 그래서 첫 분류에 지역코드를 넣는다. 행정구역 코드는 공개된 값이고, 받은 줄의 지역 이름이
+// 우리가 찾던 이름과 다르면 그 줄은 쓰지 않는다. 코드가 틀려도 다른 동네 값이 들어오지 않는다.
+export const REGION_CODES = Object.freeze({
+  '광주광역시': '29', '동구': '29110', '서구': '29140', '남구': '29155', '북구': '29170', '광산구': '29200'
+});
+export const regionCodeOf = name => REGION_CODES[String(name ?? '').trim().split(/\s+/).at(-1)] || '';
+
+export const dataUrl = (apiKey, { orgId, tblId, levels = 1, firstObj = 'ALL', itmId = 'ALL', prdSe = 'Y', newEstPrdCnt = 1 }) => {
   const objs = {};
-  for (let level = 1; level <= Math.max(1, Math.min(levels, MAX_OBJ_LEVELS)); level += 1) objs[`objL${level}`] = 'ALL';
+  for (let level = 1; level <= Math.max(1, Math.min(levels, MAX_OBJ_LEVELS)); level += 1) objs[`objL${level}`] = level === 1 ? (firstObj || 'ALL') : 'ALL';
   return url('/openapi/Param/statisticsParameterData.do', {
     method: 'getList', apiKey, orgId, tblId, itmId, ...objs,
     format: 'json', jsonVD: 'Y', prdSe, newEstPrdCnt: String(newEstPrdCnt)
@@ -34,6 +43,8 @@ export const dataUrl = (apiKey, { orgId, tblId, levels = 1, itmId = 'ALL', prdSe
 
 // 분류 겹수가 모자라 거절당한 것인지. 그때만 겹수를 늘려 다시 묻는다.
 export const needsMoreLevels = message => /objL/i.test(String(message || ''));
+// 너무 넓게 물어 거절당한 것인지. 지역을 좁히지 못하면 이 표는 포기한다.
+export const tooManyCells = message => /셀을 초과/.test(String(message || ''));
 
 // 화면·기록·오류 어디에도 키가 나가지 않게 한다. 지우지 않고 가린다(무엇을 불렀는지는 남아야 한다).
 export function maskKey(text) {

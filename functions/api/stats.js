@@ -7,7 +7,7 @@
 // - 찾지 못하면 비슷한 값으로 대신하지 않고 찾지 못했다고 답한다.
 import {
   MAX_OBJ_LEVELS, NOT_FOUND_MESSAGE, NO_KEY_MESSAGE, cacheKey, chooseCandidates,
-  dataUrl, kosisError, maskKey, needsMoreLevels, pickTables, rowsForRegion, searchUrl
+  dataUrl, kosisError, maskKey, needsMoreLevels, pickTables, regionCodeOf, rowsForRegion, searchUrl, tooManyCells
 } from '../../server/kosis.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
@@ -68,7 +68,7 @@ export async function lookup(apiKey, { region, topic, fetcher = fetch }) {
 
   for (const table of tables) {
     if (calls >= MAX_CALLS) break;
-    const rows = await readTable(call, apiKey, table, MAX_CALLS - calls);
+    const rows = await readTable(call, apiKey, table, MAX_CALLS - calls, regionCodeOf(region));
     if (rows.error) { tried.push({ tblId: table.tblId, reason: 'data', detail: rows.error.message }); continue; }
     // 이름이 정확히 맞는 줄만 고른다. 옆 동네 값으로 대신하지 않는다.
     const picked = rowsForRegion(rows.payload, region);
@@ -89,12 +89,13 @@ export async function lookup(apiKey, { region, topic, fetcher = fetch }) {
 }
 
 // 분류 겹수를 하나씩 늘려 가며 묻는다. 겹수 때문이 아닌 오류면 더 조르지 않는다.
-async function readTable(call, apiKey, table, budget) {
+async function readTable(call, apiKey, table, budget, firstObj) {
   let last = null;
   for (let levels = 1; levels <= Math.min(MAX_OBJ_LEVELS, budget); levels += 1) {
-    last = await call(dataUrl(apiKey, { orgId: table.orgId, tblId: table.tblId, levels }));
+    last = await call(dataUrl(apiKey, { orgId: table.orgId, tblId: table.tblId, levels, firstObj }));
     if (!last.error) return last;
-    if (!needsMoreLevels(last.error.message)) return last;
+    // 겹수가 모자란 것이 아니면 더 조르지 않는다. 너무 넓다는 거절도 여기서 멈춘다.
+    if (!needsMoreLevels(last.error.message) || tooManyCells(last.error.message)) return last;
   }
   return last || { error: { code: 'budget', message: '조회 횟수 안에서 값을 받지 못했습니다.' } };
 }

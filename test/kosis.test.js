@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MAX_CALLS, TOPICS, lookup, onRequest as statsRoute } from '../functions/api/stats.js';
-import { MAX_OBJ_LEVELS, NOT_FOUND_MESSAGE, NO_KEY_MESSAGE, cacheKey, dataUrl, kosisError, maskKey, needsMoreLevels, normalizeRow, pickTables, rowsForRegion, statHtmlLink } from '../server/kosis.js';
+import { MAX_OBJ_LEVELS, NOT_FOUND_MESSAGE, NO_KEY_MESSAGE, cacheKey, dataUrl, kosisError, maskKey, needsMoreLevels, normalizeRow, pickTables, regionCodeOf, rowsForRegion, statHtmlLink, tooManyCells } from '../server/kosis.js';
 
 const KEY = 'test-key-must-never-appear';
 
@@ -73,8 +73,13 @@ test('분류 겹수가 모자라면 겹수를 늘려 다시 묻는다', async ()
   const result = await lookup(KEY, { region: '광산구', topic: TOPICS.children, fetcher });
   assert.equal(result.ok, true);
   assert.equal(result.calls, 3);
-  assert.ok(seen[1].includes('objL1=ALL') && !seen[1].includes('objL2'));
-  assert.ok(seen[2].includes('objL1=ALL') && seen[2].includes('objL2=ALL'));
+  // 지역은 코드로 좁혀 묻는다. 넓게 물으면 KOSIS가 셀 수 초과로 거절한다.
+  assert.ok(seen[1].includes('objL1=29200') && !seen[1].includes('objL2'));
+  assert.ok(seen[2].includes('objL1=29200') && seen[2].includes('objL2=ALL'));
+  assert.equal(regionCodeOf('광산구'), '29200');
+  assert.equal(regionCodeOf('광주광역시 광산구'), '29200');
+  assert.equal(regionCodeOf('없는구'), '');
+  assert.equal(tooManyCells(' 40,000셀을 초과한 결과값은 요청하실 수 없습니다.'), true);
   assert.equal(needsMoreLevels('필수요청변수값이 누락되었습니다. (objL)'), true);
   assert.equal(needsMoreLevels('유효하지 않은 인증KEY입니다.'), false);
   assert.ok(dataUrl('k', { orgId: '101', tblId: 'T', levels: 9 }).includes(`objL${MAX_OBJ_LEVELS}=ALL`));
@@ -129,6 +134,15 @@ test('인증키는 응답·오류 어디에도 나오지 않는다', async () =>
   const good = fakeKosis([SEARCH, DATA]);
   const ok = await lookup(KEY, { region: '광산구', topic: TOPICS.children, fetcher: good.fetcher });
   assert.ok(!JSON.stringify(ok).includes(KEY));
+});
+
+test('코드가 가리킨 지역이 찾던 지역이 아니면 그 값을 쓰지 않는다', async () => {
+  // 코드를 잘못 알고 있어도 이름이 다르면 버린다. 다른 동네 값이 근거로 들어가지 않는다.
+  const other = [{ ...DATA[0], C1_NM: '광주광역시 북구' }];
+  const { fetcher } = fakeKosis([SEARCH, other]);
+  const result = await lookup(KEY, { region: '광산구', topic: TOPICS.children, fetcher });
+  assert.equal(result.ok, false);
+  assert.ok(result.tried.some(item => item.reason === 'region'));
 });
 
 test('찾는 말과 맞는 통계표만 연다', () => {
