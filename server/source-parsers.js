@@ -73,6 +73,8 @@ export function baboCategoryHint(category) {
   if (/양식|서식|자료/.test(value)) return 'form';
   if (/결과/.test(value)) return 'result';
   if (/설명회|안내|알림/.test(value)) return 'briefing';
+  // 채용·공시는 공모가 아니다. 부스러기사랑나눔회 게시판이 이 분류를 쓴다.
+  if (/채용|인사|공시/.test(value)) return 'hiring';
   return '';
 }
 

@@ -117,6 +117,8 @@ async function collectBabo(fetcher, source, today) {
     const hint = baboCategoryHint(row.category);
     if (hint === 'result') { countSkip(status, FITNESS.result); return false; }
     if (hint === 'form') { countSkip(status, FITNESS.briefing); return false; }
+    // 채용·공시는 계획서를 쓸 일이 아니다. 상세를 열지 않고 여기서 접는다.
+    if (hint === 'hiring') { countSkip(status, FITNESS.hiring); return false; }
     const head = classifyNotice({ title: row.title });
     if (searchable(head.fitness) || head.fitness === FITNESS.unknown || hint === 'notice') return true;
     countSkip(status, head.fitness);
@@ -196,7 +198,8 @@ async function collectG2b(fetcher, source, today, { serviceKey, days = 14, now =
   return { status, notices: open };
 }
 
-const RUNNERS = { 'kihf-notice': collectKihf, 'kihf-bid': collectKihf, 'babo-notice': collectBabo, 'g2b-service': collectG2b };
+// 아임웹 게시판은 구조가 같다. 바보의나눔에 쓰던 수집기를 부스러기사랑나눔회에도 그대로 쓴다.
+const RUNNERS = { 'kihf-notice': collectKihf, 'kihf-bid': collectKihf, 'babo-notice': collectBabo, 'busrugy-notice': collectBabo, 'g2b-service': collectG2b };
 
 // 출처를 하나씩 돌린다. 한 곳의 실패가 다른 곳을 막지 않는다.
 export async function collectExtraSources(fetcher = fetch, { settings = {}, secrets = {}, now = new Date() } = {}) {

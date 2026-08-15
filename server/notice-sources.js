@@ -12,7 +12,8 @@ export const BUSINESS_TYPES = Object.freeze([
   { key: 'edu', label: '학교·교육청' },
   { key: 'g2b', label: '나라장터·학교장터' },
   { key: 'foundation', label: '민간재단·공익법인' },
-  { key: 'general', label: '일반 창업·아이디어' }
+  { key: 'general', label: '일반 창업·아이디어' },
+  { key: 'busrugy', label: '부스러기사랑나눔회' }
 ]);
 
 // 수집 출처. 화면에서 사업 유형과 따로 고른다.
@@ -21,7 +22,8 @@ export const SOURCE_GROUPS = Object.freeze([
   { key: 'kihf', label: '한국건강가정진흥원·가족센터', businessType: 'family' },
   { key: 'edu', label: '광주·전남교육청 및 교육지원청', businessType: 'edu' },
   { key: 'g2b', label: '나라장터', businessType: 'g2b' },
-  { key: 'babo', label: '바보의나눔', businessType: 'foundation' }
+  { key: 'babo', label: '바보의나눔', businessType: 'foundation' },
+  { key: 'busrugy', label: '부스러기사랑나눔회', businessType: 'busrugy' }
 ]);
 
 // 출처별 수집기. 한 곳이 죽어도 나머지는 계속 돈다.
@@ -59,6 +61,16 @@ export const SOURCES = Object.freeze([
     // 2026-08-12 확인: 엔드포인트 살아 있음(키 없이 호출하면 SERVICE_KEY_IS_NOT_REGISTERED_ERROR).
     verified: true,
     note: '공공데이터포털(data.go.kr) 「조달청_입찰공고정보서비스」 활용신청 후 인증키를 Cloudflare Secret G2B_SERVICE_KEY에 넣으면 켜집니다.'
+  },
+  {
+    id: 'busrugy-notice', group: 'busrugy', label: '부스러기사랑나눔회 공지사항',
+    kind: 'imweb-board', origin: 'https://busrugy.or.kr',
+    path: '/NOTICE/', detailPath: '/NOTICE/',
+    organization: '사단법인 부스러기사랑나눔회', defaultEnabled: true, needsSecret: '',
+    // 2026-08-15 확인: HTTP 200, robots.txt가 /NOTICE를 허용, 바보의나눔과 같은 아임웹 ul.li_body 구조, 목록 15건.
+    // 분류 네 가지(일반·사업·채용·공시)는 브라우저에서 거른다. 서버는 어느 주소로 물어도 같은 목록을 준다.
+    // 그래서 전체 주소 한 곳만 부른다. 네 곳을 다 넣으면 같은 글을 네 번 받아 온다.
+    verified: true, note: ''
   },
   {
     id: 'edu-gwangju', group: 'edu', label: '광주광역시교육청',

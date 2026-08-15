@@ -138,7 +138,7 @@ test('본문 추출은 글이 시작하는 자리부터 읽는다', () => {
 // ---------- 사업 유형과 수집 출처 ----------
 
 test('사업 유형과 수집 출처는 다른 축이고 바보의나눔은 출처다', () => {
-  assert.deepEqual(BUSINESS_TYPES.map(item => item.key), ['chest', 'family', 'edu', 'g2b', 'foundation', 'general']);
+  assert.deepEqual(BUSINESS_TYPES.map(item => item.key), ['chest', 'family', 'edu', 'g2b', 'foundation', 'general', 'busrugy']);
   // 바보의나눔은 사업 유형에 없다.
   assert.ok(!BUSINESS_TYPES.some(item => /바보/.test(item.label)));
   // 수집 출처에는 있고, 민간재단·공익법인 유형에 붙는다.
@@ -148,7 +148,9 @@ test('사업 유형과 수집 출처는 다른 축이고 바보의나눔은 출�
   assert.equal(businessTypeOf('babo-notice'), 'foundation');
   assert.equal(businessTypeOf('kihf-bid'), 'family');
   assert.equal(businessTypeOf('g2b-service'), 'g2b');
-  assert.deepEqual(SOURCE_GROUPS.map(group => group.key), ['chest', 'kihf', 'edu', 'g2b', 'babo']);
+  assert.deepEqual(SOURCE_GROUPS.map(group => group.key), ['chest', 'kihf', 'edu', 'g2b', 'babo', 'busrugy']);
+  // 부스러기사랑나눔회는 아임웹 게시판이라 바보의나눔 수집기를 그대로 쓴다. 자기 유형으로 붙는다.
+  assert.equal(businessTypeOf('busrugy-notice'), 'busrugy');
 });
 
 test('허용된 공식 도메인 밖으로는 요청하지 않는다', () => {
