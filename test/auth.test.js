@@ -352,6 +352,8 @@ test('로그인한 사람은 지금 비밀번호를 알아야 새 비밀번호�
   // 화면에도 자리가 있다.
   assert.match(app, /function passwordChangePanel\(\)/);
   assert.match(app, /id="pw-current"/);
+  // 들어갈 문이 있어야 기능이다. 홈과 관리자 포털 머리띠에서 바로 연다.
+  assert.equal((app.match(/id="open-account"/g) || []).length, 3, '작업 화면·홈·관리자 포털 세 곳');
   assert.match(app, /id="pw-next"/);
   assert.match(app, /id="pw-confirm"/);
   assert.match(app, /signOutLocally\('비밀번호를 바꿨습니다\. 새 비밀번호로 다시 로그인해 주세요\.', \{ toLogin: true \}\)/);
