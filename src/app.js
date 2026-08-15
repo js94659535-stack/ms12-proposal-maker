@@ -2523,7 +2523,7 @@ function noticeSearchView() {
       ${noticeFacets(view)}
       <div class="landing-section">
         <div class="landing-head"><h2>검색 결과 ${view.total}건</h2><p>${view.busy ? '찾는 중입니다.' : view.query ? `「${escapeHtml(view.query)}」 · ${view.mode === 'focused' ? '맞춤검색' : '광역검색'} · 제목 일치 → 연관 키워드 → 요약 순으로 보여 줍니다.` : '검색어 없이 최근 공모부터 보여 줍니다.'}</p></div>
-        <div class="landing-grid">${view.notices.map(noticeCard).join('') || (view.loaded ? '<p class="muted">조건에 맞는 공모정보가 없습니다. 광역검색으로 넓혀 보세요.</p>' : '<p class="muted">불러오는 중입니다.</p>')}</div>
+        ${noticeSearchIndex(view.notices) || (view.loaded ? '<p class="muted">조건에 맞는 공모정보가 없습니다. 광역검색으로 넓혀 보세요.</p>' : '<p class="muted">불러오는 중입니다.</p>')}
         ${view.total > view.notices.length ? `<p class="muted">상위 ${view.notices.length}건만 보여 줍니다. 검색어나 필터로 좁혀 주세요.</p>` : ''}
       </div>
       ${signedIn ? '' : `<div class="landing-section">
@@ -2559,22 +2559,53 @@ function noticeFacets(view) {
   return `<div class="landing-section"><div class="landing-head"><h2>좁혀 보기</h2><p>모집 상태·지역·대상·분야·주최기관으로 걸러 볼 수 있습니다.</p></div><div class="landing-grid">${groups}</div></div>`;
 }
 
+// 검색 결과 한 줄. 가져온 공고 목차와 같은 모양이다. 화면마다 다른 규칙을 익히게 하지 않는다.
 function noticeCard(item) {
   const open = auth.search.selected === item.key;
   const detail = open ? auth.search.detail : null;
   const tags = [...item.region, ...item.audience, ...item.field].slice(0, 6);
-  return `<article class="landing-card">
-    <header><span class="status ${item.state === 'closed' ? '확인-필요' : '충족'}">${escapeHtml(item.stateLabel)}</span><h3>${escapeHtml(item.title)}</h3></header>
-    <p><strong>${escapeHtml(item.organizer)}</strong>${item.matchedBy ? ` · <span class="muted">${escapeHtml(item.matchedBy)}</span>` : ''}</p>
-    <ul>
-      <li>접수기간: ${escapeHtml(item.applicationPeriod || '공고 확인 필요')}${item.deadline ? ` (마감 ${escapeHtml(item.deadline)})` : ''}</li>
-      <li>지원금액: ${escapeHtml(item.supportAmount || '공고 확인 필요')}</li>
-      <li>지원대상: ${escapeHtml((item.eligibility || '공고 확인 필요').slice(0, 120))}</li>
-    </ul>
-    ${tags.length ? `<p>${tags.map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join(' ')}</p>` : ''}
-    ${open ? (detail ? `<div class="alert"><strong>요약</strong><p>${escapeHtml(detail.summary || '요약이 없습니다.')}</p>${detail.supportDetails ? `<p><strong>지원내용</strong> ${escapeHtml(detail.supportDetails.slice(0, 600))}</p>` : ''}<p class="muted">원문 출처: ${escapeHtml(detail.sourceLabel)}${detail.sourceUrl ? ` · ${escapeHtml(detail.sourceUrl)}` : ' (출처 주소 미기록)'}</p></div>` : '<p class="muted">불러오는 중입니다.</p>') : ''}
-    <button class="button secondary" data-notice-open="${escapeHtml(item.key)}">${open ? '접기' : '자세히'}</button>
-  </article>`;
+  const days = daysUntil(item.deadline);
+  const badge = item.state === 'closed'
+    ? '<span class="status 부족">마감</span>'
+    : days === null ? `<span class="status 확인-필요">${escapeHtml(item.stateLabel || '기간 확인')}</span>`
+      : `<span class="status ${days <= 7 ? '부분-충족' : '충족'}" title="${escapeHtml(item.deadline || '')}">${days === 0 ? '오늘 마감' : `D-${days}`}</span>`;
+  return `<div class="notice-row ${open ? 'open' : ''}">
+    <button type="button" class="notice-row-head" data-notice-open="${escapeHtml(item.key)}" aria-expanded="${open}">
+      <span class="notice-row-title">${escapeHtml(item.title)}</span>
+      ${badge}
+      <span class="notice-row-mark" aria-hidden="true">${open ? '▾' : '▸'}</span>
+    </button>
+    ${open ? `<div class="notice-row-detail">
+      <p><strong>${escapeHtml(item.organizer)}</strong>${item.matchedBy ? ` · <span class="muted">${escapeHtml(item.matchedBy)}</span>` : ''}</p>
+      <ul>
+        <li>접수기간: ${escapeHtml(item.applicationPeriod || '공고 확인 필요')}${item.deadline ? ` (마감 ${escapeHtml(item.deadline)})` : ''}</li>
+        <li>지원금액: ${escapeHtml(item.supportAmount || '공고 확인 필요')}</li>
+        <li>지원대상: ${escapeHtml((item.eligibility || '공고 확인 필요').slice(0, 120))}</li>
+      </ul>
+      ${tags.length ? `<p>${tags.map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join(' ')}</p>` : ''}
+      ${detail ? `<div class="alert"><strong>요약</strong><p>${escapeHtml(detail.summary || '요약이 없습니다.')}</p>${detail.supportDetails ? `<p><strong>지원내용</strong> ${escapeHtml(detail.supportDetails.slice(0, 600))}</p>` : ''}<p class="muted">원문 출처: ${escapeHtml(detail.sourceLabel)}${detail.sourceUrl ? ` · ${escapeHtml(detail.sourceUrl)}` : ' (출처 주소 미표기)'}</p></div>` : '<p class="muted">원문을 불러오는 중입니다…</p>'}
+    </div>` : ''}
+  </div>`;
+}
+
+// 검색 결과 목차. 주최기관으로 묶고 마감이 가까운 것부터 둔다.
+function noticeSearchIndex(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) return '';
+  const groups = new Map();
+  for (const item of list) {
+    const key = String(item.organizer || '주최기관 미표기');
+    groups.set(key, [...(groups.get(key) || []), item]);
+  }
+  const sorted = items => [...items].sort((a, b) => {
+    const left = daysUntil(a.deadline);
+    const right = daysUntil(b.deadline);
+    return (left === null ? 1 : 0) - (right === null ? 1 : 0) || (left ?? 0) - (right ?? 0);
+  });
+  return `<div class="notice-index">${[...groups.entries()].map(([label, items]) => `<section class="notice-group">
+    <h4>${escapeHtml(label)} <span class="muted">${items.length}건</span></h4>
+    ${sorted(items).map(noticeCard).join('')}
+  </section>`).join('')}</div>`;
 }
 
 // 로그인 없이 보는 정적 예시. 서버를 부르지 않고 example-plan.js의 문자열만 그린다.
