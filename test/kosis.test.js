@@ -1,25 +1,33 @@
 // 공식 통계 근거 후보(KOSIS). 실제 KOSIS는 부르지 않는다. 가짜 응답만 쓴다.
+//
+// 여기서 지키는 것은 「숫자가 맞는가」가 아니라 「그 숫자를 바르게 부르는가」다.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_CALLS, TOPICS, lookup, onRequest as statsRoute } from '../functions/api/stats.js';
-import { MAX_OBJ_LEVELS, NOT_FOUND_MESSAGE, NO_KEY_MESSAGE, cacheKey, dataUrl, kosisError, maskKey, needsMoreLevels, normalizeRow, pickTables, regionCodeOf, rowsForRegion, statHtmlLink, sumAges, tooManyCells } from '../server/kosis.js';
+import fs from 'node:fs';
+import { MAX_CALLS, onRequest as statsRoute } from '../functions/api/stats.js';
+import {
+  AGE_REQUIRED_MESSAGE, NO_KEY_MESSAGE, REGIONS, SUPPORTED_REGION_TEXT, TABLE,
+  ageOf, cacheKey, candidatesFor, dataUrl, kosisError, maskKey, normalizeRow, periodLabel, resolveRegion, rowMatchesRegion, statHtmlLink, sumRange
+} from '../server/kosis.js';
 
 const KEY = 'test-key-must-never-appear';
+const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+const GWANGSAN = REGIONS.find(item => item.short === '광산구');
 
-const SEARCH = [
-  { ORG_ID: '101', TBL_ID: 'DT_1B04005N', TBL_NM: '행정구역(시군구)별/5세별 주민등록인구', STAT_NM: '주민등록인구현황', ORG_NM: '행정안전부' },
-  { ORG_ID: '101', TBL_ID: 'DT_OTHER', TBL_NM: '전국 사업체조사', STAT_NM: '전국사업체조사', ORG_NM: '통계청' }
-];
-const META = [
-  { OBJ_ITM_ID: '29200', OBJ_ITM_NM: '광주광역시 광산구' },
-  { OBJ_ITM_ID: '29110', OBJ_ITM_NM: '광주광역시 동구' }
-];
+// 실제 응답과 같은 모양. 지역코드·지역명·연령·항목·단위가 함께 온다.
+const row = (age, value, extra = {}) => ({
+  ORG_ID: '101', TBL_ID: 'DT_1B04006', TBL_NM: '행정구역(시군구)별/1세별 주민등록인구',
+  PRD_DE: '2025', ITM_NM: '총인구수', C1: '29200', C1_NM: '광산구', C2_NM: `${age}세`,
+  DT: String(value), UNIT_NM: '명', ...extra
+});
+const AGES = Array.from({ length: 20 }, (_, age) => row(age, 100 + age));
+const AGE_SUM = AGES.reduce((sum, item) => sum + Number(item.DT), 0);
 const DATA = [
-  { ORG_ID: '101', TBL_ID: 'DT_1B04005N', TBL_NM: '행정구역(시군구)별/5세별 주민등록인구', PRD_DE: '2025', ITM_NM: '10~19세', C1: '29200', C1_NM: '광주광역시 광산구', DT: '46,231', UNIT_NM: '명' },
-  { ORG_ID: '101', TBL_ID: 'DT_1B04005N', TBL_NM: '행정구역(시군구)별/5세별 주민등록인구', PRD_DE: '2025', ITM_NM: '총인구', C1_NM: '광주광역시 광산구', DT: '390,000', UNIT_NM: '명' }
+  { ...row(0, 387604), C2_NM: '계' },
+  ...AGES,
+  { ...row(5, 999), ITM_NM: '남자인구수' }
 ];
 
-// 부른 주소를 순서대로 돌려주는 가짜 KOSIS.
 function fakeKosis(steps) {
   const seen = [];
   const fetcher = async address => {
@@ -31,127 +39,6 @@ function fakeKosis(steps) {
   return { fetcher, seen };
 }
 
-test('검색한 표에서 이 지역 줄만 골라 온다', async () => {
-  const { fetcher, seen } = fakeKosis([SEARCH, DATA]);
-  const result = await lookup(KEY, { region: '광산구', topic: TOPICS.children, fetcher });
-  assert.equal(result.ok, true);
-  assert.equal(result.calls, 2);
-  assert.equal(result.region, '광주광역시 광산구');
-  const first = result.candidates[0];
-  // 통계표명·작성기관·조사명·지역·기준연도·값·단위·출처 링크가 모두 있어야 후보다.
-  assert.equal(first.tableName, '행정구역(시군구)별/5세별 주민등록인구');
-  assert.equal(first.organization, '행정안전부');
-  assert.equal(first.survey, '주민등록인구현황');
-  assert.equal(first.itemName, '10~19세');
-  assert.equal(first.period, '2025');
-  assert.equal(first.value, 46231);
-  assert.equal(first.unit, '명');
-  assert.equal(first.link, statHtmlLink('101', 'DT_1B04005N'));
-  assert.ok(result.fetchedAt);
-  // 조사 목적에 맞는 항목이 앞에 온다. 총인구가 아동·청소년보다 앞서지 않는다.
-  assert.equal(result.candidates[1].itemName, '총인구');
-  // 관계없는 통계표는 애초에 열지 않는다.
-  assert.ok(!seen.some(address => address.includes('DT_OTHER')));
-});
-
-test('없는 지역은 다른 지역 값으로 대신하지 않는다', async () => {
-  const { fetcher } = fakeKosis([SEARCH, DATA]);
-  const result = await lookup(KEY, { region: '없는구', topic: TOPICS.children, fetcher });
-  assert.equal(result.ok, false);
-  assert.equal(result.message, NOT_FOUND_MESSAGE);
-  assert.ok(result.tried.some(item => item.reason === 'region'));
-  // 이름이 정확히 맞는 줄만 고른다. 「광산」으로는 광산구 값을 가져오지 않는다.
-  assert.equal(rowsForRegion(DATA, '광산').length, 0);
-  assert.equal(rowsForRegion(DATA, '광산구').length, 2);
-  assert.equal(rowsForRegion(DATA, '광주광역시 광산구').length, 2);
-});
-
-test('분류 겹수가 모자라면 겹수를 늘려 다시 묻는다', async () => {
-  // KOSIS는 표마다 분류 겹수가 다르고, 모자라면 (objL)이라고만 알려 준다.
-  const short = { err: '20', errMsg: '필수요청변수값이 누락되었습니다. (objL)' };
-  const { fetcher, seen } = fakeKosis([SEARCH, short, DATA]);
-  const result = await lookup(KEY, { region: '광산구', topic: TOPICS.children, fetcher });
-  assert.equal(result.ok, true);
-  assert.equal(result.calls, 3);
-  // 지역은 코드로 좁혀 묻는다. 넓게 물으면 KOSIS가 셀 수 초과로 거절한다.
-  assert.ok(seen[1].includes('objL1=29200') && !seen[1].includes('objL2'));
-  assert.ok(seen[2].includes('objL1=29200') && seen[2].includes('objL2=ALL'));
-  assert.equal(regionCodeOf('광산구'), '29200');
-  assert.equal(regionCodeOf('광주광역시 광산구'), '29200');
-  assert.equal(regionCodeOf('없는구'), '');
-  assert.equal(tooManyCells(' 40,000셀을 초과한 결과값은 요청하실 수 없습니다.'), true);
-  assert.equal(needsMoreLevels('필수요청변수값이 누락되었습니다. (objL)'), true);
-  assert.equal(needsMoreLevels('유효하지 않은 인증KEY입니다.'), false);
-  assert.ok(dataUrl('k', { orgId: '101', tblId: 'T', levels: 9 }).includes(`objL${MAX_OBJ_LEVELS}=ALL`));
-});
-
-test('겹수를 늘려도 안 되면 조르지 않고 멈춘다', async () => {
-  const short = { err: '20', errMsg: '필수요청변수값이 누락되었습니다. (objL)' };
-  const { fetcher } = fakeKosis([SEARCH, short, short, short, short, short, short, short]);
-  const result = await lookup(KEY, { region: '광산구', topic: TOPICS.children, fetcher });
-  assert.equal(result.ok, false);
-  assert.ok(result.calls <= MAX_CALLS);
-});
-
-test('결과가 없으면 찾지 못했다고 답한다', async () => {
-  const { fetcher } = fakeKosis([[]]);
-  const empty = await lookup(KEY, { region: '광산구', topic: TOPICS.children, fetcher });
-  assert.equal(empty.ok, false);
-  assert.equal(empty.message, NOT_FOUND_MESSAGE);
-  assert.equal(empty.calls, 1);
-});
-
-test('지역·연도·단위가 불분명한 값은 후보로 쓰지 않는다', async () => {
-  const broken = [
-    { TBL_NM: '표', PRD_DE: '2025', C1_NM: '광주광역시 광산구', DT: '100' },                    // 단위 없음
-    { TBL_NM: '표', PRD_DE: '', C1_NM: '광주광역시 광산구', DT: '100', UNIT_NM: '명' },          // 연도 없음
-    { TBL_NM: '표', PRD_DE: '2025', C1_NM: '', DT: '100', UNIT_NM: '명' },                      // 지역 없음
-    { TBL_NM: '표', PRD_DE: '2025', C1_NM: '광주광역시 광산구', DT: '-', UNIT_NM: '명' }         // 값 없음
-  ];
-  for (const row of broken) assert.equal(normalizeRow(row, { orgId: '101', tblId: 'T' }).ok, false);
-  const { fetcher } = fakeKosis([SEARCH, [broken[0], broken[1], broken[3]]]);
-  const result = await lookup(KEY, { region: '광산구', topic: TOPICS.children, fetcher });
-  assert.equal(result.ok, false);
-  assert.ok(result.tried.some(item => item.reason === 'incomplete'));
-  // 기준연도는 월 단위 표기에서도 연도만 읽는다.
-  assert.equal(normalizeRow({ TBL_NM: '표', PRD_DE: '202506', C1_NM: '광산구', DT: '1', UNIT_NM: '명' }, {}).candidate.period, '2025');
-});
-
-test('인증키는 응답·오류 어디에도 나오지 않는다', async () => {
-  // KOSIS는 오류도 200으로 준다. 그 문구에 주소가 실려 있어도 키는 가린다.
-  const failure = { err: '11', errMsg: `유효하지 않은 인증KEY입니다. apiKey=${KEY}` };
-  const { fetcher } = fakeKosis([failure]);
-  const result = await lookup(KEY, { region: '광산구', topic: TOPICS.children, fetcher });
-  assert.equal(result.ok, false);
-  assert.ok(!JSON.stringify(result).includes(KEY));
-  assert.match(result.message, /apiKey=\*\*\*/);
-  assert.equal(maskKey(`https://kosis.kr/openapi/x?method=getList&apiKey=${KEY}&orgId=101`), 'https://kosis.kr/openapi/x?method=getList&apiKey=***&orgId=101');
-  // 캐시 열쇠에도 키를 넣지 않는다.
-  assert.equal(cacheKey('kosis-lookup', { region: '광산구', topic: 'children' }), 'kosis-lookup:region=광산구&topic=children');
-  assert.ok(!cacheKey('kosis-lookup', { region: '광산구', topic: 'children' }).includes(KEY));
-  assert.equal(kosisError([]), null);
-  // 성공한 결과에도 키가 섞여 나가지 않는다.
-  const good = fakeKosis([SEARCH, DATA]);
-  const ok = await lookup(KEY, { region: '광산구', topic: TOPICS.children, fetcher: good.fetcher });
-  assert.ok(!JSON.stringify(ok).includes(KEY));
-});
-
-test('코드가 가리킨 지역이 찾던 지역이 아니면 그 값을 쓰지 않는다', async () => {
-  // 코드를 잘못 알고 있어도 이름이 다르면 버린다. 다른 동네 값이 근거로 들어가지 않는다.
-  const other = [{ ...DATA[0], C1_NM: '광주광역시 북구' }];
-  const { fetcher } = fakeKosis([SEARCH, other]);
-  const result = await lookup(KEY, { region: '광산구', topic: TOPICS.children, fetcher });
-  assert.equal(result.ok, false);
-  assert.ok(result.tried.some(item => item.reason === 'region'));
-});
-
-test('찾는 말과 맞는 통계표만 연다', () => {
-  assert.deepEqual(pickTables(SEARCH, { keywords: ['연령', '인구'] }).map(row => row.tblId), ['DT_1B04005N']);
-  assert.ok(MAX_CALLS <= 8);
-});
-
-// ---------- 경로 ----------
-
 function fakeCache() {
   const store = new Map();
   const db = {
@@ -160,13 +47,10 @@ function fakeCache() {
       let args = [];
       const api = {
         bind(...values) { args = values; return api; },
-        async first() {
-          if (/^SELECT payload, fetched_at FROM stat_lookup_cache/.test(text)) return store.get(args[0]) || null;
-          return null;
-        },
+        async first() { return /^SELECT payload, fetched_at FROM stat_lookup_cache/.test(text) ? (store.get(args[0]) || null) : null; },
         async run() {
           if (/^INSERT INTO stat_lookup_cache/.test(text)) store.set(args[0], { payload: args[1], fetched_at: args[3], hits: 0 });
-          if (/^UPDATE stat_lookup_cache SET hits/.test(text)) { const row = store.get(args[0]); if (row) row.hits += 1; }
+          if (/^UPDATE stat_lookup_cache SET hits/.test(text)) { const found = store.get(args[0]); if (found) found.hits += 1; }
           return { meta: { changes: 1 } };
         }
       };
@@ -181,88 +65,234 @@ const post = (body, { env = {}, user = { id: 'u1' } } = {}) => statsRoute({
   env, data: { session: user ? { user } : null }
 });
 
-test('인증키가 없으면 아무 곳에도 요청하지 않는다', async () => {
-  const { db } = fakeCache();
-  let called = 0;
+// 가짜 KOSIS를 전역 fetch에 끼운다. 부른 주소를 함께 센다.
+function withFetch(steps, run) {
   const original = globalThis.fetch;
-  globalThis.fetch = async () => { called += 1; throw new Error('불러서는 안 된다'); };
-  try {
-    const response = await post({ action: 'lookup', region: '광산구', topic: 'children' }, { env: { ARCHIVE_DB: db } });
-    const body = await response.json();
-    assert.equal(body.ok, false);
-    assert.equal(body.reason, 'missing-secret');
-    assert.equal(body.message, NO_KEY_MESSAGE);
-    assert.equal(body.calls, 0);
-    assert.equal(called, 0, '키가 없으면 호출 자체가 없다');
-  } finally { globalThis.fetch = original; }
+  const { fetcher, seen } = fakeKosis(steps);
+  globalThis.fetch = fetcher;
+  return run(seen).finally(() => { globalThis.fetch = original; });
+}
+
+// ---------- 지역 ----------
+
+test('지역은 상위 행정구역까지 적고, 이름만으로 애매하면 받지 않는다', () => {
+  assert.equal(resolveRegion('광산구').region.full, '광주광역시 광산구');
+  assert.equal(resolveRegion('광주광역시 광산구').region.code, '29200');
+  assert.equal(resolveRegion('29200').region.full, '광주광역시 광산구');
+  // 「동구」는 광주에도 부산에도 대구에도 있다. 어느 동구인지 적어야 받는다.
+  const east = resolveRegion('동구');
+  assert.equal(east.ok, false);
+  assert.equal(east.reason, 'ambiguous');
+  assert.equal(resolveRegion('광주광역시 동구').region.code, '29110');
+  // 지원하지 않는 지역은 지원 범위를 그대로 알려 준다.
+  assert.equal(resolveRegion('서울특별시 강남구').reason, 'unsupported');
+  assert.equal(resolveRegion('').reason, 'empty');
+  assert.match(SUPPORTED_REGION_TEXT, /광주광역시와 5개 자치구\(동구·서구·남구·북구·광산구\)만 조회할 수 있습니다/);
 });
 
-test('같은 조회는 캐시로 답하고 다시 부르지 않는다', async () => {
-  const { db, store } = fakeCache();
-  const saved = { ok: true, region: '광주광역시 광산구', candidates: [{ tableName: '표', value: 1, unit: '명', period: '2025' }], calls: 3 };
-  store.set(cacheKey('kosis-lookup', { region: '광산구', topic: 'children' }), { payload: JSON.stringify(saved), fetched_at: '2026-08-15T00:00:00.000Z' });
-  let called = 0;
-  const original = globalThis.fetch;
-  globalThis.fetch = async () => { called += 1; throw new Error('캐시가 있으면 부르지 않는다'); };
-  try {
-    const response = await post({ action: 'lookup', region: '광산구', topic: 'children' }, { env: { ARCHIVE_DB: db, KOSIS_API_KEY: KEY } });
-    const body = await response.json();
+test('코드와 이름이 모두 맞아야 그 줄을 쓴다', () => {
+  assert.equal(rowMatchesRegion({ C1: '29200', C1_NM: '광산구' }, GWANGSAN), true);
+  assert.equal(rowMatchesRegion({ C1: '29200', C1_NM: '광주광역시 광산구' }, GWANGSAN), true);
+  // 코드는 맞는데 이름이 다른 줄은 쓰지 않는다. 그 반대도 마찬가지다.
+  assert.equal(rowMatchesRegion({ C1: '29200', C1_NM: '북구' }, GWANGSAN), false);
+  assert.equal(rowMatchesRegion({ C1: '29170', C1_NM: '광산구' }, GWANGSAN), false);
+  assert.equal(rowMatchesRegion({ C1_NM: '광산구' }, GWANGSAN), true);
+  assert.equal(rowMatchesRegion({}, GWANGSAN), false);
+  // 후보에도 상위 행정구역까지 적는다.
+  const made = candidatesFor([row(7, 3900)], GWANGSAN);
+  assert.equal(made[0].region, '광주광역시 광산구');
+  assert.equal(made[0].regionCode, '29200');
+});
+
+// ---------- 기준시점 ----------
+
+test('기준시점은 연·월로 적고, 월을 모르면 모른다고 적는다', () => {
+  // 주민등록인구 연간 자료는 그해 12월 말 기준이다. 표에 적어 둔 기준을 그대로 쓴다.
+  assert.equal(periodLabel('2025', TABLE.periodBasis), '2025년 12월 말 기준');
+  assert.equal(periodLabel('202506', TABLE.periodBasis), '2025년 6월 기준');
+  // 기준을 모르는 표는 지어내지 않는다.
+  assert.equal(periodLabel('2025', ''), '2025년 기준(월 미표기)');
+  assert.equal(periodLabel(''), '');
+  assert.equal(candidatesFor([row(7, 3900)], GWANGSAN)[0].periodLabel, '2025년 12월 말 기준');
+});
+
+// ---------- 합산 ----------
+
+test('대상 연령이 없으면 더하지 않고 물어본다', () => {
+  const made = candidatesFor(DATA, GWANGSAN, { limit: 100 });
+  const none = sumRange(made, {});
+  assert.equal(none.ok, false);
+  assert.equal(none.reason, 'age-required');
+  assert.equal(none.message, AGE_REQUIRED_MESSAGE);
+  assert.match(AGE_REQUIRED_MESSAGE, /임의로 「아동·청소년」이라고 부르지 않습니다/);
+});
+
+test('대상 연령이 있으면 그 범위만 더하고, 범위를 이름에 그대로 적는다', () => {
+  const made = candidatesFor(DATA, GWANGSAN, { limit: 100 });
+  const summed = sumRange(made, { startAge: 0, endAge: 19 });
+  assert.equal(summed.ok, true);
+  // 이름이 「아동·청소년」이 아니라 실제 합산 범위다.
+  assert.equal(summed.label, '0~19세 주민등록인구');
+  assert.doesNotMatch(summed.label, /아동|청소년/);
+  // 시작·종료 나이, 행 수, 합산식을 보존한다.
+  assert.equal(summed.startAge, 0);
+  assert.equal(summed.endAge, 19);
+  assert.equal(summed.rowCount, 20);
+  assert.deepEqual(summed.ages, Array.from({ length: 20 }, (_, age) => age));
+  assert.match(summed.formula, /0세 \+ 1세 \+ 2세 \+ … \+ 19세 = 20개 행 합계/);
+  assert.equal(summed.value, AGE_SUM);
+  assert.equal(summed.periodLabel, '2025년 12월 말 기준');
+  assert.equal(summed.region, '광주광역시 광산구');
+  assert.equal(summed.derived, true);
+  assert.match(summed.note, /KOSIS가 그대로 발표한 숫자가 아닙니다/);
+
+  // 좁은 범위도 그 범위만 더한다.
+  const narrow = sumRange(made, { startAge: 7, endAge: 12 });
+  assert.equal(narrow.label, '7~12세 주민등록인구');
+  assert.equal(narrow.rowCount, 6);
+  assert.equal(narrow.value, [7, 8, 9, 10, 11, 12].reduce((sum, age) => sum + 100 + age, 0));
+});
+
+test('겹치거나 빠지거나 섞인 자료는 더하지 않는다', () => {
+  const made = candidatesFor(DATA, GWANGSAN, { limit: 100 });
+  // 「계」와 남자인구수는 더하지 않는다. 넣으면 두 번 세게 된다.
+  assert.equal(sumRange(made, { startAge: 0, endAge: 19 }).value, AGE_SUM);
+  // 같은 나이가 같은 값으로 두 번 와도 한 번만 센다.
+  const twice = candidatesFor([...DATA, row(5, 105)], GWANGSAN, { limit: 200 });
+  assert.equal(sumRange(twice, { startAge: 0, endAge: 19 }).value, AGE_SUM);
+  // 같은 나이가 다른 값으로 오면 더하지 않는다.
+  const conflict = candidatesFor([...DATA, row(5, 777)], GWANGSAN, { limit: 200 });
+  assert.equal(sumRange(conflict, { startAge: 0, endAge: 19 }).reason, 'conflict');
+  // 범위 안에 빠진 나이가 있으면 더하지 않는다. 일부만 더한 값은 그 범위의 인구가 아니다.
+  const missing = sumRange(made, { startAge: 0, endAge: 25 });
+  assert.equal(missing.reason, 'incomplete');
+  assert.match(missing.message, /20세, 21세/);
+  // 기준시점이 섞이면 더하지 않는다.
+  const mixed = candidatesFor([...AGES.slice(0, 3), { ...row(3, 103), PRD_DE: '2024' }], GWANGSAN, { limit: 100 });
+  assert.equal(sumRange(mixed, { startAge: 0, endAge: 3 }).reason, 'mixed');
+  // 「계」·「100세 이상」은 나이 하나가 아니다.
+  assert.equal(ageOf('계'), null);
+  assert.equal(ageOf('100세 이상'), null);
+  assert.equal(ageOf('7세'), 7);
+  assert.equal(sumRange([], { startAge: 0, endAge: 5 }).reason, 'no-rows');
+  assert.equal(sumRange([], { startAge: 5, endAge: 1 }).reason, 'age-invalid');
+});
+
+// ---------- 호출 ----------
+
+test('확인된 표 하나만 한 번 부른다', async () => {
+  assert.equal(MAX_CALLS, 1);
+  assert.equal(TABLE.tblId, 'DT_1B04006');
+  const address = dataUrl(KEY, { region: GWANGSAN });
+  // 지역은 코드로 좁히고 연령만 전부 받는다. 넓게 물으면 셀 수 초과로 거절당한다.
+  assert.ok(address.includes('objL1=29200') && address.includes('objL2=ALL') && !address.includes('objL3'));
+  assert.ok(address.includes('tblId=DT_1B04006'));
+  const { db } = fakeCache();
+  await withFetch([DATA], async seen => {
+    const body = await (await post({ action: 'lookup', region: '광산구', startAge: 0, endAge: 19 }, { env: { ARCHIVE_DB: db, KOSIS_API_KEY: KEY } })).json();
+    assert.equal(body.ok, true);
+    assert.equal(body.calls, 1);
+    assert.equal(seen.length, 1, '표를 추측하며 연달아 부르지 않는다');
+    assert.equal(body.region, '광주광역시 광산구');
+    assert.equal(body.summary.label, '0~19세 주민등록인구');
+    assert.equal(body.table.tblId, 'DT_1B04006');
+  });
+  // 같은 지역을 다시 조회하면 부르지 않는다. 나이 범위만 달라져도 마찬가지다.
+  await withFetch([], async seen => {
+    const body = await (await post({ action: 'lookup', region: '광산구', startAge: 7, endAge: 12 }, { env: { ARCHIVE_DB: db, KOSIS_API_KEY: KEY } })).json();
     assert.equal(body.reused, true);
     assert.equal(body.calls, 0);
-    assert.equal(body.fetchedAt, '2026-08-15T00:00:00.000Z');
-    assert.equal(called, 0);
-  } finally { globalThis.fetch = original; }
+    assert.equal(body.summary.label, '7~12세 주민등록인구');
+    assert.equal(seen.length, 0);
+  });
 });
 
-test('로그인하지 않으면 조회할 수 없고, 정한 주제만 조회한다', async () => {
+test('지원하지 않는 지역과 애매한 이름은 조회하지 않는다', async () => {
+  const { db } = fakeCache();
+  await withFetch([], async seen => {
+    const outside = await (await post({ action: 'lookup', region: '서울특별시 강남구' }, { env: { ARCHIVE_DB: db, KOSIS_API_KEY: KEY } })).json();
+    assert.equal(outside.ok, false);
+    assert.equal(outside.reason, 'unsupported');
+    assert.equal(outside.message, SUPPORTED_REGION_TEXT);
+    const ambiguous = await (await post({ action: 'lookup', region: '동구' }, { env: { ARCHIVE_DB: db, KOSIS_API_KEY: KEY } })).json();
+    assert.equal(ambiguous.reason, 'ambiguous');
+    assert.match(ambiguous.message, /광주광역시 동구/);
+    assert.equal(seen.length, 0, '지원 밖 지역은 KOSIS를 부르지 않는다');
+  });
+});
+
+test('대상 연령이 없으면 원자료만 보여 주고 합계를 만들지 않는다', async () => {
+  const { db } = fakeCache();
+  await withFetch([DATA], async () => {
+    const body = await (await post({ action: 'lookup', region: '광산구' }, { env: { ARCHIVE_DB: db, KOSIS_API_KEY: KEY } })).json();
+    assert.equal(body.ok, true);
+    assert.equal(body.summary, null);
+    assert.equal(body.summaryNotice, AGE_REQUIRED_MESSAGE);
+    assert.ok(body.candidates.length);
+  });
+  // 나이를 잘못 적으면 조회하지 않는다.
+  assert.equal((await post({ action: 'lookup', region: '광산구', startAge: 'abc' }, { env: { ARCHIVE_DB: db } })).status, 400);
+  assert.equal((await post({ action: 'lookup', region: '광산구', startAge: 10, endAge: 3 }, { env: { ARCHIVE_DB: db } })).status, 400);
+});
+
+test('인증키가 없으면 아무 곳에도 요청하지 않고, 키는 어디에도 나오지 않는다', async () => {
+  const { db } = fakeCache();
+  await withFetch([], async seen => {
+    const body = await (await post({ action: 'lookup', region: '광산구', startAge: 0, endAge: 19 }, { env: { ARCHIVE_DB: db } })).json();
+    assert.equal(body.reason, 'missing-secret');
+    assert.equal(body.message, NO_KEY_MESSAGE);
+    assert.equal(seen.length, 0);
+  });
+  // KOSIS는 오류도 200으로 준다. 그 문구에 주소가 실려 있어도 키는 가린다.
+  const { db: other } = fakeCache();
+  await withFetch([{ err: '11', errMsg: `유효하지 않은 인증KEY입니다. apiKey=${KEY}` }], async () => {
+    const body = await (await post({ action: 'lookup', region: '광산구' }, { env: { ARCHIVE_DB: other, KOSIS_API_KEY: KEY } })).json();
+    assert.equal(body.reason, 'upstream');
+    assert.ok(!JSON.stringify(body).includes(KEY));
+    assert.match(body.message, /apiKey=\*\*\*/);
+  });
+  assert.equal(maskKey(`https://kosis.kr/x?apiKey=${KEY}&orgId=101`), 'https://kosis.kr/x?apiKey=***&orgId=101');
+  assert.ok(!cacheKey('kosis-rows', { region: '29200', tblId: 'DT_1B04006' }).includes(KEY));
+  assert.equal(kosisError([]), null);
+});
+
+test('로그인하지 않으면 조회할 수 없다', async () => {
   const { db } = fakeCache();
   assert.equal((await post({ action: 'lookup', region: '광산구' }, { env: { ARCHIVE_DB: db }, user: null })).status, 401);
   assert.equal((await post({ action: 'other' }, { env: { ARCHIVE_DB: db } })).status, 400);
-  assert.equal((await post({ action: 'lookup', region: '광산구', topic: 'anything' }, { env: { ARCHIVE_DB: db } })).status, 400);
-  assert.equal((await post({ action: 'lookup', region: '' }, { env: { ARCHIVE_DB: db } })).status, 400);
 });
 
-test('화면은 후보로만 보여 주고 계획서에 자동으로 넣지 않는다', async () => {
-  const fs = await import('node:fs');
-  const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
-  const client = fs.readFileSync(new URL('../src/stats-api.js', import.meta.url), 'utf8');
-  // 화면은 키를 알지도 보내지도 않는다.
-  assert.doesNotMatch(client, /apiKey|KOSIS_API_KEY/);
+test('값·기준시점·단위가 빠진 줄은 후보로 쓰지 않는다', () => {
+  const broken = [
+    { ...row(1, 100), UNIT_NM: '' },
+    { ...row(2, 100), PRD_DE: '' },
+    { ...row(3, 0), DT: '-' }
+  ];
+  for (const item of broken) assert.equal(normalizeRow(item, { region: GWANGSAN }).ok, false);
+  assert.equal(candidatesFor(broken, GWANGSAN).length, 0);
+  assert.equal(normalizeRow(row(4, 104), { region: GWANGSAN }).candidate.link, statHtmlLink('101', 'DT_1B04006'));
+});
+
+// ---------- 화면 ----------
+
+test('화면은 합산 범위와 기준시점을 그대로 적고, 계획서에 넣지 않는다', () => {
   assert.match(app, /후보입니다\. 계획서에 자동으로 넣지 않습니다/);
-  // 표시 항목을 하나도 빠뜨리지 않는다.
   const view = app.slice(app.indexOf('function statCandidateView()'), app.indexOf('// 통계 근거 출처.'));
-  for (const field of ['row.tableName', 'row.survey', 'row.organization', 'row.region', 'row.period', 'row.value', 'row.unit', 'row.link', 'row.tblId', 'result.fetchedAt']) {
-    assert.ok(view.includes(field), field);
-  }
-  assert.match(view, /조사명 미표기/);
-  assert.match(view, /적합한 공식 통계를 찾지 못했습니다/);
-  // 계획서 생성 경로는 이 결과를 쓰지 않는다. 조회 결과는 화면에만 머문다.
+  // 합산 범위·행 수·합산식·기준시점을 화면에 적는다.
+  assert.match(view, /합산 범위 \$\{summary\.startAge\}~\$\{summary\.endAge\}세 · 원자료 \$\{summary\.rowCount\}행/);
+  assert.match(view, /escapeHtml\(summary\.formula\)/);
+  assert.match(view, /escapeHtml\(summary\.periodLabel\)/);
+  assert.match(view, /escapeHtml\(row\.periodLabel\)/);
+  assert.match(view, /우리가 더한 값/);
+  // 합계를 만들지 못한 이유를 화면이 말한다.
+  assert.match(view, /합계를 만들지 않았습니다/);
+  // 우리가 「아동·청소년」이라는 이름을 붙이지 않는다.
+  assert.doesNotMatch(view, /아동·청소년/);
+  // 지원 범위와 대상 연령 입력을 화면에 둔다.
+  assert.match(app, /escapeHtml\(SUPPORTED_REGION_TEXT\)/);
+  assert.match(app, /id="stat-age-start"/);
+  assert.match(app, /id="stat-age-end"/);
+  // 계획서 생성은 이 결과를 보내지 않는다.
   const run = app.slice(app.indexOf('async function runCoreProposal()'), app.indexOf('function coreResultView('));
-  assert.ok(!run.includes('statLookup'), '핵심제안서 생성이 통계 조회 결과를 보내지 않는다');
-});
-
-test('나이별로 갈린 값은 나이를 함께 적고, 더한 값은 더했다고 적는다', async () => {
-  // 나이 이름이 없으면 387,604명과 1,921명이 같은 이름으로 보인다.
-  const row = normalizeRow({ TBL_NM: '행정구역(시군구)별/1세별 주민등록인구', PRD_DE: '2025', ITM_NM: '총인구수', C1_NM: '광산구', C2_NM: '10세', DT: '3,912', UNIT_NM: '명' }, { orgId: '101', tblId: 'DT_1B04006' });
-  assert.equal(row.candidate.breakdown, '10세');
-
-  const ages = [0, 1, 2].map(age => normalizeRow({ TBL_NM: '표', PRD_DE: '2025', ITM_NM: '총인구수', C1_NM: '광산구', C2_NM: `${age}세`, DT: '100', UNIT_NM: '명' }, {}).candidate);
-  const other = normalizeRow({ TBL_NM: '표', PRD_DE: '2025', ITM_NM: '남자인구수', C1_NM: '광산구', C2_NM: '1세', DT: '50', UNIT_NM: '명' }, {}).candidate;
-  const old = normalizeRow({ TBL_NM: '표', PRD_DE: '2025', ITM_NM: '총인구수', C1_NM: '광산구', C2_NM: '40세', DT: '900', UNIT_NM: '명' }, {}).candidate;
-  const summed = sumAges([...ages, other, old], { maxAge: 19 });
-  // 남자·여자를 겹쳐 세지 않고, 범위 밖 나이도 넣지 않는다.
-  assert.equal(summed.value, 300);
-  assert.equal(summed.rowCount, 3);
-  assert.equal(summed.derived, true);
-  assert.match(summed.note, /더한 값입니다\. KOSIS가 그대로 발표한 숫자가 아닙니다/);
-  // 기준연도나 단위가 섞이면 더하지 않는다.
-  const mixed = normalizeRow({ TBL_NM: '표', PRD_DE: '2024', ITM_NM: '총인구수', C1_NM: '광산구', C2_NM: '3세', DT: '100', UNIT_NM: '명' }, {}).candidate;
-  assert.equal(sumAges([...ages, mixed], { maxAge: 19 }), null);
-  assert.equal(sumAges([], {}), null);
-
-  // 화면도 나이를 적고, 더한 값에는 표시를 붙인다.
-  const fs = (await import('node:fs')).default;
-  const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
-  assert.match(app, /row\.breakdown \? ` · \$\{escapeHtml\(row\.breakdown\)\}`/);
-  assert.match(app, /우리가 더한 값/);
+  assert.ok(!run.includes('statLookup'));
 });

@@ -442,7 +442,7 @@ test('예시 계획서는 로그인 없이 열리고 서버를 부르지 않는�
 test('핵심제안서 화면만 열리고 잠긴 기능은 이용권 문의로 표시한다', () => {
   const view = app.slice(app.indexOf('// ---------- MS12 핵심제안서 ----------'), app.indexOf('// 로그인과 회원가입을 한 화면에서'));
   assert.match(app, /function trialAccount\(\) \{ return auth\.status === 'signedIn' && auth\.user\?\.status === 'active' && !hasFullAccess\(\); \}/);
-  assert.match(app, /if \(trialAccount\(\)\) \{ app\.innerHTML = coreProposalView\(\); bindCoreProposal\(\); return; \}/);
+  assert.match(app, /if \(trialAccount\(\)\) \{ app\.innerHTML = coreProposalView\(\); bindCoreProposal\(\); fitAutoGrow\(\); return; \}/);
   // 받는 것은 넷이다. 제안 목적은 제출처 유형과 아이디어에서 드러나므로 없앴다.
   for (const id of ['core-idea', 'core-audience', 'core-recipient', 'core-pages']) {
     assert.ok(view.includes(`id="${id}"`), id);
@@ -525,6 +525,23 @@ test('핵심 아이디어는 장문으로 적고, 아래 단답 칸에서 고르
   // 서버는 적힌 값만 쓰고 없는 값은 지어내지 않는다.
   assert.match(api, /<CONDITIONS>\$\{JSON\.stringify\(labelConditions\(input\.conditions\)\)\}<\/CONDITIONS>/);
   assert.match(api, /CONDITIONS는 제안자가 골라 적은 단답 조건/);
+});
+
+test('핵심 아이디어 칸은 일곱 줄로 시작해 적는 만큼 늘어난다', async () => {
+  const fs = await import('node:fs');
+  const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  const css = fs.readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+  // 빈칸이 화면 절반을 차지하면 아래 칸이 보이지 않는다. 고정 높이(270px) 대신 자동 확장을 쓴다.
+  assert.match(app, /<textarea id="core-idea" class="source-text auto-grow idea-grow" rows="7"/);
+  assert.match(css, /\.source-text\.idea-grow\{[^}]*min-height:calc\(7 \* 1\.7em \+ 26px\)/);
+  // 좁은 화면에서는 한 줄이 더 길게 감기므로 다섯 줄로 시작한다.
+  assert.match(css, /@media\(max-width:600px\)\{\s*\/\*[^*]*\*\/\s*\.source-text\.idea-grow\{min-height:calc\(5 \* 1\.7em \+ 22px\)\}/);
+  // 내용이 길어지면 늘고 지우면 줄어든다. 그 일을 하는 함수가 이 화면에서도 돈다.
+  assert.match(app, /if \(trialAccount\(\)\) \{ app\.innerHTML = coreProposalView\(\); bindCoreProposal\(\); fitAutoGrow\(\); return; \}/);
+  assert.match(app, /el\.style\.height = 'auto';/);
+  assert.match(app, /el\.style\.overflowY = el\.scrollHeight > limit \? 'auto' : 'hidden';/);
+  // 다른 입력칸의 크기는 건드리지 않는다.
+  assert.match(css, /\.source-text\{width:100%;height:270px;resize:vertical\}/);
 });
 
 test('단답 보기는 제출처와 적은 내용에 따라 바뀐다', async () => {

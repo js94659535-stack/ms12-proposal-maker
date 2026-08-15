@@ -20,6 +20,7 @@ import { codeLabel, statusLabel, warningLabel } from '../server/notice-run.js';
 import { ABILITIES, SCOPES } from '../server/permissions.js';
 import { BUSINESS_TYPES, SOURCE_GROUPS } from '../server/notice-sources.js';
 import { STAT_SKIP_LABELS, statSourceState } from '../server/stat-sources.js';
+import { REGIONS, SUPPORTED_REGION_TEXT } from '../server/kosis.js';
 import { statLookup } from './stats-api.js';
 import { FITNESS_LABELS } from '../server/notice-classify.js';
 import { ORG_TYPES, QUICK_FIELDS, followUpQuestions, quickToApplicantItems, readyToDraft } from '../server/quick-org.js';
@@ -1189,14 +1190,19 @@ function statLookupState() {
   return auth.statLookup || { loading: false, done: false, result: null };
 }
 
-async function runStatLookup(region) {
+async function runStatLookup() {
   if (statLookupState().loading) return;
-  setAuth({ statLookup: { loading: true, done: false, result: null } });
-  const result = await statLookup(region).catch(() => ({ ok: false, message: '통계를 조회하지 못했습니다.' }));
-  setAuth({ statLookup: { loading: false, done: true, result } });
+  const region = document.querySelector('#stat-region')?.value || '';
+  const startAge = document.querySelector('#stat-age-start')?.value ?? '';
+  const endAge = document.querySelector('#stat-age-end')?.value ?? '';
+  setAuth({ statLookup: { loading: true, done: false, result: null, region, startAge, endAge } });
+  const result = await statLookup(region, { startAge, endAge }).catch(() => ({ ok: false, message: '통계를 조회하지 못했습니다.' }));
+  setAuth({ statLookup: { loading: false, done: true, result, region, startAge, endAge } });
 }
 
 // 찾아 온 근거 후보. 후보일 뿐이며 계획서에 자동으로 들어가지 않는다.
+//
+// 나이 범위를 계획서가 정하지 않았으면 합계를 만들지 않는다. 0~19세를 「아동·청소년」이라 부르지 않는다.
 function statCandidateView() {
   const view = statLookupState();
   if (view.loading) return '<p class="muted">공식 통계를 조회하는 중입니다…</p>';
@@ -1205,18 +1211,18 @@ function statCandidateView() {
   if (!result.ok) return `<div class="alert warning"><strong>${escapeHtml(result.message || '적합한 공식 통계를 찾지 못했습니다.')}</strong>
     <p>없는 값을 대신 넣지 않습니다. 조사 결과가 필요하면 자체 설문·면담 결과를 적어 주세요.</p></div>`;
   const rows = result.candidates || [];
-  if (!rows.length) return '<div class="alert warning"><strong>적합한 공식 통계를 찾지 못했습니다.</strong></div>';
   const summary = result.summary;
-  return `<div class="alert success"><strong>공식 통계 근거 후보 ${rows.length}건</strong>
-      <p>후보입니다. 계획서에 자동으로 넣지 않습니다. 쓸지 말지는 사람이 정합니다.${result.reused ? ' (이미 조회해 둔 결과를 다시 씁니다)' : ''}</p></div>
+  return `<div class="alert success"><strong>공식 통계 근거 후보 ${rows.length}건 · ${escapeHtml(result.region)}</strong>
+      <p>후보입니다. 계획서에 자동으로 넣지 않습니다. 쓸지 말지는 사람이 정합니다.${result.reused ? ' (이미 받아 둔 자료를 다시 씁니다)' : ''}</p></div>
     ${summary ? `<article class="requirement"><div>
       <div><strong>${escapeHtml(summary.label)}</strong> <span class="tag">${escapeHtml(summary.region)}</span> <span class="status 확인-필요">우리가 더한 값</span> <span class="status 충족">${escapeHtml(summary.value.toLocaleString('ko-KR'))}${escapeHtml(summary.unit)}</span></div>
+      <small class="muted">합산 범위 ${summary.startAge}~${summary.endAge}세 · 원자료 ${summary.rowCount}행 · ${escapeHtml(summary.formula)}</small>
       <small class="muted">${escapeHtml(summary.note)}</small>
-      <small class="muted">${escapeHtml(summary.tableName)} · ${escapeHtml(summary.survey || '조사명 미표기')} · ${escapeHtml(summary.organization || '작성기관 미표기')} · ${escapeHtml(summary.period)}년 기준</small>
-    </div></article>` : ''}
+      <small class="muted">${escapeHtml(summary.tableName)} · ${escapeHtml(summary.survey)} · ${escapeHtml(summary.organization)} · ${escapeHtml(summary.periodLabel)}</small>
+    </div></article>` : `<div class="alert warning"><strong>합계를 만들지 않았습니다.</strong><p>${escapeHtml(result.summaryNotice || '')}</p></div>`}
     <div class="requirement-list">${rows.map(row => `<article class="requirement"><div>
       <div><strong>${escapeHtml(row.itemName || row.tableName)}${row.breakdown ? ` · ${escapeHtml(row.breakdown)}` : ''}</strong> <span class="tag">${escapeHtml(row.region)}</span> <span class="status 충족">${escapeHtml(String(row.value.toLocaleString('ko-KR')))}${escapeHtml(row.unit)}</span></div>
-      <small class="muted">${escapeHtml(row.tableName)} · ${escapeHtml(row.survey || '조사명 미표기')} · ${escapeHtml(row.organization || '작성기관 미표기')} · ${escapeHtml(row.period)}년 기준</small>
+      <small class="muted">${escapeHtml(row.tableName)} · ${escapeHtml(row.survey || '조사명 미표기')} · ${escapeHtml(row.organization || '작성기관 미표기')} · ${escapeHtml(row.periodLabel)}</small>
       <small class="muted">조회일 ${escapeHtml((result.fetchedAt || '').slice(0, 10))} · 통계표 ${escapeHtml(row.tblId)} · <a href="${escapeHtml(row.link)}" target="_blank" rel="noreferrer noopener">KOSIS에서 원자료 보기</a></small>
     </div></article>`).join('')}</div>`;
 }
@@ -1231,8 +1237,19 @@ function statSourcePanel() {
       <small class="muted">${escapeHtml(row.gives)}</small>
       <small class="muted">${escapeHtml(row.note)}</small>
     </div></article>`).join('')}</div>
-    <div class="actions" style="margin-top:8px"><span class="muted">한 번 조회한 결과는 저장해 두고 다시 씁니다. 같은 조회로 다시 부르지 않습니다.</span>
-      <button class="button secondary" id="stat-lookup-gwangsan" ${statLookupState().loading ? 'disabled' : ''}>광산구 아동·청소년 통계 조회</button></div>
+    <h4 style="margin-top:14px">지역 인구 조회</h4>
+    <p class="muted">${escapeHtml(SUPPORTED_REGION_TEXT)} 한 번 받아 온 자료는 저장해 두고 다시 씁니다.</p>
+    <div class="two-col">
+      <div class="field"><label for="stat-region">지역</label>
+        <select id="stat-region">${REGIONS.map(item => `<option value="${escapeHtml(item.full)}" ${(statLookupState().region || '광주광역시 광산구') === item.full ? 'selected' : ''}>${escapeHtml(item.full)}</option>`).join('')}</select></div>
+      <div class="field"><label for="stat-age-start">계획서의 대상 연령 (선택)</label>
+        <div class="actions" style="margin:0"><input id="stat-age-start" type="number" min="0" max="120" step="1" placeholder="시작" value="${escapeHtml(statLookupState().startAge || '')}" style="max-width:90px">
+          <span class="muted">~</span>
+          <input id="stat-age-end" type="number" min="0" max="120" step="1" placeholder="끝" value="${escapeHtml(statLookupState().endAge || '')}" style="max-width:90px"></div>
+        <small class="muted">적으신 범위만 더합니다. 비우면 더하지 않고 나이별 원자료만 보여 드립니다.</small></div>
+    </div>
+    <div class="actions" style="margin-top:8px"><span class="muted">확인된 통계표 한 개만 부릅니다(1회).</span>
+      <button class="button secondary" id="stat-lookup-run" ${statLookupState().loading ? 'disabled' : ''}>지역 인구 조회</button></div>
     ${statCandidateView()}`;
 }
 
@@ -2559,7 +2576,7 @@ function coreProposalView() {
             <button class="button secondary" id="core-open-profile" type="button">${memberFactsText() ? '기관정보 고치기' : '기관정보 적기'}</button></div>
         </div>
         ${auth.memberOpen ? memberProfileForm() : ''}
-<div class="field"><label for="core-idea">핵심 아이디어 <span class="status 확인-필요">필수</span></label><textarea id="core-idea" class="source-text" placeholder="무엇을, 누구에게, 어떻게 하려는지 적어 주세요.&#10;예1) 초등 4~6학년 정서지원 집단 프로그램을 주 1회 16회기로 운영합니다. 학교 상담교사 추천으로 12명을 모집하고, 회기마다 정서표현 활동과 보호자 상담을 함께 합니다.&#10;예2) 홀몸 어르신 30명에게 주 2회 반찬을 배달하며 안부를 확인하고, 이상 징후가 보이면 주민센터에 연계합니다.&#10;예3) 청년 자영업자 20팀에게 온라인 판로 교육 8회와 1:1 컨설팅 3회를 제공해 매출 회복을 돕습니다." ${done || busy ? 'disabled' : ''}>${escapeHtml(draft.coreIdea)}</textarea><small class="muted">${CORE_MIN_IDEA}자 이상 · 지금 <strong id="core-idea-count">${draft.coreIdea.trim().length}</strong>자 · 대상·인원·횟수·방법이 들어가면 제안서가 구체해집니다. 모르는 숫자는 비워 두세요.</small></div>
+<div class="field"><label for="core-idea">핵심 아이디어 <span class="status 확인-필요">필수</span></label><textarea id="core-idea" class="source-text auto-grow idea-grow" rows="7" placeholder="무엇을, 누구에게, 어떻게 하려는지 적어 주세요.&#10;예1) 초등 4~6학년 정서지원 집단 프로그램을 주 1회 16회기로 운영합니다. 학교 상담교사 추천으로 12명을 모집하고, 회기마다 정서표현 활동과 보호자 상담을 함께 합니다.&#10;예2) 홀몸 어르신 30명에게 주 2회 반찬을 배달하며 안부를 확인하고, 이상 징후가 보이면 주민센터에 연계합니다.&#10;예3) 청년 자영업자 20팀에게 온라인 판로 교육 8회와 1:1 컨설팅 3회를 제공해 매출 회복을 돕습니다." ${done || busy ? 'disabled' : ''}>${escapeHtml(draft.coreIdea)}</textarea><small class="muted">${CORE_MIN_IDEA}자 이상 · 지금 <strong id="core-idea-count">${draft.coreIdea.trim().length}</strong>자 · 대상·인원·횟수·방법이 들어가면 제안서가 구체해집니다. 모르는 숫자는 비워 두세요.</small></div>
 <div class="two-col">
 <div class="field"><label for="core-title">제안서 가제 (선택)</label><input id="core-title" maxlength="60" placeholder="예: 중장년 디지털 배움터" value="${escapeHtml(draft.title || '')}" ${done || busy ? 'disabled' : ''}><small class="muted">적으신 제목을 그대로 씁니다. 비우면 내용에 맞춰 지어 드립니다.</small></div>
 <div class="field"><label for="core-subtitle">부제 (선택)</label><input id="core-subtitle" maxlength="80" placeholder="예: 스마트폰으로 시작하는 두 번째 배움" value="${escapeHtml(draft.subtitle || '')}" ${done || busy ? 'disabled' : ''}><small class="muted">제목을 보충하는 한 줄입니다. 비우면 지어 드립니다.</small></div>
@@ -5505,7 +5522,7 @@ function render() {
   // 관리자 포털의 홈은 관리자 랜딩이다. 계획서 포털에서 홈을 누르면 지금까지의 작성 홈이 그대로 열린다.
   if (inAdminPortal() && state.activeTool === 'home') { app.innerHTML = shell(adminLandingView()); bindAdminLanding(); return; }
   // 전체 이용권이 없는 회원은 핵심제안서 화면만 본다. 생성·차단은 서버가 한다.
-  if (trialAccount()) { app.innerHTML = coreProposalView(); bindCoreProposal(); return; }
+  if (trialAccount()) { app.innerHTML = coreProposalView(); bindCoreProposal(); fitAutoGrow(); return; }
   // 간편 화면. 일반회원의 기본이고 최고관리자·운영관리자는 전환해서 본다.
   // 화면만 단순해질 뿐 분석·검증·권한 차단은 서버에서 그대로 돈다.
   // 홈도 간편 화면으로 연다. 「작성 과정 자세히 보기」로 들어가 있는 동안에만 전문 화면을 그린다.
@@ -6149,7 +6166,7 @@ function bind() {
     explainBlocked(el.dataset.blocked, el.dataset.goto || '');
   }, true));
   document.querySelectorAll('[data-source-toggle]').forEach(el => el.onclick = () => void toggleNoticeSource(el.dataset.sourceToggle, Boolean(el.dataset.sourceNext)));
-  document.querySelector('#stat-lookup-gwangsan')?.addEventListener('click', () => void runStatLookup('광산구'));
+  document.querySelector('#stat-lookup-run')?.addEventListener('click', () => void runStatLookup());
   document.querySelector('#open-admin-showcase')?.addEventListener('click', () => setAuth({ adminTab: auth.adminTab === 'showcase' ? 'accounts' : 'showcase', error: '', notice: '' }));
   document.querySelector('#open-admin-usage')?.addEventListener('click', () => {
     const opening = auth.adminTab !== 'usage';

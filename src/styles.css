@@ -584,3 +584,15 @@ select{max-width:100%}
 .guard-group:first-of-type{border-top:0;padding-top:4px}
 .guard-group h4{margin:0 0 2px;font-size:14px}
 .guard-group>p.muted{margin:0 0 8px}
+
+/* 핵심 아이디어 입력칸. 예시문이 보일 만큼(약 7줄)만 열어 두고 적는 만큼 늘어난다.
+   빈칸이 화면 절반을 차지하면 아래 칸이 보이지 않아 무엇을 더 적어야 하는지 모른다. */
+.source-text.idea-grow{
+  height:auto;
+  min-height:calc(7 * 1.7em + 26px);
+  max-height:min(60vh, 640px);
+}
+@media(max-width:600px){
+  /* 좁은 화면에서는 한 줄이 더 길게 감기므로 다섯 줄이면 예시가 보인다. */
+  .source-text.idea-grow{min-height:calc(5 * 1.7em + 22px)}
+}
