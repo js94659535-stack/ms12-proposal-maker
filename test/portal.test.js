@@ -44,7 +44,8 @@ test('계획서 포털에서는 회원과 같은 화면을 쓰고 관리 화면�
 
 test('두 포털을 오가는 단추가 작업 화면과 홈 양쪽에 있다', () => {
   // 작업 화면 헤더와 홈 내비게이션 모두 같은 함수로 그린다.
-  assert.match(app, /\$\{portalLinks\(\)\}<button class="history-button" id="sign-out">/);
+  // 포털 이동 단추 뒤에 내 정보, 그 뒤가 로그아웃이다.
+  assert.match(app, /\$\{portalLinks\(\)\}<button class="history-button" id="open-account"[^>]*>내 정보<\/button><button class="history-button" id="sign-out">/);
   assert.match(app, /\$\{portalLinks\('button ghost'\)\}/);
   // 관리·운영 화면의 「계획서 포털로」도 같은 전환을 쓴다.
   assert.match(app, /querySelector\('#close-admin'\)\?\.addEventListener\('click', \(\) => openPortal\('proposal'\)\)/);

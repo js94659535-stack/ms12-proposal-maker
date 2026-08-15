@@ -2279,7 +2279,7 @@ function adminLandingView() {
   return `<div class="home admin-landing">
     <header class="home-header">
       <div class="home-brand"><strong>관리자 포털</strong><span>${escapeHtml(accountEmail())} · ${escapeHtml(roleLabel(auth.user?.role))}</span></div>
-      <nav class="home-nav">${ADMIN_NAV.map(([id, label]) => `<button class="button ghost" data-landing-scroll="${id}">${label}</button>`).join('')}<button class="button ghost" id="open-account">내 정보</button>${portalLinks('button ghost')}<button class="button ghost" id="sign-out">로그아웃</button></nav>
+      <nav class="home-nav">${ADMIN_NAV.map(([id, label]) => `<button class="button ghost" data-landing-scroll="${id}">${label}</button>`).join('')}${portalLinks('button ghost')}<button class="button ghost" id="open-account">내 정보</button><button class="button ghost" id="sign-out">로그아웃</button></nav>
     </header>
     <section class="landing">
       <div class="landing-section admin-ops">
@@ -3054,7 +3054,7 @@ function shell(content) {
     <div class="layout">
       <main class="main">
         <header class="workflow-header">
-          <div class="workflow-brand"><div class="brand"><span class="brand-mark">계</span><div><strong>사업계획서 작성 도우미</strong><small>공고 분석부터 제출본까지</small></div></div><span class="save-state">● 자동 저장 중</span><span class="mode">${escapeHtml(accountEmail())}</span><button class="history-button" id="open-account" aria-pressed="${state.activeTool === 'account'}">내 정보</button>${portalLinks()}<button class="history-button" id="sign-out">로그아웃</button></div>
+          <div class="workflow-brand"><div class="brand"><span class="brand-mark">계</span><div><strong>사업계획서 작성 도우미</strong><small>공고 분석부터 제출본까지</small></div></div><span class="save-state">● 자동 저장 중</span><span class="mode">${escapeHtml(accountEmail())}</span>${portalLinks()}<button class="history-button" id="open-account" aria-pressed="${state.activeTool === 'account'}">내 정보</button><button class="history-button" id="sign-out">로그아웃</button></div>
           <div class="workflow-row"><label class="type-select-label" for="business-type">사업 유형<select id="business-type">${TYPES.map(([id, name]) => `<option value="${id}" ${state.project.type === id ? 'selected' : ''}>${name}</option>`).join('')}</select></label>${stepMenu()}${toolMenu()}<nav class="workflow-history" aria-label="앱 작업 화면 이동"><button class="history-button" id="workflow-back" aria-label="직전 작업 화면으로 뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="history-button" id="workflow-home" aria-label="홈 화면으로 가기">⌂ 홈</button><button class="history-button" id="workflow-forward" aria-label="다음 작업 화면으로 앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button></nav></div>
         </header>
         ${viewModeBadge()}
@@ -3096,7 +3096,7 @@ function homeView() {
     <div class="home">
       <header class="home-header">
         <div class="home-brand"><strong>사업계획서 작성 도우미</strong><span>공고 분석부터 제출본까지</span></div>
-        <nav class="home-nav"><button class="button ghost" id="workflow-back" aria-label="뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="button ghost" disabled aria-current="page">⌂ 홈 화면</button><button class="button ghost" id="workflow-forward" aria-label="앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button><button class="button ghost" data-home-scroll="home-product">제품소개</button><button class="button ghost" data-home-scroll="home-flow">이용방법</button><button class="button ghost" data-home-scroll="home-features">주요기능</button><button class="button ghost" data-home-archive="1">공고보관함·계획서보관함</button><button class="button ghost" id="open-account">내 정보</button>${portalLinks('button ghost')}<button class="button primary" data-home-start="1">새 계획서 시작</button></nav>
+        <nav class="home-nav"><button class="button ghost" id="workflow-back" aria-label="뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="button ghost" disabled aria-current="page">⌂ 홈 화면</button><button class="button ghost" id="workflow-forward" aria-label="앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button><button class="button ghost" data-home-scroll="home-product">제품소개</button><button class="button ghost" data-home-scroll="home-flow">이용방법</button><button class="button ghost" data-home-scroll="home-features">주요기능</button><button class="button ghost" data-home-archive="1">공고보관함·계획서보관함</button>${portalLinks('button ghost')}<button class="button ghost" id="open-account">내 정보</button><button class="button primary" data-home-start="1">새 계획서 시작</button></nav>
       </header>
 
       <section class="home-hero">
