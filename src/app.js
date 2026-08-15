@@ -20,6 +20,7 @@ import { codeLabel, statusLabel, warningLabel } from '../server/notice-run.js';
 import { ABILITIES, SCOPES } from '../server/permissions.js';
 import { BUSINESS_TYPES, SOURCE_GROUPS } from '../server/notice-sources.js';
 import { STAT_SKIP_LABELS, statSourceState } from '../server/stat-sources.js';
+import { DEADLINE_LABELS, deadlineState } from '../server/notice-search.js';
 import { ORG_STATUS_LABELS, searchOrgs, selectionSummary } from '../server/notice-orgs.js';
 import { REGIONS, SUPPORTED_REGION_TEXT } from '../server/kosis.js';
 import { statLookup } from './stats-api.js';
@@ -3322,13 +3323,72 @@ function homeView() {
 `;
 }
 
+// 가져온 공고 목차. 한 건씩 카드로 늘어놓으면 열두 건만 되어도 화면이 벽이 된다.
+// 접힌 상태에서는 한 줄(출처·제목·마감)만 보이고, 펼치면 지금까지 보던 내용이 그대로 나온다.
+const NOTICE_DEADLINE_CLASS = { closed: '부족', closing: '부분-충족', open: '충족' };
+function noticeDeadlineTag(deadline) {
+  const value = String(deadline || '').trim();
+  if (!value) return '<span class="status 확인-필요">마감일 미표기</span>';
+  const state = deadlineState(value);
+  const days = daysUntil(value);
+  const label = state === 'closed' ? '마감' : days === null ? DEADLINE_LABELS[state] : days === 0 ? '오늘 마감' : `D-${days}`;
+  return `<span class="status ${NOTICE_DEADLINE_CLASS[state] || '확인-필요'}" title="${escapeHtml(value)}">${escapeHtml(label)}</span>`;
+}
+// 남은 날. 날짜를 못 읽으면 셈하지 않는다.
+function daysUntil(deadline) {
+  const match = /(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})/.exec(String(deadline || ''));
+  if (!match) return null;
+  const target = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const today = new Date();
+  const start = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  return Math.round((target - start) / 86_400_000);
+}
+
 function noticeListView() {
   if (!state.noticeResults.length) return '<p class="muted">버튼을 누를 때만 접수 마감일이 남은 공모사업을 조회합니다.</p>';
-  const cards = state.noticeResults.map((item, index) => {
-    const summary = String(item.summary || '상세 공고문 확인 필요').slice(0, 200);
-    return `<article class="requirement"><label><input type="checkbox" data-notice-check="${index}" ${state.selectedNoticeIndexes.includes(index) ? 'checked' : ''}> 삭제할 항목 선택</label><div><span class="tag">${escapeHtml(item.sourceLabel)}</span><strong>${escapeHtml(item.title)}</strong></div><p class="muted notice-card-preview" style="margin:10px 0 0;line-height:1.65">${escapeHtml(summary)}</p><div class="actions" style="justify-content:flex-start;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="button secondary" style="padding:7px 11px;font-size:12px" data-notice-panel="summary" data-notice-index="${index}" aria-expanded="false">일반</button><button class="button secondary" style="padding:7px 11px;font-size:12px" data-notice-panel="overview" data-notice-index="${index}" aria-expanded="false">개요</button><button class="button secondary" style="padding:7px 11px;font-size:12px" data-view-notice="${index}">자세히 보기</button><button class="button primary" style="padding:7px 11px;font-size:12px" data-select-notice="${index}">계획서 작성</button><button class="button secondary" style="padding:7px 11px;font-size:12px" data-remove-notice="${index}">삭제</button></div><div data-notice-content="summary-${index}" style="display:block;margin-top:12px;padding:12px 14px;background:#faf6f0;border-radius:9px" hidden><b>사업내용 요약</b><p class="muted">${escapeHtml(summary)}</p></div><div data-notice-content="overview-${index}" style="display:block;margin-top:12px;padding:12px 14px;background:#faf6f0;border-radius:9px" hidden><small style="display:block;margin:5px 0"><b>주관 기관</b> ${escapeHtml(item.sourceLabel)}</small>${item.applicationPeriod ? `<small style="display:block;margin:5px 0"><b>신청 기간</b> ${escapeHtml(item.applicationPeriod)}</small>` : ''}${item.eligibility ? `<small style="display:block;margin:5px 0"><b>신청 대상</b> ${escapeHtml(item.eligibility)}</small>` : ''}${item.supportDetails ? `<small style="display:block;margin:5px 0"><b>지원 내용</b> ${escapeHtml(item.supportDetails)}</small>` : ''}${item.supportLimit ? `<small style="display:block;margin:5px 0"><b>지원 규모·한도</b> ${escapeHtml(item.supportLimit)}</small>` : ''}<small style="display:block;margin:5px 0"><b>마감일</b> ${escapeHtml(item.deadline)} · <b>dstbBsnsCode</b> ${escapeHtml(item.dstbBsnsCode)}</small></div></article>`;
-  }).join('').replaceAll('>계획서 작성</button>', '>이 공고로 진행</button>');
-  return `<div class="actions"><button class="button secondary" id="remove-selected-notices" ${state.selectedNoticeIndexes.length ? '' : 'disabled'}>선택 항목을 쓰레기통으로 (${state.selectedNoticeIndexes.length})</button></div><div class="requirement-list">${cards}</div>`;
+  // 기관별로 묶고, 묶음 안에서는 마감이 가까운 것부터. 마감일을 모르는 것은 뒤로 보낸다.
+  const rows = state.noticeResults.map((item, index) => ({ item, index, days: daysUntil(item.deadline) }));
+  const groups = new Map();
+  for (const row of rows) {
+    const key = String(row.item.sourceLabel || '출처 미표기');
+    groups.set(key, [...(groups.get(key) || []), row]);
+  }
+  const sorted = list => [...list].sort((a, b) => (a.days === null ? 1 : 0) - (b.days === null ? 1 : 0) || (a.days ?? 0) - (b.days ?? 0));
+  const soon = rows.filter(row => row.days !== null && row.days >= 0 && row.days <= 7).length;
+  const open = state.openNoticeRows || [];
+
+  const detail = ({ item, index }) => `<div class="notice-row-detail">
+    <p class="muted" style="margin:0 0 8px">${escapeHtml(String(item.summary || '상세 공고문 확인 필요').slice(0, 200))}</p>
+    <small style="display:block;margin:4px 0"><b>주관 기관</b> ${escapeHtml(item.sourceLabel)}</small>
+    ${item.applicationPeriod ? `<small style="display:block;margin:4px 0"><b>신청 기간</b> ${escapeHtml(item.applicationPeriod)}</small>` : ''}
+    ${item.eligibility ? `<small style="display:block;margin:4px 0"><b>신청 대상</b> ${escapeHtml(item.eligibility)}</small>` : ''}
+    ${item.supportDetails ? `<small style="display:block;margin:4px 0"><b>지원 내용</b> ${escapeHtml(item.supportDetails)}</small>` : ''}
+    ${item.supportLimit ? `<small style="display:block;margin:4px 0"><b>지원 규모·한도</b> ${escapeHtml(item.supportLimit)}</small>` : ''}
+    <small style="display:block;margin:4px 0"><b>마감일</b> ${escapeHtml(item.deadline || '미표기')}</small>
+    <div class="actions" style="justify-content:flex-start;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <button class="button primary" style="padding:7px 11px;font-size:12px" data-select-notice="${index}">이 공고로 진행</button>
+      <button class="button secondary" style="padding:7px 11px;font-size:12px" data-view-notice="${index}">자세히 보기</button>
+      <button class="button secondary" style="padding:7px 11px;font-size:12px" data-remove-notice="${index}">삭제</button>
+    </div>
+  </div>`;
+
+  const line = row => `<div class="notice-row ${open.includes(row.index) ? 'open' : ''}">
+    <label class="notice-row-pick" title="삭제할 항목 선택"><input type="checkbox" data-notice-check="${row.index}" ${state.selectedNoticeIndexes.includes(row.index) ? 'checked' : ''}><span class="sr-only">삭제할 항목 선택</span></label>
+    <button type="button" class="notice-row-head" data-notice-row="${row.index}" aria-expanded="${open.includes(row.index)}">
+      <span class="notice-row-title">${escapeHtml(String(row.item.title || '제목 미표기'))}</span>
+      ${noticeDeadlineTag(row.item.deadline)}
+      <span class="notice-row-mark" aria-hidden="true">${open.includes(row.index) ? '▾' : '▸'}</span>
+    </button>
+    ${open.includes(row.index) ? detail(row) : ''}
+  </div>`;
+
+  return `<div class="actions"><span class="muted">기관 ${groups.size}곳 · ${rows.length}건${soon ? ` · 일주일 안 마감 ${soon}건` : ''} · 줄을 누르면 내용이 열립니다</span>
+      <div><button class="button secondary" id="notice-rows-open">모두 펼치기</button><button class="button secondary" id="notice-rows-close">모두 접기</button>
+      <button class="button secondary" id="remove-selected-notices" ${state.selectedNoticeIndexes.length ? '' : 'disabled'}>선택 항목을 쓰레기통으로 (${state.selectedNoticeIndexes.length})</button></div></div>
+    <div class="notice-index">${[...groups.entries()].map(([label, list]) => `<section class="notice-group">
+      <h4>${escapeHtml(label)} <span class="muted">${list.length}건</span></h4>
+      ${sorted(list).map(line).join('')}
+    </section>`).join('')}</div>`;
 }
 
 // 두 번째 화면(공고 준비)의 머리말. 홈에서 넘어온 흐름을 그대로 잇고 진입 경로 세 가지를 먼저 보여 준다.
@@ -6604,6 +6664,24 @@ function bind() {
   document.querySelector('#close-sample')?.addEventListener('click', closeSample);
   document.querySelector('#import-notice-url')?.addEventListener('click', addMissingNotice);
   document.querySelectorAll('[data-notice-content]').forEach(panel => { panel.style.display = 'none'; });
+  // 목차 줄 펼치기·접기. 어느 줄을 열어 두었는지만 기억한다.
+  document.querySelectorAll('[data-notice-row]').forEach(el => el.onclick = () => {
+    const index = Number(el.dataset.noticeRow);
+    const open = state.openNoticeRows || [];
+    state.openNoticeRows = open.includes(index) ? open.filter(item => item !== index) : [...open, index];
+    saveState();
+    render();
+  });
+  document.querySelector('#notice-rows-open')?.addEventListener('click', () => {
+    state.openNoticeRows = state.noticeResults.map((_, index) => index);
+    saveState();
+    render();
+  });
+  document.querySelector('#notice-rows-close')?.addEventListener('click', () => {
+    state.openNoticeRows = [];
+    saveState();
+    render();
+  });
   document.querySelectorAll('[data-notice-panel]').forEach(el => el.onclick = () => {
     const content = document.querySelector(`[data-notice-content="${el.dataset.noticePanel}-${el.dataset.noticeIndex}"]`);
     if (!content) return;

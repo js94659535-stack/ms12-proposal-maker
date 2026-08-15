@@ -663,10 +663,13 @@ test('공고 선택 결과는 기존 제목과 원문 입력으로 전달된다'
   assert.match(source, /scrollIntoView\(\{ behavior: 'smooth'/);
   assert.match(source, /선택한 공고 상세/);
   assert.match(source, /data-view-notice/);
-  assert.match(source, /data-notice-panel="summary"/);
-  assert.match(source, /data-notice-panel="overview"/);
+  // 카드 안 「일반·개요」 단추 대신 목차 줄을 눌러 그 자리에서 편다.
+  assert.match(source, /data-notice-row="\$\{row\.index\}"/);
+  assert.match(source, /id="notice-rows-open"/);
+  assert.match(source, /id="notice-rows-close"/);
   assert.match(source, /slice\(0, 200\)/);
-  assert.match(source, /notice-card-preview/);
+  // 요약은 카드 미리보기 대신 펼친 줄 안에 그대로 있다.
+  assert.match(source, /class="notice-row-detail"/);
   assert.match(source, /padding:7px 11px;font-size:12px/);
   assert.match(source, /panel\.style\.display = 'none'/);
   assert.match(source, /content\.style\.display = willOpen \? 'block' : 'none'/);
