@@ -443,7 +443,7 @@ test('공모사업 목록은 중앙회와 광주지회 진행 중 공고만 조�
 test('공고 가져오기가 성공하면 공고 확인 단계로 자동 이동한다', () => {
   const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   // 가져온 공고가 있을 때만 확인 단계로 넘어간다. 0건이면 이 화면에 결과만 알린다.
-  assert.match(source, /const patch = \{ busy: '', noticeResults: notices, noticeSources: result\.sources \|\| \[\]/);
+  assert.match(source, /busy: '', noticeResults: notices, noticeSources: result\.sources \|\| \[\]/);
   assert.match(source, /if \(notices\.length\) navigateToStep\(1, patch\); else setState\(patch\);/);
 });
 
@@ -953,4 +953,15 @@ test('확정값 반영은 한 번의 finalize 호출로 관련 문단만 고친�
   // 실패하면 기존 계획서를 되돌리고 새 버전을 만들지 않는다.
   assert.match(appSource, /확정값 반영에 실패했습니다\. 기존 계획서는 그대로입니다\./);
   assert.match(appSource, /finalize: \{ busy: '확정값 반영 중', done: '확정값 반영 최종본 완료'/);
+});
+
+test('일부 출처만 못 가져온 것은 실패라고 부르지 않는다', () => {
+  const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  // 목록이 떠 있는데 「실패」라고 적으면 사용자가 결과를 믿지 못한다.
+  assert.match(source, /const failed = Boolean\(patch\.error\) && !patch\.partial;/);
+  assert.match(source, /partial: Boolean\(warning\) && notices\.length > 0/);
+  // 표시용 신호는 상태에 남기지 않는다.
+  assert.match(source, /const \{ partial, \.\.\.rest \} = patch;/);
+  // 못 가져온 출처는 그대로 알린다. 감추지 않는다.
+  assert.match(source, /공고를 가져오지 못했습니다/);
 });

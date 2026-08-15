@@ -2955,7 +2955,8 @@ function applyWorkflowLocation(location, patch = {}) {
   let next = patch;
   if (Object.hasOwn(patch, 'busy') && !patch.busy) {
     const result = closeAiTask(patch);
-    if (result) next = { ...patch, aiResult: result };
+    const { partial, ...rest } = patch;
+    next = result ? { ...rest, aiResult: result } : rest;
     busyStartedAt = 0;
   }
   state = { ...state, ...next, step: location.step };
@@ -2989,7 +2990,9 @@ function setState(patch) {
   if (Object.hasOwn(patch, 'busy')) {
     if (!patch.busy) {
       const result = closeAiTask(patch);
-      if (result) patch = { ...patch, aiResult: result };
+      // partial은 이번 알림을 어떻게 부를지 정하는 신호다. 상태에 남겨 두지 않는다.
+      const { partial, ...rest } = patch;
+      patch = result ? { ...rest, aiResult: result } : rest;
       busyStartedAt = 0;
     }
   }
@@ -3061,7 +3064,9 @@ function closeAiTask(patch) {
   const config = AI_TASKS[task.id];
   if (!config) return null;
   const seconds = (Date.now() - task.startedAt) / 1000;
-  const failed = Boolean(patch.error);
+  // 일부 출처만 못 가져온 것은 실패가 아니다. 결과가 하나라도 있으면 「완료」로 적고
+  // 못 가져온 곳은 경고로 따로 알린다. 목록이 떠 있는데 「실패」라고 적으면 결과를 믿지 못한다.
+  const failed = Boolean(patch.error) && !patch.partial;
   const result = { id: task.id, kind: failed ? 'fail' : 'done', label: failed ? `${config.busy.replace(/ 중$/, '')} 실패` : config.done, time: aiTaskLabel(seconds), anchor: config.anchor, step: Number.isInteger(config.step) ? config.step : null, tool: config.tool || '', retry: config.retry || '', sameView: task.location === aiTaskLocation() };
   if (!failed) pendingAiMove = result;
   return result;
@@ -7850,7 +7855,12 @@ async function loadOfficialNotices() {
     const warning = failedLabels.length
       ? `${failedLabels.map(source => source.label).join('·')} 공고를 가져오지 못했습니다. ${failedLabels[0].reason}`
       : '';
-    const patch = { busy: '', noticeResults: notices, noticeSources: result.sources || [], selectedNoticeIndexes: [], pendingNoticeChoice: null, notice: headline, error: warning };
+    const patch = {
+      busy: '', noticeResults: notices, noticeSources: result.sources || [], selectedNoticeIndexes: [], pendingNoticeChoice: null,
+      notice: headline, error: warning,
+      // 목록이 나왔는데 일부 출처만 못 열린 경우. 실패로 적지 않고 경고만 남긴다.
+      partial: Boolean(warning) && notices.length > 0
+    };
     // 가져온 공고가 없으면 빈 확인 화면으로 넘기지 않고 이 화면에 결과만 알린다.
     if (notices.length) navigateToStep(1, patch); else setState(patch);
   } catch (error) { setState({ busy: '', error: `${error.message}${elapsedLabel()}` }); }

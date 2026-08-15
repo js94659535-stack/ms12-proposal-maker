@@ -36,7 +36,7 @@ test('진행시간은 하나의 타이머로 초·분으로 세고 폴링을 늘
 
 test('완료되면 결과 위치로 옮기고 실패하면 옮기지 않는다', () => {
   assert.match(app, /function closeAiTask\(patch\)/);
-  assert.match(app, /const failed = Boolean\(patch\.error\);/);
+  assert.match(app, /const failed = Boolean\(patch\.error\) && !patch\.partial;/);
   assert.match(app, /if \(!failed\) pendingAiMove = result;/);
   assert.match(app, /function runPendingAiMove\(\)/);
   assert.match(app, /if \(!move\.sameView\) return;/);
