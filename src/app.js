@@ -3075,10 +3075,10 @@ function orgList() {
 }
 function orgScope() {
   const ids = new Set(orgList().map(item => item.id));
-  const kept = (state.orgScope || []).filter(id => ids.has(id));
-  // 예전에 하나만 고르던 사람은 그 값을 그대로 이어 쓴다.
-  if (kept.length) return kept;
-  return ids.has(state.project.type) ? [state.project.type] : [];
+  // 아직 한 번도 고른 적이 없을 때만 예전 단일 값을 물려받는다.
+  // 「전체 해제」로 비운 것과 「아직 안 골랐다」는 다르다. 비운 것을 되살리면 해제가 듣지 않는다.
+  if (!Array.isArray(state.orgScope)) return ids.has(state.project.type) ? [state.project.type] : [];
+  return state.orgScope.filter(id => ids.has(id));
 }
 function setOrgScope(next) {
   const ids = orgList().map(item => item.id);
