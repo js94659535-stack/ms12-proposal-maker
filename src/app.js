@@ -1049,7 +1049,7 @@ function premiumShowcasePanel(view) {
 function premiumHistoryPanel(view) {
   const history = view.history;
   return `<div class="archive-toolbar">
-      <input id="premium-history-query" value="${escapeHtml(view.query)}" placeholder="사업명·기관명·키워드 검색 후 Enter">
+      <input id="premium-history-query" type="search" autocomplete="off" value="${escapeHtml(view.query)}" placeholder="사업명·기관명·키워드 검색 후 Enter">
       <button class="button ${view.mode === 'focused' ? 'primary' : 'secondary'}" data-premium-mode="focused">맞춤검색</button>
       <button class="button ${view.mode === 'broad' ? 'primary' : 'secondary'}" data-premium-mode="broad">광역검색</button>
       <button class="button secondary" id="premium-history-search" ${auth.busy ? 'disabled' : ''}>이력 검색</button></div>
@@ -1662,7 +1662,7 @@ function usagePanel() {
 function adminNoticesPanel() {
   const view = auth.notices;
   return `<div class="card-title" style="margin-top:18px"><div><h4>공모정보 관리</h4><span>모아 둔 ${view.collected}건 · 비공개 ${view.hidden}건 · 중복 의심 ${view.duplicates}건</span></div></div>
-    <div class="field"><label for="admin-notice-query">전체 수집자료 검색</label><input id="admin-notice-query" placeholder="제목·주최기관·요약으로 찾기" value="${escapeHtml(view.queryDraft)}"></div>
+    <div class="field"><label for="admin-notice-query">전체 수집자료 검색</label><input id="admin-notice-query" type="search" autocomplete="off" placeholder="제목·주최기관·요약으로 찾기" value="${escapeHtml(view.queryDraft)}"></div>
     <div class="actions"><span class="muted">${view.loaded ? `${view.total}건 표시` : '불러오는 중입니다.'} · 비회원에게는 공개로 표시된 자료만 보입니다.</span>
       <div><button class="button secondary" id="admin-notice-search" ${auth.busy ? 'disabled' : ''}>검색</button><button class="button secondary" id="admin-notice-reload" ${auth.busy ? 'disabled' : ''}>새로고침</button></div></div>
     <div class="requirement-list">${view.list.map(item => `<article class="requirement"><div>
@@ -2029,7 +2029,7 @@ function operatorView() {
     ${auth.notice ? `<div class="alert success"><strong>${escapeHtml(auth.notice)}</strong></div>` : ''}
     <div class="alert"><strong>운영관리자 권한 범위</strong><p>회원 승인·중지·재활성화, 검색, 이용 흔적 확인, 로그인 잠금 해제, 전체 세션 종료, 일회용 복구코드 발급까지 할 수 있습니다. 이용권과 무료 체험 사용 여부는 <strong>조회만</strong> 됩니다. 비밀번호 조회·직접 지정, 역할(운영관리자) 지정·해제, 이용권 부여·회수, 요금·결제정책 변경, 환불, API 키·모델·시스템 설정, 계정·자료 영구 삭제, 전체 자료 내보내기, 관리자 계정 변경은 서버에서 거절합니다.</p></div>
     ${operatorNotIntegrated(view.notIntegrated)}
-    <div class="field"><label for="operator-search">회원 검색</label><input id="operator-search" placeholder="이름·이메일·기관명·연락처·계정 식별자" value="${escapeHtml(view.queryDraft)}"></div>
+    <div class="field"><label for="operator-search">회원 검색</label><input id="operator-search" type="search" autocomplete="off" placeholder="이름·이메일·기관명·연락처·계정 식별자" value="${escapeHtml(view.queryDraft)}"></div>
     <div class="actions"><span class="muted">${view.loaded ? `${view.users.length}건 표시${view.query ? ` · 검색어 「${escapeHtml(view.query)}」` : ''}${locked.length ? ` · 로그인 잠금 ${locked.length}건` : ''}` : '회원 목록을 불러오는 중입니다.'}</span>
       <div><button class="button secondary" id="operator-search-run" ${auth.busy ? 'disabled' : ''}>검색</button><button class="button secondary" id="operator-reload" ${auth.busy ? 'disabled' : ''}>새로고침</button><button class="button secondary" id="close-operator">계획서 포털로</button></div></div>
     <div class="actions" style="justify-content:stretch;gap:8px">
@@ -2561,7 +2561,7 @@ function noticeSearchView() {
           ${['focused', 'broad'].map(mode => `<button class="button ${view.mode === mode ? 'primary' : 'secondary'}" data-search-mode="${mode}" aria-pressed="${view.mode === mode}">${mode === 'focused' ? '맞춤검색' : '광역검색'}</button>`).join('')}
         </div>
         <p class="landing-note">${escapeHtml(SEARCH_MODE_HELP[view.mode])}</p>
-        <div class="field" style="margin-top:14px"><label for="notice-query">검색어</label><input id="notice-query" placeholder="예: 아동 정서, 청년 창업, 복권기금" value="${escapeHtml(view.queryDraft)}"></div>
+        <div class="field" style="margin-top:14px"><label for="notice-query">검색어</label><input id="notice-query" type="search" autocomplete="off" placeholder="예: 아동 정서, 청년 창업, 복권기금" value="${escapeHtml(view.queryDraft)}"></div>
         <div class="landing-cta"><button class="button primary" id="notice-search-run" ${view.busy ? 'disabled' : ''}>${view.busy ? '찾는 중…' : '검색'}</button>${activeFilters().length ? '<button class="button secondary" id="notice-filter-reset">필터 해제</button>' : ''}</div>
       </div>
       ${noticeFacets(view)}
@@ -3648,7 +3648,7 @@ function archiveView() {
       ['신청기관 연결', linkedCount, '공고당 여러 기관 연결 가능'],
       ['저장한 계획서', proposals.length, '작업하기에서 이어서 작성']
     ].map(([label, value, detail]) => `<span class="stat-badge" title="${escapeHtml(`${label} ${value}건 · ${detail}`)}"><strong>${value}</strong><span>${escapeHtml(label)}</span><small>${escapeHtml(detail)}</small></span>`).join('')}</div>
-    <div class="archive-toolbar"><input id="archive-query" value="${escapeHtml(table.query)}" placeholder="사업명·기관명·키워드 검색 후 Enter">
+    <div class="archive-toolbar"><input id="archive-query" type="search" name="archive-search" autocomplete="off" autocapitalize="off" spellcheck="false" value="${escapeHtml(table.query)}" placeholder="사업명·기관명·키워드 검색 후 Enter">
       <button class="button secondary" id="archive-apply-query">목록 검색</button>
       <button class="button secondary" id="archive-show-all">전체 보기</button>
       <button class="button secondary" id="search-archive">공고보관함 다시 불러오기</button>
@@ -3672,7 +3672,9 @@ function archiveView() {
       <th>${archiveSortButton('title', '사업명', table)}</th>
       <th>${archiveSortButton('deadline', '마감일', table)}</th>
       <th>상태</th><th>신청기관</th><th>삭제</th>
-    </tr></thead><tbody>${data.rows.map(row => archiveTableRow(row, { ...table, selected })).join('') || '<tr><td colspan="9" class="muted">조건에 맞는 공고가 없습니다. 필터를 초기화해 보세요.</td></tr>'}</tbody></table></div>
+    </tr></thead><tbody>${data.rows.map(row => archiveTableRow(row, { ...table, selected })).join('') || `<tr><td colspan="9" class="muted">${table.query
+      ? `검색어 「${escapeHtml(table.query)}」에 맞는 공고가 없습니다. 보관 공고는 ${data.total}건 있습니다. 「전체 보기」를 누르면 모두 나옵니다.`
+      : '조건에 맞는 공고가 없습니다. 「전체 보기」를 누르거나 필터를 초기화해 보세요.'}</td></tr>`}</tbody></table></div>
     ${data.total >= 500 ? '<p class="muted">보관 공고가 많아 최근 500건만 불러왔습니다. 더 예전 것은 「서버 검색 조건」에서 기간·기관을 좁혀 찾아 주세요.</p>' : ''}
     <div class="archive-pager"><span>총 ${data.matched}건 중 ${data.from}–${data.to}${data.pageSize === 0 ? ' (전체 보기)' : ` · ${data.page}/${data.pageCount}쪽`}</span>
       <label>페이지당 <select id="archive-page-size">${ARCHIVE_PAGE_SIZES.map(size => `<option value="${size}" ${data.pageSize === size ? 'selected' : ''}>${ARCHIVE_PAGE_SIZE_LABEL(size)}</option>`).join('')}</select></label>

@@ -137,3 +137,14 @@ test('전체 보기 단추는 걸어 둔 조건도 함께 푼다', async () => {
   const api = fs.readFileSync(new URL('../functions/api/archive.js', import.meta.url), 'utf8');
   assert.match(api, /export const NOTICE_LIMIT = 500;/);
 });
+
+test('검색칸에 브라우저가 계정 정보를 채우지 못하게 한다', () => {
+  // 자동완성이 검색칸에 이메일을 넣어 보관 공고 26건이 0건으로 보였다.
+  for (const id of ['archive-query', 'premium-history-query', 'admin-notice-query', 'operator-search', 'notice-query']) {
+    const at = appSource.indexOf(`id="${id}"`);
+    assert.ok(at > 0, id);
+    assert.ok(appSource.slice(at, at + 160).includes('autocomplete="off"'), id);
+  }
+  // 왜 0건인지 화면이 말한다. 검색어 탓인 줄 모르면 자료가 사라진 줄 안다.
+  assert.match(appSource, /검색어 「\$\{escapeHtml\(table\.query\)\}」에 맞는 공고가 없습니다\. 보관 공고는 \$\{data\.total\}건 있습니다/);
+});
