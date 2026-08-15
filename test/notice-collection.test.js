@@ -75,7 +75,7 @@ test('최근 정상 실행보다 절반 이하로 줄면 급감으로 본다', (
 
 test('실행기록에는 공고 제목·본문·첨부를 남기지 않는다', () => {
   const trimmed = trimSources([{ ...source(), notices: notices(3), titles: ['공모 1'], bodyHtml: '<p>본문</p>' }]);
-  assert.deepEqual(Object.keys(trimmed[0]).sort(), ['candidates', 'channel', 'code', 'collected', 'label', 'listed', 'source', 'status']);
+  assert.deepEqual(Object.keys(trimmed[0]).sort(), ['candidates', 'channel', 'code', 'collected', 'detailSkipped', 'label', 'listed', 'source', 'status']);
   const text = JSON.stringify(trimmed);
   for (const leak of ['공모 1', '본문', 'bodyHtml', 'notices']) assert.ok(!text.includes(leak), leak);
 });

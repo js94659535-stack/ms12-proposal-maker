@@ -44,7 +44,9 @@ export function trimSources(sources = []) {
     code: source?.status === 'ok' ? '' : source?.status === 'skipped' ? String(source?.reason || '') : failureCodeOf(source?.reason),
     listed: Number(source?.listed || 0),
     candidates: Number(source?.candidates || 0),
-    collected: Number(source?.collected || 0)
+    collected: Number(source?.collected || 0),
+    // 예산이 모자라 상세를 못 연 글 수. 「없었다」와 「다음에 본다」를 실행기록에서도 갈라 둔다.
+    detailSkipped: Number(source?.detailSkipped || 0)
   }));
 }
 
