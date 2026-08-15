@@ -539,13 +539,15 @@ test('프로그램이 보여 주는 글자는 색과 굵기를 함께 올린다'
   }
   assert.ok(weightBlock.includes('font-weight:500;'));
   // 예시문은 브라우저 기본 흐림을 끄고 우리가 정한 색으로 그린다.
-  assert.match(css, /::placeholder\{color:#6b5c52;opacity:1;font-weight:500\}/);
+  assert.match(css, /::placeholder\{color:#574a41;opacity:1;font-weight:500\}/);
   // 꺼져 있는 칸만 흐린 채로 둔다.
   assert.match(css, /:disabled::placeholder\{opacity:\.6\}/);
   // 사용자가 적은 글자는 안내문보다 진하다.
   assert.match(css, /\.field input, \.field textarea, \.field select, \.source-text, \.question textarea\{\s*color:var\(--ink\);\s*font-weight:500;/);
   // 고르기 전 보기 단추도 읽히게 하되, 고른 것과의 구분은 배경과 테두리가 맡는다.
-  assert.match(css, /\.chip\{color:#5a4c42;font-weight:500\}/);
+  // 눌러야 하는 글자가 설명하는 글자보다 흐리면 순서가 뒤집힌다.
+  assert.match(css, /\.chip\{color:#453a32;font-weight:500;opacity:1;border-color:#998a78\}/);
+  assert.match(css, /\.chips\{opacity:1;filter:none\}/);
   assert.match(css, /\.chip\.on\{background:#eaf2ff;border-color:#5b8def/);
   // 제목·항목명은 그대로 굵다. 전체를 일괄로 굵게 하지 않는다.
   assert.match(css, /\.field label\{font-size:13px;font-weight:800\}/);

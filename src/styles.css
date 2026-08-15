@@ -618,9 +618,14 @@ select{max-width:100%}
 
 /* 예시문(placeholder). 브라우저가 제 마음대로 옅게 그리지 못하게 못을 박는다.
    안내문보다 조금 연하되 읽히는 선(흰 바탕에서 6.4:1)까지만 연하다. */
-::placeholder{color:#6b5c52;opacity:1;font-weight:500}
+/* 재어 보니 6.41:1로 설명문보다 연했다. 적을 자리를 알려 주는 글이 설명문보다 흐리면 안 된다. */
+::placeholder{color:#574a41;opacity:1;font-weight:500}
 :disabled::placeholder{opacity:.6}
 
-/* 고르기 전 보기 단추. 글자는 읽히게 두고, 고른 것과의 구분은 배경색과 테두리가 맡는다. */
-.chip{color:#5a4c42;font-weight:500}
-.chip.on{color:#1a4fa8;font-weight:700}
+/* 고르기 전 보기 단추. 12.5px 작은 글자라 설명문과 같은 색으로는 더 흐려 보인다.
+   눌러야 하는 글자가 설명하는 글자보다 흐리면 순서가 뒤집힌다. 설명문보다 진하게 둔다.
+   고른 것과의 구분은 파란 배경·테두리·✓가 맡는다. 부모에 흐림(opacity·filter)을 두지 않는다. */
+.chips{opacity:1;filter:none}
+.chip{color:#453a32;font-weight:500;opacity:1;border-color:#998a78}
+.chip:hover:not(:disabled){border-color:#6f6055}
+.chip.on{color:#123f86;font-weight:700}
