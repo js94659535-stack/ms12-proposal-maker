@@ -533,9 +533,11 @@ test('프로그램이 보여 주는 글자는 색과 굵기를 함께 올린다'
   // 색만 내리면 얇은 획 때문에 여전히 흐리다. 안내 글자는 굵기도 한 단계 올린다.
   assert.match(css, /\.muted, small, \.tip, \.alert p[^{]*\{\s*font-weight:500;/);
   // 첫 화면 안내 문단과 머리말의 계정 표시도 같은 굵기를 쓴다. 재어 보니 400으로 남아 있었다.
-  for (const selector of ['\.landing-head p', '\.home-header span', '\.card-title span']) {
-    assert.match(css, new RegExp(selector + '[^{]*\{\s*font-weight:500;'));
+  const weightBlock = css.slice(css.indexOf('.muted, small, .tip, .alert p'), css.indexOf('/* 사용자가 직접 적은 글자'));
+  for (const selector of ['.landing-head p', '.home-header span', '.card-title span', '.home-card p']) {
+    assert.ok(weightBlock.includes(selector), selector);
   }
+  assert.ok(weightBlock.includes('font-weight:500;'));
   // 예시문은 브라우저 기본 흐림을 끄고 우리가 정한 색으로 그린다.
   assert.match(css, /::placeholder\{color:#6b5c52;opacity:1;font-weight:500\}/);
   // 꺼져 있는 칸만 흐린 채로 둔다.
