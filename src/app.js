@@ -478,7 +478,7 @@ function accountView() {
     ${auth.error ? `<div class="alert danger"><strong>${escapeHtml(auth.error)}</strong></div>` : ''}
     ${auth.notice ? `<div class="alert success"><strong>${escapeHtml(auth.notice)}</strong></div>` : ''}
     ${memberProfileForm()}
-    ${passwordChangePanel()}
+    ${passwordChangePanel({ open: true })}
     ${accountLinkPanel()}
     ${identityTransferPanel()}
     ${membershipStatusPanel()}
@@ -486,9 +486,10 @@ function accountView() {
     ${privacyNoticePanel()}</div>`;
 }
 // 비밀번호 바꾸기. 지금 비밀번호를 아는 사람만 바꾼다.
-function passwordChangePanel() {
+// 내 정보 화면에서는 접지 않고 펼쳐 둔다. 찾다가 못 찾는 자리가 되면 안 된다.
+function passwordChangePanel({ open = false } = {}) {
   const busy = auth.busy;
-  return `<details id="password-panel" ${auth.passwordOpen ? 'open' : ''}><summary>비밀번호 바꾸기</summary>
+  return `<details id="password-panel" ${open || auth.passwordOpen ? 'open' : ''}><summary>비밀번호 바꾸기</summary>
     <p class="muted">지금 쓰는 비밀번호를 함께 적어야 바꿀 수 있습니다. 바꾸면 이 기기를 포함해 로그인해 둔 모든 곳에서 다시 로그인해야 합니다.</p>
     <div class="two-col">
       <div class="field"><label for="pw-current">지금 비밀번호</label><input id="pw-current" type="password" autocomplete="current-password" ${busy ? 'disabled' : ''}></div>
