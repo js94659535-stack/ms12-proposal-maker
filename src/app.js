@@ -3100,10 +3100,13 @@ async function loadNoticeOrgs() {
 }
 
 // 접었을 때 한 줄, 폈을 때 검색·전체 선택·개별 체크.
+let orgScopeQuery = '';
 function orgScopeMenu() {
   const rows = orgList();
   const chosen = orgScope();
-  const query = String(state.orgScopeQuery || '');
+  // 찾던 말은 화면을 다시 그릴 때 지운다. 걸러진 목록이 남아 있으면 기관이 사라진 줄 안다.
+  const query = orgScopeQuery;
+  orgScopeQuery = '';
   const shown = searchOrgs(rows, query);
   const items = `<div class="org-scope">
     <input id="org-scope-search" class="org-scope-search" placeholder="기관 이름으로 찾기" value="${escapeHtml(query)}" autocomplete="off">
@@ -6304,8 +6307,8 @@ function bind() {
   document.querySelector('#org-scope-none')?.addEventListener('click', () => setOrgScope([]));
   document.querySelector('#org-scope-search')?.addEventListener('input', event => {
     // 찾는 동안 화면을 다시 그리면 글자를 치던 자리를 잃는다. 목록만 갈아 끼운다.
-    state.orgScopeQuery = event.target.value;
-    const rows = searchOrgs(orgList(), state.orgScopeQuery);
+    orgScopeQuery = event.target.value;
+    const rows = searchOrgs(orgList(), orgScopeQuery);
     const chosen = orgScope();
     const box = document.querySelector('.org-scope-list');
     if (box) box.innerHTML = rows.map(item => `<label class="org-scope-item"><input type="checkbox" data-org-pick="${escapeHtml(item.id)}" ${chosen.includes(item.id) ? 'checked' : ''}>

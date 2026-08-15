@@ -35,7 +35,7 @@ async function signIn() {
 const openPortal = label => page.run(`(() => { const el = [...document.querySelectorAll('button')].find(i => (i.textContent||'').includes(${JSON.stringify(label)})); if (!el) return '0'; el.click(); return '1'; })()`, 2500);
 const openOrgMenu = () => page.run("(() => { const el = document.querySelector('[data-topmenu=\"orgs\"]'); if (!el) return JSON.stringify({ ok:false }); el.open = true; return JSON.stringify({ ok:true, label: (el.querySelector('.topmenu-label')?.textContent||'').trim() }); })()", 500);
 const orgLabel = () => page.run("(() => JSON.stringify({ label: (document.querySelector('[data-topmenu=\"orgs\"] .topmenu-label')?.textContent||'').trim(), boxes: [...document.querySelectorAll('[data-org-pick]')].map(b => ({ id: b.dataset.orgPick, on: b.checked })) }))()");
-const clickOrg = id => page.run(`(() => { const el = document.querySelector('[data-org-pick="${id}"]'); if (!el) return '0'; el.click(); return '1'; })()`, 1200);
+const clickOrg = id => page.run(`(() => { const el = document.querySelector('[data-org-pick="${id}"]'); if (!el) return JSON.stringify({ found: false }); el.click(); return JSON.stringify({ found: true, checked: el.checked }); })()`, 1200);
 const pressId = id => page.run(`(() => { const el = document.querySelector('${id}'); if (!el) return '0'; el.click(); return '1'; })()`, 1500);
 
 console.log('로그인', await signIn());
@@ -51,10 +51,10 @@ await pressId('#org-scope-none');
 await openOrgMenu();
 note('전체 해제', (await orgLabel())?.label?.includes('선택 안 함'), (await orgLabel())?.label || '');
 
-await clickOrg('chest');
+const picked = await clickOrg('chest');
 await openOrgMenu();
 let now = await orgLabel();
-note('개별 선택(사랑의열매)', now?.label?.includes('사랑의열매'), now?.label || '');
+note('개별 선택(사랑의열매)', now?.label?.includes('사랑의열매'), `${now?.label || ''} · 클릭 ${JSON.stringify(picked)}`);
 
 await clickOrg('family');
 await openOrgMenu();
@@ -70,6 +70,7 @@ await page.fill('#org-scope-search', '가족', 800);
 const found = await page.run("(() => JSON.stringify({ shown: [...document.querySelectorAll('.org-scope-item')].map(el => (el.textContent||'').trim().slice(0, 12)) }))()");
 note('검색', (found?.shown || []).length === 1 && String(found.shown[0]).includes('가족'), JSON.stringify(found?.shown || []));
 await shot('2-scope-search');
+await page.fill('#org-scope-search', '', 600);
 
 // ---------- 관리 ----------
 await openPortal('관리자 포털');
