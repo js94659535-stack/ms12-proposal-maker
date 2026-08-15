@@ -6044,6 +6044,9 @@ function bindDropzone(selector, onFiles) {
 function fitTextarea(el) {
   if (!el) return;
   const limit = Math.min(window.innerHeight * 0.45, 480);
+  // 빈칸은 CSS가 정한 시작 높이로 둔다. 좁은 화면에서는 예시문이 여러 줄로 감겨
+  // 빈칸인데도 화면 절반을 차지한다. 예시문 길이가 칸 높이를 정하게 두지 않는다.
+  if (!el.value) { el.style.height = ''; el.style.overflowY = 'auto'; return; }
   // 먼저 줄여야 줄어든 내용에서도 제 높이를 잰다.
   el.style.height = 'auto';
   const next = Math.min(el.scrollHeight, limit);

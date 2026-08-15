@@ -540,6 +540,8 @@ test('핵심 아이디어 칸은 일곱 줄로 시작해 적는 만큼 늘어난
   assert.match(app, /if \(trialAccount\(\)\) \{ app\.innerHTML = coreProposalView\(\); bindCoreProposal\(\); fitAutoGrow\(\); return; \}/);
   assert.match(app, /el\.style\.height = 'auto';/);
   assert.match(app, /el\.style\.overflowY = el\.scrollHeight > limit \? 'auto' : 'hidden';/);
+  // 빈칸은 예시문 길이가 아니라 정해 둔 시작 높이를 쓴다. 좁은 화면에서 빈칸이 절반을 차지하면 안 된다.
+  assert.match(app, /if \(!el\.value\) \{ el\.style\.height = ''; el\.style\.overflowY = 'auto'; return; \}/);
   // 다른 입력칸의 크기는 건드리지 않는다.
   assert.match(css, /\.source-text\{width:100%;height:270px;resize:vertical\}/);
 });
