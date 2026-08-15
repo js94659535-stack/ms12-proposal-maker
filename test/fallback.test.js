@@ -885,7 +885,9 @@ test('뒤로·홈·앞으로 버튼은 모든 6단계 공통 셸에 표시되고
   assert.match(source, /aria-current="step"/);
 });
 
-test('사업 유형과 6단계 작업 탭은 sticky 상단 내비게이션에 배치된다', () => {
+test('공고 유형과 6단계 작업 탭은 sticky 상단 내비게이션에 배치된다', () => {
+  // 이 자리에서 고르는 것은 「어디에서 낸 공고인가」다. 사업의 종류가 아니다.
+  assert.match(fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8'), /for="business-type"[^>]*>공고 유형</);
   const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   const styles = fs.readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /<aside class="sidebar">/);
