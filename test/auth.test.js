@@ -354,6 +354,17 @@ test('로그인한 사람은 지금 비밀번호를 알아야 새 비밀번호�
   assert.match(app, /id="pw-current"/);
   // 들어갈 문이 있어야 기능이다. 홈과 관리자 포털 머리띠에서 바로 연다.
   assert.equal((app.match(/id="open-account"/g) || []).length, 3, '작업 화면·홈·관리자 포털 세 곳');
+  // 무료 회원은 계정 화면 자체가 열리지 않는다. 그 화면 안에 같은 자리를 둔다.
+  assert.match(app, /id="core-open-my-info"/);
+  assert.match(app, /auth\.memberOpen \? `\$\{memberProfileForm\(\)\}\$\{passwordChangePanel\(\)\}` : ''/);
+  // 이름부터 무엇을 하는 자리인지 드러낸다.
+  assert.match(app, /<h3>내 정보 관리<\/h3>/);
+  assert.ok(!app.includes('>계정 설정</button>'), '머리띠 이름도 내 정보로 맞춘다');
+  // 내가 고칠 수 있는 것이 위에 온다.
+  const view = app.slice(app.indexOf('function accountView()'), app.indexOf('// 비밀번호 바꾸기. 지금 비밀번호를 아는 사람만'));
+  assert.ok(view.indexOf('memberProfileForm()') < view.indexOf('passwordChangePanel()'));
+  assert.ok(view.indexOf('passwordChangePanel()') < view.indexOf('membershipStatusPanel()'));
+  assert.match(view, /이메일 주소와 회원 등급은 본인이 바꿀 수 없고/);
   assert.match(app, /id="pw-next"/);
   assert.match(app, /id="pw-confirm"/);
   assert.match(app, /signOutLocally\('비밀번호를 바꿨습니다\. 새 비밀번호로 다시 로그인해 주세요\.', \{ toLogin: true \}\)/);

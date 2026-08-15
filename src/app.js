@@ -473,16 +473,17 @@ async function claimArchiveToAccount() {
 
 // 로그인한 사람의 계정 설정 화면.
 function accountView() {
-  return `<div class="card"><div class="card-title"><div><h3>계정 설정</h3><span>${escapeHtml(accountEmail())} · ${escapeHtml(auth.user?.role || '')}${auth.user?.premium ? ` · ${escapeHtml(auth.user.premiumLabel || '수주회원')}(${escapeHtml(auth.user.premiumStatusLabel || '')})` : ''}</span></div><span class="status 충족">${escapeHtml(auth.user?.status || '')}</span></div>
+  return `<div class="card"><div class="card-title"><div><h3>내 정보 관리</h3><span>${escapeHtml(accountEmail())} · ${escapeHtml(roleLabel(auth.user?.role))}</span></div></div>
+    <p class="muted">이름·연락처·기관명·비밀번호는 여기서 직접 고칩니다. 관리자에게 부탁하지 않아도 됩니다. 이메일 주소와 회원 등급은 본인이 바꿀 수 없고, 바꾸려면 관리자에게 요청해야 합니다.</p>
     ${auth.error ? `<div class="alert danger"><strong>${escapeHtml(auth.error)}</strong></div>` : ''}
     ${auth.notice ? `<div class="alert success"><strong>${escapeHtml(auth.notice)}</strong></div>` : ''}
-    ${membershipStatusPanel()}
-    ${passwordChangePanel()}
-    ${identityTransferPanel()}
     ${memberProfileForm()}
+    ${passwordChangePanel()}
+    ${accountLinkPanel()}
+    ${identityTransferPanel()}
+    ${membershipStatusPanel()}
     ${archiveClaimPanel()}
-    ${privacyNoticePanel()}
-    ${accountLinkPanel()}</div>`;
+    ${privacyNoticePanel()}</div>`;
 }
 // 비밀번호 바꾸기. 지금 비밀번호를 아는 사람만 바꾼다.
 function passwordChangePanel() {
@@ -2277,7 +2278,7 @@ function adminLandingView() {
   return `<div class="home admin-landing">
     <header class="home-header">
       <div class="home-brand"><strong>관리자 포털</strong><span>${escapeHtml(accountEmail())} · ${escapeHtml(roleLabel(auth.user?.role))}</span></div>
-      <nav class="home-nav">${ADMIN_NAV.map(([id, label]) => `<button class="button ghost" data-landing-scroll="${id}">${label}</button>`).join('')}<button class="button ghost" id="open-account">계정 설정</button>${portalLinks('button ghost')}<button class="button ghost" id="sign-out">로그아웃</button></nav>
+      <nav class="home-nav">${ADMIN_NAV.map(([id, label]) => `<button class="button ghost" data-landing-scroll="${id}">${label}</button>`).join('')}<button class="button ghost" id="open-account">내 정보</button>${portalLinks('button ghost')}<button class="button ghost" id="sign-out">로그아웃</button></nav>
     </header>
     <section class="landing">
       <div class="landing-section admin-ops">
@@ -2600,7 +2601,7 @@ function coreProposalView() {
   return `<div class="layout home-layout"><main class="main"><div class="home">
     <header class="home-header">
       <div class="home-brand"><strong>MS12 핵심제안서</strong><span>${escapeHtml(accountEmail())}</span></div>
-      <nav class="home-nav"><button class="button ghost" data-landing-notices="1">공모정보 검색</button><button class="button ghost" data-landing-example="1">우수 계획서 예시</button><button class="button ghost" id="sign-out">로그아웃</button></nav>
+      <nav class="home-nav"><button class="button ghost" data-landing-notices="1">공모정보 검색</button><button class="button ghost" data-landing-example="1">우수 계획서 예시</button><button class="button ghost" id="core-open-my-info">내 정보</button><button class="button ghost" id="sign-out">로그아웃</button></nav>
     </header>
     <section class="landing">
       ${auth.error ? `<div class="alert danger"><strong>${escapeHtml(auth.error)}</strong></div>` : ''}
@@ -2630,7 +2631,7 @@ function coreProposalView() {
           <div class="actions" style="margin:6px 0 0"><span class="muted">기관명·인력·실적을 적어 두면 [확인 필요]가 줄어듭니다.</span>
             <button class="button secondary" id="core-open-profile" type="button">${memberFactsText() ? '기관정보 고치기' : '기관정보 적기'}</button></div>
         </div>
-        ${auth.memberOpen ? memberProfileForm() : ''}
+        ${auth.memberOpen ? `${memberProfileForm()}${passwordChangePanel()}` : ''}
 <div class="field"><label for="core-idea">핵심 아이디어 <span class="status 확인-필요">필수</span></label><textarea id="core-idea" class="source-text auto-grow idea-grow" rows="7" placeholder="무엇을, 누구에게, 어떻게 하려는지 적어 주세요.&#10;예1) 초등 4~6학년 정서지원 집단 프로그램을 주 1회 16회기로 운영합니다. 학교 상담교사 추천으로 12명을 모집하고, 회기마다 정서표현 활동과 보호자 상담을 함께 합니다.&#10;예2) 홀몸 어르신 30명에게 주 2회 반찬을 배달하며 안부를 확인하고, 이상 징후가 보이면 주민센터에 연계합니다.&#10;예3) 청년 자영업자 20팀에게 온라인 판로 교육 8회와 1:1 컨설팅 3회를 제공해 매출 회복을 돕습니다." ${done || busy ? 'disabled' : ''}>${escapeHtml(draft.coreIdea)}</textarea><small class="muted">${CORE_MIN_IDEA}자 이상 · 지금 <strong id="core-idea-count">${draft.coreIdea.trim().length}</strong>자 · 대상·인원·횟수·방법이 들어가면 제안서가 구체해집니다. 모르는 숫자는 비워 두세요.</small></div>
 <div class="two-col">
 <div class="field"><label for="core-title">제안서 가제 (선택)</label><input id="core-title" maxlength="60" placeholder="예: 중장년 디지털 배움터" value="${escapeHtml(draft.title || '')}" ${done || busy ? 'disabled' : ''}><small class="muted">적으신 제목을 그대로 씁니다. 비우면 내용에 맞춰 지어 드립니다.</small></div>
@@ -3052,7 +3053,7 @@ function shell(content) {
     <div class="layout">
       <main class="main">
         <header class="workflow-header">
-          <div class="workflow-brand"><div class="brand"><span class="brand-mark">계</span><div><strong>사업계획서 작성 도우미</strong><small>공고 분석부터 제출본까지</small></div></div><span class="save-state">● 자동 저장 중</span><span class="mode">${escapeHtml(accountEmail())}</span><button class="history-button" id="open-account" aria-pressed="${state.activeTool === 'account'}">계정 설정</button>${portalLinks()}<button class="history-button" id="sign-out">로그아웃</button></div>
+          <div class="workflow-brand"><div class="brand"><span class="brand-mark">계</span><div><strong>사업계획서 작성 도우미</strong><small>공고 분석부터 제출본까지</small></div></div><span class="save-state">● 자동 저장 중</span><span class="mode">${escapeHtml(accountEmail())}</span><button class="history-button" id="open-account" aria-pressed="${state.activeTool === 'account'}">내 정보</button>${portalLinks()}<button class="history-button" id="sign-out">로그아웃</button></div>
           <div class="workflow-row"><label class="type-select-label" for="business-type">사업 유형<select id="business-type">${TYPES.map(([id, name]) => `<option value="${id}" ${state.project.type === id ? 'selected' : ''}>${name}</option>`).join('')}</select></label>${stepMenu()}${toolMenu()}<nav class="workflow-history" aria-label="앱 작업 화면 이동"><button class="history-button" id="workflow-back" aria-label="직전 작업 화면으로 뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="history-button" id="workflow-home" aria-label="홈 화면으로 가기">⌂ 홈</button><button class="history-button" id="workflow-forward" aria-label="다음 작업 화면으로 앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button></nav></div>
         </header>
         ${viewModeBadge()}
@@ -3094,7 +3095,7 @@ function homeView() {
     <div class="home">
       <header class="home-header">
         <div class="home-brand"><strong>사업계획서 작성 도우미</strong><span>공고 분석부터 제출본까지</span></div>
-        <nav class="home-nav"><button class="button ghost" id="workflow-back" aria-label="뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="button ghost" disabled aria-current="page">⌂ 홈 화면</button><button class="button ghost" id="workflow-forward" aria-label="앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button><button class="button ghost" data-home-scroll="home-product">제품소개</button><button class="button ghost" data-home-scroll="home-flow">이용방법</button><button class="button ghost" data-home-scroll="home-features">주요기능</button><button class="button ghost" data-home-archive="1">공고보관함·계획서보관함</button><button class="button ghost" id="open-account">계정 설정</button>${portalLinks('button ghost')}<button class="button primary" data-home-start="1">새 계획서 시작</button></nav>
+        <nav class="home-nav"><button class="button ghost" id="workflow-back" aria-label="뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="button ghost" disabled aria-current="page">⌂ 홈 화면</button><button class="button ghost" id="workflow-forward" aria-label="앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button><button class="button ghost" data-home-scroll="home-product">제품소개</button><button class="button ghost" data-home-scroll="home-flow">이용방법</button><button class="button ghost" data-home-scroll="home-features">주요기능</button><button class="button ghost" data-home-archive="1">공고보관함·계획서보관함</button><button class="button ghost" id="open-account">내 정보</button>${portalLinks('button ghost')}<button class="button primary" data-home-start="1">새 계획서 시작</button></nav>
       </header>
 
       <section class="home-hero">
@@ -5622,6 +5623,12 @@ function bindNoticeSearch() {
 function bindCoreProposal() {
   // 기관정보는 「내 정보」 한 곳에서만 적는다. 여기서 열고 저장하면 제안서가 그대로 가져다 쓴다.
   document.querySelector('#core-open-profile')?.addEventListener('click', () => setAuth({ memberOpen: !auth.memberOpen }));
+  // 무료 회원은 계정 화면이 따로 열리지 않는다. 이 화면 안에서 내 정보와 비밀번호를 고친다.
+  document.querySelector('#core-open-my-info')?.addEventListener('click', () => {
+    setAuth({ memberOpen: true, passwordOpen: true });
+    document.querySelector('#password-panel')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+  document.querySelector('#pw-save')?.addEventListener('click', () => void submitPasswordChange());
   if (auth.memberOpen) bindMemberProfile();
   const field = (id, key) => document.querySelector(id)?.addEventListener('input', event => { auth.core.draft[key] = event.target.value; });
   field('#core-proposer', 'proposer');
