@@ -319,3 +319,15 @@ test('진행 중 공고가 없는 지회를 고장으로 적지 않는다', asyn
   // 화면 맨 아래 함수 정의까지 세면 공고 0건인 지회가 실패로 남는다. 실제 글만 센다.
   assert.ok(api.includes("fn_goDetail\\(\\s*'"), '실제 글만 센다');
 });
+
+test('같은 업체 게시판은 한 실행에서 하나만 연다', async () => {
+  const { SOURCES, SKIP_LABELS } = await import('../server/notice-sources.js');
+  const imweb = SOURCES.filter(source => source.platform === 'imweb').map(source => source.id);
+  // 바보의나눔과 부스러기사랑나눔회는 같은 업체(아임웹) 게시판이다. 잇달아 열면 429로 막힌다.
+  assert.deepEqual(imweb.sort(), ['babo-notice', 'busrugy-notice']);
+  assert.match(SKIP_LABELS['platform-turn'], /한 번에 하나만 부릅니다/);
+  const fs = await import('node:fs');
+  const source = fs.readFileSync(new URL('../server/extra-collect.js', import.meta.url), 'utf8');
+  assert.match(source, /if \(source\.platform && platformsUsed\.has\(source\.platform\)\)/);
+  assert.match(source, /if \(source\.platform\) platformsUsed\.add\(source\.platform\);/);
+});

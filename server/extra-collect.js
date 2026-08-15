@@ -227,7 +227,14 @@ export async function collectExtraSources(fetcher = fetch, { settings = {}, secr
   const notices = [];
   // 한 번에 부를 수 있는 횟수에 한도가 있다. 늘 같은 차례로 돌면 뒤쪽 출처는 영영 차례가 오지 않는다.
   // 그래서 실행할 때마다 시작 지점을 한 칸씩 옮긴다. 하루 두 번 도는 동안 모든 곳이 앞자리에 선다.
+  // 같은 업체가 돌리는 게시판은 한 실행에서 하나만 연다. 둘을 잇달아 열면 그쪽에서 막는다(429).
+  // 순서가 실행마다 돌기 때문에 오늘 못 연 곳은 다음 실행에서 먼저 열린다.
+  const platformsUsed = new Set();
   for (const source of rotate(SOURCES, now)) {
+    if (source.platform && platformsUsed.has(source.platform)) {
+      sources.push({ ...baseStatus(source), status: 'skipped', reason: 'platform-turn' });
+      continue;
+    }
     const gate = runnable(source, { settings, secrets });
     if (!gate.ok) {
       // 돌리지 않은 것은 실패가 아니다. 따로 표시한다.
@@ -240,6 +247,7 @@ export async function collectExtraSources(fetcher = fetch, { settings = {}, secr
     if (sources.some(item => item.status === 'ok' || item.status === 'failed')) await wait(SOURCE_GAP_MS);
     try {
       const outcome = await runner(fetcher, source, today, { serviceKey: secrets[source.needsSecret], now, budget });
+      if (source.platform) platformsUsed.add(source.platform);
       sources.push(outcome.status);
       notices.push(...outcome.notices);
     } catch (error) {

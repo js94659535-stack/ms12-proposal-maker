@@ -47,7 +47,8 @@ export const SOURCES = Object.freeze([
   },
   {
     id: 'babo-notice', group: 'babo', label: '바보의나눔 지원공지',
-    kind: 'imweb-board', origin: 'https://babo.or.kr',
+    // 같은 업체(아임웹)가 돌리는 게시판. 한 실행에서 둘을 잇달아 열면 그쪽에서 막는다.
+    kind: 'imweb-board', platform: 'imweb', origin: 'https://babo.or.kr',
     path: '/notice', detailPath: '/notice/',
     organization: '재단법인 바보의나눔', defaultEnabled: true, needsSecret: '',
     // 2026-08-12 확인: HTTP 200, robots.txt가 /notice를 허용, ul.li_body 구조.
@@ -64,7 +65,7 @@ export const SOURCES = Object.freeze([
   },
   {
     id: 'busrugy-notice', group: 'busrugy', label: '부스러기사랑나눔회 공지사항',
-    kind: 'imweb-board', origin: 'https://busrugy.or.kr',
+    kind: 'imweb-board', platform: 'imweb', origin: 'https://busrugy.or.kr',
     path: '/NOTICE/', detailPath: '/NOTICE/',
     organization: '사단법인 부스러기사랑나눔회', defaultEnabled: true, needsSecret: '',
     // 2026-08-15 확인: HTTP 200, robots.txt가 /NOTICE를 허용, 바보의나눔과 같은 아임웹 ul.li_body 구조, 목록 15건.
@@ -115,6 +116,7 @@ export function runnable(source, { settings = {}, secrets = {} } = {}) {
 }
 
 export const SKIP_LABELS = Object.freeze({
+  'platform-turn': '같은 업체 게시판은 한 번에 하나만 부릅니다(다음 실행에서 봅니다)',
   'not-connected': '미연동(공식 경로 확인 필요)',
   disabled: '관리자가 중지함',
   'missing-secret': '인증키 미등록',
