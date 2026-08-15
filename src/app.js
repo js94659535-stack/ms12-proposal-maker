@@ -2247,15 +2247,17 @@ const LANDING_VALUES = [
   ['AI 검증·수정', '평가기준으로 문제를 찾고 위치·근거·수정 방향을 함께 제시합니다.'],
   ['버전 보존', '수정본을 만들어도 V1·V2·V3를 덮어쓰지 않고 각각 남깁니다.']
 ];
+// 주요 기능 카드. 세 번째 값은 「어디로 가는가」다. 새 화면을 만들지 않고 이미 있는 자리를 연다.
+// step:n = 작업 단계, tool:이름 = 별도 화면, archive = 보관함 상자.
 const LANDING_FEATURES = [
-  ['공고 분석', '공고문·첨부 자료에서 목적·자격·필수내용·평가·성과 요구를 원문 근거와 함께 정리합니다.'],
-  ['기관정보 관리', '기관별 확인된 정보와 과거 실적을 나눠 보관하고 사업마다 다시 씁니다.'],
-  ['사업 설계도', '신청유형·대상·프로그램·예산·성과를 한 장으로 정리하고 미확정 항목을 추적합니다.'],
-  ['계획서 작성', '설계도를 기준으로 신청서 항목별 초안을 만들고 근거를 연결합니다.'],
-  ['검증·코칭', '평가기준으로 문제를 찾아 위치·근거·수정 방향을 함께 제시합니다.'],
-  ['수정계획과 버전', '수정 가능한 것만 반영하고 V1·V2·V3를 각각 보존합니다.'],
-  ['제출본 출력', '검토본을 DOCX·PDF로 출력합니다.'],
-  ['공고보관함·계획서보관함', '공고와 계획서를 보관하고 언제든 이어서 작업합니다.']
+  ['공고 분석', '공고문·첨부 자료에서 목적·자격·필수내용·평가·성과 요구를 원문 근거와 함께 정리합니다.', 'step:1'],
+  ['기관정보 관리', '기관별 확인된 정보와 과거 실적을 나눠 보관하고 사업마다 다시 씁니다.', 'tool:applicants'],
+  ['사업 설계도', '신청유형·대상·프로그램·예산·성과를 한 장으로 정리하고 미확정 항목을 추적합니다.', 'step:3'],
+  ['계획서 작성', '설계도를 기준으로 신청서 항목별 초안을 만들고 근거를 연결합니다.', 'step:4'],
+  ['검증·코칭', '평가기준으로 문제를 찾아 위치·근거·수정 방향을 함께 제시합니다.', 'tool:coaching'],
+  ['수정계획과 버전', '수정 가능한 것만 반영하고 V1·V2·V3를 각각 보존합니다.', 'step:5'],
+  ['제출본 출력', '검토본을 DOCX·PDF로 출력합니다.', 'step:5'],
+  ['공고보관함·계획서보관함', '공고와 계획서를 보관하고 언제든 이어서 작업합니다.', 'archive']
 ];
 const LANDING_AUDIENCE = [
   ['기관 사업 담당자', '복지관·센터·비영리 기관에서 공모 신청을 직접 준비하는 담당자'],
@@ -2270,8 +2272,14 @@ const LANDING_SECURITY = [
 ];
 const LANDING_SECTIONS = [['landing-value', '핵심 가치'], ['landing-flow', '이용 흐름'], ['landing-notices', '공모정보 검색'], ['landing-features', '주요 기능'], ['membership-guide', '회원 안내'], ['landing-audience', '이용 대상'], ['landing-security', '보안·승인']];
 const landingCta = extra => `<div class="landing-cta"><button class="button primary" data-landing="signup">3페이지 무료 체험</button><button class="button secondary" data-landing="login">로그인</button><button class="button secondary" data-landing-notices="1">공모정보 검색</button><button class="button secondary" data-landing-example="1">우수 계획서 예시 보기</button>${extra || ''}</div>`;
-const landingCards = (items, plain = true) => items.map(([title, body]) =>
-  `<article class="landing-card${plain ? ' plain' : ''}"><h3>${escapeHtml(title)}</h3><p>${escapeHtml(body)}</p></article>`).join('');
+// 갈 곳이 있고 로그인해 있으면 카드째로 문이 된다. 로그인 전에는 열 화면이 없으므로 글로만 둔다.
+const landingCards = (items, plain = true, { linked = false } = {}) => items.map(([title, body, go]) => {
+  const opens = linked && go;
+  const attrs = opens
+    ? ` class="landing-card${plain ? ' plain' : ''} is-open" data-feature-go="${escapeHtml(go)}" role="button" tabindex="0" aria-label="${escapeHtml(title)} 화면 열기"`
+    : ` class="landing-card${plain ? ' plain' : ''}"`;
+  return `<article${attrs}><h3>${escapeHtml(title)}</h3><p>${escapeHtml(body)}</p>${opens ? '<span class="landing-open-hint">눌러서 열기</span>' : ''}</article>`;
+}).join('');
 
 // 서비스 소개 구역. 공개 랜딩과 관리자 랜딩이 같은 내용을 쓴다.
 // 한 곳에서만 고치면 두 화면이 같이 바뀐다. 따로 베껴 두지 않는다.
@@ -2307,7 +2315,7 @@ function introSections({ forAdmin = false } = {}) {
 
     <div class="landing-section" id="landing-features">
       <div class="landing-head"><h2>주요 기능</h2><p>공모사업 작성에 필요한 과정을 한 곳에서 관리합니다.</p></div>
-      <div class="landing-grid four">${landingCards(LANDING_FEATURES)}</div>
+      <div class="landing-grid four">${landingCards(LANDING_FEATURES, true, { linked: forAdmin })}</div>
     </div>
 
     <div class="landing-section" id="landing-audience">
@@ -2380,6 +2388,16 @@ function bindAdminLanding() {
   document.querySelector('#open-account')?.addEventListener('click', () => setState({ activeTool: 'account', notice: '', error: '' }));
   // 보관함은 계획서 포털 쪽 화면이다. 포털을 옮긴 뒤 같은 자리를 연다.
   document.querySelectorAll('[data-open-archive]').forEach(el => el.onclick = () => openArchiveBox());
+  // 주요 기능 카드. 마우스로도 자판으로도 같은 화면을 연다.
+  document.querySelectorAll('[data-feature-go]').forEach(el => {
+    const open = () => openFeature(el.dataset.featureGo);
+    el.onclick = open;
+    el.onkeydown = event => {
+      if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return;
+      event.preventDefault();
+      open();
+    };
+  });
   document.querySelectorAll('[data-admin-go]').forEach(el => el.onclick = () => openAdminShortcut(el.dataset.adminGo));
   // 이용 흐름 첫 카드. 마우스로도 자판으로도 같은 화면을 연다.
   document.querySelectorAll('[data-flow-open]').forEach(el => {
@@ -2399,6 +2417,21 @@ function bindAdminLanding() {
 function openFlowStep(step) {
   state.activeTool = 'workflow';
   navigateToStep(step, { notice: '', error: '' });
+}
+
+// 주요 기능 카드에서 실제 화면으로. 권한은 서버가 그대로 본다.
+function openFeature(go) {
+  const value = String(go || '');
+  if (value === 'archive') return openArchiveBox();
+  if (value.startsWith('tool:')) {
+    state.portal = 'proposal';
+    return setState({ activeTool: value.slice(5), notice: '', error: '' });
+  }
+  if (value.startsWith('step:')) {
+    state.portal = 'proposal';
+    state.activeTool = 'workflow';
+    return navigateToStep(Number(value.slice(5)), { notice: '', error: '' });
+  }
 }
 
 // 공고보관함·계획서보관함을 연다. 관리자 포털에서 눌러도 계획서 포털의 같은 자리로 간다.

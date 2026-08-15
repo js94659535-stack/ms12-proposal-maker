@@ -122,3 +122,21 @@ test('관리자 포털에서도 공고보관함으로 바로 간다', () => {
   // 홈 단추도 같은 길을 쓴다.
   assert.match(app, /\[data-home-archive\]'\)\.forEach\(el => el\.onclick = \(\) => openArchiveBox\(\)\)/);
 });
+
+test('주요 기능 카드는 각각 그 기능 화면으로 간다', () => {
+  // 여덟 카드가 저마다 갈 곳을 들고 있다. 새 화면을 만들지 않고 이미 있는 자리를 연다.
+  const table = app.slice(app.indexOf('const LANDING_FEATURES = ['), app.indexOf('const LANDING_AUDIENCE'));
+  for (const go of ['step:1', 'tool:applicants', 'step:3', 'step:4', 'tool:coaching', 'step:5', 'archive']) {
+    assert.ok(table.includes(`'${go}'`), go);
+  }
+  assert.equal((table.match(/', '/g) || []).length >= 8, true);
+  // 카드째로 문이 된다. 자판으로도 열린다.
+  assert.match(app, /data-feature-go="\$\{escapeHtml\(go\)\}" role="button" tabindex="0"/);
+  assert.match(app, /querySelectorAll\('\[data-feature-go\]'\)/);
+  assert.match(app, /function openFeature\(go\) \{/);
+  assert.match(app, /if \(value === 'archive'\) return openArchiveBox\(\);/);
+  assert.match(app, /if \(value\.startsWith\('tool:'\)\)/);
+  assert.match(app, /if \(value\.startsWith\('step:'\)\)/);
+  // 로그인 전 소개 화면에서는 열 화면이 없으므로 글로만 둔다.
+  assert.match(app, /landingCards\(LANDING_FEATURES, true, \{ linked: forAdmin \}\)/);
+});
