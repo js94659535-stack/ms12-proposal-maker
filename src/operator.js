@@ -29,3 +29,7 @@ export const operatorNoticeCollection = () => post('noticeCollection');
 // 관리자가 지정해 준 계획서만 본다. 지정이 없으면 목록이 비어 있다.
 export const operatorAssignedProposals = () => post('assignedProposals');
 export const operatorProposalContent = id => post('proposalContent', { id });
+// 공고 출처·기관 등록부. 추가·수정·중지·복원은 운영관리자까지, 보관은 최고관리자만(서버가 검사한다).
+export const operatorNoticeOrgs = () => post('noticeOrgs', {});
+export const operatorSaveNoticeOrg = value => post('saveNoticeOrg', value);
+export const operatorSetNoticeOrgStatus = (id, status) => post('setNoticeOrgStatus', { id, status });

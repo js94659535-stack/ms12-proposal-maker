@@ -37,8 +37,8 @@ test('작업 화면 네 곳이 「작업 메뉴」 하나로 묶이고 처리기
   assert.doesNotMatch(row, /id="open-archive-box"|id="open-engagement"|id="open-applicants"|id="open-coaching"/);
 });
 
-test('상단 배치는 사업 유형 · 현재 단계 · 작업 메뉴 · 이동 순서다', () => {
-  const order = ['id="business-type"', '${stepMenu()}', '${toolMenu()}', 'class="workflow-history"'];
+test('상단 배치는 공고 출처·기관 · 현재 단계 · 작업 메뉴 · 이동 순서다', () => {
+  const order = ['${orgScopeMenu()}', '${stepMenu()}', '${toolMenu()}', 'class="workflow-history"'];
   let last = -1;
   for (const needle of order) {
     const at = row.indexOf(needle);

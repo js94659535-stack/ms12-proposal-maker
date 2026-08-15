@@ -12,6 +12,8 @@ import { membershipOf } from '../../server/membership.js';
 import { SUBSCRIPTION_LABELS, remaining } from '../../server/subscription.js';
 import { issueRecoveryCode } from '../../server/recovery.js';
 import { collectionStatus } from '../../server/notice-collector.js';
+import { canManageOrg, manageOrgs } from '../../server/notice-orgs.js';
+import { listOrgs, orgUsage, saveOrg, setOrgStatus } from '../../server/notice-org-store.js';
 import { listProposalMeta, loadGrants, recordAccess } from '../../server/access-store.js';
 import { decideAccess, proposalContentAccess, stripSecrets, todayInSeoul } from '../../server/permissions.js';
 
@@ -51,6 +53,27 @@ export async function onRequest(context) {
   if (action === 'noticeCollection') return json({ ...await collectionStatus(db), readOnly: true }, 200);
   // 에이전트 현황은 운영관리자도 본다. 지정·해제·한도·인계는 위 BLOCKED_ACTIONS에서 막힌다.
   if (action === 'agencyList') return json({ ...await listAgencies(db), readOnly: true }, 200);
+  // 공고 출처·기관 등록부. 목록은 읽기, 쓰기는 역할을 한 번 더 본다.
+  if (action === 'noticeOrgs') {
+    const rows = await listOrgs(db);
+    return json({ orgs: manageOrgs(rows), canArchive: canManageOrg(actor.role, 'archive') }, 200);
+  }
+  if (action === 'saveNoticeOrg') {
+    if (!canManageOrg(actor.role, 'save')) return json({ error: '이 동작을 할 수 없습니다.' }, 403);
+    const saved = await saveOrg(db, { id: body.id, value: body, actorId: actor.id });
+    if (!saved.ok) return json({ error: saved.error }, 400);
+    await recordAudit(db, { actor, action: saved.created ? 'noticeOrg.create' : 'noticeOrg.update', targetId: saved.org.id, targetEmail: '', detail: `${saved.org.name} · ${saved.org.category || '분류 없음'}` });
+    const rows = await listOrgs(db);
+    return json({ ok: true, org: saved.org, created: saved.created, orgs: manageOrgs(rows), canArchive: canManageOrg(actor.role, 'archive') }, 200);
+  }
+  if (action === 'setNoticeOrgStatus') {
+    const changed = await setOrgStatus(db, { id: body.id, status: body.status, role: actor.role });
+    if (!changed.ok) return json({ error: changed.error }, changed.status || 400);
+    await recordAudit(db, { actor, action: `noticeOrg.${body.status}`, targetId: changed.org.id, targetEmail: '', detail: `${changed.org.name} · ${changed.note}` });
+    const rows = await listOrgs(db);
+    return json({ ok: true, org: changed.org, counts: changed.counts, note: changed.note, orgs: manageOrgs(rows), canArchive: canManageOrg(actor.role, 'archive') }, 200);
+  }
+  if (action === 'noticeOrgUsage') return json({ counts: await orgUsage(db, body.id) }, 200);
   if (action === 'overview') return json(await overview(db, body), 200);
   if (action === 'userDetail') return userDetail(db, body.id);
   // 사용량·비용은 읽기만 한다. 단가·상한을 바꾸는 동작은 이 경로에 없다.

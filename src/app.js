@@ -10,16 +10,17 @@ import { classifyDocument, intakeSummary, markDuplicates } from './doc-classify.
 import { trimManualSources } from './payload-trim.js';
 import { applyOpenMarks, collectOpenMarks, openMarkTotal } from './open-marks.js';
 import { MANIFEST_NAME, packageStale, planSubmissionZip, zipBytes } from './submission-zip.js';
-import { agencyMe, acknowledgePrivacyNotice, changePassword, UNAUTHORIZED, accountProfile, clearOAuthCallback, currentUser, finishSocial, login, logout, readOAuthCallback, recoverPassword, saveAccountProfile, saveMemberInfo, signup as signupEmail, startSocial } from './auth.js';
+import { agencyMe, acknowledgePrivacyNotice, changePassword, memberNoticeOrgs, UNAUTHORIZED, accountProfile, clearOAuthCallback, currentUser, finishSocial, login, logout, readOAuthCallback, recoverPassword, saveAccountProfile, saveMemberInfo, signup as signupEmail, startSocial } from './auth.js';
 import { premiumNoticeHistory, premiumShowcase, premiumStatus } from './premium.js';
 import { mySubscriptionRequest, submitSubscriptionRequest } from './auth.js';
 import { adminSubscriptionRequests, adminDecideSubscription, adminAgencyList, adminAgencyTransfer, adminAgencyTransferPreview, adminSetAgency, adminOverviewCounts, adminSetNoticeSource, adminAccessOverview, adminAssignProposal, adminMemberUsage, adminProposalContent, adminRevokeGrant, adminSaveGrant, adminNoticeCollection, adminRunNoticeCollection, adminUsageReport, approveAccount, deleteShowcase, setAccountSubscription, transferSocialIdentity, disableAccount, listAccounts, listCollectedNotices, listShowcase, removeAccount, saveShowcase, setAccountPlan, setAccountPremium, setAccountRole, setNoticePublic, setShowcaseOrder, setShowcasePublic } from './admin.js';
 import { fetchMembershipPlans, publicNoticeDetail, searchPublicNotices } from './notice-search.js';
-import { operatorAgencyList, operatorNoticeCollection, operatorApprove, operatorDisable, operatorEndSessions, operatorIssueRecoveryCode, operatorOverview, operatorReactivate, operatorSetContractProgress, operatorUnlockLogin, operatorUsageReport, operatorUserDetail } from './operator.js';
+import { operatorAgencyList, operatorNoticeCollection, operatorApprove, operatorDisable, operatorEndSessions, operatorIssueRecoveryCode, operatorOverview, operatorReactivate, operatorSetContractProgress, operatorUnlockLogin, operatorUsageReport, operatorUserDetail , operatorNoticeOrgs, operatorSaveNoticeOrg, operatorSetNoticeOrgStatus } from './operator.js';
 import { codeLabel, statusLabel, warningLabel } from '../server/notice-run.js';
 import { ABILITIES, SCOPES } from '../server/permissions.js';
 import { BUSINESS_TYPES, SOURCE_GROUPS } from '../server/notice-sources.js';
 import { STAT_SKIP_LABELS, statSourceState } from '../server/stat-sources.js';
+import { ORG_STATUS_LABELS, searchOrgs, selectionSummary } from '../server/notice-orgs.js';
 import { REGIONS, SUPPORTED_REGION_TEXT } from '../server/kosis.js';
 import { statLookup } from './stats-api.js';
 import { FITNESS_LABELS } from '../server/notice-classify.js';
@@ -2035,9 +2036,81 @@ function operatorView() {
       <button class="button ${view.tab === 'audit' ? 'primary' : 'secondary'}" data-operator-tab="audit" aria-pressed="${view.tab === 'audit'}">감사기록 ${view.audit.length}</button>
       <button class="button ${view.tab === 'usage' ? 'primary' : 'secondary'}" data-operator-tab="usage" aria-pressed="${view.tab === 'usage'}">AI 사용량·비용</button>
       <button class="button ${view.tab === 'collection' ? 'primary' : 'secondary'}" data-operator-tab="collection" aria-pressed="${view.tab === 'collection'}">공고 자동수집</button>
+      <button class="button ${view.tab === 'orgs' ? 'primary' : 'secondary'}" data-operator-tab="orgs" aria-pressed="${view.tab === 'orgs'}">공고 출처·기관 관리</button>
     </div>
-    ${view.tab === 'collection' ? collectionPanel({ readOnly: true }) : view.tab === 'usage' ? usagePanel() : view.tab === 'audit' ? operatorAuditList(view.audit) : `<div class="requirement-list">${view.users.map(operatorRow).join('') || '<p class="muted">조건에 맞는 회원이 없습니다.</p>'}</div>`}
+    ${view.tab === 'orgs' ? noticeOrgPanel() : view.tab === 'collection' ? collectionPanel({ readOnly: true }) : view.tab === 'usage' ? usagePanel() : view.tab === 'audit' ? operatorAuditList(view.audit) : `<div class="requirement-list">${view.users.map(operatorRow).join('') || '<p class="muted">조건에 맞는 회원이 없습니다.</p>'}</div>`}
   </div>`;
+}
+
+// 공고 출처·기관 관리. 이름을 늘리고 고치고, 쓰지 않을 곳은 상태만 바꾼다. 지우지 않는다.
+function noticeOrgState() { return auth.noticeOrgAdmin || { loaded: false, orgs: [], canArchive: false, draft: { id: '', name: '', category: '', sortOrder: '' } }; }
+function setNoticeOrgState(patch) { setAuth({ noticeOrgAdmin: { ...noticeOrgState(), ...patch } }); }
+
+async function loadNoticeOrgAdmin() {
+  const result = await operatorNoticeOrgs().catch(() => ({ ok: false }));
+  if (!result.ok) return setAuth({ error: result.error || '기관 목록을 불러오지 못했습니다.' });
+  setNoticeOrgState({ loaded: true, orgs: result.orgs || [], canArchive: Boolean(result.canArchive) });
+}
+
+async function saveNoticeOrg() {
+  const draft = noticeOrgState().draft;
+  if (auth.busy) return;
+  setAuth({ busy: true, error: '', notice: '' });
+  const result = await operatorSaveNoticeOrg({ id: draft.id, name: draft.name, category: draft.category, sortOrder: Number(draft.sortOrder) || 0 })
+    .catch(() => ({ ok: false, error: '요청을 보내지 못했습니다.' }));
+  if (!result.ok) return setAuth({ busy: false, error: result.error || '저장하지 못했습니다.' });
+  setAuth({
+    busy: false,
+    notice: result.created ? `「${result.org.name}」을(를) 추가했습니다. 자동수집은 연결되지 않아 직접 업로드용으로 표시됩니다.` : `「${result.org.name}」을(를) 고쳤습니다.`,
+    noticeOrgAdmin: { ...noticeOrgState(), loaded: true, orgs: result.orgs || [], canArchive: Boolean(result.canArchive), draft: { id: '', name: '', category: '', sortOrder: '' } }
+  });
+  // 고르는 목록도 새로 읽는다. 방금 추가한 기관이 바로 보여야 한다.
+  state.noticeOrgsLoaded = false;
+  void loadNoticeOrgs();
+}
+
+async function setNoticeOrgStatus(id, status) {
+  if (auth.busy) return;
+  setAuth({ busy: true, error: '', notice: '' });
+  const result = await operatorSetNoticeOrgStatus(id, status).catch(() => ({ ok: false, error: '요청을 보내지 못했습니다.' }));
+  if (!result.ok) return setAuth({ busy: false, error: result.error || '상태를 바꾸지 못했습니다.' });
+  setAuth({
+    busy: false, notice: `「${result.org.name}」 → ${ORG_STATUS_LABELS[result.org.status]}. ${result.note}`,
+    noticeOrgAdmin: { ...noticeOrgState(), loaded: true, orgs: result.orgs || [], canArchive: Boolean(result.canArchive) }
+  });
+  state.noticeOrgsLoaded = false;
+  void loadNoticeOrgs();
+}
+
+function noticeOrgPanel() {
+  const view = noticeOrgState();
+  if (!view.loaded) return '<p class="muted">기관 목록을 불러오는 중입니다…</p>';
+  const draft = view.draft;
+  const rows = view.orgs;
+  return `<h4>공고 출처·기관 ${rows.length}곳</h4>
+    <p class="muted">여기서 이름을 늘리고 고칩니다. 쓰지 않을 곳은 상태만 바꿉니다. 어떤 경우에도 자료를 지우지 않으며, 그 기관으로 모아 둔 공고와 계획서는 그대로 남습니다.</p>
+    <div class="three-col">
+      <div class="field"><label for="org-name">기관·출처 이름</label><input id="org-name" value="${escapeHtml(draft.name)}" placeholder="예: 광주광역시 복지재단" ${auth.busy ? 'disabled' : ''}></div>
+      <div class="field"><label for="org-category">분류</label><input id="org-category" value="${escapeHtml(draft.category)}" placeholder="예: 지자체 출연기관" ${auth.busy ? 'disabled' : ''}></div>
+      <div class="field"><label for="org-order">표시 순서</label><input id="org-order" type="number" min="0" max="9999" value="${escapeHtml(String(draft.sortOrder))}" ${auth.busy ? 'disabled' : ''}></div>
+    </div>
+    <div class="actions"><span class="muted">${draft.id ? '고치는 중입니다.' : '새로 넣으면 자동수집 연결 전까지 「직접 업로드용」으로 표시됩니다.'}</span>
+      <div>${draft.id ? `<button class="button secondary" id="org-cancel">그만두기</button>` : ''}
+        <button class="button primary" id="org-save" ${auth.busy ? 'disabled' : ''}>${draft.id ? '고친 내용 저장' : '기관 추가'}</button></div></div>
+    <div class="requirement-list">${rows.map(org => `<article class="requirement"><div>
+      <div><span class="status ${org.status === 'active' ? '충족' : org.status === 'paused' ? '부분-충족' : '확인-필요'}">${escapeHtml(org.statusLabel)}</span>
+        <strong>${escapeHtml(org.name)}</strong> <span class="tag">${escapeHtml(org.category || '분류 없음')}</span>
+        <span class="status ${org.collects ? '충족' : '확인-필요'}">${escapeHtml(org.collectLabel)}</span></div>
+      <small class="muted">순서 ${org.sortOrder}${org.builtin ? ' · 처음부터 있던 기관' : ''}</small>
+      <div class="actions" style="margin-top:6px"><span class="muted"></span><div>
+        <button class="button secondary" data-org-edit="${escapeHtml(org.id)}" ${auth.busy ? 'disabled' : ''}>이름·분류 고치기</button>
+        ${org.status === 'active'
+          ? `<button class="button secondary" data-org-status="paused" data-org-id="${escapeHtml(org.id)}" ${auth.busy ? 'disabled' : ''}>일시중지</button>`
+          : `<button class="button secondary" data-org-status="active" data-org-id="${escapeHtml(org.id)}" ${auth.busy ? 'disabled' : ''}>다시 이용</button>`}
+        ${org.status !== 'archived' && view.canArchive ? `<button class="button secondary" data-org-status="archived" data-org-id="${escapeHtml(org.id)}" ${auth.busy ? 'disabled' : ''}>보관(제거)</button>` : ''}
+      </div></div>
+    </div></article>`).join('')}</div>
+    ${view.canArchive ? '' : '<p class="muted">보관(제거)은 최고관리자만 할 수 있습니다. 서버에서도 같은 기준으로 막습니다.</p>'}`;
 }
 
 // 결제·이용량처럼 실제 자료가 없는 항목은 값을 지어내지 않고 사유와 함께 「미연동」으로만 보여 준다.
@@ -2989,7 +3062,59 @@ function aiResultBanner() {
 // 진행 중 표시를 끝낼 때 최종 경과시간을 완료·실패 메시지에 함께 남긴다.
 // 끝난 뒤 알림에 붙이는 걸린 시간. 진행 중 표시와 같은 형식으로 읽어 준다.
 function elapsedLabel() { return busyStartedAt ? ` · ${aiTaskLabel((Date.now() - busyStartedAt) / 1000)}` : ''; }
-function typeName() { return TYPES.find(([id]) => id === state.project.type)?.[1] || '사업'; }
+function typeName() { return orgList().find(item => item.id === state.project.type)?.name || TYPES.find(([id]) => id === state.project.type)?.[1] || '사업'; }
+
+// ---------- 공고 출처·기관 ----------
+//
+// 고르는 목록은 등록부에서 온다. 아직 못 읽었으면 지금까지 쓰던 여섯 가지를 그대로 쓴다.
+// 여러 곳을 고르는 것은 공고를 찾는 범위일 뿐이다. 계획서 한 건은 고른 공고 한 건에만 붙는다.
+function orgList() {
+  const loaded = state.noticeOrgs;
+  if (Array.isArray(loaded) && loaded.length) return loaded;
+  return TYPES.map(([id, name, category], index) => ({ id, name, category, sortOrder: (index + 1) * 10, status: 'active', collects: false }));
+}
+function orgScope() {
+  const ids = new Set(orgList().map(item => item.id));
+  const kept = (state.orgScope || []).filter(id => ids.has(id));
+  // 예전에 하나만 고르던 사람은 그 값을 그대로 이어 쓴다.
+  if (kept.length) return kept;
+  return ids.has(state.project.type) ? [state.project.type] : [];
+}
+function setOrgScope(next) {
+  const ids = orgList().map(item => item.id);
+  const kept = ids.filter(id => next.includes(id));
+  state.orgScope = kept;
+  // 계획서에 붙는 유형은 하나다. 하나만 골랐으면 그것으로, 여러 곳이면 첫 곳으로 둔다.
+  if (kept.length) state.project.type = kept[0];
+  saveState();
+  render();
+}
+async function loadNoticeOrgs() {
+  if (state.noticeOrgsLoaded) return;
+  state.noticeOrgsLoaded = true;
+  const result = await memberNoticeOrgs().catch(() => ({ ok: false }));
+  if (!result.ok || !Array.isArray(result.orgs) || !result.orgs.length) return;
+  state.noticeOrgs = result.orgs;
+  saveState();
+  render();
+}
+
+// 접었을 때 한 줄, 폈을 때 검색·전체 선택·개별 체크.
+function orgScopeMenu() {
+  const rows = orgList();
+  const chosen = orgScope();
+  const query = String(state.orgScopeQuery || '');
+  const shown = searchOrgs(rows, query);
+  const items = `<div class="org-scope">
+    <input id="org-scope-search" class="org-scope-search" placeholder="기관 이름으로 찾기" value="${escapeHtml(query)}" autocomplete="off">
+    <div class="org-scope-actions"><button type="button" class="button secondary" id="org-scope-all">전체 선택</button><button type="button" class="button secondary" id="org-scope-none">전체 해제</button></div>
+    <div class="org-scope-list">${shown.map(item => `<label class="org-scope-item"><input type="checkbox" data-org-pick="${escapeHtml(item.id)}" ${chosen.includes(item.id) ? 'checked' : ''}>
+      <span>${escapeHtml(item.name)}${item.category ? ` <small class="muted">${escapeHtml(item.category)}</small>` : ''}</span>
+      ${item.collects === false ? '<small class="muted">직접 업로드용</small>' : ''}</label>`).join('') || '<p class="muted">찾는 기관이 없습니다.</p>'}</div>
+    <p class="muted">여러 곳을 고르면 공고를 찾는 범위가 넓어집니다. 계획서 한 건은 고른 공고 한 건에만 연결됩니다.</p>
+  </div>`;
+  return topMenu('orgs', `공고 출처·기관: ${selectionSummary(chosen, rows)}`, items);
+}
 function isStepComplete(index) {
   if (index === 0) return Boolean(state.noticeResults.length || state.sourceText.trim().length >= 30 || state.manualSources.some(item => item.extractionStatus === 'success'));
   if (index === 1) return Boolean(state.noticePreview || state.selectedNotice || (state.sourceText.trim().length >= 30 && !state.noticeResults.length));
@@ -3055,7 +3180,7 @@ function shell(content) {
       <main class="main">
         <header class="workflow-header">
           <div class="workflow-brand"><div class="brand"><span class="brand-mark">계</span><div><strong>사업계획서 작성 도우미</strong><small>공고 분석부터 제출본까지</small></div></div><span class="save-state">● 자동 저장 중</span><span class="mode">${escapeHtml(accountEmail())}</span>${portalLinks()}<button class="history-button" id="open-account" aria-pressed="${state.activeTool === 'account'}">내 정보</button><button class="history-button" id="sign-out">로그아웃</button></div>
-          <div class="workflow-row"><label class="type-select-label" for="business-type" title="어디에서 낸 공고인지에 따라 서식과 평가 기준이 다릅니다">공고 유형<select id="business-type">${TYPES.map(([id, name]) => `<option value="${id}" ${state.project.type === id ? 'selected' : ''}>${name}</option>`).join('')}</select></label>${stepMenu()}${toolMenu()}<nav class="workflow-history" aria-label="앱 작업 화면 이동"><button class="history-button" id="workflow-back" aria-label="직전 작업 화면으로 뒤로 가기" title="${navigationHistory.backStack.length ? '직전 화면으로' : '앞서 본 화면이 없습니다. 홈으로 가려면 ⌂ 홈을 누르세요'}" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="history-button" id="workflow-home" aria-label="홈 화면으로 가기">⌂ 홈</button><button class="history-button" id="workflow-forward" aria-label="다음 작업 화면으로 앞으로 가기" title="${navigationHistory.forwardStack.length ? '다음 화면으로' : '뒤로 간 적이 없어 돌아갈 화면이 없습니다'}" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button></nav></div>
+          <div class="workflow-row">${orgScopeMenu()}${stepMenu()}${toolMenu()}<nav class="workflow-history" aria-label="앱 작업 화면 이동"><button class="history-button" id="workflow-back" aria-label="직전 작업 화면으로 뒤로 가기" title="${navigationHistory.backStack.length ? '직전 화면으로' : '앞서 본 화면이 없습니다. 홈으로 가려면 ⌂ 홈을 누르세요'}" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="history-button" id="workflow-home" aria-label="홈 화면으로 가기">⌂ 홈</button><button class="history-button" id="workflow-forward" aria-label="다음 작업 화면으로 앞으로 가기" title="${navigationHistory.forwardStack.length ? '다음 화면으로' : '뒤로 간 적이 없어 돌아갈 화면이 없습니다'}" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button></nav></div>
         </header>
         ${viewModeBadge()}
         ${aiResultBanner()}
@@ -6169,7 +6294,29 @@ function bind() {
   if (state.step === 0 && !archiveLoaded) void loadRecentArchive();
   if (state.activeTool === 'home' && !homeArchiveLoaded) void loadHomeRecent();
   document.querySelectorAll('[data-type]').forEach(el => el.onclick = () => { state.project.type = el.dataset.type; saveState(); render(); });
-  document.querySelector('#business-type')?.addEventListener('change', event => { state.project.type = event.target.value; saveState(); render(); });
+  // 공고 출처·기관 여러 곳 고르기. 고른 목록은 공고를 찾는 범위로만 쓴다.
+  document.querySelectorAll('[data-org-pick]').forEach(el => el.onchange = () => {
+    const id = el.dataset.orgPick;
+    const now = orgScope();
+    setOrgScope(el.checked ? [...now, id] : now.filter(item => item !== id));
+  });
+  document.querySelector('#org-scope-all')?.addEventListener('click', () => setOrgScope(orgList().map(item => item.id)));
+  document.querySelector('#org-scope-none')?.addEventListener('click', () => setOrgScope([]));
+  document.querySelector('#org-scope-search')?.addEventListener('input', event => {
+    // 찾는 동안 화면을 다시 그리면 글자를 치던 자리를 잃는다. 목록만 갈아 끼운다.
+    state.orgScopeQuery = event.target.value;
+    const rows = searchOrgs(orgList(), state.orgScopeQuery);
+    const chosen = orgScope();
+    const box = document.querySelector('.org-scope-list');
+    if (box) box.innerHTML = rows.map(item => `<label class="org-scope-item"><input type="checkbox" data-org-pick="${escapeHtml(item.id)}" ${chosen.includes(item.id) ? 'checked' : ''}>
+      <span>${escapeHtml(item.name)}${item.category ? ` <small class="muted">${escapeHtml(item.category)}</small>` : ''}</span>
+      ${item.collects === false ? '<small class="muted">직접 업로드용</small>' : ''}</label>`).join('') || '<p class="muted">찾는 기관이 없습니다.</p>';
+    document.querySelectorAll('[data-org-pick]').forEach(item => item.onchange = () => {
+      const now = orgScope();
+      setOrgScope(item.checked ? [...now, item.dataset.orgPick] : now.filter(one => one !== item.dataset.orgPick));
+    });
+  });
+  void loadNoticeOrgs();
   document.querySelectorAll('[data-step]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(Number(el.dataset.step), { notice: '', error: '' }); });
   document.querySelector('#toggle-view')?.addEventListener('click', () => setState({ viewMode: viewMode() === 'simple' ? 'expert' : 'simple', expertDetail: false, activeTool: '', notice: '', error: '' }));
   document.querySelector('#toggle-workspace')?.addEventListener('click', () => {
@@ -6257,8 +6404,20 @@ function bind() {
     setOperator({ tab: el.dataset.operatorTab });
     if (el.dataset.operatorTab === 'usage' && !auth.usage.loaded) void loadUsage();
     if (el.dataset.operatorTab === 'collection' && !collectionState().loaded) void loadCollection();
+    if (el.dataset.operatorTab === 'orgs' && !noticeOrgState().loaded) void loadNoticeOrgAdmin();
   });
   document.querySelectorAll('[data-operator-action]').forEach(el => el.onclick = () => void runOperatorAction(el.dataset.operatorAction, el.dataset.operatorId));
+  // 공고 출처·기관 관리
+  for (const [id, key] of [['#org-name', 'name'], ['#org-category', 'category'], ['#org-order', 'sortOrder']]) {
+    document.querySelector(id)?.addEventListener('input', event => { noticeOrgState().draft[key] = event.target.value; });
+  }
+  document.querySelector('#org-save')?.addEventListener('click', () => void saveNoticeOrg());
+  document.querySelector('#org-cancel')?.addEventListener('click', () => setNoticeOrgState({ draft: { id: '', name: '', category: '', sortOrder: '' } }));
+  document.querySelectorAll('[data-org-edit]').forEach(el => el.onclick = () => {
+    const org = noticeOrgState().orgs.find(item => item.id === el.dataset.orgEdit);
+    if (org) setNoticeOrgState({ draft: { id: org.id, name: org.name, category: org.category, sortOrder: String(org.sortOrder) } });
+  });
+  document.querySelectorAll('[data-org-status]').forEach(el => el.onclick = () => void setNoticeOrgStatus(el.dataset.orgId, el.dataset.orgStatus));
   document.querySelectorAll('[data-operator-detail]').forEach(el => el.onclick = () => void openOperatorDetail(el.dataset.operatorDetail));
   document.querySelectorAll('[data-progress-field]').forEach(el => {
     const apply = () => {

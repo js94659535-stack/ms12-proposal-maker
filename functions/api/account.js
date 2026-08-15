@@ -11,6 +11,8 @@ import { remainingFor } from '../../server/agency.js';
 import { monthlyUsage, stateFor } from '../../server/agency-store.js';
 import { EDITABLE_FIELDS, LOCKED_FIELDS, PROFILE_FIELDS, auditDetail, changedFields, needsReview, validateMemberProfile } from '../../server/member-profile.js';
 import { BILLING_NOTE, canSubmit, latestRequest, saveRequest, validateRequest } from '../../server/subscription-request.js';
+import { selectableOrgs } from '../../server/notice-orgs.js';
+import { listOrgs } from '../../server/notice-org-store.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 
@@ -27,6 +29,8 @@ export async function onRequest(context) {
 
   // 에이전트 본인이 보는 자격·한도·남은 편수. 남의 자격은 돌려주지 않는다.
   if (body.action === 'agencyMe') return agencyMe(env.ARCHIVE_DB, data.session.user);
+  // 공고를 고를 때 쓰는 기관 목록. 이용 중인 곳만 준다. 관리 기능은 여기에 없다.
+  if (body.action === 'noticeOrgs') return json({ orgs: selectableOrgs(await listOrgs(env.ARCHIVE_DB)) });
   if (body.action === 'profile') return profile(env.ARCHIVE_DB, data.session.user);
   if (body.action === 'completeProfile') return completeProfile(env.ARCHIVE_DB, data.session.user, body);
   // 본인정보 수정. 승인 대기·정식·프리미엄 회원 모두 쓴다.
