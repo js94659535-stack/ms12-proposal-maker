@@ -9,15 +9,26 @@ import { baboCategoryHint, cleanText, isSchoolNotice, parseBaboList, parseG2bPay
 export const LIST_ROWS = 30;
 export const DETAIL_LIMIT = 12;
 // 같은 곳에 잇달아 요청하지 않는다.
-export const REQUEST_GAP_MS = 300;
+export // 막혔을 때 쉬는 시간. 한 번만 기다린다.
+const THROTTLE_WAIT_MS = 3_000;
+// 출처 사이의 간격. 같은 업체 게시판을 잇달아 열면 막힌다.
+const SOURCE_GAP_MS = 1_500;
+const REQUEST_GAP_MS = 300;
 
 const UA = 'Mozilla/5.0 (compatible; MS12NoticeBot/1.0; +https://pro.ms12.org)';
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-async function request(fetcher, url, { accept = 'text/html' } = {}) {
+async function request(fetcher, url, { accept = 'text/html', retry = true } = {}) {
   if (!allowedOrigin(url)) throw new Error('origin not allowed');
-  const response = await fetcher(url, { headers: { 'User-Agent': UA, Accept: accept, 'Accept-Language': 'ko-KR,ko;q=0.9' }, redirect: 'follow' });
+  const headers = { 'User-Agent': UA, Accept: accept, 'Accept-Language': 'ko-KR,ko;q=0.9' };
+  const response = await fetcher(url, { headers, redirect: 'follow' });
+  // 너무 자주 물으면 잠시 막는다(429·503). 한 박자 쉬고 한 번만 다시 묻는다.
+  // 같은 업체가 돌리는 게시판 두 곳을 잇달아 열 때 실제로 겪었다.
+  if ((response.status === 429 || response.status === 503) && retry) {
+    await wait(THROTTLE_WAIT_MS);
+    return request(fetcher, url, { accept, retry: false });
+  }
   if (!response.ok) throw new Error(`http ${response.status}`);
   return accept.includes('json') ? response.json() : response.text();
 }
@@ -215,6 +226,8 @@ export async function collectExtraSources(fetcher = fetch, { settings = {}, secr
     }
     const runner = RUNNERS[source.id];
     if (!runner) { sources.push({ ...baseStatus(source), status: 'skipped', reason: 'unknown' }); continue; }
+    // 앞 출처를 막 끝낸 참이다. 숨을 한 번 돌리고 다음 곳을 연다.
+    if (sources.some(item => item.status === 'ok' || item.status === 'failed')) await wait(SOURCE_GAP_MS);
     try {
       const outcome = await runner(fetcher, source, today, { serviceKey: secrets[source.needsSecret], now });
       sources.push(outcome.status);
