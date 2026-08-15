@@ -562,6 +562,15 @@ test('프로그램이 보여 주는 글자는 색과 굵기를 함께 올린다'
   assert.doesNotMatch(css, /^body\{[^}]*font-weight:500/m);
 });
 
+test('핵심제안서 화면의 공모정보 검색 단추가 실제로 열린다', async () => {
+  const fs = await import('node:fs');
+  const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  // 단추는 있는데 처리기가 없어 눌러도 아무 일이 없었다. 화면마다 붙였는지 확인한다.
+  const bind = app.slice(app.indexOf('function bindCoreProposal()'), app.indexOf('function bindLogin()'));
+  assert.match(bind, /\[data-landing-notices\]'\)\.forEach\(el => el\.onclick = \(\) => openNoticeSearch\(\)\)/);
+  assert.match(bind, /\[data-landing-example\]/);
+});
+
 test('핵심 아이디어 칸은 일곱 줄로 시작해 적는 만큼 늘어난다', async () => {
   const fs = await import('node:fs');
   const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');

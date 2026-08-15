@@ -5907,6 +5907,8 @@ function bindCoreProposal() {
   document.querySelector('#core-pdf')?.addEventListener('click', () => void downloadCoreProposal('pdf'));
   document.querySelector('#sign-out')?.addEventListener('click', () => void submitLogout());
   document.querySelectorAll('[data-landing-example]').forEach(el => el.onclick = () => setAuth({ view: 'example', error: '', notice: '' }));
+  // 머리띠의 「공모정보 검색」. 이 화면에서는 눌러도 아무 일이 없었다.
+  document.querySelectorAll('[data-landing-notices]').forEach(el => el.onclick = () => openNoticeSearch());
   document.querySelectorAll('[data-social]').forEach(el => el.addEventListener('click', () => void beginSocial(el.dataset.social, el.dataset.socialMode)));
 }
 function bindLogin() {

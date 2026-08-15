@@ -1,0 +1,33 @@
+// 공모정보 검색 결과가 목차형으로 나오는지 실제 화면에서 확인한다. 회원 계정으로 본다.
+import fs from 'node:fs';
+import path from 'node:path';
+import { SITE, attach, launch, scratch } from './e2e-lib.mjs';
+const account = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const shots = scratch('notice-shots');
+fs.mkdirSync(shots, { recursive: true });
+const child = launch(scratch('search-member'), 9370);
+const page = await attach(9370);
+const shot = async name => { const r = await page.send('Page.captureScreenshot', { format: 'png' }); if (r?.result?.data) fs.writeFileSync(path.join(shots, `${name}.png`), Buffer.from(r.result.data, 'base64')); };
+const state = () => page.run("(() => JSON.stringify({ rows: document.querySelectorAll('.notice-row-head').length, groups: document.querySelectorAll('.notice-group').length, open: document.querySelectorAll('.notice-row.open').length, cards: document.querySelectorAll('.landing-card').length, badges: [...document.querySelectorAll('.notice-row .status')].slice(0,4).map(el => (el.textContent||'').trim()) }))()");
+
+await page.go(SITE, 2500);
+await page.run("(async () => { await fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'logout' }) }).catch(()=>{}); return '1'; })()", 800);
+await page.go(SITE, 3000);
+await page.click('[data-landing="login"]', 1500);
+await page.fill('#login-email', account.email, 250);
+await page.fill('#login-password', account.password, 250);
+await page.run("(() => { document.querySelector('#login-form')?.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})); return '1'; })()", 1500);
+console.log('로그인', await page.waitFor("!document.querySelector('#login-form')", 40000, 1200));
+await page.run("(() => { document.querySelector('[data-landing-notices]')?.click(); return '1'; })()", 6000);
+console.log('검색 결과:', JSON.stringify(await state()));
+await page.run("(() => { document.querySelector('.notice-index')?.scrollIntoView({ block:'start' }); return '1'; })()", 600);
+await shot('search-index-collapsed');
+await page.run("(() => { document.querySelector('.notice-row-head')?.click(); return '1'; })()", 3500);
+console.log('한 줄 펼침:', JSON.stringify(await state()));
+await page.run("(() => { document.querySelector('.notice-index')?.scrollIntoView({ block:'start' }); return '1'; })()", 600);
+await shot('search-index-open');
+await page.size(390, 844);
+await page.run("(() => { document.querySelector('.notice-index')?.scrollIntoView({ block:'start' }); return '1'; })()", 800);
+console.log('모바일:', JSON.stringify(await page.run("(() => { const el = document.querySelector('.notice-row-head'); if (!el) return JSON.stringify({ found:false }); const r = el.getBoundingClientRect(); return JSON.stringify({ found:true, right: Math.round(r.right), viewport: window.innerWidth, clipped: r.right > window.innerWidth + 1 }); })()")));
+await shot('search-index-mobile');
+child.kill(); process.exit(0);
