@@ -90,3 +90,24 @@ test('카드를 크게 늘어놓지 않고 화면 크기에 맞춰 접는다', (
   // 한글이 글자 단위로 쪼개지지 않게 한다.
   assert.match(css, /\.admin-shortcut\{[^}]*word-break:keep-all/);
 });
+
+test('이용 흐름 첫 카드는 실제 공고 준비 화면으로 연결한다', () => {
+  // 새 화면을 만들지 않는다. 회원이 쓰는 단계 0(공고 조회·업로드) 화면을 그대로 연다.
+  assert.match(app, /const opens = forAdmin && step\.no === '01';/);
+  assert.match(app, /data-flow-open="\$\{step\.step\}" role="button" tabindex="0"/);
+  assert.match(app, /function openFlowStep\(step\) \{\s*state\.activeTool = 'workflow';\s*navigateToStep\(step, \{ notice: '', error: '' \}\);/);
+  // 카드 안 목록은 따로 연결하지 않는다. 카드 하나가 문 하나다.
+  const flow = app.slice(app.indexOf('const opens = forAdmin'), app.indexOf('</div>', app.indexOf('const opens = forAdmin')));
+  assert.ok(!flow.includes('data-flow-open="${step.step}"><li'), '목록 항목마다 링크를 달지 않는다');
+  assert.equal((app.match(/data-flow-open=/g) || []).length, 1, '카드 하나에만 붙인다');
+  assert.match(app, /querySelectorAll\('\[data-flow-open\]'\)/);
+  // 자판으로도 연다. 빈칸은 화면이 굴러가지 않게 막는다.
+  assert.match(app, /if \(event\.key !== 'Enter' && event\.key !== ' ' && event\.key !== 'Spacebar'\) return;/);
+  assert.match(app, /event\.preventDefault\(\);/);
+  // 공개 소개 화면의 카드는 그대로 둔다. 로그인 전에는 열 화면이 없다.
+  assert.match(app, /\$\{introSections\(\)\}/);
+  // 누를 수 있다는 표시. 과하지 않게 테두리와 바탕만 바뀐다.
+  const css = fs.readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+  assert.match(css, /\.landing-card\.is-open\{cursor:pointer/);
+  assert.match(css, /\.landing-card\.is-open:focus-visible\{outline:2px solid/);
+});

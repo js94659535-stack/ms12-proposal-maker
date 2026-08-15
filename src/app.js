@@ -2179,7 +2179,15 @@ function introSections({ forAdmin = false } = {}) {
 
     <div class="landing-section" id="landing-flow">
       <div class="landing-head"><h2>이용 흐름</h2><p>공고문 분석부터 사업계획서 완성까지 여섯 단계로 이어집니다.</p></div>
-      <div class="landing-grid three">${HOME_FLOW.map(step => `<article class="landing-card"><header><span class="landing-step">${escapeHtml(step.no)}</span><h3>${escapeHtml(step.title)}</h3></header><p>${escapeHtml(step.desc)}</p><ul>${step.items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul></article>`).join('')}</div>
+      <div class="landing-grid three">${HOME_FLOW.map(step => {
+        // 관리자 화면에서는 첫 단계 카드가 실제 작업 화면으로 가는 문이다. 새 화면을 만들지 않고
+        // 회원이 쓰는 「공고 조회·업로드」 화면(단계 0)을 그대로 연다. 카드 전체가 누르는 자리다.
+        const opens = forAdmin && step.no === '01';
+        const attrs = opens
+          ? ` class="landing-card is-open" data-flow-open="${step.step}" role="button" tabindex="0" aria-label="${escapeHtml(step.no + ' ' + step.title)} 화면 열기"`
+          : ' class="landing-card"';
+        return `<article${attrs}><header><span class="landing-step">${escapeHtml(step.no)}</span><h3>${escapeHtml(step.title)}</h3></header><p>${escapeHtml(step.desc)}</p><ul>${step.items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>${opens ? '<span class="landing-open-hint">눌러서 공고 준비 화면 열기</span>' : ''}</article>`;
+      }).join('')}</div>
     </div>
 
     <div class="landing-section" id="landing-notices">
@@ -2265,7 +2273,24 @@ function bindAdminLanding() {
   document.querySelectorAll('[data-portal-open]').forEach(el => el.onclick = () => (el.dataset.portalOpen === 'admin' ? openAdmin() : openOperator()));
   document.querySelectorAll('[data-landing-scroll]').forEach(el => el.onclick = () => document.querySelector('#' + el.dataset.landingScroll)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   document.querySelectorAll('[data-admin-go]').forEach(el => el.onclick = () => openAdminShortcut(el.dataset.adminGo));
+  // 이용 흐름 첫 카드. 마우스로도 자판으로도 같은 화면을 연다.
+  document.querySelectorAll('[data-flow-open]').forEach(el => {
+    const open = () => openFlowStep(Number(el.dataset.flowOpen));
+    el.onclick = open;
+    el.onkeydown = event => {
+      if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return;
+      // 빈칸은 그냥 두면 화면이 굴러간다. 카드에서는 여는 동작으로만 쓴다.
+      event.preventDefault();
+      open();
+    };
+  });
   if (!auth.adminOverview && !auth.adminOverviewError) void loadAdminOverview();
+}
+
+// 이용 흐름 카드에서 작업 화면으로. 회원이 쓰는 화면을 그대로 열고 권한은 서버가 그대로 본다.
+function openFlowStep(step) {
+  state.activeTool = 'workflow';
+  navigateToStep(step, { notice: '', error: '' });
 }
 
 // 바로가기. 없는 화면을 만들지 않고 이미 있는 관리 화면의 해당 갈래를 연다.
