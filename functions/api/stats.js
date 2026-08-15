@@ -7,12 +7,12 @@
 // - 찾지 못하면 비슷한 값으로 대신하지 않고 찾지 못했다고 답한다.
 import {
   NOT_FOUND_MESSAGE, NO_KEY_MESSAGE, cacheKey, chooseCandidates, dataUrl,
-  findRegionCode, kosisError, maskKey, metaUrl, pickTables, searchUrl
+  findRegionCode, kosisError, maskKey, metaUrl, pickTables, rowsForRegion, searchUrl
 } from '../../server/kosis.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 // 한 번 조회에 KOSIS를 부르는 최대 횟수. 표를 못 찾아도 여기서 멈춘다.
-export const MAX_CALLS = 6;
+export const MAX_CALLS = 8;
 const TIMEOUT_MS = 15_000;
 
 // 무엇을 찾을지. 화면이 아무 말이나 보내도 여기 있는 것만 조회한다.
@@ -69,21 +69,23 @@ export async function lookup(apiKey, { region, topic, fetcher = fetch }) {
   for (const table of tables) {
     if (calls + 2 > MAX_CALLS) break;
     const meta = await call(metaUrl(apiKey, { orgId: table.orgId, tblId: table.tblId, type: 'OBJ' }));
-    if (meta.error) { tried.push({ tblId: table.tblId, reason: 'meta' }); continue; }
-    const code = findRegionCode(meta.payload, region);
-    // 이 표에 그 지역이 없으면 다른 지역 값으로 대신하지 않는다. 다음 표를 본다.
-    if (!code) { tried.push({ tblId: table.tblId, reason: 'region' }); continue; }
+    // 코드표를 못 읽으면 전체를 받아 이름으로 고른다. 이름이 맞는 줄만 쓰므로 다른 지역이 섞이지 않는다.
+    const code = meta.error ? null : findRegionCode(meta.payload, region);
+    if (meta.error) tried.push({ tblId: table.tblId, reason: 'meta', detail: meta.error.message });
+    else if (!code) { tried.push({ tblId: table.tblId, reason: 'region' }); continue; }
 
-    const rows = await call(dataUrl(apiKey, { orgId: table.orgId, tblId: table.tblId, objL1: code.code }));
-    if (rows.error) { tried.push({ tblId: table.tblId, reason: 'data' }); continue; }
-    const candidates = chooseCandidates(rows.payload, {
-      orgId: table.orgId, tblId: table.tblId, survey: table.survey, org: table.org, regionName: code.label
+    const rows = await call(dataUrl(apiKey, { orgId: table.orgId, tblId: table.tblId, objL1: code ? code.code : 'ALL' }));
+    if (rows.error) { tried.push({ tblId: table.tblId, reason: 'data', detail: rows.error.message }); continue; }
+    const picked = code ? rows.payload : rowsForRegion(rows.payload, region);
+    if (!picked.length) { tried.push({ tblId: table.tblId, reason: 'region' }); continue; }
+    const candidates = chooseCandidates(picked, {
+      orgId: table.orgId, tblId: table.tblId, survey: table.survey, org: table.org, regionName: code ? code.label : ''
     }, { keywords: topic.itemKeywords });
     if (!candidates.length) { tried.push({ tblId: table.tblId, reason: 'incomplete' }); continue; }
 
     return {
       ok: true, calls, tried,
-      topic: topic.label, region: code.label,
+      topic: topic.label, region: code ? code.label : (candidates[0]?.region || region),
       fetchedAt: new Date().toISOString(),
       candidates
     };

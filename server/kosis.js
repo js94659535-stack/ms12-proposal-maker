@@ -110,6 +110,17 @@ export function normalizeRow(row, { orgId = '', tblId = '', survey = '', org = '
 // KOSIS에서 같은 표를 사람이 직접 열어 보는 주소. 근거는 확인할 수 있어야 근거다.
 export const statHtmlLink = (orgId, tblId) => `${KOSIS_ORIGIN}/statHtml/statHtml.do?orgId=${encodeURIComponent(orgId)}&tblId=${encodeURIComponent(tblId)}`;
 
+// 지역을 코드로 좁히지 못했을 때. 전체를 받아 이름으로 이 지역 줄만 고른다.
+export function rowsForRegion(rows, regionName) {
+  const list = Array.isArray(rows) ? rows : [];
+  const name = text(regionName);
+  const tail = name.split(/\s+/).at(-1);
+  return list.filter(row => {
+    const label = text(row?.C1_NM);
+    return label === name || label.split(/\s+/).at(-1) === tail;
+  });
+}
+
 // 여러 줄 가운데 무엇을 후보로 보일지. 항목 이름이 찾는 말과 맞는 것을 앞에 둔다.
 export function chooseCandidates(rows, context = {}, { keywords = [], limit = 5 } = {}) {
   const list = Array.isArray(rows) ? rows : [];

@@ -116,7 +116,7 @@ test('통계표와 지역 이름은 정확히 맞는 것만 쓴다', () => {
   // 부분만 겹치는 이름은 쓰지 않는다.
   assert.equal(findRegionCode(META, '광산'), null);
   assert.equal(findRegionCode(META, ''), null);
-  assert.ok(MAX_CALLS <= 6);
+  assert.ok(MAX_CALLS <= 8);
 });
 
 // ---------- 경로 ----------
