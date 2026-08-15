@@ -59,7 +59,8 @@ function baseStatus(source) {
   return {
     source: source.id, channel: source.kind, label: source.label, sourceLabel: source.label,
     organization: source.organization, status: 'ok', reason: '',
-    listed: 0, candidates: 0, collected: 0, skipped: {}
+    // 상세를 못 연 글 수. 예산이 모자라 미룬 것을 「없었다」로 보이게 두지 않는다.
+    listed: 0, candidates: 0, collected: 0, detailSkipped: 0, skipped: {}
   };
 }
 

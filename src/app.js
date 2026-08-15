@@ -1313,7 +1313,7 @@ function collectionPanel({ readOnly = false } = {}) {
     </div>
     <div class="requirement-list">${(last.sources || []).map(source => `<article class="requirement"><div>
       <div><strong>${escapeHtml(source.label)}</strong> <span class="status ${source.status === 'ok' ? '충족' : '부족'}">${source.status === 'ok' ? '성공' : `실패 ${escapeHtml(source.code)}`}</span></div>
-      <small class="muted">${escapeHtml(`조회 ${source.listed}건 · 공모 후보 ${source.candidates}건 · 발급 ${source.collected}건${source.status === 'ok' ? '' : ` · ${codeLabel(source.code)}`}`)}</small>
+      <small class="muted">${escapeHtml(`조회 ${source.listed}건 · 공모 후보 ${source.candidates}건 · 발급 ${source.collected}건${source.detailSkipped ? ` · 상세는 다음 실행으로 미룸 ${source.detailSkipped}건` : ''}${source.status === 'ok' ? '' : ` · ${codeLabel(source.code)}`}`)}</small>
     </div></article>`).join('')}</div>` : '<p class="muted">아직 실행 기록이 없습니다.</p>'}
     ${sourcePanel({ readOnly })}
     ${statSourcePanel()}
