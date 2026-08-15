@@ -2353,7 +2353,7 @@ function adminLandingView() {
   return `<div class="home admin-landing">
     <header class="home-header">
       <div class="home-brand"><strong>관리자 포털</strong><span>${escapeHtml(accountEmail())} · ${escapeHtml(roleLabel(auth.user?.role))}</span></div>
-      <nav class="home-nav">${ADMIN_NAV.map(([id, label]) => `<button class="button ghost" data-landing-scroll="${id}">${label}</button>`).join('')}${portalLinks('button ghost')}<button class="button ghost" id="open-account">내 정보</button><button class="button ghost" id="sign-out">로그아웃</button></nav>
+      <nav class="home-nav">${ADMIN_NAV.map(([id, label]) => `<button class="button ghost" data-landing-scroll="${id}">${label}</button>`).join('')}<button class="button ghost" data-open-archive="1">공고보관함·계획서보관함</button>${portalLinks('button ghost')}<button class="button ghost" id="open-account">내 정보</button><button class="button ghost" id="sign-out">로그아웃</button></nav>
     </header>
     <section class="landing">
       <div class="landing-section admin-ops">
@@ -2378,6 +2378,8 @@ function bindAdminLanding() {
   document.querySelectorAll('[data-portal-open]').forEach(el => el.onclick = () => (el.dataset.portalOpen === 'admin' ? openAdmin() : openOperator()));
   document.querySelectorAll('[data-landing-scroll]').forEach(el => el.onclick = () => document.querySelector('#' + el.dataset.landingScroll)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   document.querySelector('#open-account')?.addEventListener('click', () => setState({ activeTool: 'account', notice: '', error: '' }));
+  // 보관함은 계획서 포털 쪽 화면이다. 포털을 옮긴 뒤 같은 자리를 연다.
+  document.querySelectorAll('[data-open-archive]').forEach(el => el.onclick = () => openArchiveBox());
   document.querySelectorAll('[data-admin-go]').forEach(el => el.onclick = () => openAdminShortcut(el.dataset.adminGo));
   // 이용 흐름 첫 카드. 마우스로도 자판으로도 같은 화면을 연다.
   document.querySelectorAll('[data-flow-open]').forEach(el => {
@@ -2397,6 +2399,14 @@ function bindAdminLanding() {
 function openFlowStep(step) {
   state.activeTool = 'workflow';
   navigateToStep(step, { notice: '', error: '' });
+}
+
+// 공고보관함·계획서보관함을 연다. 관리자 포털에서 눌러도 계획서 포털의 같은 자리로 간다.
+function openArchiveBox() {
+  state.portal = 'proposal';
+  state.activeTool = 'workflow';
+  navigateToStep(0, { notice: '공고보관함·계획서보관함을 열었습니다. 보관된 공고와 저장한 계획서를 여기서 다시 열 수 있습니다.', error: '' });
+  setTimeout(() => document.querySelector('#archive-box')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
 }
 
 // 바로가기. 없는 화면을 만들지 않고 이미 있는 관리 화면의 해당 갈래를 연다.
@@ -6881,11 +6891,7 @@ function bind() {
   document.querySelectorAll('[data-home-start]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(0, { notice: '', error: '' }); });
   document.querySelectorAll('[data-home-continue]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(state.sections.length ? Math.max(state.step, 4) : 0, { notice: '', error: '' }); });
   // 자료보관함은 공고 준비 화면 안에 있으므로 이동 후 해당 카드로 바로 스크롤한다.
-  document.querySelectorAll('[data-home-archive]').forEach(el => el.onclick = () => {
-    state.activeTool = 'workflow';
-    navigateToStep(0, { notice: '공고보관함·계획서보관함을 열었습니다. 보관된 공고와 저장한 계획서를 여기서 다시 열 수 있습니다.', error: '' });
-    setTimeout(() => document.querySelector('#archive-box')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
-  });
+  document.querySelectorAll('[data-home-archive]').forEach(el => el.onclick = () => openArchiveBox());
   document.querySelectorAll('[data-home-recent]').forEach(el => el.onclick = () => document.querySelector('#home-recent')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   // 진입 경로 카드는 기존 동작을 그대로 부른다. 새 흐름을 만들지 않는다.
   document.querySelectorAll('[data-route]').forEach(el => el.onclick = () => {
