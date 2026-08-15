@@ -297,3 +297,25 @@ test('실행할 때마다 시작 출처를 옮긴다', async () => {
   assert.deepEqual(third, ['c', 'd', 'a', 'b']);
   assert.deepEqual(rotate(['only'], new Date(0)), ['only']);
 });
+
+test('상세 열기 예산을 출처끼리 나눠 쓴다', async () => {
+  const { makeBudget, DETAIL_BUDGET } = await import('../server/extra-collect.js');
+  const budget = makeBudget(3);
+  assert.equal(budget.take(), true);
+  assert.equal(budget.take(), true);
+  assert.equal(budget.take(), true);
+  // 다 쓰면 더 열지 않는다. 앞 출처가 다 먹으면 뒤 출처는 목록조차 못 연다.
+  assert.equal(budget.take(), false);
+  assert.equal(budget.spent, 3);
+  assert.ok(DETAIL_BUDGET >= 10 && DETAIL_BUDGET <= 20, '한 번 실행에서 여는 상세 총량');
+  const source = await import('node:fs').then(fs => fs.readFileSync(new URL('../server/extra-collect.js', import.meta.url), 'utf8'));
+  // 예산을 다 써서 못 연 글은 숨기지 않고 센다.
+  assert.match(source, /status\.detailSkipped = \(status\.detailSkipped \|\| 0\) \+ 1/);
+});
+
+test('진행 중 공고가 없는 지회를 고장으로 적지 않는다', async () => {
+  const fs = await import('node:fs');
+  const api = fs.readFileSync(new URL('../functions/api/notices.js', import.meta.url), 'utf8');
+  // 화면 맨 아래 함수 정의까지 세면 공고 0건인 지회가 실패로 남는다. 실제 글만 센다.
+  assert.ok(api.includes("fn_goDetail\\(\\s*'"), '실제 글만 센다');
+});

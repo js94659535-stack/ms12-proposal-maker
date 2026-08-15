@@ -8,6 +8,10 @@ import { baboCategoryHint, cleanText, isSchoolNotice, parseBaboList, parseG2bPay
 // 목록에서 훑는 글 수와 상세를 열어 볼 상한. 상세는 요청이 늘어나므로 아낀다.
 export const LIST_ROWS = 30;
 export const DETAIL_LIMIT = 12;
+// 한 번 실행에서 열 수 있는 상세의 총량. 서버가 한 요청에서 부를 수 있는 횟수에 한도가 있어,
+// 앞 출처가 상세를 잔뜩 열면 뒤 출처는 목록조차 못 연다. 그래서 상세만 함께 나눠 쓴다.
+export const DETAIL_BUDGET = 14;
+export const makeBudget = (left = DETAIL_BUDGET) => ({ left, spent: 0, take() { if (this.left <= 0) return false; this.left -= 1; this.spent += 1; return true; } });
 // 같은 곳에 잇달아 요청하지 않는다.
 export // 막혔을 때 쉬는 시간. 한 번만 기다린다.
 const THROTTLE_WAIT_MS = 3_000;
@@ -64,7 +68,7 @@ function countSkip(status, fitness) {
 }
 
 // ---------- 한국건강가정진흥원 ----------
-async function collectKihf(fetcher, source, today) {
+async function collectKihf(fetcher, source, today, { budget } = {}) {
   const status = baseStatus(source);
   const listUrl = `${source.origin}${source.path}?rows=${LIST_ROWS}&cpage=1`;
   const html = await request(fetcher, listUrl);
@@ -83,6 +87,8 @@ async function collectKihf(fetcher, source, today) {
 
   const notices = [];
   for (const row of candidates) {
+    // 상세 예산을 다 썼다. 남은 글은 다음 실행에서 본다. 목록에 있었다는 사실은 status에 남는다.
+    if (budget && !budget.take()) { status.detailSkipped = (status.detailSkipped || 0) + 1; continue; }
     await wait(REQUEST_GAP_MS);
     let body = '';
     let attachments = [];
@@ -116,7 +122,7 @@ async function collectKihf(fetcher, source, today) {
 }
 
 // ---------- 바보의나눔 ----------
-async function collectBabo(fetcher, source, today) {
+async function collectBabo(fetcher, source, today, { budget } = {}) {
   const status = baseStatus(source);
   const html = await request(fetcher, `${source.origin}${source.path}`);
   const parsed = parseBaboList(html);
@@ -139,6 +145,7 @@ async function collectBabo(fetcher, source, today) {
 
   const notices = [];
   for (const row of candidates) {
+    if (budget && !budget.take()) { status.detailSkipped = (status.detailSkipped || 0) + 1; continue; }
     await wait(REQUEST_GAP_MS);
     let body = '';
     try {
@@ -213,7 +220,7 @@ async function collectG2b(fetcher, source, today, { serviceKey, days = 14, now =
 const RUNNERS = { 'kihf-notice': collectKihf, 'kihf-bid': collectKihf, 'babo-notice': collectBabo, 'busrugy-notice': collectBabo, 'g2b-service': collectG2b };
 
 // 출처를 하나씩 돌린다. 한 곳의 실패가 다른 곳을 막지 않는다.
-export async function collectExtraSources(fetcher = fetch, { settings = {}, secrets = {}, now = new Date() } = {}) {
+export async function collectExtraSources(fetcher = fetch, { settings = {}, secrets = {}, now = new Date(), budget = makeBudget() } = {}) {
   const today = todayInSeoul(now);
   const sources = [];
   const notices = [];
@@ -231,14 +238,14 @@ export async function collectExtraSources(fetcher = fetch, { settings = {}, secr
     // 앞 출처를 막 끝낸 참이다. 숨을 한 번 돌리고 다음 곳을 연다.
     if (sources.some(item => item.status === 'ok' || item.status === 'failed')) await wait(SOURCE_GAP_MS);
     try {
-      const outcome = await runner(fetcher, source, today, { serviceKey: secrets[source.needsSecret], now });
+      const outcome = await runner(fetcher, source, today, { serviceKey: secrets[source.needsSecret], now, budget });
       sources.push(outcome.status);
       notices.push(...outcome.notices);
     } catch (error) {
       sources.push({ ...baseStatus(source), status: 'failed', reason: failureReason(error) });
     }
   }
-  return { sources, notices };
+  return { sources, notices, detailsUsed: budget.spent };
 }
 
 // 실행할 때마다 시작 지점을 옮긴다. 순서만 돌리고 목록은 그대로 둔다.

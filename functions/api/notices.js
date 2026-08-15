@@ -153,7 +153,9 @@ async function collectPortal(fetcher, { status, source, config, today }) {
   // 목록 화면인지 먼저 본다. 화면 뼈대가 없으면 구조가 바뀐 것이라 0건 성공으로 넘기지 않는다.
   // 뼈대는 있는데 항목이 없는 것은 「진행 중 공고 없음」이라는 정상 상태다.
   if (!/mobileMainBsnsList|bhfCode/.test(html)) return { status: { ...status, status: 'failed', reason: FAILURE.shape }, notices: [] };
-  const markers = (html.match(/fn_goDetail\(/g) || []).length;
+  // 목록에 실제로 실린 글만 센다. 화면 맨 아래 함수 정의(fn_goDetail(_bsnsCode, …))까지 세면
+  // 공고가 하나도 없는 지회에서 「항목은 있는데 못 읽었다」로 오해해 실패로 적는다. 광주지회가 그랬다.
+  const markers = (html.match(/fn_goDetail\(\s*'/g) || []).length;
   const items = parseProposalList(html, source);
   // 항목 표시는 있는데 하나도 못 읽으면 파서가 깨진 것이다.
   if (markers && !items.length) return { status: { ...status, status: 'failed', reason: FAILURE.shape, listed: markers }, notices: [] };
