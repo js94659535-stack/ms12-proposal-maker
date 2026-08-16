@@ -2361,7 +2361,7 @@ function adminLandingView() {
   return `<div class="home admin-landing">
     <header class="home-header">
       <div class="home-brand"><strong>관리자 포털</strong><span>${escapeHtml(accountEmail())} · ${escapeHtml(roleLabel(auth.user?.role))}</span></div>
-      <nav class="home-nav">${ADMIN_NAV.map(([id, label]) => `<button class="button ghost" data-landing-scroll="${id}">${label}</button>`).join('')}<button class="button ghost" data-open-archive="1">공고보관함·계획서보관함</button>${portalLinks('button ghost')}<button class="button ghost" id="open-account">내 정보</button><button class="button ghost" id="sign-out">로그아웃</button></nav>
+      <nav class="home-nav">${ADMIN_NAV.map(([id, label]) => `<button class="button ghost" data-landing-scroll="${id}">${label}</button>`).join('')}<button class="button ghost" data-open-archive="notices">공고보관함</button><button class="button ghost" data-open-archive="proposals">계획서보관함</button>${portalLinks('button ghost')}<button class="button ghost" id="open-account">내 정보</button><button class="button ghost" id="sign-out">로그아웃</button></nav>
     </header>
     <section class="landing">
       <div class="landing-section admin-ops">
@@ -2387,7 +2387,7 @@ function bindAdminLanding() {
   document.querySelectorAll('[data-landing-scroll]').forEach(el => el.onclick = () => document.querySelector('#' + el.dataset.landingScroll)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   document.querySelector('#open-account')?.addEventListener('click', () => setState({ activeTool: 'account', notice: '', error: '' }));
   // 보관함은 계획서 포털 쪽 화면이다. 포털을 옮긴 뒤 같은 자리를 연다.
-  document.querySelectorAll('[data-open-archive]').forEach(el => el.onclick = () => openArchiveBox());
+  document.querySelectorAll('[data-open-archive]').forEach(el => el.onclick = () => openArchiveBox(el.dataset.openArchive));
   // 주요 기능 카드. 마우스로도 자판으로도 같은 화면을 연다.
   document.querySelectorAll('[data-feature-go]').forEach(el => {
     const open = () => openFeature(el.dataset.featureGo);
@@ -2496,11 +2496,15 @@ function redrawArchiveRows() {
 }
 
 // 공고보관함·계획서보관함을 연다. 관리자 포털에서 눌러도 계획서 포털의 같은 자리로 간다.
-function openArchiveBox() {
+function openArchiveBox(which = 'notices') {
+  const proposals = which === 'proposals';
   state.portal = 'proposal';
   state.activeTool = 'workflow';
-  navigateToStep(0, { notice: '공고보관함·계획서보관함을 열었습니다. 보관된 공고와 저장한 계획서를 여기서 다시 열 수 있습니다.', error: '' });
-  setTimeout(() => document.querySelector('#archive-box')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+  navigateToStep(0, {
+    notice: proposals ? '계획서보관함을 열었습니다. 저장한 계획서를 이어서 쓸 수 있습니다.' : '공고보관함을 열었습니다. 보관된 공고를 검색해 다시 열 수 있습니다.',
+    error: ''
+  });
+  setTimeout(() => document.querySelector(proposals ? '#proposal-box' : '#archive-box')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
 }
 
 // 바로가기. 없는 화면을 만들지 않고 이미 있는 관리 화면의 해당 갈래를 연다.
@@ -3305,7 +3309,7 @@ function stepMenu() {
 // 작업 화면 목록. 단추의 식별자와 처리기는 그대로 두어 권한·동작이 바뀌지 않는다.
 function toolMenu() {
   const items = [
-    ['open-archive-box', '공고보관함·계획서보관함', ''],
+    ['open-archive-box', '공고보관함', ''], ['open-proposal-box', '계획서보관함', ''],
     ['open-engagement', '의뢰 건', 'engagement'],
     ['open-applicants', '신청기관 정보', 'applicants'],
     ['open-coaching', '계획서 검증·코칭', 'coaching']
@@ -3375,7 +3379,7 @@ function homeView() {
     <div class="home">
       <header class="home-header">
         <div class="home-brand"><strong>사업계획서 작성 도우미</strong><span>공고 분석부터 제출본까지</span></div>
-        <nav class="home-nav"><button class="button ghost" id="workflow-back" aria-label="뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="button ghost" disabled aria-current="page">⌂ 홈 화면</button><button class="button ghost" id="workflow-forward" aria-label="앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button><button class="button ghost" data-home-scroll="home-product">제품소개</button><button class="button ghost" data-home-scroll="home-flow">이용방법</button><button class="button ghost" data-home-scroll="home-features">주요기능</button><button class="button ghost" data-home-archive="1">공고보관함·계획서보관함</button>${portalLinks('button ghost')}<button class="button ghost" id="open-account">내 정보</button><button class="button primary" data-home-start="1">새 계획서 시작</button></nav>
+        <nav class="home-nav"><button class="button ghost" id="workflow-back" aria-label="뒤로 가기" ${navigationHistory.backStack.length ? '' : 'disabled'}>← 뒤로</button><button class="button ghost" disabled aria-current="page">⌂ 홈 화면</button><button class="button ghost" id="workflow-forward" aria-label="앞으로 가기" ${navigationHistory.forwardStack.length ? '' : 'disabled'}>앞으로 →</button><button class="button ghost" data-home-scroll="home-product">제품소개</button><button class="button ghost" data-home-scroll="home-flow">이용방법</button><button class="button ghost" data-home-scroll="home-features">주요기능</button><button class="button ghost" data-home-archive="notices">공고보관함</button><button class="button ghost" data-home-archive="proposals">계획서보관함</button>${portalLinks('button ghost')}<button class="button ghost" id="open-account">내 정보</button><button class="button primary" data-home-start="1">새 계획서 시작</button></nav>
       </header>
 
       <section class="home-hero">
@@ -3461,7 +3465,7 @@ function homeView() {
         <div class="home-actions"><button class="button primary" data-home-start="1">새 계획서 시작</button><button class="button secondary" data-open-sample="notice">[샘플] 예시 프로젝트 보기</button><button class="button ghost" data-home-archive="1">공고보관함·계획서보관함 보기</button></div>
       </section>
 
-      <footer class="home-footer"><span>사업계획서 작성 도우미</span><div><button class="button ghost" data-home-start="1">새 계획서</button><button class="button ghost" data-home-archive="1">공고보관함·계획서보관함</button><button class="button ghost" data-open-applicants="1">신청기관 정보</button></div></footer>
+      <footer class="home-footer"><span>사업계획서 작성 도우미</span><div><button class="button ghost" data-home-start="1">새 계획서</button><button class="button ghost" data-home-archive="notices">공고보관함</button><button class="button ghost" data-home-archive="proposals">계획서보관함</button><button class="button ghost" data-open-applicants="1">신청기관 정보</button></div></footer>
     </div>
 `;
 }
@@ -3704,12 +3708,11 @@ function archiveView() {
   const activeFilters = Object.values(table.filters || {}).filter(value => value).length;
   const pageKeys = data.rows.map(row => row.key);
   const allChecked = pageKeys.length > 0 && pageKeys.every(key => selected.includes(key));
-  return `<details class="card org-details" id="archive-box" open><summary><b>공고보관함·계획서보관함</b> <small>가져온 공고는 자동 보관됩니다. 검색·필터로 찾아 「작업하기」에서 원하는 단계로 이동하세요.</small></summary>
+  return `<details class="card org-details" id="archive-box" open><summary><b>공고보관함</b> <small>가져온 공고는 자동 보관됩니다. 검색·필터로 찾아 「작업하기」에서 원하는 단계로 이동하세요.</small></summary>
     <div class="stat-badges">${[
       ['보관 공고', data.total, `기관 ${data.institutions.length}곳`],
       ['검색 결과', data.matched, data.matched ? `${data.from}–${data.to}번 표시` : '조건에 맞는 공고 없음'],
-      ['신청기관 연결', linkedCount, '공고당 여러 기관 연결 가능'],
-      ['저장한 계획서', proposals.length, '작업하기에서 이어서 작성']
+      ['신청기관 연결', linkedCount, '공고당 여러 기관 연결 가능']
     ].map(([label, value, detail]) => `<span class="stat-badge" title="${escapeHtml(`${label} ${value}건 · ${detail}`)}"><strong>${value}</strong><span>${escapeHtml(label)}</span><small>${escapeHtml(detail)}</small></span>`).join('')}</div>
     <label class="archive-search-label" for="archive-query">보관 공고 검색</label>
     <div class="archive-toolbar"><input id="archive-query" type="search" name="archive-search" autocomplete="off" autocapitalize="off" spellcheck="false" value="${escapeHtml(table.query)}" placeholder="사업명·기관·분야·지원대상·공고번호로 찾기">
@@ -3746,6 +3749,14 @@ function archiveView() {
       <button class="button secondary" data-archive-page="${data.page - 1}" ${data.page <= 1 ? 'disabled' : ''}>이전</button>
       <button class="button secondary" data-archive-page="${data.page + 1}" ${data.page >= data.pageCount ? 'disabled' : ''}>다음</button></div>` : '<p class="muted">보관된 공고가 없습니다. 공고를 한 번 가져오면 자동으로 보관됩니다.</p>'}
     ${(state.archiveHiddenNotices || []).length ? `<div class="archive-bulk"><span>목록에서 숨긴 공고 ${(state.archiveHiddenNotices || []).length}건 (보관 원본과 연결된 계획서는 남아 있습니다)</span><button class="button secondary" id="archive-restore-hidden">숨긴 공고 되돌리기</button></div>` : ''}
+  </details>
+  <details class="card org-details" id="proposal-box" open><summary><b>계획서보관함</b> <small>저장한 계획서를 이어서 씁니다. 「이어서 작업」을 누르면 그 계획서로 돌아갑니다.</small></summary>
+    <div class="stat-badges">${[
+      ['저장한 계획서', proposals.length, '이어서 작업으로 계속 씁니다'],
+      ['연결된 공고', new Set(proposals.map(item => String(item.noticeKey || ''))).size, '공고 한 건에 여러 계획서를 둘 수 있습니다']
+    ].map(([label, value, detail]) => `<span class="stat-badge" title="${escapeHtml(`${label} ${value}건 · ${detail}`)}"><strong>${value}</strong><span>${escapeHtml(label)}</span><small>${escapeHtml(detail)}</small></span>`).join('')}</div>
+    <div class="actions" style="margin-top:0"><span class="muted">공고를 찾으시려면 위 「공고보관함」을 보세요.</span>
+      <button class="button secondary" id="list-archived-proposals-2">계획서 다시 불러오기</button></div>
     ${proposalArchiveView(proposals)}
     <details><summary>서버 검색 조건 · 다른 기기에서 같은 계획서보관함 사용</summary>
       <div class="two-col"><div class="field"><label for="archive-institution">기관</label><input id="archive-institution" value="${escapeHtml(filters.institution)}" placeholder="예: 광주지회"></div><div class="field"><label for="archive-keyword">키워드</label><input id="archive-keyword" value="${escapeHtml(filters.keyword)}" placeholder="예: 아동, 가족기능"></div></div>
@@ -6649,11 +6660,8 @@ function bind() {
   });
   document.querySelectorAll('[data-progress-save]').forEach(el => el.onclick = () => void runContractProgress(el.dataset.progressSave));
   document.querySelectorAll('[data-social]').forEach(el => el.addEventListener('click', () => void beginSocial(el.dataset.social, el.dataset.socialMode)));
-  document.querySelector('#open-archive-box')?.addEventListener('click', () => {
-    state.activeTool = 'workflow';
-    navigateToStep(0, { notice: '공고보관함·계획서보관함을 열었습니다.', error: '' });
-    setTimeout(() => document.querySelector('#archive-box')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
-  });
+  document.querySelector('#open-archive-box')?.addEventListener('click', () => openArchiveBox('notices'));
+  document.querySelector('#open-proposal-box')?.addEventListener('click', () => openArchiveBox('proposals'));
   document.querySelector('#open-coaching-home')?.addEventListener('click', () => setState({ activeTool: 'coaching', notice: '', error: '' }));
   document.querySelector('#open-coaching')?.addEventListener('click', () => setState({ activeTool: 'coaching', notice: '', error: '' }));
   document.querySelector('#close-coaching')?.addEventListener('click', () => setState({ activeTool: 'workflow', notice: '', error: '' }));
@@ -6704,6 +6712,7 @@ function bind() {
   document.querySelector('#search-archive')?.addEventListener('click', searchNoticeArchive);
   document.querySelector('#find-matching-notices')?.addEventListener('click', findMatchingNotices);
   document.querySelector('#list-archived-proposals')?.addEventListener('click', loadProposalArchive);
+  document.querySelector('#list-archived-proposals-2')?.addEventListener('click', loadProposalArchive);
   document.querySelector('#copy-archive-key')?.addEventListener('click', copyArchiveRecoveryKey);
   document.querySelector('#apply-archive-key')?.addEventListener('click', applyArchiveRecoveryKey);
   document.querySelectorAll('[data-use-archived-notice]').forEach(el => el.onclick = () => useArchivedNotice(Number(el.dataset.useArchivedNotice)));
@@ -6966,7 +6975,7 @@ function bind() {
   document.querySelectorAll('[data-home-start]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(0, { notice: '', error: '' }); });
   document.querySelectorAll('[data-home-continue]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(state.sections.length ? Math.max(state.step, 4) : 0, { notice: '', error: '' }); });
   // 자료보관함은 공고 준비 화면 안에 있으므로 이동 후 해당 카드로 바로 스크롤한다.
-  document.querySelectorAll('[data-home-archive]').forEach(el => el.onclick = () => openArchiveBox());
+  document.querySelectorAll('[data-home-archive]').forEach(el => el.onclick = () => openArchiveBox(el.dataset.homeArchive));
   document.querySelectorAll('[data-home-recent]').forEach(el => el.onclick = () => document.querySelector('#home-recent')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   // 진입 경로 카드는 기존 동작을 그대로 부른다. 새 흐름을 만들지 않는다.
   document.querySelectorAll('[data-route]').forEach(el => el.onclick = () => {

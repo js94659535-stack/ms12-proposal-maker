@@ -35,7 +35,8 @@ test('공고 불러오기는 기존 경과시간 표시를 사용하고 완료·
 });
 
 test('과거 공고는 공고보관함에서 찾고 임시 목록과 구분해 표시한다', () => {
-  assert.match(appSource, /<summary><b>공고보관함·계획서보관함<\/b> <small>가져온 공고는 자동 보관됩니다\./);
+  assert.match(appSource, /<summary><b>공고보관함<\/b> <small>가져온 공고는 자동 보관됩니다\./);
+  assert.match(appSource, /id="proposal-box" open><summary><b>계획서보관함<\/b>/);
   // 보관량이 많아도 빠르게 찾도록 표·검색·필터·페이지 구조로 보여 준다.
   assert.match(appSource, /class="archive-table"/);
   assert.match(appSource, /id="archive-query"/);

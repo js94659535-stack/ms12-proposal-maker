@@ -27,7 +27,7 @@ test('6단계가 세로로 나열되지 않고 드롭다운 하나로 접힌다'
 });
 
 test('작업 화면 네 곳이 「작업 메뉴」 하나로 묶이고 처리기·권한은 그대로다', () => {
-  for (const [id, label] of [['open-archive-box', '공고보관함·계획서보관함'], ['open-engagement', '의뢰 건'], ['open-applicants', '신청기관 정보'], ['open-coaching', '계획서 검증·코칭']]) {
+  for (const [id, label] of [['open-archive-box', '공고보관함'], ['open-proposal-box', '계획서보관함'], ['open-engagement', '의뢰 건'], ['open-applicants', '신청기관 정보'], ['open-coaching', '계획서 검증·코칭']]) {
     assert.ok(block.includes(`['${id}', '${label}'`), `${label} 항목`);
     // 같은 식별자를 쓰므로 기존 처리기가 그대로 붙는다.
     assert.ok(app.includes(`querySelector('#${id}')`), `${label} 처리기`);

@@ -218,7 +218,8 @@ test('모든 화면에서 홈·뒤로·앞으로 이동과 자료보관함 바�
   assert.match(app, /⌂ 홈 화면/);
   assert.match(app, /querySelector\('#workflow-home'\)\?\.addEventListener\('click', \(\) => setState\(\{ activeTool: 'home'/);
   // 자료보관함은 홈과 작업 화면 상단에서 바로 열 수 있고, 해당 카드로 이동한다.
-  assert.ok(app.includes("['open-archive-box', '공고보관함·계획서보관함'"), '작업 메뉴에 자료보관함 항목이 있다');
+  assert.ok(app.includes("['open-archive-box', '공고보관함'"), '작업 메뉴에 공고보관함 항목이 있다');
+  assert.ok(app.includes("['open-proposal-box', '계획서보관함'"), '작업 메뉴에 계획서보관함 항목이 있다');
   assert.ok(app.includes("querySelector('#open-archive-box')"), '자료보관함 처리기가 그대로 있다');
   assert.match(app, /id="archive-box"/);
   assert.match(app, /querySelector\('#archive-box'\)\?\.scrollIntoView/);
