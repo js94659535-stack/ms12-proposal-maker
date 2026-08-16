@@ -421,5 +421,6 @@ test('분석에서 멈추지 않고 다음 걸음을 짚어 준다', async () =>
   assert.match(app, /data-next-step="\$\{step\.go\}"/);
   assert.match(app, /querySelectorAll\('\[data-next-step\]'\)/);
   // 총론 안에 붙는다. 분석 끝자락이 아니라 눈에 띄는 자리다.
-  assert.ok(app.indexOf('nextStepBar(overview)') > app.indexOf('분석 총론'));
+  const overviewBlock = app.slice(app.indexOf('<h4>분석 총론</h4>'), app.indexOf('각론 · 이 공고에서 선정되려면'));
+  assert.ok(overviewBlock.includes('${nextStepBar(overview)}'), '총론 안에 다음 단계가 붙는다');
 });
