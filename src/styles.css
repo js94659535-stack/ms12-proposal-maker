@@ -704,3 +704,13 @@ select{max-width:100%}
 .overview-facts dd{margin:0;font-size:13.5px;font-weight:500;line-height:1.6}
 .overview-soon{color:var(--red,#b04a3c);font-weight:700}
 @media(max-width:600px){.overview-facts > div{grid-template-columns:1fr;gap:2px}}
+
+/* 작성 지침. 원문에서 뽑은 것과 통상적인 이야기를 눈으로 갈라 둔다. */
+.guide-block{margin:10px 0 0;border-top:1px solid var(--line,#e8dfd4);padding-top:8px}
+.guide-block > summary{font-size:13.5px;font-weight:800;cursor:pointer}
+.guide-part{margin:10px 0 0}
+.guide-part h5{margin:0 0 4px;font-size:12.5px;font-weight:800;color:var(--blue,#8c5a33)}
+.guide-part ul,.guide-part ol{margin:0;padding-left:18px}
+.guide-part li{font-size:13px;font-weight:500;line-height:1.6;margin:0 0 6px}
+.guide-part li small{display:block;font-size:11.5px;margin-top:1px}
+.guide-part.general{border-left:3px solid var(--camel,#b98b5a);padding-left:10px;background:#fffdf9;border-radius:0 8px 8px 0}

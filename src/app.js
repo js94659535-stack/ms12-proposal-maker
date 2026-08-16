@@ -47,6 +47,7 @@ import { REFERENCE_TYPES, assessReferences, makeReference, projectContext, refer
 import { analyzeProposalStructure, buildStructuralRevision, reviewProposalStructure } from './proposal-structure.js';
 import { applyRepairPlans, buildRepairPlans, repairPlanSummary } from './repair-plan.js';
 import { analyzeNoticeStructure, buildSelectionLogic, noticeLogicSummary, noticeOverview, selectionRequirements } from './notice-logic.js';
+import { cautionPoints, comparePastNotices, emphasisPoints, generalNotes as generalGuideNotes, writingApproach } from './notice-guide.js';
 import { bundleSummary, expandBundle, mergeBundleStructures } from './notice-bundle.js';
 import { matchApplicantToNotice } from './fit-matching.js';
 import { buildDesignQuestions, reusableAnswerCandidates } from './design-questions.js';
@@ -3899,6 +3900,32 @@ function noticeSourceOrPasted() {
     : null);
 }
 
+// 이 공고를 어떻게 쓸지. 원문에서 뽑은 것·지난 공고와 견준 것·통상적인 이야기를 갈라 보여 준다.
+// 어디서 온 말인지 줄마다 밝힌다. 근거가 없으면 없다고 적는다.
+function writingGuideView(structure, notice) {
+  const emphasis = emphasisPoints(notice);
+  const cautions = cautionPoints(notice);
+  const approach = writingApproach(structure);
+  const past = comparePastNotices(notice, state.archiveNotices || []);
+  const general = generalGuideNotes(structure);
+  const line = (item, mark) => `<li>${escapeHtml(item.sentence || item.text)}<small class="muted">${escapeHtml(mark || `${item.basis || '공고 원문'}${item.source ? ` · ${item.source}` : ''}`)}</small></li>`;
+  return `<details class="guide-block" open><summary>이 공고를 어떻게 쓸 것인가</summary>
+    <div class="guide-part"><h5>주안점 · 공고가 힘준 곳</h5>
+      ${emphasis.length ? `<ul>${emphasis.map(item => line(item, `공고 원문 · ${item.source}`)).join('')}</ul>`
+        : '<p class="muted">공고 본문에서 「중점·우선·필수」로 강조한 문장을 찾지 못했습니다. 요강을 올리면 다시 찾습니다.</p>'}</div>
+    <div class="guide-part"><h5>접근법 · 무엇부터 쓸 것인가</h5>
+      ${approach.length ? `<ol>${approach.map(item => line(item)).join('')}</ol>`
+        : '<p class="muted">공고에서 목적·대상·사업내용을 확인하지 못해 작성 순서를 제안하지 못했습니다.</p>'}</div>
+    <div class="guide-part"><h5>주의점 · 떨어지는 자리</h5>
+      ${cautions.length ? `<ul>${cautions.map(item => line(item, `공고 원문 · ${item.source}`)).join('')}</ul>`
+        : '<p class="muted">공고 본문에서 제외·감점 조건을 찾지 못했습니다. 요강에 따로 적혀 있을 수 있습니다.</p>'}</div>
+    <div class="guide-part"><h5>지난 공고와 견주기</h5>
+      ${past.found.length ? `<ul>${past.found.map(item => `<li>${escapeHtml(item.title)}<small class="muted">${escapeHtml([item.deadline && `마감 ${item.deadline}`, item.supportLimit && `한도 ${item.supportLimit}`, item.eligibility && `대상 ${item.eligibility}`].filter(Boolean).join(' · ') || '값 미표기')}</small></li>`).join('')}</ul>` : ''}
+      <p class="muted">${escapeHtml(past.note)}</p></div>
+    ${general.length ? `<div class="guide-part general"><h5>참고 · 통상적인 이야기</h5><ul>${general.map(text => `<li>${escapeHtml(text)}</li>`).join('')}</ul></div>` : ''}
+  </details>`;
+}
+
 // 분석 다음에 무엇을 할지. 여기서 멈추면 분석만 하고 끝난다. 다음 자리로 데려간다.
 // 무엇이 준비되었는지 보고 다음 한 걸음만 권한다. 여러 갈래를 늘어놓지 않는다.
 function nextStepBar(overview) {
@@ -3950,6 +3977,7 @@ function selectionLogicView() {
           <div><dt>우리 형편</dt><dd>${escapeHtml(overview.fit)}</dd></div>
         </dl>
         <p>${escapeHtml(overview.headline)}</p>
+        ${writingGuideView(structure, notice)}
         <p><b>${escapeHtml(overview.next)}</b></p>
         ${overview.unread ? `<p class="muted">${escapeHtml(overview.unread)}</p>` : ''}
         ${nextStepBar(overview)}
