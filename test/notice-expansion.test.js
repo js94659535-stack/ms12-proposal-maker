@@ -391,7 +391,16 @@ test('분석 총론이 각론 앞에 온다', async () => {
   const structure = analyzeNoticeStructure(notice);
   const logic = buildSelectionLogic(structure);
   const requirements = selectionRequirements(structure);
-  const overview = noticeOverview(structure, logic, requirements);
+  const overview = noticeOverview(structure, logic, requirements, {
+    notice: { ...notice, sourceLabel: '부스러기사랑나눔회', deadline: '2026-08-21' },
+    applicant: null, today: '2026-08-16'
+  });
+  // 총론은 「낼지 말지」를 판단하게 해야 한다.
+  assert.match(overview.what, /부스러기사랑나눔회/);
+  assert.match(overview.canApply, /신청자격/);
+  assert.match(overview.when, /D-5/);
+  assert.match(overview.fit, /신청기관을 아직 고르지 않았습니다/);
+  assert.equal(overview.daysLeft, 5);
   // 확인된 것과 확인해야 할 것을 숫자로 먼저 말한다.
   assert.equal(overview.confirmedCount + overview.openCount, requirements.length);
   assert.match(overview.headline, /선정 요건 \d+가지/);
@@ -423,4 +432,27 @@ test('분석에서 멈추지 않고 다음 걸음을 짚어 준다', async () =>
   // 총론 안에 붙는다. 분석 끝자락이 아니라 눈에 띄는 자리다.
   const overviewBlock = app.slice(app.indexOf('<h4>분석 총론</h4>'), app.indexOf('각론 · 이 공고에서 선정되려면'));
   assert.ok(overviewBlock.includes('${nextStepBar(overview)}'), '총론 안에 다음 단계가 붙는다');
+});
+
+test('총론은 자격·마감·형편을 먼저 말한다', async () => {
+  const { analyzeNoticeStructure, buildSelectionLogic, noticeOverview, selectionRequirements } = await import('../src/notice-logic.js');
+  const notice = { title: '아동 교육사업 참여기관 모집', overview: ['신청대상: 지역아동센터', '지원한도: 3,000,000원'].join(String.fromCharCode(10)), criteriaText: '' };
+  const structure = analyzeNoticeStructure(notice);
+  const requirements = selectionRequirements(structure);
+  const logic = buildSelectionLogic(structure);
+  // 마감이 지났으면 지났다고 적는다.
+  const past = noticeOverview(structure, logic, requirements, { notice: { ...notice, deadline: '2026-08-01' }, today: '2026-08-16' });
+  assert.match(past.when, /\(마감\)/);
+  // 오늘 마감도 따로 적는다.
+  const todayEnd = noticeOverview(structure, logic, requirements, { notice: { ...notice, deadline: '2026-08-16' }, today: '2026-08-16' });
+  assert.match(todayEnd.when, /\(오늘\)/);
+  // 기관을 골랐으면 확인된 기관정보 건수를 말한다. 없으면 없다고 말한다.
+  const empty = noticeOverview(structure, logic, requirements, { notice, applicant: { name: '햇살센터', items: [] }, today: '2026-08-16' });
+  assert.match(empty.fit, /확인된 기관정보가 없습니다/);
+  const some = noticeOverview(structure, logic, requirements, {
+    notice, applicant: { name: '햇살센터', items: [{ status: '확인됨' }, { status: '확인 필요' }] }, today: '2026-08-16'
+  });
+  assert.match(some.fit, /기관정보 1건/);
+  // 마감일을 못 읽으면 셈하지 않는다.
+  assert.equal(noticeOverview(structure, logic, requirements, { notice, today: '2026-08-16' }).daysLeft, null);
 });

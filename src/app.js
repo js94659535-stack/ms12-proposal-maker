@@ -3935,11 +3935,19 @@ function selectionLogicView() {
     ${structure.unreadAttachments.length ? `<div class="alert warning"><strong>읽지 못한 자료</strong><p>${escapeHtml(structure.unreadAttachments.join(' / '))} — 이 안의 조건은 읽지 못했습니다. 파일을 직접 자료로 추가하면 함께 분석합니다.</p></div>` : ''}
     ${(() => {
       // 총론을 각론 앞에 둔다. 여덟 줄을 다 읽기 전에 무엇을 묻는 공고인지 먼저 알아야 한다.
-      const overview = noticeOverview(structure, logic, requirements);
+      // 총론은 「낼지 말지」를 판단하게 해야 한다. 무슨 공고인지·낼 수 있는지·언제까지인지를 먼저 적는다.
+      const overview = noticeOverview(structure, logic, requirements, { notice, applicant: selectedApplicant(), today: todayIso() });
+      const near = overview.daysLeft !== null && overview.daysLeft >= 0 && overview.daysLeft <= 7;
       return `<div class="notice-overview">
         <h4>분석 총론</h4>
+        <p class="overview-what">${escapeHtml(overview.what)}</p>
+        <dl class="overview-facts">
+          <div><dt>낼 수 있나</dt><dd>${escapeHtml(overview.canApply)}</dd></div>
+          <div><dt>언제까지·얼마</dt><dd class="${near ? 'overview-soon' : ''}">${escapeHtml(overview.when)}</dd></div>
+          <div><dt>승부처</dt><dd>${escapeHtml(overview.scoring)}</dd></div>
+          <div><dt>우리 형편</dt><dd>${escapeHtml(overview.fit)}</dd></div>
+        </dl>
         <p>${escapeHtml(overview.headline)}</p>
-        <p>${escapeHtml(overview.scoring)}</p>
         <p><b>${escapeHtml(overview.next)}</b></p>
         ${overview.unread ? `<p class="muted">${escapeHtml(overview.unread)}</p>` : ''}
         ${nextStepBar(overview)}

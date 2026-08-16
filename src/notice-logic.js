@@ -147,44 +147,81 @@ export function selectionRequirements(structure) {
 
 // 총론. 각론 여덟 줄을 읽기 전에 「이 공고가 무엇을 묻고, 우리가 지금 어디에 서 있는가」를 한 문단으로 적는다.
 // 지어내지 않는다. 확인된 것만 확인됐다고 말하고, 못 읽은 것은 못 읽었다고 말한다.
-export function noticeOverview(structure, logic, requirements) {
+export function noticeOverview(structure, logic, requirements, context = {}) {
+  const { notice = {}, applicant = null, today = '' } = context;
   const confirmed = requirements.filter(item => item.basis === '공식 근거');
   const open = requirements.filter(item => item.basis !== '공식 근거');
   const purpose = fieldOf(structure, 'purpose');
   const target = fieldOf(structure, 'target');
   const period = fieldOf(structure, 'periodBudget');
+  const eligibility = fieldOf(structure, 'eligibility');
+  const say = value => clean(value, 90);
 
-  // 한 줄 요약. 공고가 확인해 준 것만 넣는다.
+  // 1) 무슨 공고인가. 제목과 발주기관은 공고가 준 그대로 쓴다.
+  const what = [say(notice.sourceLabel || notice.organization), say(notice.title)].filter(Boolean).join(' · ')
+    || '공고 제목·발주기관을 확인하지 못했습니다.';
+
+  // 2) 우리가 낼 수 있나. 자격은 공고가 말한 것만 옮긴다. 충족 여부는 우리가 판정하지 않는다.
+  const canApply = eligibility?.status === '공식 근거 확인'
+    ? `신청자격: ${say(eligibility.value)} — 우리 기관이 여기 해당하는지 먼저 확인하세요.`
+    : '신청자격이 공고 본문에 없습니다. 요강·서식을 올려 확인해야 합니다. 자격이 맞지 않으면 나머지는 소용이 없습니다.';
+
+  // 3) 언제까지·얼마짜리인가.
+  const left = deadlineDaysLeft(notice.deadline, today);
+  const when = [
+    notice.deadline ? `접수 마감 ${say(notice.deadline)}${left === null ? '' : left < 0 ? ' (마감)' : left === 0 ? ' (오늘)' : ` (D-${left})`}` : '접수 마감일 미표기',
+    notice.applicationPeriod ? `신청기간 ${say(notice.applicationPeriod)}` : '',
+    notice.supportLimit ? `지원한도 ${say(notice.supportLimit)}` : '',
+    period?.status === '공식 근거 확인' ? `기간·예산 근거 확인됨` : ''
+  ].filter(Boolean).join(' · ');
+
+  // 4) 승부처. 배점이 있으면 배점, 없으면 필수 조건 쪽으로 무게를 옮긴다.
+  const scoring = structure.hasOfficialScoring
+    ? `공식 배점이 있습니다: ${logic.scoring.items.map(item => `${item.criterion} ${item.points}점`).join(' · ')}. 배점이 큰 항목에 분량을 더 씁니다.`
+    : '공식 평가표가 공고에 없습니다. 배점을 지어내지 않고, 필수 조건을 빠짐없이 채우는 쪽으로 씁니다.';
+
+  // 5) 우리 형편과 맞나. 기관정보에 있는 것만 말한다. 없는 것은 없다고 말한다.
+  const facts = applicant ? (applicant.items || []).filter(item => item.status === '확인됨').length : 0;
+  const fit = !applicant
+    ? '신청기관을 아직 고르지 않았습니다. 기관을 정해야 실적·인력·시설을 계획서에 넣을 수 있습니다.'
+    : facts
+      ? `${say(applicant.name)}의 확인된 기관정보 ${facts}건을 근거로 씁니다.${target?.status === '공식 근거 확인' ? ` 공고 대상(${say(target.value)})과 우리 이용자가 같은지 확인하세요.` : ''}`
+      : `${say(applicant.name)}에 확인된 기관정보가 없습니다. 이대로 쓰면 실적·인력 자리가 모두 [확인 필요]로 남습니다.`;
+
+  // 6) 아직 모르는 것.
   const known = [
     purpose?.status === '공식 근거 확인' ? '목적' : '',
     target?.status === '공식 근거 확인' ? '대상' : '',
     period?.status === '공식 근거 확인' ? '기간·예산' : '',
     structure.hasOfficialScoring ? '배점' : ''
   ].filter(Boolean);
-
   const headline = known.length
     ? `공고 원문에서 ${known.join('·')}을(를) 확인했습니다. 선정 요건 ${requirements.length}가지 가운데 ${confirmed.length}가지는 공고 근거가 있고, ${open.length}가지는 원문·요강에서 더 확인해야 합니다.`
     : `공고 원문만으로는 목적·대상·기간·배점을 확인하지 못했습니다. 선정 요건 ${requirements.length}가지가 모두 확인 필요입니다. 요강·서식 파일을 올리면 이 표가 채워집니다.`;
-
-  // 지금 해야 할 일. 확인되지 않은 것부터 이름으로 짚는다.
   const next = open.length
     ? `먼저 확인할 것: ${open.slice(0, 4).map(item => item.title).join(' · ')}${open.length > 4 ? ` 외 ${open.length - 4}가지` : ''}.`
     : '여덟 가지 요건 모두 공고 근거가 확인되었습니다. 이대로 설계로 넘어갈 수 있습니다.';
-
   const unread = structure.unreadAttachments.length
     ? `읽지 못한 자료 ${structure.unreadAttachments.length}건(${structure.unreadAttachments.slice(0, 2).join(' / ')})이 있어, 그 안의 조건은 반영되지 않았습니다.`
     : '';
 
-  const scoring = structure.hasOfficialScoring
-    ? `공식 배점이 있습니다: ${logic.scoring.items.map(item => `${item.criterion} ${item.points}점`).join(' · ')}. 배점이 큰 항목에 분량을 더 씁니다.`
-    : '공식 평가표가 공고에 없습니다. 배점을 지어내지 않고, 필수 조건을 빠짐없이 채우는 쪽으로 씁니다.';
-
   return {
-    headline, next, scoring, unread,
+    what, canApply, when, scoring, fit, headline, next, unread,
+    daysLeft: left,
     confirmedCount: confirmed.length,
     openCount: open.length,
     readChars: structure.totalChars
   };
+}
+
+// 마감까지 며칠. 날짜를 못 읽으면 셈하지 않는다.
+function deadlineDaysLeft(deadline, today) {
+  const match = /(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})/.exec(String(deadline || ''));
+  const base = /^\d{4}-\d{2}-\d{2}$/.test(String(today || '')) ? today : '';
+  if (!match || !base) return null;
+  const target = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const from = Date.parse(`${base}T00:00:00Z`);
+  return Math.round((target - from) / 86_400_000);
 }
 
 export function noticeLogicSummary(structure, logic, requirements) {
