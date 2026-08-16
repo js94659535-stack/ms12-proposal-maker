@@ -255,3 +255,29 @@ test('마감된 공고는 최고관리자만 지우고, 계획서가 걸린 것�
   // 되돌릴 수 없다는 것을 먼저 알린다.
   assert.match(appSource, /영구 삭제할까요\? 되돌릴 수 없습니다/);
 });
+
+test('관심 항목을 적어 두면 그 공고에 표시가 붙는다', async () => {
+  const { DEFAULT_WATCH, watchHits } = await import('../src/archive-table.js');
+  const notices = [
+    { archiveNoticeKey: 'a', title: '아동 디지털 리터러시 교육사업 참여기관 모집', sourceLabel: '부스러기', deadline: '2026-08-21' },
+    { archiveNoticeKey: 'b', title: '어르신 급식 지원', sourceLabel: '중앙회', deadline: '2026-08-30' }
+  ];
+  const rows = archiveTableRows(notices, { today: '2026-08-16' }).rows;
+  const hit = rows.find(row => row.key === 'a');
+  assert.deepEqual(watchHits(hit, ['디지털 리터러시']), ['디지털 리터러시']);
+  assert.deepEqual(watchHits(rows.find(row => row.key === 'b'), ['디지털 리터러시']), []);
+  // 처음 쓰는 사람에게 줄 기본 낱말.
+  assert.ok(DEFAULT_WATCH.includes('디지털 리터러시') && DEFAULT_WATCH.includes('AI'));
+
+  // 관심 항목만 보기.
+  const only = archiveTableRows(notices, { today: '2026-08-16', watch: ['디지털'], watchOnly: true });
+  assert.deepEqual(only.rows.map(row => row.key), ['a']);
+  // 낱말을 하나도 적지 않았으면 걸러 내지 않는다.
+  assert.equal(archiveTableRows(notices, { today: '2026-08-16', watch: [], watchOnly: true }).total, 2);
+
+  // 화면: 낱말을 넣고 빼고, 걸린 공고에 「관심」 표시가 붙는다.
+  assert.match(appSource, /id="watch-add"/);
+  assert.match(appSource, /data-watch-remove="\$\{escapeHtml\(word\)\}"/);
+  assert.match(appSource, /id="watch-only"/);
+  assert.match(appSource, /watchHits\(row, watchWords\(\)\)\.length \? `<span class="status 충족 watch-mark"/);
+});

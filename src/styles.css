@@ -675,3 +675,12 @@ select{max-width:100%}
   .notice-row-title{white-space:normal;overflow:visible;line-height:1.45}
 }
 .archive-search-label{display:block;margin:12px 0 4px;font-size:13px;font-weight:800}
+
+/* 관심 항목. 눈여겨보는 낱말을 적어 두고 그 공고를 모아 본다. */
+.watch-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:10px 0 4px}
+.watch-label{font-size:13px;font-weight:800}
+.watch-chip{display:inline-flex;align-items:center;gap:4px}
+.watch-chip button{border:0;background:transparent;color:inherit;font-size:14px;line-height:1;padding:0 2px;cursor:pointer}
+.watch-row input#watch-add{flex:0 1 200px;border:1px solid #b9ac9e;border-radius:8px;padding:6px 10px;font-size:12.5px}
+.watch-only{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:500;margin-left:auto}
+.watch-mark{margin-right:4px}

@@ -60,7 +60,7 @@ import { buildSubmissionPackage, sectionsFingerprint } from './submission-packag
 import { ENGAGEMENT_STAGES, PROPOSAL_OUTLINE, buildDocumentPlan, buildEngagement, canGenerateProposal, designSnapshotStale, designStatus, makeClient, makeDesignApproval, makeNoticeRequest, normalizeEngagement } from './engagement.js';
 import { EXTERNAL_SOURCE, appendProposalVersion, findVersionById, normalizeProposalVersions, resolveSavedVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, matchSectionsForIssue, proposalTextFromSections, proposalTextFromSnapshot, revisionInstruction, sectionsFromProposalText, verifyLockedValues } from './coaching-handoff.js';
 import { splitApplicantProfile } from './applicants.js';
-import { ARCHIVE_PAGE_SIZES, ARCHIVE_PAGE_SIZE_LABEL, ARCHIVE_STATUSES, archiveTableRows, shortDate } from './archive-table.js';
+import { ARCHIVE_PAGE_SIZES, ARCHIVE_PAGE_SIZE_LABEL, ARCHIVE_STATUSES, DEFAULT_WATCH, archiveTableRows, shortDate, watchHits } from './archive-table.js';
 import { SAMPLE_MARK, SAMPLE_NOTE, SAMPLE_NOTICE, SAMPLE_NOTICE_KEY, SAMPLE_STAGES, SAMPLE_STAGE_BY_STEP, buildSampleProject } from './sample-project.js';
 import { SAMPLE_REAL_COACHING } from './sample-coaching-run.js';
 import { SOURCE_KINDS, makeApplicantSource, APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, mergeApplicantItems, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
@@ -3589,6 +3589,15 @@ function noticeImportView() {
 
 // 자료보관함. 보관량이 많아도 빠르게 찾도록 「표 + 검색 + 필터」 목록으로 보여 준다.
 // 공고 수집·계획서 작성 로직은 그대로 두고 화면과 선택 상태만 다룬다.
+// 관심 낱말. 적어 두면 그 공고에 표시가 붙고 「관심만 보기」로 모아 볼 수 있다.
+function watchWords() {
+  return Array.isArray(state.watchWords) ? state.watchWords : [...DEFAULT_WATCH];
+}
+function setWatchWords(words, notice = '') {
+  const kept = [...new Set(words.map(word => String(word || '').trim()).filter(Boolean))].slice(0, 20);
+  setState({ watchWords: kept, notice, error: '' });
+}
+
 function archiveTableState() {
   return { ...structuredClone(initial.archiveTable), ...(state.archiveTable || {}), filters: { ...structuredClone(initial.archiveTable.filters), ...((state.archiveTable || {}).filters || {}) } };
 }
@@ -3615,7 +3624,7 @@ function archiveTableData(scope = 'open') {
   return archiveTableRows(archiveNoticesWithStage(), {
     links: archiveLinks(), applicants: state.applicants || [], today: todayIso(), hidden: state.archiveHiddenNotices || [],
     query: table.query, filters: table.filters, sortKey: table.sortKey, sortDir: table.sortDir, page: table.page, pageSize: table.pageSize,
-    scope
+    scope, watch: watchWords(), watchOnly: Boolean(state.watchOnly)
   });
 }
 function todayIso() { return new Date().toISOString().slice(0, 10); }
@@ -3653,7 +3662,7 @@ function archiveTableRow(row, table) {
     <td class="archive-num">${escapeHtml(shortDate(row.collectedAt) || '-')}</td>
     <td class="archive-quiet">${escapeHtml(row.institution)}</td>
     <td class="archive-quiet">${escapeHtml(row.field)}</td>
-    <td class="archive-title"><button class="archive-name" data-archive-detail="${escapeHtml(row.key)}" title="${escapeHtml(row.summary)}">${escapeHtml(row.title.slice(0, 80))}</button>${row.isSample ? '<small class="archive-tag">보기 전용 예시</small>' : ''}</td>
+    <td class="archive-title">${watchHits(row, watchWords()).length ? `<span class="status 충족 watch-mark" title="관심 항목 ${escapeHtml(watchHits(row, watchWords()).join(', '))}">관심</span> ` : ''}<button class="archive-name" data-archive-detail="${escapeHtml(row.key)}" title="${escapeHtml(row.summary)}">${escapeHtml(row.title.slice(0, 80))}</button>${row.isSample ? '<small class="archive-tag">보기 전용 예시</small>' : ''}</td>
     <td class="archive-num ${row.deadline.closed ? 'closed' : ''}">${escapeHtml(row.deadline.text)}</td>
     <td class="archive-tight"><span class="archive-status-wrap"><select class="archive-status" data-archive-status="${escapeHtml(row.key)}">${ARCHIVE_STATUSES.map(status => `<option value="${escapeHtml(status)}" ${row.status === status ? 'selected' : ''}>${escapeHtml(status)}</option>`).join('')}</select></span></td>
     <td>${row.isSample ? `<span class="archive-quiet">${escapeHtml(row.applicantText)}</span>` : `<button class="archive-action" data-archive-applicant-open="${escapeHtml(row.key)}">${row.applicantText ? escapeHtml(row.applicantText) : '+ 기관 매칭'}</button>`}</td>
@@ -3756,6 +3765,12 @@ function archiveView() {
       <button class="button secondary" id="search-archive">공고보관함 다시 불러오기</button>
       <button class="button primary" id="find-matching-notices">맞춤 공고 찾기</button>
       <button class="button secondary" id="list-archived-proposals">계획서보관함</button></div>
+    <div class="watch-row">
+      <span class="watch-label">관심 항목</span>
+      ${watchWords().map(word => `<span class="chip on watch-chip">${escapeHtml(word)}<button type="button" data-watch-remove="${escapeHtml(word)}" aria-label="${escapeHtml(word)} 빼기">×</button></span>`).join('') || '<span class="muted">아직 없습니다.</span>'}
+      <input id="watch-add" type="search" autocomplete="off" placeholder="관심 낱말 적고 Enter" aria-label="관심 낱말 추가">
+      <label class="watch-only"><input type="checkbox" id="watch-only" ${state.watchOnly ? 'checked' : ''}> 관심 항목만 보기</label>
+    </div>
     <details class="filter-details" ${activeFilters ? 'open' : ''}><summary>상세 필터${activeFilters ? ` · ${activeFilters}개 적용 중` : ''}</summary>
     <div class="archive-filters">
       ${archiveSelectField('수집일', 'collected', table.filters.collected, data.collectedDates, shortDate)}
@@ -6785,6 +6800,22 @@ function bind() {
     archiveQuery.onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); applyQuery(event.target.value); } };
   }
   document.querySelector('#archive-clear-query')?.addEventListener('click', () => setArchiveTable({ query: '', page: 1 }));
+  // 관심 항목. 적어 두면 그 공고에 표시가 붙는다.
+  const watchAdd = document.querySelector('#watch-add');
+  if (watchAdd) {
+    watchAdd.onkeydown = event => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      const word = event.target.value.trim();
+      if (!word) return;
+      setWatchWords([...watchWords(), word], `관심 항목에 「${word}」을(를) 넣었습니다.`);
+    };
+  }
+  document.querySelectorAll('[data-watch-remove]').forEach(el => el.onclick = () => {
+    const word = el.dataset.watchRemove;
+    setWatchWords(watchWords().filter(item => item !== word), `관심 항목에서 「${word}」을(를) 뺐습니다.`);
+  });
+  document.querySelector('#watch-only')?.addEventListener('change', event => setState({ watchOnly: event.target.checked }));
   document.querySelectorAll('[data-archive-filter]').forEach(el => el.onchange = () => setArchiveTable({ filters: { ...archiveTableState().filters, [el.dataset.archiveFilter]: el.value }, page: 1 }));
   // 전체 보기. 걸어 둔 조건과 쪽 나눔을 함께 풀어 모아 둔 것을 한 화면에 늘어놓는다.
   document.querySelector('#archive-show-all')?.addEventListener('click', () => setArchiveTable({

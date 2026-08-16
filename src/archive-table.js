@@ -126,6 +126,18 @@ export function archiveRow(notice, options = {}) {
 
 // 찾는 자리. 제목만 뒤지면 「아동」으로 지원대상에 적힌 공고를 놓친다.
 // 공고번호·마감일·상태까지 넣어 「20260700100031」이나 「마감임박」으로도 찾게 한다.
+// 관심 낱말. 눈여겨보는 주제를 적어 두면 그 공고에 표시가 붙고 모아 볼 수 있다.
+// 낱말은 사람이 정한다. 우리가 짐작해서 넣거나 빼지 않는다.
+export const DEFAULT_WATCH = Object.freeze(['디지털 문해력', '디지털 리터러시', 'AI', '인공지능']);
+
+// 이 공고가 어떤 관심 낱말에 걸리는지. 걸린 낱말을 그대로 돌려준다.
+export function watchHits(row, keywords = []) {
+  const text = searchText(row);
+  return keywords
+    .map(word => String(word || '').trim())
+    .filter(word => word && text.includes(word.toLowerCase()));
+}
+
 export function searchText(row) {
   const notice = row?.notice || {};
   return [
@@ -173,7 +185,10 @@ export function archiveTableRows(notices = [], options = {}) {
   const hiddenKeys = new Set(hidden);
   // 마감된 공고는 따로 본다. 지우지 않는다. 지난 공고의 서식과 조건은 다음 해에 다시 쓴다.
   const inScope = row => (scope === 'closed' ? row.deadline.closed : scope === 'open' ? !row.deadline.closed : true);
-  const all = notices.map(notice => archiveRow(notice, options)).filter(row => !hiddenKeys.has(row.key)).filter(inScope);
+  // 관심 낱말만 보기. 낱말을 적어 두지 않았으면 걸러 내지 않는다.
+  const { watch = [], watchOnly = false } = options;
+  const inWatch = row => !watchOnly || !watch.length || watchHits(row, watch).length > 0;
+  const all = notices.map(notice => archiveRow(notice, options)).filter(row => !hiddenKeys.has(row.key)).filter(inScope).filter(inWatch);
   const key = ARCHIVE_SORT_KEYS.includes(sortKey) ? sortKey : 'collectedAt';
   const direction = sortDir === 'asc' ? 1 : -1;
   const filtered = all.filter(row => matchesQuery(row, String(query).trim()) && matchesFilters(row, filters))
