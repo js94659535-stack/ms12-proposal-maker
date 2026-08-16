@@ -36,6 +36,12 @@ const RULES = [
   { fitness: FITNESS.proposal, pattern: /공모|지원\s*사업|배분\s*사업|사업\s*신청|신청\s*접수|공모\s*사업|지원\s*신청|사업\s*공고|프로그램\s*공모|기금\s*지원|참여\s*기관\s*모집|수행\s*기관\s*모집|협력\s*기관\s*모집|배분\s*신청/ }
 ];
 
+// 「신청안내」·「접수안내」는 두 가지로 쓰인다. 설명회 자료일 때도 있고, 공고 제목일 때도 있다.
+// 바보의나눔은 「2027년 공모배분사업 신청안내」처럼 실제 공고에 이 말을 쓴다.
+// 그래서 이 말만으로 설명회라고 접지 않고, 같은 제목에 공모·지원사업이 있으면 공고로 본다.
+const BRIEFING_SOFT = /신청\s*안내|접수\s*안내/;
+const PROPOSAL_RULE = () => RULES.find(rule => rule.fitness === FITNESS.proposal).pattern;
+
 // 「제안 가능」으로 보려면 이런 말이 하나라도 있어야 한다. 없으면 확정하지 않는다.
 const APPLICANT_HINT = /신청\s*(?:자격|대상|기관|방법)|지원\s*(?:자격|대상)|공모\s*대상|수행\s*기관|참여\s*기관|비영리|법인|단체|기관/;
 // 우리가 제안할 수 있는 일의 성격.
@@ -49,7 +55,13 @@ export function classifyTitle(title) {
   if (!value.trim()) return { fitness: FITNESS.unknown, reason: '제목이 없습니다.' };
   for (const rule of RULES) {
     const hit = rule.pattern.exec(value);
-    if (hit) return { fitness: rule.fitness, reason: `제목의 「${hit[0].trim()}」` };
+    if (!hit) continue;
+    // 「…사업 신청안내」는 설명회가 아니라 공고다. 같은 제목에 공모·지원사업이 있으면 공고로 본다.
+    if (rule.fitness === FITNESS.briefing && BRIEFING_SOFT.test(hit[0])) {
+      const call = PROPOSAL_RULE().exec(value);
+      if (call) return { fitness: FITNESS.proposal, reason: `제목의 「${call[0].trim()}」` };
+    }
+    return { fitness: rule.fitness, reason: `제목의 「${hit[0].trim()}」` };
   }
   return { fitness: FITNESS.unknown, reason: '제목에서 분류 근거를 찾지 못했습니다.' };
 }

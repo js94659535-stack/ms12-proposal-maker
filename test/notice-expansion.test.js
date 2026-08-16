@@ -346,3 +346,15 @@ test('기관을 부르는 모집은 우리가 낼 공모다', async () => {
   assert.equal(classifyTitle('용역업체 선정을 위한 평가위원 모집').fitness, 'hiring');
   assert.equal(classifyTitle('심사위원 모집 공고').fitness, 'hiring');
 });
+
+test('「…사업 신청안내」는 설명회가 아니라 공고다', async () => {
+  const { classifyTitle } = await import('../server/notice-classify.js');
+  // 바보의나눔은 실제 공고 제목에 「신청안내」를 쓴다. 설명회로 접으면 공고를 통째로 놓친다.
+  assert.equal(classifyTitle('[공고] 2027년 공모배분사업 신청안내').fitness, 'proposal');
+  assert.equal(classifyTitle('[공고] 2026년 여성가장 긴급지원사업 신청안내').fitness, 'proposal');
+  // 설명회라고 적힌 것은 그대로 설명회다.
+  assert.equal(classifyTitle('[안내] 2027년 공모배분사업 설명회').fitness, 'briefing');
+  assert.equal(classifyTitle('2027년 공모배분 사업설명회 영상 및 자료').fitness, 'briefing');
+  // 공모·지원사업이라는 말이 없으면 그냥 안내다.
+  assert.equal(classifyTitle('신청안내 서식 다운로드').fitness, 'briefing');
+});
