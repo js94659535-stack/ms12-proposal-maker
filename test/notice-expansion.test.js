@@ -358,3 +358,12 @@ test('「…사업 신청안내」는 설명회가 아니라 공고다', async (
   // 공모·지원사업이라는 말이 없으면 그냥 안내다.
   assert.equal(classifyTitle('신청안내 서식 다운로드').fitness, 'briefing');
 });
+
+test('상세 본문을 읽을 때 표시용 코드를 먼저 걷어 낸다', async () => {
+  const { bodyTextOf } = await import('../server/extra-collect.js');
+  // 게시판 상세에는 <style> 안에 같은 이름의 규칙이 먼저 나온다. 그 자리부터 읽으면 CSS를 본문으로 읽는다.
+  const html = `<style>.view_tit{color:#212121}</style><div class="view_tit">2027년 공모배분사업</div><p>신청자격: 비영리 법인·단체</p>`;
+  const body = bodyTextOf(html, 'view_tit');
+  assert.ok(body.includes('신청자격'), '본문을 읽는다');
+  assert.ok(!body.includes('color'), 'CSS를 읽지 않는다');
+});

@@ -45,7 +45,11 @@ async function request(fetcher, url, { accept = 'text/html', retry = true } = {}
 // marker를 주면 그 자리부터 읽는다. 게시판 상세 페이지에는 다른 글 목록이 함께 실려 있어,
 // 페이지 전체를 읽으면 남의 글 제목이 이 글의 성격으로 잘못 잡힌다.
 export function bodyTextOf(html, marker = '') {
-  const source = String(html || '');
+  // 표시용 코드를 먼저 걷어 낸다. 게시판 상세에는 <style> 안에 같은 이름의 규칙이 먼저 나오고,
+  // 그 자리부터 읽으면 본문 대신 CSS를 읽는다. 바보의나눔에서 실제로 그랬다.
+  const source = String(html || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ');
   const at = marker ? source.indexOf(marker) : -1;
   return plainText(at >= 0 ? source.slice(at) : source);
 }
