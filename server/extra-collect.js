@@ -108,7 +108,7 @@ async function collectKihf(fetcher, source, today, { budget } = {}) {
       attachments = [...detail.matchAll(/download\.do\?uuid=[^"']*"[^>]*>([^<]{1,120})/g)]
         .map(match => ({ name: cleanText(match[1]), fileType: '' })).slice(0, 10);
     } catch { /* 한 건 실패는 출처 장애가 아니다 */ }
-    const period = extractPeriod(`${row.title}\n${body}`);
+    const period = extractPeriod(`${row.title}\n${body}`, { registeredAt: row.registeredAt });
     const verdict = classifyNotice({ title: row.title, body, sourceKind: source.id === 'kihf-bid' ? 'bid-board' : '' });
     if (!searchable(verdict.fitness)) { countSkip(status, verdict.fitness); continue; }
     const { stage, daysLeft } = noticeStage(period.deadline, today);
@@ -162,7 +162,7 @@ async function collectBabo(fetcher, source, today, { budget } = {}) {
       // 글 제목 자리부터 읽는다. 그 앞은 머리말이고 한참 뒤는 다른 글 목록이다.
       body = bodyTextOf(detail, 'view_tit').slice(0, 4000);
     } catch { /* 한 건 실패는 출처 장애가 아니다 */ }
-    const period = extractPeriod(`${row.title}\n${body}`);
+    const period = extractPeriod(`${row.title}\n${body}`, { registeredAt: row.registeredAt });
     const verdict = classifyNotice({ title: row.title, body });
     if (!searchable(verdict.fitness)) { countSkip(status, verdict.fitness); continue; }
     const { stage, daysLeft } = noticeStage(period.deadline, today);

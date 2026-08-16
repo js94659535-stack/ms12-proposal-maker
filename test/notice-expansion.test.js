@@ -367,3 +367,14 @@ test('상세 본문을 읽을 때 표시용 코드를 먼저 걷어 낸다', asy
   assert.ok(body.includes('신청자격'), '본문을 읽는다');
   assert.ok(!body.includes('color'), 'CSS를 읽지 않는다');
 });
+
+test('올린 날짜를 마감일로 삼지 않는다', async () => {
+  const { extractPeriod, isCollectible } = await import('../server/notice-collect.js');
+  // 상세에 올린 날짜만 적힌 글이 많다. 그 날짜를 마감으로 보면 오늘 올라온 공고가 마감으로 보인다.
+  const body = '지원공지 2026-08-08\n2026년 여성가장 긴급지원사업을 안내합니다.';
+  assert.equal(extractPeriod(body, { registeredAt: '2026-08-08' }).deadline, '');
+  // 올린 날짜보다 뒤의 날짜는 마감일 후보로 그대로 쓴다.
+  assert.equal(extractPeriod('접수 마감 2026-09-30', { registeredAt: '2026-08-08' }).deadline, '2026-09-30');
+  // 마감일을 모르면 최근에 올라온 글은 수집한다. 마감으로 접지 않는다.
+  assert.equal(isCollectible({ deadline: '', registeredAt: '2026-08-08' }, '2026-08-16'), true);
+});

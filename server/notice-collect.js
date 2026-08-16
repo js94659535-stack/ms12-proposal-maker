@@ -108,7 +108,9 @@ function deadlineOfLine(line) {
   return rangeEnd(line, last) || last.value;
 }
 
-export function extractPeriod(text) {
+// registeredAt을 함께 주면 「올린 날짜를 마감일로 착각하는」 실수를 막는다.
+// 게시판 상세에는 올린 날짜만 적혀 있는 글이 많다. 그 날짜를 마감일로 삼으면 오늘 올라온 공고가 마감으로 보인다.
+export function extractPeriod(text, { registeredAt = '' } = {}) {
   const lines = String(text || '').split('\n').map(line => line.replace(/\s+/g, ' ').trim()).filter(Boolean);
   for (const label of [STRICT_LABEL, LOOSE_LABEL]) {
     for (const line of lines) {
@@ -122,6 +124,10 @@ export function extractPeriod(text) {
   const all = parseDates(lines.join('\n'));
   if (!all.length) return { applicationPeriod: '', deadline: '', deadlineSource: '' };
   const latest = all.map(found => found.value).sort().at(-1);
+  // 본문에서 찾은 가장 늦은 날짜가 올린 날짜보다 뒤가 아니면 마감일이 아니다. 모른다고 둔다.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(registeredAt || '')) && latest <= registeredAt) {
+    return { applicationPeriod: '', deadline: '', deadlineSource: '' };
+  }
   return { applicationPeriod: '', deadline: latest, deadlineSource: 'body' };
 }
 
