@@ -148,3 +148,12 @@ test('검색칸에 브라우저가 계정 정보를 채우지 못하게 한다',
   // 왜 0건인지 화면이 말한다. 검색어 탓인 줄 모르면 자료가 사라진 줄 안다.
   assert.match(appSource, /검색어 「\$\{escapeHtml\(table\.query\)\}」에 맞는 공고가 없습니다\. 보관 공고는 \$\{data\.total\}건 있습니다/);
 });
+
+test('공고보관함은 처음부터 모두 보여 준다', () => {
+  // 보관함은 모아 둔 것을 보러 오는 곳이다. 스무 건씩 끊어 보여 줄 이유가 없다.
+  assert.match(appSource, /archiveTable: \{ query: '', sortKey: 'collectedAt', sortDir: 'desc', page: 1, pageSize: 0,/);
+  // 「전체 보기」는 눈에 띄어야 한다.
+  assert.match(appSource, /<button class="button primary" id="archive-show-all">전체 보기<\/button>/);
+  // 저장해 둔 검색어를 다음 방문에 다시 채우지 않는다. 자동완성 값이 남아 목록을 가렸다.
+  assert.match(appSource, /restored\.archiveTable\.query = '';/);
+});
