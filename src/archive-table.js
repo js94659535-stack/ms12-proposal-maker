@@ -169,9 +169,11 @@ function sortValue(row, key) {
 }
 
 export function archiveTableRows(notices = [], options = {}) {
-  const { hidden = [], sortKey = 'collectedAt', sortDir = 'desc', page = 1, pageSize = 20, query = '', filters = {} } = options;
+  const { hidden = [], sortKey = 'collectedAt', sortDir = 'desc', page = 1, pageSize = 20, query = '', filters = {}, scope = 'all' } = options;
   const hiddenKeys = new Set(hidden);
-  const all = notices.map(notice => archiveRow(notice, options)).filter(row => !hiddenKeys.has(row.key));
+  // 마감된 공고는 따로 본다. 지우지 않는다. 지난 공고의 서식과 조건은 다음 해에 다시 쓴다.
+  const inScope = row => (scope === 'closed' ? row.deadline.closed : scope === 'open' ? !row.deadline.closed : true);
+  const all = notices.map(notice => archiveRow(notice, options)).filter(row => !hiddenKeys.has(row.key)).filter(inScope);
   const key = ARCHIVE_SORT_KEYS.includes(sortKey) ? sortKey : 'collectedAt';
   const direction = sortDir === 'asc' ? 1 : -1;
   const filtered = all.filter(row => matchesQuery(row, String(query).trim()) && matchesFilters(row, filters))

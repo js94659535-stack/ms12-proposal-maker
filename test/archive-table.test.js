@@ -210,3 +210,27 @@ test('보관함 목록은 저장해 두고 들어올 때마다 다시 받지 않
   // 열 때 이미 있으면 기다리게 하지 않는다.
   assert.match(appSource, /if \(!archiveLoaded\) void loadRecentArchive\(\);/);
 });
+
+test('마감된 공고는 따로 모아 두고 지우지 않는다', () => {
+  const today = '2026-08-16';
+  const notices = [
+    { archiveNoticeKey: 'live', title: '진행 공고', sourceLabel: '중앙회', deadline: '2026-12-31' },
+    { archiveNoticeKey: 'done', title: '지난 공고', sourceLabel: '중앙회', deadline: '2026-01-31' }
+  ];
+  // 진행 중 상자에는 마감이 섞이지 않는다.
+  const open = archiveTableRows(notices, { today, scope: 'open' });
+  assert.deepEqual(open.rows.map(row => row.key), ['live']);
+  // 마감 상자에는 마감만 담긴다. 자료는 그대로 있다.
+  const closed = archiveTableRows(notices, { today, scope: 'closed' });
+  assert.deepEqual(closed.rows.map(row => row.key), ['done']);
+  // 갈래를 정하지 않으면 예전처럼 모두 나온다.
+  assert.equal(archiveTableRows(notices, { today }).total, 2);
+
+  // 화면: 마감된 공고함이 따로 있고, 몇 건인지 위 상자에도 적는다.
+  assert.match(appSource, /function closedArchiveView\(\)/);
+  assert.match(appSource, /id="closed-archive-box"/);
+  assert.match(appSource, /\['마감된 공고', archiveTableData\('closed'\)\.total, '아래 「마감된 공고함」에 보관'\]/);
+  assert.match(appSource, /마감된 공고로는 새 계획서를 시작하지 않습니다/);
+  // 지우는 문장이 없다.
+  assert.ok(!/DELETE FROM archived_notices/i.test(appSource));
+});

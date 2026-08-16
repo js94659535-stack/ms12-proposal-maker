@@ -3610,11 +3610,12 @@ function archiveNoticesWithStage() {
     return linked ? { ...item, linkedProposalStage: linked.stage } : item;
   });
 }
-function archiveTableData() {
+function archiveTableData(scope = 'open') {
   const table = archiveTableState();
   return archiveTableRows(archiveNoticesWithStage(), {
     links: archiveLinks(), applicants: state.applicants || [], today: todayIso(), hidden: state.archiveHiddenNotices || [],
-    query: table.query, filters: table.filters, sortKey: table.sortKey, sortDir: table.sortDir, page: table.page, pageSize: table.pageSize
+    query: table.query, filters: table.filters, sortKey: table.sortKey, sortDir: table.sortDir, page: table.page, pageSize: table.pageSize,
+    scope
   });
 }
 function todayIso() { return new Date().toISOString().slice(0, 10); }
@@ -3703,6 +3704,29 @@ function proposalArchiveDetail(item) {
   return `<div class="summary-grid" style="margin-top:10px">${rows.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value).slice(0, 40))}</strong></div>`).join('')}</div>
     ${current ? '' : '<p class="muted">「이어서 작업」으로 열면 버전·검토·수정 이력을 모두 확인할 수 있습니다.</p>'}`;
 }
+// 마감된 공고함. 지난 공고를 지우지 않고 따로 둔다. 서식·조건·심사기준은 다음 해에 다시 쓴다.
+// 진행 중 목록에 섞여 있으면 지금 낼 수 있는 공고를 찾기 어렵다.
+function closedArchiveView() {
+  const data = archiveTableData('closed');
+  const table = archiveTableState();
+  if (!data.total) return '';
+  const open = Boolean(state.archiveClosedOpen);
+  return `<details class="card org-details" id="closed-archive-box" ${open ? 'open' : ''}><summary><b>마감된 공고함</b> <small>접수가 끝난 공고 ${data.total}건. 지우지 않고 보관합니다. 서식과 심사기준은 다음 공고에서 다시 씁니다.</small></summary>
+    ${open ? `${table.query ? `<p class="muted">검색어 「${escapeHtml(table.query)}」 · 마감 공고 ${data.total}건 가운데 ${data.matched}건이 맞습니다.</p>` : ''}
+    <div class="archive-table-wrap"><table class="archive-table"><thead><tr>
+      <th>수집일</th><th>공모기관</th><th>분야</th><th>사업명</th><th>마감일</th><th>상태</th>
+    </tr></thead><tbody>${data.rows.map(row => `<tr>
+      <td>${escapeHtml(shortDate(row.collectedAt))}</td>
+      <td>${escapeHtml(row.institution)}</td>
+      <td>${escapeHtml(row.field)}</td>
+      <td><button class="button ghost" style="padding:4px 6px;text-align:left" data-archive-view="${escapeHtml(row.key)}">${escapeHtml(row.title)}</button></td>
+      <td>${escapeHtml(row.deadline.text)}</td>
+      <td><span class="status 확인-필요">마감</span></td>
+    </tr>`).join('') || '<tr><td colspan="6" class="muted">조건에 맞는 마감 공고가 없습니다.</td></tr>'}</tbody></table></div>
+    <p class="muted">사업명을 누르면 원문을 볼 수 있습니다. 마감된 공고로는 새 계획서를 시작하지 않습니다.</p>` : ''}
+  </details>`;
+}
+
 function archiveView() {
   const filters = state.archiveFilters || initial.archiveFilters;
   const table = archiveTableState();
@@ -3718,7 +3742,8 @@ function archiveView() {
     <div class="stat-badges">${[
       ['보관 공고', data.total, `기관 ${data.institutions.length}곳`],
       ['검색 결과', data.matched, data.matched ? `${data.from}–${data.to}번 표시` : '조건에 맞는 공고 없음'],
-      ['신청기관 연결', linkedCount, '공고당 여러 기관 연결 가능']
+      ['신청기관 연결', linkedCount, '공고당 여러 기관 연결 가능'],
+      ['마감된 공고', archiveTableData('closed').total, '아래 「마감된 공고함」에 보관']
     ].map(([label, value, detail]) => `<span class="stat-badge" title="${escapeHtml(`${label} ${value}건 · ${detail}`)}"><strong>${value}</strong><span>${escapeHtml(label)}</span><small>${escapeHtml(detail)}</small></span>`).join('')}</div>
     <label class="archive-search-label" for="archive-query">보관 공고 검색</label>
     <div class="archive-toolbar"><input id="archive-query" type="search" name="archive-search" autocomplete="off" autocapitalize="off" spellcheck="false" value="${escapeHtml(table.query)}" placeholder="사업명·기관·분야·지원대상·공고번호로 찾기">
@@ -3756,6 +3781,7 @@ function archiveView() {
       <button class="button secondary" data-archive-page="${data.page + 1}" ${data.page >= data.pageCount ? 'disabled' : ''}>다음</button></div>` : '<p class="muted">보관된 공고가 없습니다. 공고를 한 번 가져오면 자동으로 보관됩니다.</p>'}
     ${(state.archiveHiddenNotices || []).length ? `<div class="archive-bulk"><span>목록에서 숨긴 공고 ${(state.archiveHiddenNotices || []).length}건 (보관 원본과 연결된 계획서는 남아 있습니다)</span><button class="button secondary" id="archive-restore-hidden">숨긴 공고 되돌리기</button></div>` : ''}
   </details>
+  ${closedArchiveView()}
   <details class="card org-details" id="proposal-box" open><summary><b>계획서보관함</b> <small>저장한 계획서를 이어서 씁니다. 「이어서 작업」을 누르면 그 계획서로 돌아갑니다.</small></summary>
     <div class="stat-badges">${[
       ['저장한 계획서', proposals.length, '이어서 작업으로 계속 씁니다'],
@@ -6719,6 +6745,7 @@ function bind() {
   document.querySelector('#find-matching-notices')?.addEventListener('click', findMatchingNotices);
   document.querySelector('#list-archived-proposals')?.addEventListener('click', loadProposalArchive);
   document.querySelector('#list-archived-proposals-2')?.addEventListener('click', loadProposalArchive);
+  document.querySelector('#closed-archive-box')?.addEventListener('toggle', event => { state.archiveClosedOpen = event.target.open; saveState(); });
   document.querySelector('#copy-archive-key')?.addEventListener('click', copyArchiveRecoveryKey);
   document.querySelector('#apply-archive-key')?.addEventListener('click', applyArchiveRecoveryKey);
   document.querySelectorAll('[data-use-archived-notice]').forEach(el => el.onclick = () => useArchivedNotice(Number(el.dataset.useArchivedNotice)));
@@ -8010,7 +8037,7 @@ function closeArchiveMenu() {
 }
 function openArchiveMenu(key, x, y) {
   closeArchiveMenu();
-  const row = archiveTableData().rows.find(item => item.key === key);
+  const row = [...archiveTableData('open').rows, ...archiveTableData('closed').rows].find(item => item.key === key);
   if (!row) return;
   const progress = archiveProgressStep(row);
   const menu = document.createElement('div');
