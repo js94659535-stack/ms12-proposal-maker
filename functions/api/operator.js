@@ -14,6 +14,7 @@ import { issueRecoveryCode } from '../../server/recovery.js';
 import { collectionStatus } from '../../server/notice-collector.js';
 import { canManageOrg, manageOrgs } from '../../server/notice-orgs.js';
 import { listOrgs, orgUsage, saveOrg, setOrgStatus } from '../../server/notice-org-store.js';
+import { MAX_WORDS, newWordId, validateWord, wordView } from '../../server/watch-words.js';
 import { listProposalMeta, loadGrants, recordAccess } from '../../server/access-store.js';
 import { decideAccess, proposalContentAccess, stripSecrets, todayInSeoul } from '../../server/permissions.js';
 
@@ -72,6 +73,38 @@ export async function onRequest(context) {
     await recordAudit(db, { actor, action: `noticeOrg.${body.status}`, targetId: changed.org.id, targetEmail: '', detail: `${changed.org.name} · ${changed.note}` });
     const rows = await listOrgs(db);
     return json({ ok: true, org: changed.org, counts: changed.counts, note: changed.note, orgs: manageOrgs(rows), canArchive: canManageOrg(actor.role, 'archive') }, 200);
+  }
+  // 관심 항목 등록부. 기관이 눈여겨보는 주제를 관리자가 정한다.
+  if (action === 'watchWords') {
+    const rows = (await db.prepare('SELECT * FROM watch_words ORDER BY active DESC, word').all().catch(() => null))?.results || [];
+    return json({ words: rows.map(wordView) }, 200);
+  }
+  if (action === 'saveWatchWord') {
+    const checked = validateWord(body);
+    if (!checked.ok) return json({ error: checked.error }, 400);
+    const now = new Date().toISOString();
+    const existing = await db.prepare('SELECT id FROM watch_words WHERE word = ?').bind(checked.value.word).first().catch(() => null);
+    if (existing) {
+      await db.prepare('UPDATE watch_words SET note = ?, active = 1, updated_at = ? WHERE id = ?').bind(checked.value.note, now, existing.id).run();
+    } else {
+      const total = Number((await db.prepare('SELECT COUNT(*) AS n FROM watch_words').first().catch(() => null))?.n || 0);
+      if (total >= MAX_WORDS) return json({ error: `관심 항목은 ${MAX_WORDS}개까지 둘 수 있습니다.` }, 400);
+      await db.prepare('INSERT INTO watch_words (id, word, note, active, created_at, updated_at, created_by) VALUES (?, ?, ?, 1, ?, ?, ?)')
+        .bind(newWordId(), checked.value.word, checked.value.note, now, now, actor.id).run();
+    }
+    await recordAudit(db, { actor, action: 'watchWord.save', targetId: checked.value.word, detail: checked.value.note || '관심 항목 등록' });
+    const rows = (await db.prepare('SELECT * FROM watch_words ORDER BY active DESC, word').all())?.results || [];
+    return json({ ok: true, words: rows.map(wordView) }, 200);
+  }
+  if (action === 'setWatchWordActive') {
+    const id = String(body.id || '').slice(0, 40);
+    const active = body.active ? 1 : 0;
+    const row = await db.prepare('SELECT id, word FROM watch_words WHERE id = ?').bind(id).first().catch(() => null);
+    if (!row) return json({ error: '그 관심 항목을 찾지 못했습니다.' }, 404);
+    await db.prepare('UPDATE watch_words SET active = ?, updated_at = ? WHERE id = ?').bind(active, new Date().toISOString(), id).run();
+    await recordAudit(db, { actor, action: active ? 'watchWord.on' : 'watchWord.off', targetId: String(row.word), detail: active ? '다시 사용' : '사용 중지' });
+    const rows = (await db.prepare('SELECT * FROM watch_words ORDER BY active DESC, word').all())?.results || [];
+    return json({ ok: true, words: rows.map(wordView) }, 200);
   }
   if (action === 'noticeOrgUsage') return json({ counts: await orgUsage(db, body.id) }, 200);
   if (action === 'overview') return json(await overview(db, body), 200);

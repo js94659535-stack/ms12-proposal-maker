@@ -48,5 +48,7 @@ export const saveMemberInfo = value => post('/api/account', 'saveProfile', value
 export const acknowledgePrivacyNotice = version => post('/api/account', 'acknowledgeNotice', { version });
 // 비밀번호 바꾸기. 지금 비밀번호를 함께 보내고, 바꾸면 모든 기기의 로그인이 끊긴다.
 export const memberNoticeOrgs = () => post('/api/account', 'noticeOrgs', {});
+// 기관이 정한 관심 항목. 읽기만 한다.
+export const memberWatchWords = () => post('/api/account', 'watchWords', {});
 export const changePassword = (currentPassword, password, passwordConfirm) =>
   post('/api/account', 'changePassword', { currentPassword, password, passwordConfirm });

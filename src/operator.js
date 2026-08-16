@@ -33,3 +33,7 @@ export const operatorProposalContent = id => post('proposalContent', { id });
 export const operatorNoticeOrgs = () => post('noticeOrgs', {});
 export const operatorSaveNoticeOrg = value => post('saveNoticeOrg', value);
 export const operatorSetNoticeOrgStatus = (id, status) => post('setNoticeOrgStatus', { id, status });
+// 관심 항목. 기관이 눈여겨보는 주제를 관리자가 정한다.
+export const operatorWatchWords = () => post('watchWords', {});
+export const operatorSaveWatchWord = (word, note = '') => post('saveWatchWord', { word, note });
+export const operatorSetWatchWordActive = (id, active) => post('setWatchWordActive', { id, active });

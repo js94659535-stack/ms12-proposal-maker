@@ -22,7 +22,9 @@ export const OPERATOR_ACTIONS = new Set([
   'noticeOrgs',       // 등록부 조회
   'saveNoticeOrg',    // 추가·이름/분류/순서 수정
   'setNoticeOrgStatus',// 이용 중·일시중지·보관·복원
-  'noticeOrgUsage'    // 그 기관에 딸린 공고·계획서 건수(지우지 않는다는 것을 숫자로 보인다)
+  'noticeOrgUsage',   // 그 기관에 딸린 공고·계획서 건수(지우지 않는다는 것을 숫자로 보인다)
+  // 관심 항목. 기관이 눈여겨보는 주제를 관리자가 정한다.
+  'watchWords', 'saveWatchWord', 'setWatchWordActive'
 ]);
 
 // 운영관리자 권한으로는 서버에서 거절하는 동작. 화면에 버튼이 없더라도 여기서 다시 막는다.

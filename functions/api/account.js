@@ -31,6 +31,11 @@ export async function onRequest(context) {
   if (body.action === 'agencyMe') return agencyMe(env.ARCHIVE_DB, data.session.user);
   // 공고를 고를 때 쓰는 기관 목록. 이용 중인 곳만 준다. 관리 기능은 여기에 없다.
   if (body.action === 'noticeOrgs') return json({ orgs: selectableOrgs(await listOrgs(env.ARCHIVE_DB)) });
+  // 기관이 정한 관심 항목. 읽기만 한다. 고치는 것은 관리자 경로에만 있다.
+  if (body.action === 'watchWords') {
+    const rows = (await env.ARCHIVE_DB.prepare('SELECT word FROM watch_words WHERE active = 1 ORDER BY word').all().catch(() => null))?.results || [];
+    return json({ words: rows.map(row => String(row.word)) });
+  }
   if (body.action === 'profile') return profile(env.ARCHIVE_DB, data.session.user);
   if (body.action === 'completeProfile') return completeProfile(env.ARCHIVE_DB, data.session.user, body);
   // 본인정보 수정. 승인 대기·정식·프리미엄 회원 모두 쓴다.

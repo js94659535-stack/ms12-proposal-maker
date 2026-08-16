@@ -10,12 +10,12 @@ import { classifyDocument, intakeSummary, markDuplicates } from './doc-classify.
 import { trimManualSources } from './payload-trim.js';
 import { applyOpenMarks, collectOpenMarks, openMarkTotal } from './open-marks.js';
 import { MANIFEST_NAME, packageStale, planSubmissionZip, zipBytes } from './submission-zip.js';
-import { agencyMe, acknowledgePrivacyNotice, changePassword, memberNoticeOrgs, UNAUTHORIZED, accountProfile, clearOAuthCallback, currentUser, finishSocial, login, logout, readOAuthCallback, recoverPassword, saveAccountProfile, saveMemberInfo, signup as signupEmail, startSocial } from './auth.js';
+import { agencyMe, acknowledgePrivacyNotice, changePassword, memberNoticeOrgs, memberWatchWords, UNAUTHORIZED, accountProfile, clearOAuthCallback, currentUser, finishSocial, login, logout, readOAuthCallback, recoverPassword, saveAccountProfile, saveMemberInfo, signup as signupEmail, startSocial } from './auth.js';
 import { premiumNoticeHistory, premiumShowcase, premiumStatus } from './premium.js';
 import { mySubscriptionRequest, submitSubscriptionRequest } from './auth.js';
 import { adminSubscriptionRequests, adminDecideSubscription, adminAgencyList, adminAgencyTransfer, adminAgencyTransferPreview, adminSetAgency, adminOverviewCounts, adminSetNoticeSource, adminAccessOverview, adminAssignProposal, adminMemberUsage, adminProposalContent, adminRevokeGrant, adminSaveGrant, adminNoticeCollection, adminRunNoticeCollection, adminUsageReport, approveAccount, deleteShowcase, setAccountSubscription, transferSocialIdentity, disableAccount, listAccounts, listCollectedNotices, listShowcase, removeAccount, saveShowcase, setAccountPlan, setAccountPremium, setAccountRole, setNoticePublic, setShowcaseOrder, setShowcasePublic , adminDeleteNotices } from './admin.js';
 import { fetchMembershipPlans, publicNoticeDetail, searchPublicNotices } from './notice-search.js';
-import { operatorAgencyList, operatorNoticeCollection, operatorApprove, operatorDisable, operatorEndSessions, operatorIssueRecoveryCode, operatorOverview, operatorReactivate, operatorSetContractProgress, operatorUnlockLogin, operatorUsageReport, operatorUserDetail , operatorNoticeOrgs, operatorSaveNoticeOrg, operatorSetNoticeOrgStatus } from './operator.js';
+import { operatorAgencyList, operatorNoticeCollection, operatorApprove, operatorDisable, operatorEndSessions, operatorIssueRecoveryCode, operatorOverview, operatorReactivate, operatorSetContractProgress, operatorUnlockLogin, operatorUsageReport, operatorUserDetail , operatorNoticeOrgs, operatorSaveNoticeOrg, operatorSetNoticeOrgStatus , operatorWatchWords, operatorSaveWatchWord, operatorSetWatchWordActive } from './operator.js';
 import { codeLabel, statusLabel, warningLabel } from '../server/notice-run.js';
 import { ABILITIES, SCOPES } from '../server/permissions.js';
 import { BUSINESS_TYPES, SOURCE_GROUPS } from '../server/notice-sources.js';
@@ -2038,9 +2038,60 @@ function operatorView() {
       <button class="button ${view.tab === 'usage' ? 'primary' : 'secondary'}" data-operator-tab="usage" aria-pressed="${view.tab === 'usage'}">AI 사용량·비용</button>
       <button class="button ${view.tab === 'collection' ? 'primary' : 'secondary'}" data-operator-tab="collection" aria-pressed="${view.tab === 'collection'}">공고 자동수집</button>
       <button class="button ${view.tab === 'orgs' ? 'primary' : 'secondary'}" data-operator-tab="orgs" aria-pressed="${view.tab === 'orgs'}">공고 출처·기관 관리</button>
+      <button class="button ${view.tab === 'watch' ? 'primary' : 'secondary'}" data-operator-tab="watch" aria-pressed="${view.tab === 'watch'}">관심 항목 관리</button>
     </div>
-    ${view.tab === 'orgs' ? noticeOrgPanel() : view.tab === 'collection' ? collectionPanel({ readOnly: true }) : view.tab === 'usage' ? usagePanel() : view.tab === 'audit' ? operatorAuditList(view.audit) : `<div class="requirement-list">${view.users.map(operatorRow).join('') || '<p class="muted">조건에 맞는 회원이 없습니다.</p>'}</div>`}
+    ${view.tab === 'watch' ? watchWordPanel() : view.tab === 'orgs' ? noticeOrgPanel() : view.tab === 'collection' ? collectionPanel({ readOnly: true }) : view.tab === 'usage' ? usagePanel() : view.tab === 'audit' ? operatorAuditList(view.audit) : `<div class="requirement-list">${view.users.map(operatorRow).join('') || '<p class="muted">조건에 맞는 회원이 없습니다.</p>'}</div>`}
   </div>`;
+}
+
+// 관심 항목 관리. 기관이 눈여겨보는 주제를 정한다. 회원 화면이 이 낱말로 공고에 표시를 붙인다.
+function watchState() { return auth.watchAdmin || { loaded: false, words: [], draftWord: '', draftNote: '' }; }
+function setWatchState(patch) { setAuth({ watchAdmin: { ...watchState(), ...patch } }); }
+
+async function loadWatchWords() {
+  const result = await operatorWatchWords().catch(() => ({ ok: false }));
+  if (!result.ok) return setAuth({ error: result.error || '관심 항목을 불러오지 못했습니다.' });
+  setWatchState({ loaded: true, words: result.words || [] });
+}
+async function saveWatchWord() {
+  const draft = watchState();
+  if (auth.busy || !draft.draftWord.trim()) return;
+  setAuth({ busy: true, error: '', notice: '' });
+  const result = await operatorSaveWatchWord(draft.draftWord, draft.draftNote).catch(() => ({ ok: false, error: '요청을 보내지 못했습니다.' }));
+  if (!result.ok) return setAuth({ busy: false, error: result.error || '저장하지 못했습니다.' });
+  setAuth({ busy: false, notice: `관심 항목 「${draft.draftWord.trim()}」을(를) 등록했습니다.`, watchAdmin: { ...watchState(), loaded: true, words: result.words || [], draftWord: '', draftNote: '' } });
+  state.orgWatchLoaded = false;
+  void loadOrgWatchWords();
+}
+async function toggleWatchWord(id, active) {
+  if (auth.busy) return;
+  setAuth({ busy: true, error: '', notice: '' });
+  const result = await operatorSetWatchWordActive(id, active).catch(() => ({ ok: false, error: '요청을 보내지 못했습니다.' }));
+  if (!result.ok) return setAuth({ busy: false, error: result.error || '바꾸지 못했습니다.' });
+  setAuth({ busy: false, notice: active ? '다시 사용합니다.' : '사용을 멈췄습니다. 낱말은 남아 있습니다.', watchAdmin: { ...watchState(), words: result.words || [] } });
+  state.orgWatchLoaded = false;
+  void loadOrgWatchWords();
+}
+
+function watchWordPanel() {
+  const view = watchState();
+  if (!view.loaded) return '<p class="muted">관심 항목을 불러오는 중입니다…</p>';
+  const on = view.words.filter(item => item.active);
+  return `<h4>관심 항목 ${on.length}개 사용 중 <span class="muted">전체 ${view.words.length}개</span></h4>
+    <p class="muted">기관이 눈여겨보는 주제입니다. 회원 화면의 공고보관함에서 이 낱말에 걸리는 공고에 「관심」 표시가 붙습니다. 회원이 자기 낱말을 더 적을 수도 있고, 그것은 그 사람 화면에만 남습니다.</p>
+    <div class="two-col">
+      <div class="field"><label for="watch-word">관심 낱말</label><input id="watch-word" type="search" autocomplete="off" value="${escapeHtml(view.draftWord)}" placeholder="예: 디지털 리터러시" ${auth.busy ? 'disabled' : ''}></div>
+      <div class="field"><label for="watch-note">메모 (선택)</label><input id="watch-note" type="search" autocomplete="off" value="${escapeHtml(view.draftNote)}" placeholder="왜 보는지 한 줄" ${auth.busy ? 'disabled' : ''}></div>
+    </div>
+    <div class="actions"><span class="muted">지우지 않고 「사용 멈춤」으로 둡니다. 무엇을 왜 보기로 했는지 남습니다.</span>
+      <button class="button primary" id="watch-save" ${auth.busy ? 'disabled' : ''}>관심 항목 추가</button></div>
+    <div class="requirement-list">${view.words.map(item => `<article class="requirement"><div>
+      <div><span class="status ${item.active ? '충족' : '확인-필요'}">${item.active ? '사용 중' : '멈춤'}</span> <strong>${escapeHtml(item.word)}</strong></div>
+      ${item.note ? `<small class="muted">${escapeHtml(item.note)}</small>` : ''}
+      <div class="actions" style="margin-top:6px"><span class="muted"></span><div>
+        <button class="button secondary" data-watch-toggle="${escapeHtml(item.id)}" data-watch-active="${item.active ? '' : '1'}" ${auth.busy ? 'disabled' : ''}>${item.active ? '사용 멈춤' : '다시 사용'}</button>
+      </div></div>
+    </div></article>`).join('') || '<p class="muted">등록된 관심 항목이 없습니다.</p>'}</div>`;
 }
 
 // 공고 출처·기관 관리. 이름을 늘리고 고치고, 쓰지 않을 곳은 상태만 바꾼다. 지우지 않는다.
@@ -2068,6 +2119,7 @@ async function saveNoticeOrg() {
   // 고르는 목록도 새로 읽는다. 방금 추가한 기관이 바로 보여야 한다.
   state.noticeOrgsLoaded = false;
   void loadNoticeOrgs();
+  void loadOrgWatchWords();
 }
 
 async function setNoticeOrgStatus(id, status) {
@@ -3591,7 +3643,17 @@ function noticeImportView() {
 // 공고 수집·계획서 작성 로직은 그대로 두고 화면과 선택 상태만 다룬다.
 // 관심 낱말. 적어 두면 그 공고에 표시가 붙고 「관심만 보기」로 모아 볼 수 있다.
 function watchWords() {
-  return Array.isArray(state.watchWords) ? state.watchWords : [...DEFAULT_WATCH];
+  // 기관이 정한 낱말과 내가 적은 낱말을 함께 본다. 어느 쪽이든 걸리면 관심 공고다.
+  const mine = Array.isArray(state.watchWords) ? state.watchWords : [...DEFAULT_WATCH];
+  return [...new Set([...(state.orgWatchWords || []), ...mine])];
+}
+function myWatchWords() { return Array.isArray(state.watchWords) ? state.watchWords : [...DEFAULT_WATCH]; }
+async function loadOrgWatchWords() {
+  if (state.orgWatchLoaded) return;
+  state.orgWatchLoaded = true;
+  const result = await memberWatchWords().catch(() => ({ ok: false }));
+  if (!result.ok || !Array.isArray(result.words)) return;
+  setState({ orgWatchWords: result.words });
 }
 function setWatchWords(words, notice = '') {
   const kept = [...new Set(words.map(word => String(word || '').trim()).filter(Boolean))].slice(0, 20);
@@ -3767,7 +3829,9 @@ function archiveView() {
       <button class="button secondary" id="list-archived-proposals">계획서보관함</button></div>
     <div class="watch-row">
       <span class="watch-label">관심 항목</span>
-      ${watchWords().map(word => `<span class="chip on watch-chip">${escapeHtml(word)}<button type="button" data-watch-remove="${escapeHtml(word)}" aria-label="${escapeHtml(word)} 빼기">×</button></span>`).join('') || '<span class="muted">아직 없습니다.</span>'}
+      ${(state.orgWatchWords || []).map(word => `<span class="chip on watch-chip" title="기관이 정한 관심 항목입니다. 관리자만 바꿉니다.">${escapeHtml(word)}</span>`).join('')}
+      ${myWatchWords().filter(word => !(state.orgWatchWords || []).includes(word)).map(word => `<span class="chip on watch-chip">${escapeHtml(word)}<button type="button" data-watch-remove="${escapeHtml(word)}" aria-label="${escapeHtml(word)} 빼기">×</button></span>`).join('')}
+      ${watchWords().length ? '' : '<span class="muted">아직 없습니다.</span>'}
       <input id="watch-add" type="search" autocomplete="off" placeholder="관심 낱말 적고 Enter" aria-label="관심 낱말 추가">
       <label class="watch-only"><input type="checkbox" id="watch-only" ${state.watchOnly ? 'checked' : ''}> 관심 항목만 보기</label>
     </div>
@@ -6688,6 +6752,7 @@ function bind() {
     if (el.dataset.operatorTab === 'usage' && !auth.usage.loaded) void loadUsage();
     if (el.dataset.operatorTab === 'collection' && !collectionState().loaded) void loadCollection();
     if (el.dataset.operatorTab === 'orgs' && !noticeOrgState().loaded) void loadNoticeOrgAdmin();
+    if (el.dataset.operatorTab === 'watch' && !watchState().loaded) void loadWatchWords();
   });
   document.querySelectorAll('[data-operator-action]').forEach(el => el.onclick = () => void runOperatorAction(el.dataset.operatorAction, el.dataset.operatorId));
   // 공고 출처·기관 관리
@@ -6695,6 +6760,11 @@ function bind() {
     document.querySelector(id)?.addEventListener('input', event => { noticeOrgState().draft[key] = event.target.value; });
   }
   document.querySelector('#org-save')?.addEventListener('click', () => void saveNoticeOrg());
+  for (const [id, key] of [['#watch-word', 'draftWord'], ['#watch-note', 'draftNote']]) {
+    document.querySelector(id)?.addEventListener('input', event => { watchState()[key] = event.target.value; });
+  }
+  document.querySelector('#watch-save')?.addEventListener('click', () => void saveWatchWord());
+  document.querySelectorAll('[data-watch-toggle]').forEach(el => el.onclick = () => void toggleWatchWord(el.dataset.watchToggle, Boolean(el.dataset.watchActive)));
   document.querySelector('#org-cancel')?.addEventListener('click', () => setNoticeOrgState({ draft: { id: '', name: '', category: '', sortOrder: '' } }));
   document.querySelectorAll('[data-org-edit]').forEach(el => el.onclick = () => {
     const org = noticeOrgState().orgs.find(item => item.id === el.dataset.orgEdit);
@@ -6808,12 +6878,12 @@ function bind() {
       event.preventDefault();
       const word = event.target.value.trim();
       if (!word) return;
-      setWatchWords([...watchWords(), word], `관심 항목에 「${word}」을(를) 넣었습니다.`);
+      setWatchWords([...myWatchWords(), word], `관심 항목에 「${word}」을(를) 넣었습니다.`);
     };
   }
   document.querySelectorAll('[data-watch-remove]').forEach(el => el.onclick = () => {
     const word = el.dataset.watchRemove;
-    setWatchWords(watchWords().filter(item => item !== word), `관심 항목에서 「${word}」을(를) 뺐습니다.`);
+    setWatchWords(myWatchWords().filter(item => item !== word), `관심 항목에서 「${word}」을(를) 뺐습니다.`);
   });
   document.querySelector('#watch-only')?.addEventListener('change', event => setState({ watchOnly: event.target.checked }));
   document.querySelectorAll('[data-archive-filter]').forEach(el => el.onchange = () => setArchiveTable({ filters: { ...archiveTableState().filters, [el.dataset.archiveFilter]: el.value }, page: 1 }));

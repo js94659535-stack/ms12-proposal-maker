@@ -144,3 +144,27 @@ test('고른 범위는 공고 검색에만 쓰이고 계획서 연결은 건드�
   // 계획서에 붙는 유형은 여전히 하나다.
   assert.match(app, /if \(kept\.length\) state\.project\.type = kept\[0\];/);
 });
+
+test('관심 항목은 관리자가 정하고 회원은 읽기만 한다', async () => {
+  const { MAX_WORDS, validateWord, activeWords, wordView } = await import('../server/watch-words.js');
+  const { OPERATOR_ACTIONS } = await import('../server/operator-scope.js');
+  assert.equal(validateWord({ word: '가' }).ok, false);
+  assert.equal(validateWord({ word: '디지털 리터러시', note: '기관 관심' }).value.word, '디지털 리터러시');
+  // 쓰기로 한 것만 화면에 준다.
+  const rows = [wordView({ id: 'a', word: 'AI', active: 1 }), wordView({ id: 'b', word: '옛말', active: 0 })];
+  assert.deepEqual(activeWords(rows), ['AI']);
+  assert.ok(MAX_WORDS >= 20);
+  // 서버가 목록으로 막는다.
+  for (const action of ['watchWords', 'saveWatchWord', 'setWatchWordActive']) assert.ok(OPERATOR_ACTIONS.has(action), action);
+  // 회원 경로에는 읽기만 있다.
+  assert.match(account, /if \(body\.action === 'watchWords'\)/);
+  assert.ok(!/saveWatchWord|setWatchWordActive/.test(account), '회원 경로에는 쓰기가 없다');
+  // 지우지 않고 멈춘다.
+  const store = fs.readFileSync(new URL('../functions/api/operator.js', import.meta.url), 'utf8');
+  assert.ok(!/DELETE FROM watch_words/i.test(store), '관심 항목을 지우지 않는다');
+  // 화면: 관리 탭과 회원 쪽 표시.
+  assert.match(app, /data-operator-tab="watch"/);
+  assert.match(app, /function watchWordPanel\(\)/);
+  assert.match(app, /기관이 정한 관심 항목입니다\. 관리자만 바꿉니다/);
+  assert.match(app, /return \[\.\.\.new Set\(\[\.\.\.\(state\.orgWatchWords \|\| \[\]\), \.\.\.mine\]\)\]/);
+});
