@@ -3631,7 +3631,7 @@ function noticeImportView() {
   return `${stageHero({ eyebrow: '1단계 · 공고 준비', title: '어떤 공고로 시작할까요?', lead: '공식 공고를 가져오거나 가지고 있는 공고문을 올리면 다음 단계부터 자동으로 이어집니다. 파일은 분석을 요청할 때만 전송됩니다.', actions: sampleButton('notice', '[샘플] 공고 먼저 보기'), routes: [{ title: '중앙회·광주지회 진행 중 공고', desc: '사랑의열매 중앙회·광주지회 진행 중 공고를 조회해 목록으로 가져옵니다.', label: '공고 조회', action: 'fetch' }, { title: 'PDF·DOCX·TXT·HWPX', desc: '공고문·신청서 파일을 읽어 분석 자료로 씁니다.', label: '파일 선택', action: 'upload' }, { title: '전에 가져온 공고 다시 열기', desc: '공고보관함에서 이어서 작업합니다.', label: '공고보관함', action: 'archive' }] })}
     <div class="dense-step">
     <div class="card"><div class="card-title"><div><h3>기관 공고 가져오기</h3><span>사랑의열매 중앙회 · 광주지회</span></div><button class="button primary" id="fetch-notices">공고 가져오기</button></div><p class="muted">${state.noticeResults.length ? `진행 중 공고 ${state.noticeResults.length}건을 가져왔습니다.` : '버튼을 누를 때만 공식 공모사업을 조회합니다.'} 가져온 목록은 <b>이 화면에서만 쓰는 임시 목록</b>이라 새로고침하면 사라지며, 과거 공고는 아래 <b>「공고보관함」</b>에서 다시 열 수 있습니다.</p>${state.noticeResults.length ? '<div class="actions"><span></span><button class="button primary" data-step="1">가져온 공고 확인 →</button></div>' : ''}</div>
-    <div class="source-grid"><div class="card"><div class="card-title"><h3>공고문·신청서 업로드</h3><span>PDF · DOCX · TXT · HWPX · HWP</span></div><label class="dropzone" for="source-files"><strong>파일 선택 또는 여기에 놓기</strong><small>스캔 PDF는 OCR이 필요할 수 있습니다.</small><input id="source-files" type="file" accept=".pdf,.docx,.txt,.hwpx,.hwp" multiple></label><div class="file-list">${state.files.length ? state.files.map(fileReportRow).join('') : '<p class="empty-inline">업로드한 파일이 없습니다.</p>'}</div></div>
+    <div class="source-grid"><div class="card" id="notice-upload" tabindex="-1"><div class="card-title"><h3>공고문·신청서 업로드</h3><span>PDF · DOCX · TXT · HWPX · HWP</span></div><label class="dropzone" for="source-files"><strong>파일 선택 또는 여기에 놓기</strong><small>스캔 PDF는 OCR이 필요할 수 있습니다.</small><input id="source-files" type="file" accept=".pdf,.docx,.txt,.hwpx,.hwp" multiple></label><div class="file-list">${state.files.length ? state.files.map(fileReportRow).join('') : '<p class="empty-inline">업로드한 파일이 없습니다.</p>'}</div></div>
     <div class="card"><div class="card-title"><h3>공고문 직접 붙여넣기</h3><span id="char-count">${state.sourceText.length.toLocaleString()}자</span></div><textarea id="source-text" class="source-text" placeholder="기관 공고문 또는 신청서 원문을 붙여넣으세요.">${escapeHtml(state.sourceText)}</textarea></div></div>
     ${manualSourcesView()}
     <details class="card org-details"><summary>누락 공고 URL과 공식 사이트</summary><div class="inline-row"><label for="missing-notice-url">누락 공고 가져오기</label><input id="missing-notice-url" type="url" value="${escapeHtml(state.noticeUrlDraft)}" placeholder="공식 공고 상세 주소"><button class="button secondary" id="import-notice-url">목록에 추가</button></div><div class="inline-row"><a class="button secondary" href="https://chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">중앙회 공식 사이트</a><a class="button secondary" href="https://gwangju.chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">광주지회 공식 사이트</a></div></details>
@@ -3904,18 +3904,20 @@ function noticeSourceOrPasted() {
 function nextStepBar(overview) {
   const applicant = selectedApplicant();
   const hasApplicant = Boolean(applicant);
-  const hasFiles = (state.files || []).length > 0 || (state.manualSources || []).length > 0;
-  // 읽지 못한 자료가 있거나 확인 필요가 많으면 서식부터 올리는 것이 먼저다.
+  // 이미 읽은 자료묶음도 「올렸다」로 본다. 분석까지 마친 자료를 두고 또 올리라고 하지 않는다.
+  const readFiles = (state.noticeLogic?.files || []).filter(item => item.extracted !== false).length;
+  const hasFiles = (state.files || []).length > 0 || (state.manualSources || []).length > 0 || readFiles > 0;
+  // 자료를 아직 하나도 안 올렸고 확인 필요가 많을 때만 올리기부터 권한다.
   const needFiles = !hasFiles && overview.openCount >= 4;
   const step = needFiles
-    ? { label: '공고문·신청서 서식 올리기', go: 0, why: '요강·서식을 올리면 확인 필요 항목이 채워집니다. 지금은 공고 본문만 읽었습니다.' }
+    ? { label: '공고문·신청서 서식 올리기', go: 0, anchor: '#notice-upload', why: '요강·서식을 올리면 확인 필요 항목이 채워집니다. 지금은 공고 본문만 읽었습니다.' }
     : !hasApplicant
-      ? { label: '신청기관 고르기', go: 2, why: '어느 기관 이름으로 낼지 정해야 실적·인력을 계획서에 넣을 수 있습니다.' }
-      : { label: '사업 설계도 만들기', go: 3, why: `${applicant.name} 이름으로 대상·프로그램·예산·성과를 한 장에 정리합니다.` };
+      ? { label: '신청기관 고르기', go: 2, anchor: '', why: '어느 기관 이름으로 낼지 정해야 실적·인력을 계획서에 넣을 수 있습니다.' }
+      : { label: '사업 설계도 만들기', go: 3, anchor: '#project-blueprint', why: `${applicant.name} 이름으로 대상·프로그램·예산·성과를 한 장에 정리합니다.` };
   return `<div class="next-step">
     <div><span class="next-step-tag">다음 단계</span><strong>${escapeHtml(step.label)}</strong>
       <small>${escapeHtml(step.why)}</small></div>
-    <button class="button primary" data-next-step="${step.go}">${escapeHtml(step.label)} →</button>
+    <button class="button primary" data-next-step="${step.go}" data-next-anchor="${escapeHtml(step.anchor)}">${escapeHtml(step.label)} →</button>
   </div>`;
 }
 
@@ -6708,7 +6710,10 @@ function bind() {
   // 분석 다음 걸음. 분석에서 멈추지 않고 그다음 자리로 데려간다.
   document.querySelectorAll('[data-next-step]').forEach(el => el.onclick = () => {
     state.activeTool = 'workflow';
+    const anchor = el.dataset.nextAnchor || '';
     navigateToStep(Number(el.dataset.nextStep), { notice: '', error: '' });
+    // 그 단계의 맨 위가 아니라 실제로 할 일이 있는 자리로 데려간다.
+    if (anchor) setTimeout(() => document.querySelector(anchor)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 90);
   });
   document.querySelector('#toggle-view')?.addEventListener('click', () => setState({ viewMode: viewMode() === 'simple' ? 'expert' : 'simple', expertDetail: false, activeTool: '', notice: '', error: '' }));
   document.querySelector('#toggle-workspace')?.addEventListener('click', () => {

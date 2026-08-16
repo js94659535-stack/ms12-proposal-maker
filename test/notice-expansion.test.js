@@ -427,7 +427,12 @@ test('분석에서 멈추지 않고 다음 걸음을 짚어 준다', async () =>
   // 왜 그 걸음인지 함께 적는다.
   assert.match(app, /요강·서식을 올리면 확인 필요 항목이 채워집니다/);
   // 눌러서 그 단계로 간다.
-  assert.match(app, /data-next-step="\$\{step\.go\}"/);
+  assert.match(app, /data-next-step="\$\{step\.go\}" data-next-anchor=/);
+  // 그 단계의 맨 위가 아니라 할 일이 있는 자리로 데려간다.
+  assert.match(app, /id="notice-upload"/);
+  assert.match(app, /document\.querySelector\(anchor\)\?\.scrollIntoView/);
+  // 이미 읽은 자료묶음이 있으면 또 올리라고 하지 않는다.
+  assert.match(app, /const readFiles = \(state\.noticeLogic\?\.files \|\| \[\]\)\.filter\(item => item\.extracted !== false\)\.length;/);
   assert.match(app, /querySelectorAll\('\[data-next-step\]'\)/);
   // 총론 안에 붙는다. 분석 끝자락이 아니라 눈에 띄는 자리다.
   const overviewBlock = app.slice(app.indexOf('<h4>분석 총론</h4>'), app.indexOf('각론 · 이 공고에서 선정되려면'));
