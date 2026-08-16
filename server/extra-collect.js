@@ -13,6 +13,9 @@ export const DETAIL_LIMIT = 12;
 // 실측: 목록 9번 + 상세 14번으로는 뒤쪽 출처의 상세가 매번 밀렸다(바보 12건·부스러기 7건 미룸).
 // 한 요청에서 부를 수 있는 횟수 안에서 상세를 더 연다. 목록까지 합쳐도 여유가 있다.
 export const DETAIL_BUDGET = 16;
+// 한 출처가 한 실행에서 여는 상세의 몫. 먼저 도는 곳이 예산을 다 쓰면 뒤 출처는 목록만 읽고 만다.
+// 실측: 건가원 두 곳이 24건을 먼저 가져가 바보·부스러기가 매번 0건이었다.
+export const DETAILS_PER_SOURCE = 4;
 export const makeBudget = (left = DETAIL_BUDGET) => ({ left, spent: 0, take() { if (this.left <= 0) return false; this.left -= 1; this.spent += 1; return true; } });
 // 같은 곳에 잇달아 요청하지 않는다.
 export // 막혔을 때 쉬는 시간. 한 번만 기다린다.
@@ -93,7 +96,7 @@ async function collectKihf(fetcher, source, today, { budget } = {}) {
     if (searchable(head.fitness) || head.fitness === FITNESS.unknown) return true;
     countSkip(status, head.fitness);
     return false;
-  }).slice(0, DETAIL_LIMIT);
+  }).slice(0, DETAILS_PER_SOURCE);
   status.candidates = candidates.length;
 
   const notices = [];
@@ -151,7 +154,7 @@ async function collectBabo(fetcher, source, today, { budget } = {}) {
     if (searchable(head.fitness) || head.fitness === FITNESS.unknown || hint === 'notice') return true;
     countSkip(status, head.fitness);
     return false;
-  }).slice(0, DETAIL_LIMIT);
+  }).slice(0, DETAILS_PER_SOURCE);
   status.candidates = candidates.length;
 
   const notices = [];
