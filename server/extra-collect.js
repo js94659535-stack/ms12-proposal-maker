@@ -10,7 +10,9 @@ export const LIST_ROWS = 30;
 export const DETAIL_LIMIT = 12;
 // 한 번 실행에서 열 수 있는 상세의 총량. 서버가 한 요청에서 부를 수 있는 횟수에 한도가 있어,
 // 앞 출처가 상세를 잔뜩 열면 뒤 출처는 목록조차 못 연다. 그래서 상세만 함께 나눠 쓴다.
-export const DETAIL_BUDGET = 14;
+// 실측: 목록 9번 + 상세 14번으로는 뒤쪽 출처의 상세가 매번 밀렸다(바보 12건·부스러기 7건 미룸).
+// 한 요청에서 부를 수 있는 횟수 안에서 상세를 더 연다. 목록까지 합쳐도 여유가 있다.
+export const DETAIL_BUDGET = 30;
 export const makeBudget = (left = DETAIL_BUDGET) => ({ left, spent: 0, take() { if (this.left <= 0) return false; this.left -= 1; this.spent += 1; return true; } });
 // 같은 곳에 잇달아 요청하지 않는다.
 export // 막혔을 때 쉬는 시간. 한 번만 기다린다.

@@ -307,7 +307,7 @@ test('상세 열기 예산을 출처끼리 나눠 쓴다', async () => {
   // 다 쓰면 더 열지 않는다. 앞 출처가 다 먹으면 뒤 출처는 목록조차 못 연다.
   assert.equal(budget.take(), false);
   assert.equal(budget.spent, 3);
-  assert.ok(DETAIL_BUDGET >= 10 && DETAIL_BUDGET <= 20, '한 번 실행에서 여는 상세 총량');
+  assert.ok(DETAIL_BUDGET >= 20 && DETAIL_BUDGET <= 40, '한 번 실행에서 여는 상세 총량');
   const source = await import('node:fs').then(fs => fs.readFileSync(new URL('../server/extra-collect.js', import.meta.url), 'utf8'));
   // 예산을 다 써서 못 연 글은 숨기지 않고 센다.
   assert.match(source, /status\.detailSkipped = \(status\.detailSkipped \|\| 0\) \+ 1/);
