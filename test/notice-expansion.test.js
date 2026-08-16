@@ -320,16 +320,18 @@ test('진행 중 공고가 없는 지회를 고장으로 적지 않는다', asyn
   assert.ok(api.includes("fn_goDetail\\(\\s*'"), '실제 글만 센다');
 });
 
-test('같은 업체 게시판은 한 실행에서 하나만 연다', async () => {
-  const { SOURCES, SKIP_LABELS } = await import('../server/notice-sources.js');
+test('같은 업체 게시판은 건너뛰지 않고 사이를 넉넉히 띄운다', async () => {
+  const { SOURCES } = await import('../server/notice-sources.js');
   const imweb = SOURCES.filter(source => source.platform === 'imweb').map(source => source.id);
   // 바보의나눔과 부스러기사랑나눔회는 같은 업체(아임웹) 게시판이다. 잇달아 열면 429로 막힌다.
   assert.deepEqual(imweb.sort(), ['babo-notice', 'busrugy-notice']);
-  assert.match(SKIP_LABELS['platform-turn'], /한 번에 하나만 부릅니다/);
   const fs = await import('node:fs');
   const source = fs.readFileSync(new URL('../server/extra-collect.js', import.meta.url), 'utf8');
-  assert.match(source, /if \(source\.platform && platformsUsed\.has\(source\.platform\)\)/);
+  // 건너뛰면 그 기관 공고를 하루 한 번밖에 못 본다. 쉬었다 열되 둘 다 연다.
+  assert.match(source, /const SAME_PLATFORM_GAP_MS = 6_000;/);
+  assert.match(source, /source\.platform && platformsUsed\.has\(source\.platform\) \? SAME_PLATFORM_GAP_MS : SOURCE_GAP_MS/);
   assert.match(source, /if \(source\.platform\) platformsUsed\.add\(source\.platform\);/);
+  assert.ok(!source.includes("reason: 'platform-turn'"), '건너뛰지 않는다');
 });
 
 test('기관을 부르는 모집은 우리가 낼 공모다', async () => {

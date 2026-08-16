@@ -17,6 +17,8 @@ export // 막혔을 때 쉬는 시간. 한 번만 기다린다.
 const THROTTLE_WAIT_MS = 3_000;
 // 출처 사이의 간격. 같은 업체 게시판을 잇달아 열면 막힌다.
 const SOURCE_GAP_MS = 1_500;
+// 같은 업체 게시판 사이의 간격. 바보의나눔과 부스러기사랑나눔회가 여기에 해당한다.
+const SAME_PLATFORM_GAP_MS = 6_000;
 const REQUEST_GAP_MS = 300;
 
 const UA = 'Mozilla/5.0 (compatible; MS12NoticeBot/1.0; +https://pro.ms12.org)';
@@ -227,14 +229,10 @@ export async function collectExtraSources(fetcher = fetch, { settings = {}, secr
   const notices = [];
   // 한 번에 부를 수 있는 횟수에 한도가 있다. 늘 같은 차례로 돌면 뒤쪽 출처는 영영 차례가 오지 않는다.
   // 그래서 실행할 때마다 시작 지점을 한 칸씩 옮긴다. 하루 두 번 도는 동안 모든 곳이 앞자리에 선다.
-  // 같은 업체가 돌리는 게시판은 한 실행에서 하나만 연다. 둘을 잇달아 열면 그쪽에서 막는다(429).
-  // 순서가 실행마다 돌기 때문에 오늘 못 연 곳은 다음 실행에서 먼저 열린다.
+  // 같은 업체가 돌리는 게시판을 잇달아 열면 그쪽에서 막는다(429). 그렇다고 한 곳을 건너뛰면
+  // 그 기관 공고는 하루 한 번밖에 못 본다. 건너뛰지 않고 사이를 넉넉히 띄운다.
   const platformsUsed = new Set();
   for (const source of rotate(SOURCES, now)) {
-    if (source.platform && platformsUsed.has(source.platform)) {
-      sources.push({ ...baseStatus(source), status: 'skipped', reason: 'platform-turn' });
-      continue;
-    }
     const gate = runnable(source, { settings, secrets });
     if (!gate.ok) {
       // 돌리지 않은 것은 실패가 아니다. 따로 표시한다.
@@ -244,7 +242,10 @@ export async function collectExtraSources(fetcher = fetch, { settings = {}, secr
     const runner = RUNNERS[source.id];
     if (!runner) { sources.push({ ...baseStatus(source), status: 'skipped', reason: 'unknown' }); continue; }
     // 앞 출처를 막 끝낸 참이다. 숨을 한 번 돌리고 다음 곳을 연다.
-    if (sources.some(item => item.status === 'ok' || item.status === 'failed')) await wait(SOURCE_GAP_MS);
+    // 같은 업체 게시판을 이미 열었다면 더 길게 쉰다. 바로 이어 열면 429로 막힌다.
+    if (sources.some(item => item.status === 'ok' || item.status === 'failed')) {
+      await wait(source.platform && platformsUsed.has(source.platform) ? SAME_PLATFORM_GAP_MS : SOURCE_GAP_MS);
+    }
     try {
       const outcome = await runner(fetcher, source, today, { serviceKey: secrets[source.needsSecret], now, budget });
       if (source.platform) platformsUsed.add(source.platform);
