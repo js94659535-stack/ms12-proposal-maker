@@ -145,6 +145,48 @@ export function selectionRequirements(structure) {
   return items.slice(0, 10);
 }
 
+// 총론. 각론 여덟 줄을 읽기 전에 「이 공고가 무엇을 묻고, 우리가 지금 어디에 서 있는가」를 한 문단으로 적는다.
+// 지어내지 않는다. 확인된 것만 확인됐다고 말하고, 못 읽은 것은 못 읽었다고 말한다.
+export function noticeOverview(structure, logic, requirements) {
+  const confirmed = requirements.filter(item => item.basis === '공식 근거');
+  const open = requirements.filter(item => item.basis !== '공식 근거');
+  const purpose = fieldOf(structure, 'purpose');
+  const target = fieldOf(structure, 'target');
+  const period = fieldOf(structure, 'periodBudget');
+
+  // 한 줄 요약. 공고가 확인해 준 것만 넣는다.
+  const known = [
+    purpose?.status === '공식 근거 확인' ? '목적' : '',
+    target?.status === '공식 근거 확인' ? '대상' : '',
+    period?.status === '공식 근거 확인' ? '기간·예산' : '',
+    structure.hasOfficialScoring ? '배점' : ''
+  ].filter(Boolean);
+
+  const headline = known.length
+    ? `공고 원문에서 ${known.join('·')}을(를) 확인했습니다. 선정 요건 ${requirements.length}가지 가운데 ${confirmed.length}가지는 공고 근거가 있고, ${open.length}가지는 원문·요강에서 더 확인해야 합니다.`
+    : `공고 원문만으로는 목적·대상·기간·배점을 확인하지 못했습니다. 선정 요건 ${requirements.length}가지가 모두 확인 필요입니다. 요강·서식 파일을 올리면 이 표가 채워집니다.`;
+
+  // 지금 해야 할 일. 확인되지 않은 것부터 이름으로 짚는다.
+  const next = open.length
+    ? `먼저 확인할 것: ${open.slice(0, 4).map(item => item.title).join(' · ')}${open.length > 4 ? ` 외 ${open.length - 4}가지` : ''}.`
+    : '여덟 가지 요건 모두 공고 근거가 확인되었습니다. 이대로 설계로 넘어갈 수 있습니다.';
+
+  const unread = structure.unreadAttachments.length
+    ? `읽지 못한 자료 ${structure.unreadAttachments.length}건(${structure.unreadAttachments.slice(0, 2).join(' / ')})이 있어, 그 안의 조건은 반영되지 않았습니다.`
+    : '';
+
+  const scoring = structure.hasOfficialScoring
+    ? `공식 배점이 있습니다: ${logic.scoring.items.map(item => `${item.criterion} ${item.points}점`).join(' · ')}. 배점이 큰 항목에 분량을 더 씁니다.`
+    : '공식 평가표가 공고에 없습니다. 배점을 지어내지 않고, 필수 조건을 빠짐없이 채우는 쪽으로 씁니다.';
+
+  return {
+    headline, next, scoring, unread,
+    confirmedCount: confirmed.length,
+    openCount: open.length,
+    readChars: structure.totalChars
+  };
+}
+
 export function noticeLogicSummary(structure, logic, requirements) {
   return {
     confirmedFields: structure.fields.filter(field => field.status === '공식 근거 확인').length,

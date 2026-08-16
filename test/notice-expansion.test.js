@@ -380,3 +380,46 @@ test('올린 날짜를 마감일로 삼지 않는다', async () => {
   // 마감일을 모르면 최근에 올라온 글은 수집한다. 마감으로 접지 않는다.
   assert.equal(isCollectible({ deadline: '', registeredAt: '2026-08-08' }, '2026-08-16'), true);
 });
+
+test('분석 총론이 각론 앞에 온다', async () => {
+  const { analyzeNoticeStructure, buildSelectionLogic, noticeOverview, selectionRequirements } = await import('../src/notice-logic.js');
+  const notice = {
+    title: '취약계층 아동 디지털 리터러시 교육사업 참여기관 모집',
+    overview: '신청대상: 지역아동센터\n사업기간: 2026-10-01 ~ 2026-12-31\n지원한도: 3,000,000원',
+    criteriaText: ''
+  };
+  const structure = analyzeNoticeStructure(notice);
+  const logic = buildSelectionLogic(structure);
+  const requirements = selectionRequirements(structure);
+  const overview = noticeOverview(structure, logic, requirements);
+  // 확인된 것과 확인해야 할 것을 숫자로 먼저 말한다.
+  assert.equal(overview.confirmedCount + overview.openCount, requirements.length);
+  assert.match(overview.headline, /선정 요건 \d+가지/);
+  // 지금 할 일을 이름으로 짚는다.
+  assert.ok(overview.next.length > 0);
+  // 배점이 없으면 지어내지 않는다고 말한다.
+  assert.match(overview.scoring, /배점을 지어내지 않고|공식 배점이 있습니다/);
+  // 화면은 총론을 각론 위에 둔다.
+  const fs = await import('node:fs');
+  const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  const at = app.indexOf('분석 총론');
+  const detail = app.indexOf('각론 · 이 공고에서 선정되려면');
+  assert.ok(at > 0 && detail > at, '총론이 각론보다 앞');
+});
+
+test('분석에서 멈추지 않고 다음 걸음을 짚어 준다', async () => {
+  const fs = await import('node:fs');
+  const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  assert.match(app, /function nextStepBar\(overview\) \{/);
+  // 갈래를 늘어놓지 않고 한 걸음만 권한다.
+  assert.match(app, /공고문·신청서 서식 올리기/);
+  assert.match(app, /신청기관 고르기/);
+  assert.match(app, /사업 설계도 만들기/);
+  // 왜 그 걸음인지 함께 적는다.
+  assert.match(app, /요강·서식을 올리면 확인 필요 항목이 채워집니다/);
+  // 눌러서 그 단계로 간다.
+  assert.match(app, /data-next-step="\$\{step\.go\}"/);
+  assert.match(app, /querySelectorAll\('\[data-next-step\]'\)/);
+  // 총론 안에 붙는다. 분석 끝자락이 아니라 눈에 띄는 자리다.
+  assert.ok(app.indexOf('nextStepBar(overview)') > app.indexOf('분석 총론'));
+});

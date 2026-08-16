@@ -46,7 +46,7 @@ import { ASOF_UNKNOWN, applySafeCandidates, applyUpdateCandidate, buildUpdateCan
 import { REFERENCE_TYPES, assessReferences, makeReference, projectContext, referenceNotices, referencePayload } from './reference-materials.js';
 import { analyzeProposalStructure, buildStructuralRevision, reviewProposalStructure } from './proposal-structure.js';
 import { applyRepairPlans, buildRepairPlans, repairPlanSummary } from './repair-plan.js';
-import { analyzeNoticeStructure, buildSelectionLogic, noticeLogicSummary, selectionRequirements } from './notice-logic.js';
+import { analyzeNoticeStructure, buildSelectionLogic, noticeLogicSummary, noticeOverview, selectionRequirements } from './notice-logic.js';
 import { bundleSummary, expandBundle, mergeBundleStructures } from './notice-bundle.js';
 import { matchApplicantToNotice } from './fit-matching.js';
 import { buildDesignQuestions, reusableAnswerCandidates } from './design-questions.js';
@@ -3899,6 +3899,26 @@ function noticeSourceOrPasted() {
     : null);
 }
 
+// 분석 다음에 무엇을 할지. 여기서 멈추면 분석만 하고 끝난다. 다음 자리로 데려간다.
+// 무엇이 준비되었는지 보고 다음 한 걸음만 권한다. 여러 갈래를 늘어놓지 않는다.
+function nextStepBar(overview) {
+  const applicant = selectedApplicant();
+  const hasApplicant = Boolean(applicant);
+  const hasFiles = (state.files || []).length > 0 || (state.manualSources || []).length > 0;
+  // 읽지 못한 자료가 있거나 확인 필요가 많으면 서식부터 올리는 것이 먼저다.
+  const needFiles = !hasFiles && overview.openCount >= 4;
+  const step = needFiles
+    ? { label: '공고문·신청서 서식 올리기', go: 0, why: '요강·서식을 올리면 확인 필요 항목이 채워집니다. 지금은 공고 본문만 읽었습니다.' }
+    : !hasApplicant
+      ? { label: '신청기관 고르기', go: 2, why: '어느 기관 이름으로 낼지 정해야 실적·인력을 계획서에 넣을 수 있습니다.' }
+      : { label: '사업 설계도 만들기', go: 3, why: `${applicant.name} 이름으로 대상·프로그램·예산·성과를 한 장에 정리합니다.` };
+  return `<div class="next-step">
+    <div><span class="next-step-tag">다음 단계</span><strong>${escapeHtml(step.label)}</strong>
+      <small>${escapeHtml(step.why)}</small></div>
+    <button class="button primary" data-next-step="${step.go}">${escapeHtml(step.label)} →</button>
+  </div>`;
+}
+
 function selectionLogicView() {
   const notice = noticeLogicSource();
   if (!notice) return '';
@@ -3913,7 +3933,19 @@ function selectionLogicView() {
     <div><span>선정 요건</span><strong>${requirements.length}개</strong><small>공식 근거 ${summary.officialRequirements} · 확인 필요 ${summary.checkRequirements}</small></div></div>
     ${analysis.files ? `<details open><summary>공고 자료묶음 ${analysis.files.length}건 · 읽음 ${analysis.summary.bundle.read} · 변환 필요 ${analysis.summary.bundle.conversionNeeded} · 미지원 ${analysis.summary.bundle.unsupported}</summary><div class="cap-grid">${analysis.files.map(file => `<div><span>${escapeHtml(file.role)} · ${escapeHtml(file.status)}</span><strong>${escapeHtml(String(file.name).split(" > ").pop())}</strong><small>${file.chars ? file.chars.toLocaleString() + "자" : escapeHtml(file.error || "")}</small></div>`).join("")}</div>${analysis.conflicts?.length ? `<p><b>자료 간 충돌</b> ${analysis.conflicts.map(item => `${escapeHtml(item.field)} · ${escapeHtml(item.label)}: ${escapeHtml(item.values.join(" vs "))}`).join(" / ")}</p>` : ""}</details>` : ""}
     ${structure.unreadAttachments.length ? `<div class="alert warning"><strong>읽지 못한 자료</strong><p>${escapeHtml(structure.unreadAttachments.join(' / '))} — 이 안의 조건은 읽지 못했습니다. 파일을 직접 자료로 추가하면 함께 분석합니다.</p></div>` : ''}
-    <details open><summary>이 공고에서 선정되려면 무엇을 증명해야 하는가 (${requirements.length}개)</summary><div class="requirement-list">${requirements.map((item, index) => `<article class="requirement"><div><span class="status ${item.basis === '공식 근거' ? '충족' : '확인-필요'}">${escapeHtml(item.basis)}</span><div><strong>${index + 1}. ${escapeHtml(item.title)}</strong><small>${escapeHtml(item.prove)}</small></div></div>${item.evidence.length ? `<details><summary>공고 근거</summary>${item.evidence.map(evidence => `<blockquote>[${escapeHtml(evidence.source)}] ${escapeHtml(evidence.sentence)}</blockquote>`).join('')}</details>` : ''}</article>`).join('')}</div></details>
+    ${(() => {
+      // 총론을 각론 앞에 둔다. 여덟 줄을 다 읽기 전에 무엇을 묻는 공고인지 먼저 알아야 한다.
+      const overview = noticeOverview(structure, logic, requirements);
+      return `<div class="notice-overview">
+        <h4>분석 총론</h4>
+        <p>${escapeHtml(overview.headline)}</p>
+        <p>${escapeHtml(overview.scoring)}</p>
+        <p><b>${escapeHtml(overview.next)}</b></p>
+        ${overview.unread ? `<p class="muted">${escapeHtml(overview.unread)}</p>` : ''}
+        ${nextStepBar(overview)}
+      </div>`;
+    })()}
+    <details open><summary>각론 · 이 공고에서 선정되려면 무엇을 증명해야 하는가 (${requirements.length}개)</summary><div class="requirement-list">${requirements.map((item, index) => `<article class="requirement"><div><span class="status ${item.basis === '공식 근거' ? '충족' : '확인-필요'}">${escapeHtml(item.basis)}</span><div><strong>${index + 1}. ${escapeHtml(item.title)}</strong><small>${escapeHtml(item.prove)}</small></div></div>${item.evidence.length ? `<details><summary>공고 근거</summary>${item.evidence.map(evidence => `<blockquote>[${escapeHtml(evidence.source)}] ${escapeHtml(evidence.sentence)}</blockquote>`).join('')}</details>` : ''}</article>`).join('')}</div></details>
     <details open><summary>선정 논리 흐름</summary><div class="cap-grid">${logic.chain.map(item => `<div><span>${escapeHtml(item.step)}</span><strong>${escapeHtml(item.basis)}</strong><small>${escapeHtml(String(item.content).slice(0, 120))}</small></div>`).join('')}</div>${logic.brokenLinks.length ? `<p class="muted">끊긴 고리: ${escapeHtml(logic.brokenLinks.join(' · '))} — 공고 원문·요강을 추가하면 채울 수 있습니다.</p>` : ''}</details>
     <details><summary>항목별 구조화 ${structure.fields.length}개</summary><div class="requirement-list">${structure.fields.map(field => `<article class="requirement"><div><span class="status ${field.status === '공식 근거 확인' ? '충족' : '확인-필요'}">${escapeHtml(field.status)}</span><strong>${escapeHtml(field.title)}</strong></div>${field.evidence.map(evidence => `<blockquote>[${escapeHtml(evidence.source)}] ${escapeHtml(evidence.sentence)}</blockquote>`).join('') || '<p class="muted">공고에서 확인되지 않았습니다. 추론으로 채우지 않습니다.</p>'}</article>`).join('')}</div></details></div>`;
 }
@@ -6665,6 +6697,11 @@ function bind() {
   });
   void loadNoticeOrgs();
   document.querySelectorAll('[data-step]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(Number(el.dataset.step), { notice: '', error: '' }); });
+  // 분석 다음 걸음. 분석에서 멈추지 않고 그다음 자리로 데려간다.
+  document.querySelectorAll('[data-next-step]').forEach(el => el.onclick = () => {
+    state.activeTool = 'workflow';
+    navigateToStep(Number(el.dataset.nextStep), { notice: '', error: '' });
+  });
   document.querySelector('#toggle-view')?.addEventListener('click', () => setState({ viewMode: viewMode() === 'simple' ? 'expert' : 'simple', expertDetail: false, activeTool: '', notice: '', error: '' }));
   document.querySelector('#toggle-workspace')?.addEventListener('click', () => {
     // 작업공간을 바꾸면 보관함을 다시 읽는다. 두 공간의 자료가 한 화면에 섞이지 않게 한다.
