@@ -124,10 +124,24 @@ export function archiveRow(notice, options = {}) {
   };
 }
 
+// 찾는 자리. 제목만 뒤지면 「아동」으로 지원대상에 적힌 공고를 놓친다.
+// 공고번호·마감일·상태까지 넣어 「20260700100031」이나 「마감임박」으로도 찾게 한다.
+export function searchText(row) {
+  const notice = row?.notice || {};
+  return [
+    row?.title, row?.institution, row?.field, row?.applicantText, row?.status,
+    row?.deadline?.label, row?.collectedAt,
+    notice.summary, notice.eligibility, notice.supportDetails, notice.supportLimit,
+    notice.applicationPeriod, notice.noticeNo, notice.dstbBsnsCode, notice.sourceLabel
+  ].filter(Boolean).join(' ').toLowerCase();
+}
+
+// 적은 낱말이 모두 들어 있어야 한다. 낱말을 늘릴수록 좁아진다.
 function matchesQuery(row, query) {
-  if (!query) return true;
-  const text = `${row.title} ${row.institution} ${row.field} ${row.applicantText} ${row.notice?.summary || ''}`.toLowerCase();
-  return query.toLowerCase().split(/\s+/).filter(Boolean).every(word => text.includes(word));
+  const words = String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const text = searchText(row);
+  return words.every(word => text.includes(word));
 }
 
 function matchesFilters(row, filters = {}) {

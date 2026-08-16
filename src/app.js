@@ -3650,8 +3650,8 @@ function archiveView() {
       ['신청기관 연결', linkedCount, '공고당 여러 기관 연결 가능'],
       ['저장한 계획서', proposals.length, '작업하기에서 이어서 작성']
     ].map(([label, value, detail]) => `<span class="stat-badge" title="${escapeHtml(`${label} ${value}건 · ${detail}`)}"><strong>${value}</strong><span>${escapeHtml(label)}</span><small>${escapeHtml(detail)}</small></span>`).join('')}</div>
-    <div class="archive-toolbar"><input id="archive-query" type="search" name="archive-search" autocomplete="off" autocapitalize="off" spellcheck="false" value="${escapeHtml(table.query)}" placeholder="사업명·기관명·키워드 검색 후 Enter">
-      <button class="button secondary" id="archive-apply-query">목록 검색</button>
+    <div class="archive-toolbar"><input id="archive-query" type="search" name="archive-search" autocomplete="off" autocapitalize="off" spellcheck="false" value="${escapeHtml(table.query)}" placeholder="사업명·기관·분야·지원대상·공고번호로 찾기">
+      ${table.query ? `<button class="button secondary" id="archive-clear-query">검색어 지우기</button>` : ''}
       <button class="button primary" id="archive-show-all">전체 보기</button>
       <button class="button secondary" id="search-archive">공고보관함 다시 불러오기</button>
       <button class="button primary" id="find-matching-notices">맞춤 공고 찾기</button>
@@ -3665,6 +3665,7 @@ function archiveView() {
       <label class="archive-filter"><span>신청기관</span><select data-archive-filter="applicant"><option value="">전체</option><option value="미연결" ${table.filters.applicant === '미연결' ? 'selected' : ''}>미연결</option>${(state.applicants || []).map(item => `<option value="${escapeHtml(item.id)}" ${table.filters.applicant === item.id ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}</select></label>
       ${archiveSelectField('마감일', 'deadline', table.filters.deadline, ['진행중', '마감임박', '마감', '마감일 확인 필요'])}
       <button class="button secondary" id="archive-reset-filters">필터 초기화</button></div></details>
+    ${table.query ? `<p class="muted">검색어 「${escapeHtml(table.query)}」 · 보관 공고 ${data.total}건 가운데 ${data.matched}건이 맞습니다. 제목·기관·분야·지원대상·공고번호에서 찾습니다.</p>` : ''}
     <div class="archive-bulk"><span>${selected.length ? `선택 ${selected.length}건` : '행 선택 후 일괄 삭제할 수 있습니다.'}</span><button class="button secondary" id="archive-delete-selected" ${selected.length ? '' : 'disabled'}>선택 삭제</button></div>
     ${data.total ? `<div class="archive-table-wrap"><table class="archive-table"><thead><tr>
       <th class="archive-check"><input type="checkbox" id="archive-select-page" ${allChecked ? 'checked' : ''} aria-label="현재 페이지 전체 선택"></th>
@@ -6649,10 +6650,16 @@ function bind() {
   // 자료보관함 목록: 검색·필터·정렬·선택·페이지 이동은 모두 화면 상태만 바꾼다.
   const archiveQuery = document.querySelector('#archive-query');
   if (archiveQuery) {
-    archiveQuery.oninput = event => { state.archiveTable = { ...archiveTableState(), query: event.target.value }; saveState(); };
-    archiveQuery.onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); setArchiveTable({ query: event.target.value, page: 1 }); } };
+    // 치는 동안 바로 걸러 준다. 다시 그리면 글자를 치던 자리를 잃으므로 표 안쪽만 갈아 끼우고 초점을 되돌린다.
+    archiveQuery.oninput = event => {
+      const at = event.target.selectionStart;
+      setArchiveTable({ query: event.target.value, page: 1 });
+      const again = document.querySelector('#archive-query');
+      if (again) { again.focus(); again.setSelectionRange(at, at); }
+    };
+    archiveQuery.onkeydown = event => { if (event.key === 'Enter') event.preventDefault(); };
   }
-  document.querySelector('#archive-apply-query')?.addEventListener('click', () => setArchiveTable({ query: document.querySelector('#archive-query')?.value || '', page: 1 }));
+  document.querySelector('#archive-clear-query')?.addEventListener('click', () => setArchiveTable({ query: '', page: 1 }));
   document.querySelectorAll('[data-archive-filter]').forEach(el => el.onchange = () => setArchiveTable({ filters: { ...archiveTableState().filters, [el.dataset.archiveFilter]: el.value }, page: 1 }));
   // 전체 보기. 걸어 둔 조건과 쪽 나눔을 함께 풀어 모아 둔 것을 한 화면에 늘어놓는다.
   document.querySelector('#archive-show-all')?.addEventListener('click', () => setArchiveTable({

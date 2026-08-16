@@ -157,3 +157,31 @@ test('공고보관함은 처음부터 모두 보여 준다', () => {
   // 저장해 둔 검색어를 다음 방문에 다시 채우지 않는다. 자동완성 값이 남아 목록을 가렸다.
   assert.match(appSource, /restored\.archiveTable\.query = '';/);
 });
+
+test('보관함 검색은 치는 동안 걸러 주고 찾는 자리를 넓게 본다', async () => {
+  const { searchText } = await import('../src/archive-table.js');
+  const notices = [
+    { archiveNoticeKey: 'a', title: '아동 정서지원 사업', sourceLabel: '중앙회', deadline: '2026-12-31',
+      notice: { eligibility: '초등학생' }, eligibility: '초등학생', dstbBsnsCode: '20260700100031' },
+    { archiveNoticeKey: 'b', title: '어르신 급식 지원', sourceLabel: '광주지회', deadline: '2026-12-31' }
+  ];
+  // 제목으로 찾는다.
+  assert.equal(archiveTableRows(notices, { query: '아동' }).matched, 1);
+  // 기관으로도 찾는다.
+  assert.equal(archiveTableRows(notices, { query: '광주지회' }).matched, 1);
+  // 낱말을 늘리면 좁아진다.
+  assert.equal(archiveTableRows(notices, { query: '아동 없는말' }).matched, 0);
+  // 비우면 모두 나온다.
+  assert.equal(archiveTableRows(notices, { query: '' }).matched, 2);
+  // 지원대상·공고번호까지 찾는 자리에 넣는다. 제목만 뒤지면 놓친다.
+  const row = archiveTableRows(notices, {}).rows.find(item => item.key === 'a');
+  const text = searchText(row);
+  assert.ok(text.includes('아동'));
+  assert.ok(text.includes('중앙회'));
+
+  // 화면: 치는 동안 바로 걸러 주고, 지우는 단추와 결과 안내가 함께 있다.
+  assert.match(appSource, /archiveQuery\.oninput = event => \{/);
+  assert.match(appSource, /again\.setSelectionRange\(at, at\)/);
+  assert.match(appSource, /id="archive-clear-query"/);
+  assert.match(appSource, /검색어 「\$\{escapeHtml\(table\.query\)\}」 · 보관 공고 \$\{data\.total\}건 가운데 \$\{data\.matched\}건이 맞습니다/);
+});
