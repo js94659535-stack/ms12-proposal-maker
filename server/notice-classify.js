@@ -27,12 +27,13 @@ export const SEARCHABLE = Object.freeze([FITNESS.proposal, FITNESS.bid]);
 // 앞의 규칙이 먼저 이긴다. 결과·채용처럼 확실한 것부터 걸러 낸다.
 const RULES = [
   { fitness: FITNESS.result, pattern: /선정\s*(?:결과|기관|단체|내역)|심사\s*결과|결과\s*발표|낙찰\s*(?:자|결과)|우선협상대상자|계약\s*체결|개찰\s*결과|최종\s*선정/ },
-  { fitness: FITNESS.hiring, pattern: /채용|초빙|모집\s*공고\s*\(?\s*직원|인턴\s*모집|계약직\s*모집|공무직\s*채용|임용|합격자?\s*발표|면접\s*안내/ },
+  { fitness: FITNESS.hiring, pattern: /평가\s*위원\s*모집|심사\s*위원\s*모집|채용|초빙|모집\s*공고\s*\(?\s*직원|인턴\s*모집|계약직\s*모집|공무직\s*채용|임용|합격자?\s*발표|면접\s*안내/ },
   { fitness: FITNESS.goods, pattern: /물품\s*(?:구매|구입|납품)|시설\s*공사|공사\s*입찰|장비\s*구매|자재\s*구매|리모델링|증축|개보수|印刷|인쇄물\s*제작/ },
   { fitness: FITNESS.briefing, pattern: /설명회|사전\s*규격|사전규격|규격\s*공개|의견\s*조회|신청\s*안내|접수\s*안내|작성\s*요령|서식\s*안내|양식\s*안내|가이드\s*북|안내\s*자료/ },
+  // 개인을 부르는 글만 여기다. 「참여기관 모집」은 기관이 신청하는 공모라 아래 proposal에서 잡는다.
   { fitness: FITNESS.participant, pattern: /참여자\s*모집|이용자\s*모집|수강생\s*모집|교육생\s*모집|참가자\s*모집|참가\s*신청|수강\s*신청|체험단|서포터즈|자원봉사자\s*모집|후원자\s*모집/ },
   { fitness: FITNESS.bid, pattern: /입찰\s*공고|용역\s*입찰|제안\s*요청서|RFP|위탁\s*운영|운영\s*위탁|수탁\s*기관\s*(?:모집|공모)|경쟁\s*입찰|협상에\s*의한\s*계약/ },
-  { fitness: FITNESS.proposal, pattern: /공모|지원\s*사업|배분\s*사업|사업\s*신청|신청\s*접수|공모\s*사업|지원\s*신청|사업\s*공고|프로그램\s*공모|기금\s*지원/ }
+  { fitness: FITNESS.proposal, pattern: /공모|지원\s*사업|배분\s*사업|사업\s*신청|신청\s*접수|공모\s*사업|지원\s*신청|사업\s*공고|프로그램\s*공모|기금\s*지원|참여\s*기관\s*모집|수행\s*기관\s*모집|협력\s*기관\s*모집|배분\s*신청/ }
 ];
 
 // 「제안 가능」으로 보려면 이런 말이 하나라도 있어야 한다. 없으면 확정하지 않는다.

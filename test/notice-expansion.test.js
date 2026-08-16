@@ -331,3 +331,16 @@ test('같은 업체 게시판은 한 실행에서 하나만 연다', async () =>
   assert.match(source, /if \(source\.platform && platformsUsed\.has\(source\.platform\)\)/);
   assert.match(source, /if \(source\.platform\) platformsUsed\.add\(source\.platform\);/);
 });
+
+test('기관을 부르는 모집은 우리가 낼 공모다', async () => {
+  const { classifyTitle } = await import('../server/notice-classify.js');
+  // 부스러기사랑나눔회 게시판에서 이런 공고들이 「알 수 없음」으로 버려졌다.
+  assert.equal(classifyTitle('[모집] 취약계층 아동 디지털 리터러시 및 문해력 교육사업 참여기관 모집').fitness, 'proposal');
+  assert.equal(classifyTitle('2026 서울랜드 티켓배분 사업 참여기관 모집 안내').fitness, 'proposal');
+  assert.equal(classifyTitle('수행기관 모집 공고').fitness, 'proposal');
+  // 개인을 부르는 것은 그대로 참여자 모집이다.
+  assert.equal(classifyTitle('2026 컬리너리 아카데미 사업 참여자 모집').fitness, 'participant');
+  // 위원 모집은 우리가 낼 공모가 아니다.
+  assert.equal(classifyTitle('용역업체 선정을 위한 평가위원 모집').fitness, 'hiring');
+  assert.equal(classifyTitle('심사위원 모집 공고').fitness, 'hiring');
+});
