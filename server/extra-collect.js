@@ -12,7 +12,7 @@ export const DETAIL_LIMIT = 12;
 // 앞 출처가 상세를 잔뜩 열면 뒤 출처는 목록조차 못 연다. 그래서 상세만 함께 나눠 쓴다.
 // 실측: 목록 9번 + 상세 14번으로는 뒤쪽 출처의 상세가 매번 밀렸다(바보 12건·부스러기 7건 미룸).
 // 한 요청에서 부를 수 있는 횟수 안에서 상세를 더 연다. 목록까지 합쳐도 여유가 있다.
-export const DETAIL_BUDGET = 30;
+export const DETAIL_BUDGET = 16;
 export const makeBudget = (left = DETAIL_BUDGET) => ({ left, spent: 0, take() { if (this.left <= 0) return false; this.left -= 1; this.spent += 1; return true; } });
 // 같은 곳에 잇달아 요청하지 않는다.
 export // 막혔을 때 쉬는 시간. 한 번만 기다린다.
@@ -282,8 +282,9 @@ function failureReason(error) {
   if (/^http \d+/.test(message)) return FAILURE.http;
   if (message === 'origin not allowed') return '허용되지 않은 주소라 요청하지 않았습니다.';
   // 한 번 실행에서 부를 수 있는 횟수를 다 쓴 경우. 출처가 죽은 것이 아니므로 그렇게 적는다.
-  if (/subrequest/i.test(message)) return '이번 실행에서 부를 수 있는 횟수를 다 썼습니다. 다음 실행에서 먼저 돌립니다.';
-  return FAILURE.network;
+  if (/subrequest|too many/i.test(message)) return '이번 실행에서 부를 수 있는 횟수를 다 썼습니다. 다음 실행에서 먼저 돌립니다.';
+  // 무엇이 막았는지 그대로 남긴다. 「연결하지 못했습니다」만으로는 고칠 수 없다.
+  return message ? `${FAILURE.network} (${message.slice(0, 60)})` : FAILURE.network;
 }
 
 export { collectKihf, collectBabo, collectG2b, sourceById };
