@@ -342,9 +342,11 @@ test('기관을 부르는 모집은 우리가 낼 공모다', async () => {
   assert.equal(classifyTitle('수행기관 모집 공고').fitness, 'proposal');
   // 개인을 부르는 것은 그대로 참여자 모집이다.
   assert.equal(classifyTitle('2026 컬리너리 아카데미 사업 참여자 모집').fitness, 'participant');
-  // 위원 모집은 우리가 낼 공모가 아니다.
-  assert.equal(classifyTitle('용역업체 선정을 위한 평가위원 모집').fitness, 'hiring');
-  assert.equal(classifyTitle('심사위원 모집 공고').fitness, 'hiring');
+  // 위원 모집도 기관·개인이 신청해서 맡는 일이다. 공모로 본다.
+  assert.equal(classifyTitle('용역업체 선정을 위한 평가위원 모집').fitness, 'proposal');
+  assert.equal(classifyTitle('심사위원 위촉 공모').fitness, 'proposal');
+  // 사람을 뽑는 채용은 그대로 채용이다.
+  assert.equal(classifyTitle('보육사 채용 공고').fitness, 'hiring');
 });
 
 test('「…사업 신청안내」는 설명회가 아니라 공고다', async () => {
