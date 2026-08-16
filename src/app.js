@@ -13,7 +13,7 @@ import { MANIFEST_NAME, packageStale, planSubmissionZip, zipBytes } from './subm
 import { agencyMe, acknowledgePrivacyNotice, changePassword, memberNoticeOrgs, UNAUTHORIZED, accountProfile, clearOAuthCallback, currentUser, finishSocial, login, logout, readOAuthCallback, recoverPassword, saveAccountProfile, saveMemberInfo, signup as signupEmail, startSocial } from './auth.js';
 import { premiumNoticeHistory, premiumShowcase, premiumStatus } from './premium.js';
 import { mySubscriptionRequest, submitSubscriptionRequest } from './auth.js';
-import { adminSubscriptionRequests, adminDecideSubscription, adminAgencyList, adminAgencyTransfer, adminAgencyTransferPreview, adminSetAgency, adminOverviewCounts, adminSetNoticeSource, adminAccessOverview, adminAssignProposal, adminMemberUsage, adminProposalContent, adminRevokeGrant, adminSaveGrant, adminNoticeCollection, adminRunNoticeCollection, adminUsageReport, approveAccount, deleteShowcase, setAccountSubscription, transferSocialIdentity, disableAccount, listAccounts, listCollectedNotices, listShowcase, removeAccount, saveShowcase, setAccountPlan, setAccountPremium, setAccountRole, setNoticePublic, setShowcaseOrder, setShowcasePublic } from './admin.js';
+import { adminSubscriptionRequests, adminDecideSubscription, adminAgencyList, adminAgencyTransfer, adminAgencyTransferPreview, adminSetAgency, adminOverviewCounts, adminSetNoticeSource, adminAccessOverview, adminAssignProposal, adminMemberUsage, adminProposalContent, adminRevokeGrant, adminSaveGrant, adminNoticeCollection, adminRunNoticeCollection, adminUsageReport, approveAccount, deleteShowcase, setAccountSubscription, transferSocialIdentity, disableAccount, listAccounts, listCollectedNotices, listShowcase, removeAccount, saveShowcase, setAccountPlan, setAccountPremium, setAccountRole, setNoticePublic, setShowcaseOrder, setShowcasePublic , adminDeleteNotices } from './admin.js';
 import { fetchMembershipPlans, publicNoticeDetail, searchPublicNotices } from './notice-search.js';
 import { operatorAgencyList, operatorNoticeCollection, operatorApprove, operatorDisable, operatorEndSessions, operatorIssueRecoveryCode, operatorOverview, operatorReactivate, operatorSetContractProgress, operatorUnlockLogin, operatorUsageReport, operatorUserDetail , operatorNoticeOrgs, operatorSaveNoticeOrg, operatorSetNoticeOrgStatus } from './operator.js';
 import { codeLabel, statusLabel, warningLabel } from '../server/notice-run.js';
@@ -3713,16 +3713,20 @@ function closedArchiveView() {
   const open = Boolean(state.archiveClosedOpen);
   return `<details class="card org-details" id="closed-archive-box" ${open ? 'open' : ''}><summary><b>마감된 공고함</b> <small>접수가 끝난 공고 ${data.total}건. 지우지 않고 보관합니다. 서식과 심사기준은 다음 공고에서 다시 씁니다.</small></summary>
     ${open ? `${table.query ? `<p class="muted">검색어 「${escapeHtml(table.query)}」 · 마감 공고 ${data.total}건 가운데 ${data.matched}건이 맞습니다.</p>` : ''}
+    ${isAdmin() ? `<div class="archive-bulk"><span>${(state.archiveClosedSelected || []).length ? `선택 ${(state.archiveClosedSelected || []).length}건` : '지울 공고를 고르세요. 계획서가 걸린 공고는 서버가 지키고 지우지 않습니다.'}</span>
+      <button class="button secondary" id="closed-delete-selected" ${(state.archiveClosedSelected || []).length ? '' : 'disabled'}>선택 삭제(영구)</button></div>` : ''}
     <div class="archive-table-wrap"><table class="archive-table"><thead><tr>
+      ${isAdmin() ? '<th class="archive-check"><input type="checkbox" id="closed-select-page" aria-label="이 목록 전체 선택"></th>' : ''}
       <th>수집일</th><th>공모기관</th><th>분야</th><th>사업명</th><th>마감일</th><th>상태</th>
     </tr></thead><tbody>${data.rows.map(row => `<tr>
+      ${isAdmin() ? `<td class="archive-check"><input type="checkbox" data-closed-select="${escapeHtml(row.key)}" ${(state.archiveClosedSelected || []).includes(row.key) ? 'checked' : ''} aria-label="${escapeHtml(row.title)} 고르기"></td>` : ''}
       <td>${escapeHtml(shortDate(row.collectedAt))}</td>
       <td>${escapeHtml(row.institution)}</td>
       <td>${escapeHtml(row.field)}</td>
       <td><button class="button ghost" style="padding:4px 6px;text-align:left" data-archive-view="${escapeHtml(row.key)}">${escapeHtml(row.title)}</button></td>
       <td>${escapeHtml(row.deadline.text)}</td>
       <td><span class="status 확인-필요">마감</span></td>
-    </tr>`).join('') || '<tr><td colspan="6" class="muted">조건에 맞는 마감 공고가 없습니다.</td></tr>'}</tbody></table></div>
+    </tr>`).join('') || `<tr><td colspan="${isAdmin() ? 7 : 6}" class="muted">조건에 맞는 마감 공고가 없습니다.</td></tr>`}</tbody></table></div>
     <p class="muted">사업명을 누르면 원문을 볼 수 있습니다. 마감된 공고로는 새 계획서를 시작하지 않습니다.</p>` : ''}
   </details>`;
 }
@@ -6746,6 +6750,17 @@ function bind() {
   document.querySelector('#list-archived-proposals')?.addEventListener('click', loadProposalArchive);
   document.querySelector('#list-archived-proposals-2')?.addEventListener('click', loadProposalArchive);
   document.querySelector('#closed-archive-box')?.addEventListener('toggle', event => { state.archiveClosedOpen = event.target.open; saveState(); });
+  // 마감된 공고 고르기·삭제. 최고관리자만 보이고, 서버가 역할을 다시 본다.
+  document.querySelectorAll('[data-closed-select]').forEach(el => el.onchange = () => {
+    const picked = new Set(state.archiveClosedSelected || []);
+    if (el.checked) picked.add(el.dataset.closedSelect); else picked.delete(el.dataset.closedSelect);
+    setState({ archiveClosedSelected: [...picked] });
+  });
+  document.querySelector('#closed-select-page')?.addEventListener('change', event => {
+    const keys = [...document.querySelectorAll('[data-closed-select]')].map(el => el.dataset.closedSelect);
+    setState({ archiveClosedSelected: event.target.checked ? keys : [] });
+  });
+  document.querySelector('#closed-delete-selected')?.addEventListener('click', () => void deleteClosedNotices());
   document.querySelector('#copy-archive-key')?.addEventListener('click', copyArchiveRecoveryKey);
   document.querySelector('#apply-archive-key')?.addEventListener('click', applyArchiveRecoveryKey);
   document.querySelectorAll('[data-use-archived-notice]').forEach(el => el.onclick = () => useArchivedNotice(Number(el.dataset.useArchivedNotice)));
@@ -8078,6 +8093,26 @@ function startArchiveWork(key, step, applicantId = '') {
   navigateToStep(step, patch);
 }
 // 보관 공고 원본과 연결된 계획서는 지우지 않고 이 기기 목록에서만 숨긴다.
+// 마감된 공고를 실제로 지운다. 되돌릴 수 없으므로 무엇을 지우는지 먼저 확인한다.
+async function deleteClosedNotices() {
+  const keys = state.archiveClosedSelected || [];
+  if (!keys.length || auth.busy) return;
+  if (!window.confirm(`마감된 공고 ${keys.length}건을 영구 삭제할까요? 되돌릴 수 없습니다. 저장한 계획서가 걸린 공고는 지워지지 않고 그대로 남습니다.`)) return;
+  setState({ busy: '마감 공고를 삭제하는 중', error: '', notice: '' });
+  const result = await adminDeleteNotices(keys).catch(() => ({ ok: false, error: '요청을 보내지 못했습니다.' }));
+  if (!result.ok) return setState({ busy: '', error: result.error || '삭제하지 못했습니다.' });
+  // 화면 목록에서도 지운 것을 뺀다. 서버를 다시 부르지 않는다.
+  const gone = new Set(keys);
+  setState({
+    busy: '',
+    archiveNotices: (state.archiveNotices || []).filter(item => !gone.has(item.archiveNoticeKey) || result.kept),
+    archiveClosedSelected: [],
+    notice: `마감 공고 ${result.deleted}건을 삭제했습니다.${result.kept ? ` 계획서가 걸린 ${result.kept}건은 그대로 두었습니다.` : ''}`
+  });
+  archiveLoaded = false;
+  void loadRecentArchive();
+}
+
 function hideArchivedNotices(keys) {
   const targets = [...new Set((keys || []).filter(Boolean))];
   if (!targets.length) return;

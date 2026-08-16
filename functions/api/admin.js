@@ -89,6 +89,8 @@ export async function onRequest(context) {
   }
   if (body.action === 'listNotices') return json(await listNotices(env.ARCHIVE_DB, body.query), 200);
   if (body.action === 'setNoticePublic') return setNoticePublic(env.ARCHIVE_DB, actor, body);
+  // 보관 공고 영구 삭제. 최고관리자만, 그리고 계획서가 걸려 있지 않은 것만 지운다.
+  if (body.action === 'deleteNotices') return deleteNotices(env.ARCHIVE_DB, actor, body);
   // AI 사용량·비용. 회원별·계획서별·기간별로 본다.
   if (body.action === 'usageReport') return json(await usageReport(env.ARCHIVE_DB, env, { days: body.days, userId: body.userId, proposalId: body.proposalId }), 200);
   // 정식 수주회원(프리미엄) 부여·중지. 관리자만 한다. 운영관리자 경로에서는 언제나 거절된다.
@@ -533,6 +535,37 @@ async function setNoticePublic(db, actor, body) {
     detail: `${String(row.title || '').slice(0, 80)} → ${next ? '공개' : '비공개'}`
   });
   return json({ ok: true, ...(await listNotices(db, body.query)) }, 200);
+}
+
+// 보관 공고를 실제로 지운다.
+//
+// 화면의 「삭제」는 지금까지 이 기기 목록에서만 감추는 것이었다. 관리자가 정말 지워야 할 때가 있어
+// 이 경로를 둔다. 다만 두 가지는 지키지 않으면 지우지 않는다.
+//  · 그 공고로 저장해 둔 계획서가 있으면 지우지 않는다. 계획서가 근거를 잃는다.
+//  · 무엇을 지웠는지 감사기록에 남긴다. 제목은 80자까지만 적는다.
+async function deleteNotices(db, actor, body) {
+  const keys = [...new Set((Array.isArray(body.keys) ? body.keys : []).map(key => String(key || '').slice(0, 180)).filter(Boolean))].slice(0, 200);
+  if (!keys.length) return json({ error: '지울 공고를 고르지 않았습니다.' }, 400);
+
+  const marks = keys.map(() => '?').join(',');
+  const rows = (await db.prepare(`SELECT source_key, title FROM archived_notices WHERE source_key IN (${marks})`).bind(...keys).all())?.results || [];
+  if (!rows.length) return json({ error: '해당 공고를 찾지 못했습니다.' }, 404);
+
+  const linked = (await db.prepare(`SELECT DISTINCT notice_key FROM archived_proposals WHERE notice_key IN (${marks})`).bind(...keys).all())?.results || [];
+  const blocked = new Set(linked.map(row => String(row.notice_key)));
+  const removable = rows.filter(row => !blocked.has(String(row.source_key)));
+  if (!removable.length) {
+    return json({ error: '고른 공고에는 저장된 계획서가 걸려 있어 지우지 않았습니다.', kept: rows.length }, 409);
+  }
+
+  const targets = removable.map(row => String(row.source_key));
+  const targetMarks = targets.map(() => '?').join(',');
+  await db.prepare(`DELETE FROM archived_notices WHERE source_key IN (${targetMarks})`).bind(...targets).run();
+  await recordAudit(db, {
+    actor, action: 'notice.delete', targetId: targets.slice(0, 3).join(','),
+    detail: `공고 ${targets.length}건 삭제${blocked.size ? ` · 계획서 연결로 보존 ${blocked.size}건` : ''} · ${removable.slice(0, 2).map(row => String(row.title || '').slice(0, 40)).join(' / ')}`
+  });
+  return json({ ok: true, deleted: targets.length, kept: blocked.size }, 200);
 }
 
 async function remove(db, target) {

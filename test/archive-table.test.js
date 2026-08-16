@@ -234,3 +234,24 @@ test('마감된 공고는 따로 모아 두고 지우지 않는다', () => {
   // 지우는 문장이 없다.
   assert.ok(!/DELETE FROM archived_notices/i.test(appSource));
 });
+
+test('마감된 공고는 최고관리자만 지우고, 계획서가 걸린 것은 남긴다', async () => {
+  const api = fs.readFileSync(new URL('../functions/api/admin.js', import.meta.url), 'utf8');
+  // 관리자 경로 전체가 이미 admin만 통과한다. 그 안에 삭제를 둔다.
+  assert.match(api, /if \(body\.action === 'deleteNotices'\) return deleteNotices\(env\.ARCHIVE_DB, actor, body\);/);
+  // 계획서가 걸린 공고는 지우지 않는다. 계획서가 근거를 잃는다.
+  assert.match(api, /SELECT DISTINCT notice_key FROM archived_proposals WHERE notice_key IN/);
+  assert.match(api, /const removable = rows\.filter\(row => !blocked\.has\(String\(row\.source_key\)\)\)/);
+  assert.match(api, /고른 공고에는 저장된 계획서가 걸려 있어 지우지 않았습니다/);
+  // 무엇을 지웠는지 남긴다.
+  assert.match(api, /action: 'notice\.delete'/);
+  // 한 번에 너무 많이 지우지 않는다.
+  assert.match(api, /\.slice\(0, 200\)/);
+
+  // 화면: 체크칸과 삭제 단추는 최고관리자에게만.
+  assert.match(appSource, /data-closed-select="\$\{escapeHtml\(row\.key\)\}"/);
+  assert.match(appSource, /id="closed-delete-selected"/);
+  assert.match(appSource, /\$\{isAdmin\(\) \? `<div class="archive-bulk">/);
+  // 되돌릴 수 없다는 것을 먼저 알린다.
+  assert.match(appSource, /영구 삭제할까요\? 되돌릴 수 없습니다/);
+});
