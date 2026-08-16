@@ -3650,6 +3650,7 @@ function archiveView() {
       ['신청기관 연결', linkedCount, '공고당 여러 기관 연결 가능'],
       ['저장한 계획서', proposals.length, '작업하기에서 이어서 작성']
     ].map(([label, value, detail]) => `<span class="stat-badge" title="${escapeHtml(`${label} ${value}건 · ${detail}`)}"><strong>${value}</strong><span>${escapeHtml(label)}</span><small>${escapeHtml(detail)}</small></span>`).join('')}</div>
+    <label class="archive-search-label" for="archive-query">보관 공고 검색</label>
     <div class="archive-toolbar"><input id="archive-query" type="search" name="archive-search" autocomplete="off" autocapitalize="off" spellcheck="false" value="${escapeHtml(table.query)}" placeholder="사업명·기관·분야·지원대상·공고번호로 찾기">
       ${table.query ? `<button class="button secondary" id="archive-clear-query">검색어 지우기</button>` : ''}
       <button class="button primary" id="archive-show-all">전체 보기</button>

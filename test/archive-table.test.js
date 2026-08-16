@@ -185,3 +185,13 @@ test('보관함 검색은 치는 동안 걸러 주고 찾는 자리를 넓게 �
   assert.match(appSource, /id="archive-clear-query"/);
   assert.match(appSource, /검색어 「\$\{escapeHtml\(table\.query\)\}」 · 보관 공고 \$\{data\.total\}건 가운데 \$\{data\.matched\}건이 맞습니다/);
 });
+
+test('검색칸이 눈에 보인다', () => {
+  const css = fs.readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+  // 테두리가 바탕과 같은 색이라 칸이 있는 줄도 몰랐다.
+  assert.match(css, /\.archive-toolbar input\{[^}]*border:1px solid #b9ac9e/);
+  assert.match(css, /\.archive-toolbar input\{[^}]*background:#fff url/);
+  assert.match(css, /\.archive-toolbar input:focus\{[^}]*box-shadow/);
+  // 무엇을 하는 칸인지 이름을 붙인다.
+  assert.match(appSource, /<label class="archive-search-label" for="archive-query">보관 공고 검색<\/label>/);
+});
