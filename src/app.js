@@ -2434,6 +2434,67 @@ function openFeature(go) {
   }
 }
 
+// 표 안의 행에 붙는 처리기. 표만 갈아 끼운 뒤에도 다시 붙여야 한다.
+function bindArchiveRows() {
+  document.querySelectorAll('[data-archive-select]').forEach(el => el.onchange = () => {
+    const selected = new Set(archiveTableState().selected || []);
+    if (el.checked) selected.add(el.dataset.archiveSelect); else selected.delete(el.dataset.archiveSelect);
+    setArchiveTable({ selected: [...selected] });
+  });
+  document.querySelector('#archive-select-page')?.addEventListener('change', event => {
+    const keys = [...document.querySelectorAll('[data-archive-select]')].map(el => el.dataset.archiveSelect);
+    const selected = new Set(archiveTableState().selected || []);
+    keys.forEach(key => (event.target.checked ? selected.add(key) : selected.delete(key)));
+    setArchiveTable({ selected: [...selected] });
+  });
+  document.querySelectorAll('[data-archive-detail]').forEach(el => el.onclick = () => setArchiveTable({ expandedKey: archiveTableState().expandedKey === el.dataset.archiveDetail ? '' : el.dataset.archiveDetail }));
+  document.querySelectorAll('[data-archive-status]').forEach(el => el.onchange = () => setArchiveLink(el.dataset.archiveStatus, { status: el.value }, `공고 상태를 ${el.value}(으)로 바꿨습니다.`));
+  document.querySelectorAll('[data-archive-applicant-open]').forEach(el => el.onclick = () => setArchiveTable({ applicantPickerKey: archiveTableState().applicantPickerKey === el.dataset.archiveApplicantOpen ? '' : el.dataset.archiveApplicantOpen }));
+  document.querySelectorAll('[data-archive-applicant-close]').forEach(el => el.onclick = () => setArchiveTable({ applicantPickerKey: '' }));
+  document.querySelectorAll('[data-archive-applicant]').forEach(el => el.onchange = () => {
+    const key = el.dataset.archiveApplicant;
+    const current = new Set(archiveLinkOf(key).applicantIds || []);
+    if (el.checked) current.add(el.value); else current.delete(el.value);
+    setArchiveLink(key, { applicantIds: [...current] }, '신청기관 매칭을 저장했습니다. 기관별 계획서 작업은 각각 따로 유지됩니다.');
+  });
+  document.querySelectorAll('[data-archive-use]').forEach(el => el.onclick = () => useArchivedNotice(archiveIndexOfKey(el.dataset.archiveUse)));
+  document.querySelectorAll('[data-archive-view]').forEach(el => el.onclick = () => viewArchivedNotice(archiveIndexOfKey(el.dataset.archiveView)));
+  // 행 우클릭은 브라우저 기본 메뉴 대신 전용 메뉴를 띄운다. 모바일은 길게 누르기로 같은 메뉴를 연다.
+  closeArchiveMenu();
+  document.querySelectorAll('[data-archive-row]').forEach(row => {
+    let pressTimer = null;
+    const cancel = () => { clearTimeout(pressTimer); pressTimer = null; };
+    row.oncontextmenu = event => { event.preventDefault(); openArchiveMenu(row.dataset.archiveRow, event.clientX, event.clientY); };
+    row.ontouchstart = event => {
+      const touch = event.touches[0];
+      pressTimer = setTimeout(() => { pressTimer = null; openArchiveMenu(row.dataset.archiveRow, touch.clientX, touch.clientY); }, 500);
+    };
+    row.ontouchmove = cancel;
+    row.ontouchend = cancel;
+    row.ontouchcancel = cancel;
+  });
+  document.querySelectorAll('[data-archive-remove]').forEach(el => el.onclick = () => hideArchivedNotices([el.dataset.archiveRemove]));
+}
+
+// 검색 결과만 갈아 끼운다. 화면 전체를 다시 그리면 입력칸이 새로 만들어져 한글 조합이 끊긴다.
+function redrawArchiveRows() {
+  const table = archiveTableState();
+  const data = archiveTableData();
+  const selected = table.selected || [];
+  const body = document.querySelector('.archive-table tbody');
+  if (body) {
+    body.innerHTML = data.rows.map(row => archiveTableRow(row, { ...table, selected })).join('')
+      || `<tr><td colspan="9" class="muted">${table.query
+        ? `검색어 「${escapeHtml(table.query)}」에 맞는 공고가 없습니다. 보관 공고는 ${data.total}건 있습니다. 「전체 보기」를 누르면 모두 나옵니다.`
+        : '조건에 맞는 공고가 없습니다. 「전체 보기」를 누르거나 필터를 초기화해 보세요.'}</td></tr>`;
+    bindArchiveRows();
+  }
+  const pager = document.querySelector('.archive-pager span');
+  if (pager) pager.textContent = `총 ${data.matched}건 중 ${data.from}–${data.to}${data.pageSize === 0 ? ' (전체 보기)' : ` · ${data.page}/${data.pageCount}쪽`}`;
+  const matched = document.querySelectorAll('.stat-badge')[1]?.querySelector('strong');
+  if (matched) matched.textContent = String(data.matched);
+}
+
 // 공고보관함·계획서보관함을 연다. 관리자 포털에서 눌러도 계획서 포털의 같은 자리로 간다.
 function openArchiveBox() {
   state.portal = 'proposal';
@@ -6651,14 +6712,20 @@ function bind() {
   // 자료보관함 목록: 검색·필터·정렬·선택·페이지 이동은 모두 화면 상태만 바꾼다.
   const archiveQuery = document.querySelector('#archive-query');
   if (archiveQuery) {
-    // 치는 동안 바로 걸러 준다. 다시 그리면 글자를 치던 자리를 잃으므로 표 안쪽만 갈아 끼우고 초점을 되돌린다.
-    archiveQuery.oninput = event => {
-      const at = event.target.selectionStart;
-      setArchiveTable({ query: event.target.value, page: 1 });
-      const again = document.querySelector('#archive-query');
-      if (again) { again.focus(); again.setSelectionRange(at, at); }
+    // 치는 동안 바로 걸러 준다. 다만 화면을 다시 그리면 한글 조합이 끊긴다.
+    // 「검색」을 치면 ㄱ ㅓ ㅁ 으로 흩어졌다. 그래서 표 안쪽만 갈아 끼우고 입력칸은 건드리지 않는다.
+    const applyQuery = value => {
+      state.archiveTable = { ...archiveTableState(), query: value, page: 1 };
+      saveState();
+      redrawArchiveRows();
     };
-    archiveQuery.onkeydown = event => { if (event.key === 'Enter') event.preventDefault(); };
+    archiveQuery.oninput = event => {
+      // 조합 중(한글을 만드는 중)에는 걸러 내지 않는다. 다 만들어진 뒤에 한다.
+      if (event.isComposing) return;
+      applyQuery(event.target.value);
+    };
+    archiveQuery.addEventListener('compositionend', event => applyQuery(event.target.value));
+    archiveQuery.onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); applyQuery(event.target.value); } };
   }
   document.querySelector('#archive-clear-query')?.addEventListener('click', () => setArchiveTable({ query: '', page: 1 }));
   document.querySelectorAll('[data-archive-filter]').forEach(el => el.onchange = () => setArchiveTable({ filters: { ...archiveTableState().filters, [el.dataset.archiveFilter]: el.value }, page: 1 }));
@@ -6674,44 +6741,7 @@ function bind() {
   });
   document.querySelector('#archive-page-size')?.addEventListener('change', event => setArchiveTable({ pageSize: Number(event.target.value), page: 1 }));
   document.querySelectorAll('[data-archive-page]').forEach(el => el.onclick = () => setArchiveTable({ page: Number(el.dataset.archivePage) }));
-  document.querySelectorAll('[data-archive-select]').forEach(el => el.onchange = () => {
-    const selected = new Set(archiveTableState().selected || []);
-    if (el.checked) selected.add(el.dataset.archiveSelect); else selected.delete(el.dataset.archiveSelect);
-    setArchiveTable({ selected: [...selected] });
-  });
-  document.querySelector('#archive-select-page')?.addEventListener('change', event => {
-    const keys = [...document.querySelectorAll('[data-archive-select]')].map(el => el.dataset.archiveSelect);
-    const selected = new Set(archiveTableState().selected || []);
-    keys.forEach(key => (event.target.checked ? selected.add(key) : selected.delete(key)));
-    setArchiveTable({ selected: [...selected] });
-  });
-  document.querySelectorAll('[data-archive-detail]').forEach(el => el.onclick = () => setArchiveTable({ expandedKey: archiveTableState().expandedKey === el.dataset.archiveDetail ? '' : el.dataset.archiveDetail }));
-  document.querySelectorAll('[data-archive-status]').forEach(el => el.onchange = () => setArchiveLink(el.dataset.archiveStatus, { status: el.value }, `공고 상태를 ${el.value}(으)로 바꿨습니다.`));
-  document.querySelectorAll('[data-archive-applicant-open]').forEach(el => el.onclick = () => setArchiveTable({ applicantPickerKey: archiveTableState().applicantPickerKey === el.dataset.archiveApplicantOpen ? '' : el.dataset.archiveApplicantOpen }));
-  document.querySelectorAll('[data-archive-applicant-close]').forEach(el => el.onclick = () => setArchiveTable({ applicantPickerKey: '' }));
-  document.querySelectorAll('[data-archive-applicant]').forEach(el => el.onchange = () => {
-    const key = el.dataset.archiveApplicant;
-    const current = new Set(archiveLinkOf(key).applicantIds || []);
-    if (el.checked) current.add(el.value); else current.delete(el.value);
-    setArchiveLink(key, { applicantIds: [...current] }, '신청기관 매칭을 저장했습니다. 기관별 계획서 작업은 각각 따로 유지됩니다.');
-  });
-  document.querySelectorAll('[data-archive-use]').forEach(el => el.onclick = () => useArchivedNotice(archiveIndexOfKey(el.dataset.archiveUse)));
-  document.querySelectorAll('[data-archive-view]').forEach(el => el.onclick = () => viewArchivedNotice(archiveIndexOfKey(el.dataset.archiveView)));
-  // 행 우클릭은 브라우저 기본 메뉴 대신 전용 메뉴를 띄운다. 모바일은 길게 누르기로 같은 메뉴를 연다.
-  closeArchiveMenu();
-  document.querySelectorAll('[data-archive-row]').forEach(row => {
-    let pressTimer = null;
-    const cancel = () => { clearTimeout(pressTimer); pressTimer = null; };
-    row.oncontextmenu = event => { event.preventDefault(); openArchiveMenu(row.dataset.archiveRow, event.clientX, event.clientY); };
-    row.ontouchstart = event => {
-      const touch = event.touches[0];
-      pressTimer = setTimeout(() => { pressTimer = null; openArchiveMenu(row.dataset.archiveRow, touch.clientX, touch.clientY); }, 500);
-    };
-    row.ontouchmove = cancel;
-    row.ontouchend = cancel;
-    row.ontouchcancel = cancel;
-  });
-  document.querySelectorAll('[data-archive-remove]').forEach(el => el.onclick = () => hideArchivedNotices([el.dataset.archiveRemove]));
+  bindArchiveRows();
   document.querySelector('#archive-delete-selected')?.addEventListener('click', () => hideArchivedNotices(archiveTableState().selected || []));
   document.querySelector('#archive-restore-hidden')?.addEventListener('click', () => setState({ archiveHiddenNotices: [], notice: '숨긴 공고를 다시 목록에 표시했습니다.' }));
   // 환류 작업흐름: 완성본 → 수정 요청 → 검토 제출 → 버전 이력 → 최종 승인.

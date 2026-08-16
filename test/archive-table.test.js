@@ -181,7 +181,12 @@ test('보관함 검색은 치는 동안 걸러 주고 찾는 자리를 넓게 �
 
   // 화면: 치는 동안 바로 걸러 주고, 지우는 단추와 결과 안내가 함께 있다.
   assert.match(appSource, /archiveQuery\.oninput = event => \{/);
-  assert.match(appSource, /again\.setSelectionRange\(at, at\)/);
+  // 한글 조합 중에는 다시 그리지 않는다. 「검색」이 ㄱ ㅓ ㅁ 으로 흩어졌다.
+  assert.match(appSource, /if \(event\.isComposing\) return;/);
+  assert.match(appSource, /addEventListener\('compositionend', event => applyQuery\(event\.target\.value\)\)/);
+  // 표 안쪽만 갈아 끼운다. 입력칸을 새로 만들면 조합이 끊긴다.
+  assert.match(appSource, /function redrawArchiveRows\(\) \{/);
+  assert.match(appSource, /function bindArchiveRows\(\) \{/);
   assert.match(appSource, /id="archive-clear-query"/);
   assert.match(appSource, /검색어 「\$\{escapeHtml\(table\.query\)\}」 · 보관 공고 \$\{data\.total\}건 가운데 \$\{data\.matched\}건이 맞습니다/);
 });
