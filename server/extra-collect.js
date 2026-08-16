@@ -16,7 +16,9 @@ export const DETAIL_BUDGET = 30;
 export const makeBudget = (left = DETAIL_BUDGET) => ({ left, spent: 0, take() { if (this.left <= 0) return false; this.left -= 1; this.spent += 1; return true; } });
 // 같은 곳에 잇달아 요청하지 않는다.
 export // 막혔을 때 쉬는 시간. 한 번만 기다린다.
-const THROTTLE_WAIT_MS = 3_000;
+const THROTTLE_WAIT_MS = 4_000;
+// 몇 번까지 다시 묻는지. 4초 → 8초로 늘려 가며 쉰다.
+const THROTTLE_TRIES = 2;
 // 출처 사이의 간격. 같은 업체 게시판을 잇달아 열면 막힌다.
 const SOURCE_GAP_MS = 1_500;
 // 같은 업체 게시판 사이의 간격. 바보의나눔과 부스러기사랑나눔회가 여기에 해당한다.
@@ -27,15 +29,15 @@ const UA = 'Mozilla/5.0 (compatible; MS12NoticeBot/1.0; +https://pro.ms12.org)';
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-async function request(fetcher, url, { accept = 'text/html', retry = true } = {}) {
+async function request(fetcher, url, { accept = 'text/html', tries = 0 } = {}) {
   if (!allowedOrigin(url)) throw new Error('origin not allowed');
   const headers = { 'User-Agent': UA, Accept: accept, 'Accept-Language': 'ko-KR,ko;q=0.9' };
   const response = await fetcher(url, { headers, redirect: 'follow' });
-  // 너무 자주 물으면 잠시 막는다(429·503). 한 박자 쉬고 한 번만 다시 묻는다.
-  // 같은 업체가 돌리는 게시판 두 곳을 잇달아 열 때 실제로 겪었다.
-  if ((response.status === 429 || response.status === 503) && retry) {
-    await wait(THROTTLE_WAIT_MS);
-    return request(fetcher, url, { accept, retry: false });
+  // 너무 자주 물으면 잠시 막는다(429·503). 쉬는 시간을 늘려 가며 두 번까지 다시 묻는다.
+  // 한 번만 쉬어서는 부족했다. 부스러기사랑나눔회가 3초 뒤에도 계속 막았다.
+  if ((response.status === 429 || response.status === 503) && tries < THROTTLE_TRIES) {
+    await wait(THROTTLE_WAIT_MS * (tries + 1));
+    return request(fetcher, url, { accept, tries: tries + 1 });
   }
   if (!response.ok) throw new Error(`http ${response.status}`);
   return accept.includes('json') ? response.json() : response.text();
