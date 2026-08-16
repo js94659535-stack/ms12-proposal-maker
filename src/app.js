@@ -2498,6 +2498,8 @@ function redrawArchiveRows() {
 // 공고보관함·계획서보관함을 연다. 관리자 포털에서 눌러도 계획서 포털의 같은 자리로 간다.
 function openArchiveBox(which = 'notices') {
   const proposals = which === 'proposals';
+  // 저장해 둔 목록이 있으면 그대로 보여 준다. 새로 고침은 뒤에서 돈다.
+  if (!archiveLoaded) void loadRecentArchive();
   state.portal = 'proposal';
   state.activeTool = 'workflow';
   navigateToStep(0, {
@@ -3031,7 +3033,11 @@ function withMigratedApplicants(value) {
 }
 function saveState() {
   // 각론을 폈는지·어디에 집중했는지는 이번 화면에서만 쓴다. 저장하면 다음에 들어와도 펼쳐진 채로 나온다.
-  const safe = { ...state, reviewDetail: false, reviewPanels: [], reviewFocus: false, companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [], archiveNotices: [], archiveProposals: [], noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', applicantComparison: null, applicantDocDraft: '', applicantExtraction: null, files: state.files.map(({ text, ...meta }) => meta),
+  // 보관함 목록은 저장해 둔다. 버리면 들어올 때마다 서버를 다시 불러 기다리게 된다.
+  // 다만 브라우저 저장 한도가 있으므로 앞쪽 얼마간만 남긴다. 나머지는 다시 불러올 때 채워진다.
+  const CACHED_NOTICES = 120;
+  const safe = { ...state, reviewDetail: false, reviewPanels: [], reviewFocus: false, companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [],
+    archiveNotices: (state.archiveNotices || []).slice(0, CACHED_NOTICES), archiveProposals: (state.archiveProposals || []).slice(0, CACHED_NOTICES), noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', applicantComparison: null, applicantDocDraft: '', applicantExtraction: null, files: state.files.map(({ text, ...meta }) => meta),
     // 첨부 원본은 브라우저 메모리에만 있다. 새로고침 뒤에 파일이 있다고 잘못 말하지 않도록 연결 기록도 저장하지 않는다.
     attachmentLinks: {}, submissionZip: null };
   // 참고자료처럼 큰 원문이 들어오면 브라우저 저장 한도를 넘을 수 있다. 저장 실패가 화면을 멈추지 않게 한다.
@@ -7979,11 +7985,20 @@ async function loadHomeRecent() {
 
 async function loadRecentArchive() {
   archiveLoaded = true;
-  // 목록의 상태 열은 저장된 계획서 단계를 근거로 하므로 계획서 목록도 함께 가져온다.
-  try { const result = await searchArchivedNotices({}); setState({ archiveNotices: result.notices || [] }); }
-  catch { /* 자료보관함 장애가 기존 첫 화면을 막지 않게 한다. */ }
-  try { const saved = await listArchivedProposals(); setState({ archiveProposals: saved.proposals || [] }); }
-  catch { /* 계획서 목록 조회 실패는 상태 표시만 비운다. */ }
+  // 저장해 둔 목록이 있으면 그것부터 보여 준다. 기다리게 하지 않고 뒤에서 조용히 새로 고친다.
+  // 새로 받은 것이 앞서 보여 준 것과 같으면 화면을 다시 그리지 않는다. 깜빡임이 없다.
+  const same = (left, right) => left.length === right.length
+    && left.every((item, index) => item.archiveNoticeKey === right[index]?.archiveNoticeKey && item.archiveUpdatedAt === right[index]?.archiveUpdatedAt);
+  try {
+    const result = await searchArchivedNotices({});
+    const notices = result.notices || [];
+    if (!same(notices, state.archiveNotices || [])) setState({ archiveNotices: notices });
+  } catch { /* 자료보관함 장애가 기존 첫 화면을 막지 않게 한다. 저장해 둔 목록은 그대로 쓴다. */ }
+  try {
+    const saved = await listArchivedProposals();
+    const proposals = saved.proposals || [];
+    if (proposals.length !== (state.archiveProposals || []).length) setState({ archiveProposals: proposals });
+  } catch { /* 계획서 목록 조회 실패는 상태 표시만 비운다. */ }
 }
 
 function archiveIndexOfKey(key) {

@@ -200,3 +200,13 @@ test('검색칸이 눈에 보인다', () => {
   // 무엇을 하는 칸인지 이름을 붙인다.
   assert.match(appSource, /<label class="archive-search-label" for="archive-query">보관 공고 검색<\/label>/);
 });
+
+test('보관함 목록은 저장해 두고 들어올 때마다 다시 받지 않는다', () => {
+  // 나갔다 들어올 때마다 서버를 불러 기다리게 했다. 저장해 두고 뒤에서 조용히 새로 고친다.
+  assert.match(appSource, /archiveNotices: \(state\.archiveNotices \|\| \[\]\)\.slice\(0, CACHED_NOTICES\)/);
+  assert.match(appSource, /const CACHED_NOTICES = 120;/);
+  // 받아 온 것이 앞서 보여 준 것과 같으면 다시 그리지 않는다. 깜빡이지 않는다.
+  assert.match(appSource, /if \(!same\(notices, state\.archiveNotices \|\| \[\]\)\) setState\(\{ archiveNotices: notices \}\)/);
+  // 열 때 이미 있으면 기다리게 하지 않는다.
+  assert.match(appSource, /if \(!archiveLoaded\) void loadRecentArchive\(\);/);
+});
