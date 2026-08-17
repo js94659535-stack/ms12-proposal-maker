@@ -32,6 +32,40 @@ const UA = 'Mozilla/5.0 (compatible; MS12NoticeBot/1.0; +https://pro.ms12.org)';
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+// 공고문·신청서식 같은 첨부는 이름만 있으면 쓸 수 없다. 내려받을 주소까지 함께 남긴다.
+// 게시판마다 마크업이 달라도 파일 이름은 확장자로 끝난다. 그래서 확장자를 신호로 삼는다.
+const DOC_EXTENSION = /\.(hwpx?|pdf|docx?|xlsx?|pptx?|zip)(?=$|[?#"'\s])/i;
+const ANCHOR = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]{0,300}?)<\/a>/gi;
+const ATTACHMENT_LIMIT = 10;
+
+function absoluteUrl(href, origin) {
+  const value = String(href || '').trim();
+  if (!value || /^(javascript:|#|mailto:)/i.test(value)) return '';
+  if (/^https?:\/\//i.test(value)) return value;
+  if (value.startsWith('//')) return `https:${value}`;
+  return `${origin}${value.startsWith('/') ? '' : '/'}${value}`;
+}
+function fileTypeOf(name, href) {
+  return (DOC_EXTENSION.exec(name) || DOC_EXTENSION.exec(href) || [''])[0].replace('.', '').toLowerCase();
+}
+// 상세 화면에서 첨부 링크를 뽑는다. 파일 이름이나 주소에 문서 확장자가 있는 것만 첨부로 본다.
+export function extractAttachments(html, origin = '') {
+  const found = new Map();
+  for (const match of String(html || '').matchAll(ANCHOR)) {
+    const url = absoluteUrl(match[1], origin);
+    if (!url) continue;
+    const name = cleanText(match[2].replace(/<[^>]*>/g, ' ')).slice(0, 120);
+    // 이름과 주소 어느 쪽에든 확장자가 있으면 첨부다. 아임웹은 이름에, 건가원은 주소 뒤 이름에 있다.
+    if (!DOC_EXTENSION.test(name) && !DOC_EXTENSION.test(match[1])) continue;
+    if (!name || found.has(url)) continue;
+    found.set(url, { name, url, fileType: fileTypeOf(name, match[1]) });
+    if (found.size >= ATTACHMENT_LIMIT) break;
+  }
+  return [...found.values()];
+}
+// 화면에 짧게 적는 출처 이름. 출처마다 다르므로 설정에서 가져오고, 없으면 긴 이름을 쓴다.
+const shortLabelOf = source => source.shortLabel || source.organization || source.label;
+
 async function request(fetcher, url, { accept = 'text/html', tries = 0 } = {}) {
   if (!allowedOrigin(url)) throw new Error('origin not allowed');
   const headers = { 'User-Agent': UA, Accept: accept, 'Accept-Language': 'ko-KR,ko;q=0.9' };
@@ -109,9 +143,8 @@ async function collectKihf(fetcher, source, today, { budget } = {}) {
     try {
       const detail = await request(fetcher, `${source.origin}${source.detailPath}?article_seq=${encodeURIComponent(row.listSn)}`);
       body = bodyTextOf(detail);
-      // 첨부는 이름과 개수만 남긴다. 파일 원문은 저장하지 않는다.
-      attachments = [...detail.matchAll(/download\.do\?uuid=[^"']*"[^>]*>([^<]{1,120})/g)]
-        .map(match => ({ name: cleanText(match[1]), fileType: '' })).slice(0, 10);
+      // 첨부는 이름과 내려받을 주소만 남긴다. 파일 원문은 저장하지 않는다.
+      attachments = extractAttachments(detail, source.origin);
     } catch { /* 한 건 실패는 출처 장애가 아니다 */ }
     const period = extractPeriod(`${row.title}\n${body}`, { registeredAt: row.registeredAt });
     const verdict = classifyNotice({ title: row.title, body, sourceKind: source.id === 'kihf-bid' ? 'bid-board' : '' });
@@ -162,10 +195,13 @@ async function collectBabo(fetcher, source, today, { budget } = {}) {
     if (budget && !budget.take()) { status.detailSkipped = (status.detailSkipped || 0) + 1; continue; }
     await wait(REQUEST_GAP_MS);
     let body = '';
+    let attachments = [];
     try {
       const detail = await request(fetcher, `${source.origin}${source.detailPath}?bmode=view&idx=${encodeURIComponent(row.listSn)}&t=board`);
       // 글 제목 자리부터 읽는다. 그 앞은 머리말이고 한참 뒤는 다른 글 목록이다.
       body = bodyTextOf(detail, 'view_tit').slice(0, 4000);
+      // 공고문·신청서식은 대개 본문이 아니라 첨부에 있다. 주소까지 함께 남겨야 이어서 읽을 수 있다.
+      attachments = extractAttachments(detail, source.origin);
     } catch { /* 한 건 실패는 출처 장애가 아니다 */ }
     const period = extractPeriod(`${row.title}\n${body}`, { registeredAt: row.registeredAt });
     const verdict = classifyNotice({ title: row.title, body });
@@ -173,13 +209,13 @@ async function collectBabo(fetcher, source, today, { budget } = {}) {
     const { stage, daysLeft } = noticeStage(period.deadline, today);
     notices.push({
       sourceId: source.id, sourceLabel: source.label, source: source.id,
-      organization: source.organization, sourceLabelShort: '바보의나눔',
+      // 아임웹 게시판 수집기는 바보의나눔과 부스러기사랑나눔회가 함께 쓴다. 이름을 붙박이로 두면 다른 기관 공고가 남의 이름을 달고 나온다.
+      organization: source.organization, sourceLabelShort: shortLabelOf(source),
       listSn: row.listSn, title: row.title, registeredAt: row.registeredAt, boardCategory: row.category,
       deadline: period.deadline, applicationPeriod: period.applicationPeriod, deadlineSource: period.deadlineSource,
       deadlineKnown: Boolean(period.deadline), stage, daysLeft,
       summary: body.slice(0, 300) || '상세 공고문 확인 필요', officialTextExtracted: body.length > 0,
-      // 첨부는 링크만 센다. 파일 원문은 중복 저장하지 않는다.
-      attachments: [], fitness: verdict.fitness, fitnessReason: verdict.reason, fitnessConfirmed: verdict.confirmed,
+      attachments, fitness: verdict.fitness, fitnessReason: verdict.reason, fitnessConfirmed: verdict.confirmed,
       sourceUrl: `${source.origin}${source.detailPath}?bmode=view&idx=${encodeURIComponent(row.listSn)}&t=board`,
       references: [{ source: source.id, listSn: row.listSn, kind: 'board' }]
     });

@@ -724,12 +724,13 @@ test('PDF 버튼은 브라우저 인쇄 저장 방식으로 표시한다', () =>
 
 test('HWP 안내와 공고문 추출 상태를 명확히 표시한다', () => {
   const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
-  assert.match(source, /공식 한글 양식 파일/);
-  assert.match(source, /한글 프로그램에서 PDF로 저장한 뒤 다시 업로드/);
   assert.match(source, /공고문 반영 초안/);
   assert.match(source, /안내 페이지 기반 임시 초안/);
   assert.match(source, /공고문 추출 실패/);
-  assert.match(source, /\['PDF', 'DOCX', 'TXT'\]/);
+  // 한글 파일도 앱이 직접 읽는다. 예전처럼 PDF로 바꿔 다시 올리라고 하지 않는다.
+  assert.match(source, /export const EXTRACTABLE_ATTACHMENTS = Object\.freeze\(\['PDF', 'DOCX', 'TXT', 'HWPX', 'HWP'\]\)/);
+  assert.match(source, /if \(extract && !EXTRACTABLE_ATTACHMENTS\.includes\(type\)\)/);
+  assert.doesNotMatch(source, /한글 프로그램에서 PDF로 저장한 뒤 다시 업로드/);
 });
 
 test('핵심 사업계획 엔진 결과는 근거·단일 세부사업·질문 수를 검증한다', () => {

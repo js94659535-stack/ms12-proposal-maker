@@ -96,7 +96,7 @@ test('저장·출력 처리기가 부분 결과를 마지막에 한 번 더 막�
   for (const id of ['#final-docx-top', '#final-hwpx-top', '#final-pdf-top', '#final-form-docx', '#save-proposal-archive', '#package-docx', '#package-pdf']) {
     const at = app.indexOf(`querySelector('${id}')?.addEventListener`);
     assert.ok(at > 0, id);
-    assert.match(app.slice(at, at + 260), /if \(!refusePartial\(\)\)/, id);
+    assert.match(app.slice(at, at + 260), /if \(!refusePartial\(\)\)|if \(refusePartial\(\)\) return;/, id);
   }
   // 부분 결과 화면에는 이어쓰기만 있고 저장·출력 단추가 없다.
   const view = app.slice(app.indexOf('function partialWritingView()'), app.indexOf('function simpleResultActions()'));

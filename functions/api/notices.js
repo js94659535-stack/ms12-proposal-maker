@@ -2,8 +2,11 @@ import {
   FAILURE, NOTICE_BOARDS, SOURCES, STAGE, detailUrl, extractPeriod, isCollectible, isNoticeCandidate,
   noticeStage, summarizeCollection, todayInSeoul, validListPayload
 } from '../../server/notice-collect.js';
+import { allowedOrigin } from '../../server/notice-sources.js';
 
 const STAGE_UNKNOWN = STAGE.unknown;
+// 첨부를 받아 올 때 쓰는 이름. 이 파일에는 사랑의열매 밖의 주소를 적어 두지 않는다.
+const ATTACHMENT_UA = 'Mozilla/5.0 (compatible; MS12NoticeBot/1.0)';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 const PROPOSAL_ORIGIN = 'https://proposal.chest.or.kr';
@@ -406,7 +409,26 @@ export function classifyAttachment(name) {
   return ({ pdf: 'PDF', docx: 'DOCX', txt: 'TXT', hwp: 'HWP', hwpx: 'HWPX', zip: 'ZIP' })[extension] || 'UNSUPPORTED';
 }
 
+// 수집기가 주소까지 남긴 첨부(공고문·신청서식)는 그 주소로 바로 가져온다.
+// 아무 주소나 열지 않는다. 수집 허용 출처만 연다.
+async function downloadLinkedAttachment(fetcher, attachment) {
+  const url = String(attachment?.url || '').trim();
+  if (!/^https:\/\//i.test(url) || !allowedOrigin(url)) return json({ error: '허용되지 않은 출처의 첨부파일입니다.' }, 400);
+  try {
+    const response = await fetcher(url, { method: 'GET', headers: { 'User-Agent': ATTACHMENT_UA, Accept: '*/*' }, redirect: 'follow' });
+    if (!response.ok || !response.body) throw new Error('download failed');
+    const name = String(attachment.name || '첨부파일').slice(0, 120);
+    const encodedName = encodeURIComponent(name).replace(/'/g, '%27');
+    return new Response(response.body, { status: 200, headers: {
+      'Content-Type': response.headers.get('content-type') || 'application/octet-stream',
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodedName}`,
+      'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'
+    } });
+  } catch { return json({ error: '첨부파일을 내려받지 못했습니다.' }, 502); }
+}
+
 async function downloadProposalAttachment(fetcher, attachment) {
+  if (attachment?.url) return downloadLinkedAttachment(fetcher, attachment);
   if (!validAttachment(attachment)) return json({ error: '첨부파일 정보가 올바르지 않습니다.' }, 400);
   try {
     const detailUrl = new URL('/mobile/mobileMainBsnsDetail.do', PROPOSAL_ORIGIN);

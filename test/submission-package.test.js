@@ -176,10 +176,16 @@ test('출력은 판정을 통과할 때만 나가고 기존 DOCX·PDF 경로를 
   // 판정을 통과해도 저장된 버전이 없거나 화면 내용이 다르면 버튼을 열지 않는다.
   // 회색으로 막지 않는다. 판정에 걸리면 눌렀을 때 무엇이 부족한지 알려 준다.
   // 실제 차단은 출력 실행 경로와 서버가 맡는다.
-  assert.match(app, /id="package-docx" \$\{guard\(exportBlock \|\| \(summary\.canExport \? '' : '[^']+'\), exportBlock \? 'membership' : 'write'\)\}/);
-  assert.match(app, /id="package-pdf" \$\{guard\(exportBlock \|\| \(summary\.canExport \? '' : '[^']+'\), exportBlock \? 'membership' : 'write'\)\}/);
-  // 기존 개별 출력 버튼은 그대로 둔다.
-  assert.match(app, /document\.querySelector\('#docx'\)\?\.addEventListener\('click', \(\) => exportDocx\(state\.project, state\.sections\)\.catch\(showError\)\);/);
+  // 막힌 사유는 저장된 버전 문제다. 회원등급과 무관하므로 내 정보(비밀번호 화면)로 보내지 않는다.
+  assert.match(app, /id="package-docx" \$\{guard\(exportBlock \|\| \(summary\.canExport \? '' : '[^']+'\), exportBlock \? 'version' : 'write'\)\}/);
+  assert.match(app, /id="package-pdf" \$\{guard\(exportBlock \|\| \(summary\.canExport \? '' : '[^']+'\), exportBlock \? 'version' : 'write'\)\}/);
+  // 그 자리에서 푼다: 화면을 바꾸지 않고 저장 버전 고르는 자리로만 데려간다.
+  assert.match(app, /version: \(\) => \{ setState\(\{ notice: reason, error: '' \}\); scrollToFirst\('#version-picker', '#submission-package'\)/);
+  assert.match(app, /<details open id="version-picker"/);
+  // 이용현황 안내는 내 정보 화면에 실제로 있는 자리로 간다.
+  assert.match(app, /membership: \(\) => \{[^\n]*scrollToFirst\('#membership-status', '#membership-guide'\)/);
+  // 기존 개별 출력 버튼은 그대로 둔다(받은 뒤 다음 단계만 덧붙인다).
+  assert.match(app, /document\.querySelector\('#docx'\)\?\.addEventListener\('click', \(\) => exportDocx\(state\.project, state\.sections\)\.then\(\(\) => noteDownload\('검토본', 'DOCX'\)\)\.catch\(showError\)\);/);
   // 검증 결과에 어느 본문을 봤는지 지문을 남긴다.
   assert.match(app, /fingerprint: sectionsFingerprint\(state\.sections\)/);
   // 첨부 체크는 의뢰 건에 저장되고 보관 스냅샷에 함께 남는다.

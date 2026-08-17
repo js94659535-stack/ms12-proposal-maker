@@ -50,7 +50,7 @@ export const SOURCES = Object.freeze([
     // 같은 업체(아임웹)가 돌리는 게시판. 한 실행에서 둘을 잇달아 열면 그쪽에서 막는다.
     kind: 'imweb-board', platform: 'imweb', origin: 'https://babo.or.kr',
     path: '/notice', detailPath: '/notice/',
-    organization: '재단법인 바보의나눔', defaultEnabled: true, needsSecret: '',
+    organization: '재단법인 바보의나눔', shortLabel: '바보의나눔', defaultEnabled: true, needsSecret: '',
     // 2026-08-12 확인: HTTP 200, robots.txt가 /notice를 허용, ul.li_body 구조.
     verified: true, note: ''
   },
@@ -67,7 +67,7 @@ export const SOURCES = Object.freeze([
     id: 'busrugy-notice', group: 'busrugy', label: '부스러기사랑나눔회 공지사항',
     kind: 'imweb-board', platform: 'imweb', origin: 'https://busrugy.or.kr',
     path: '/NOTICE/', detailPath: '/NOTICE/',
-    organization: '사단법인 부스러기사랑나눔회', defaultEnabled: true, needsSecret: '',
+    organization: '사단법인 부스러기사랑나눔회', shortLabel: '부스러기사랑나눔회', defaultEnabled: true, needsSecret: '',
     // 2026-08-15 확인: HTTP 200, robots.txt가 /NOTICE를 허용, 바보의나눔과 같은 아임웹 ul.li_body 구조, 목록 15건.
     // 분류 네 가지(일반·사업·채용·공시)는 브라우저에서 거른다. 서버는 어느 주소로 물어도 같은 목록을 준다.
     // 그래서 전체 주소 한 곳만 부른다. 네 곳을 다 넣으면 같은 글을 네 번 받아 온다.

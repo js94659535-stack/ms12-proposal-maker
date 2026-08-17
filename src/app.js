@@ -58,6 +58,7 @@ import { buildFormSpec } from './form-spec.js';
 import { approvedDemandEvidence, buildDemandEvidence } from './demand-evidence.js';
 import { PROPOSAL_MODES, applyPatchedSections, buildReviewBasis, normalizeReviewIssues, reviewBasisReadiness, reviewSummary, sectionsToPatch, verifyUntouched } from './precise-review.js';
 import { buildSubmissionPackage, sectionsFingerprint } from './submission-package.js';
+import { nextAfterDownload } from './after-download.js';
 import { ENGAGEMENT_STAGES, PROPOSAL_OUTLINE, buildDocumentPlan, buildEngagement, canGenerateProposal, designSnapshotStale, designStatus, makeClient, makeDesignApproval, makeNoticeRequest, normalizeEngagement } from './engagement.js';
 import { EXTERNAL_SOURCE, appendProposalVersion, findVersionById, normalizeProposalVersions, resolveSavedVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, matchSectionsForIssue, proposalTextFromSections, proposalTextFromSnapshot, revisionInstruction, sectionsFromProposalText, verifyLockedValues } from './coaching-handoff.js';
 import { splitApplicantProfile } from './applicants.js';
@@ -129,7 +130,7 @@ const initial = {
   // 서버가 붙여 준 근거 검증·평가자 검토. 화면은 판정하지 않고 그대로 보여 준다.
   serverGuard: null, serverEvidence: null, evaluatorReview: null, proposalVersions: [], proposalFlow: { status: '', baselineVersion: 0, reviewTarget: null, rounds: [], requests: [], requestOpen: false, requestText: '', requestScope: [], openVersion: 0, compareVersion: 0, approvedVersion: 0, approvedAt: '' }, coachingSelection: [], applicantSkipped: false, noticeLogic: null, redesignForContract: false,
   // 「사업계획서 의뢰 건」 한 건의 고객 담당자와 공고 요청서. 기관 영구정보와 섞지 않는다.
-  engagement: { client: makeClient(), request: makeNoticeRequest(), design: makeDesignApproval(), view: 'customer', mode: '표준형' }, proposalTables: [], preciseReview: null, submissionIncluded: [], currentVersionId: '', attachmentLinks: {}, submissionZip: null,
+  engagement: { client: makeClient(), request: makeNoticeRequest(), design: makeDesignApproval(), view: 'customer', mode: '표준형' }, proposalTables: [], preciseReview: null, submissionIncluded: [], currentVersionId: '', attachmentLinks: {}, submissionZip: null, lastDownload: null,
   analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null, timeline: [], calls: {}, stoppedAt: '', failedGroupId: '' }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveTable: { query: '', sortKey: 'collectedAt', sortDir: 'desc', page: 1, pageSize: 0, selected: [], expandedKey: '', applicantPickerKey: '', filters: { collected: '', institution: '', field: '', status: '', applicant: '', deadline: '' } }, archiveNoticeLinks: {}, archiveHiddenNotices: [], archiveOpenProposal: '', sampleStage: '', sampleReturn: '', aiResult: null, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeSources: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
@@ -2995,7 +2996,8 @@ async function downloadCoreProposal(kind) {
   try {
     if (kind === 'pdf') await exportProposalPdf({ ...payload, fileName: `${payload.project.title}.pdf` });
     else await exportDocx(payload.project, payload.sections, { forSubmission: true, tables: payload.tables, pageBreaks: payload.pageBreaks });
-    setAuth({ busy: false, notice: '내려받았습니다.' });
+    // 핵심제안서는 보관하지 않는다. 화면을 옮기면 사라진다는 것을 받은 자리에서 알려 준다.
+    setAuth({ busy: false, notice: '내려받았습니다. 이 결과는 저장되지 않으니 필요한 형식(DOCX·PDF)을 모두 받은 뒤 화면을 옮기세요.' });
   } catch { setAuth({ busy: false, error: '파일을 만들지 못했습니다.' }); }
 }
 
@@ -3052,7 +3054,7 @@ function loadState() {
     const stagedGeneration = saved.stagedGeneration && typeof saved.stagedGeneration === 'object'
       ? { ...structuredClone(initial.stagedGeneration), ...saved.stagedGeneration, parts: Array.isArray(saved.stagedGeneration.parts) ? saved.stagedGeneration.parts : [], completedGroupIds: Array.isArray(saved.stagedGeneration.completedGroupIds) ? saved.stagedGeneration.completedGroupIds : [] }
       : structuredClone(initial.stagedGeneration);
-    const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantDocDraft: '', applicantExtraction: null, coachingSelection: [], attachmentLinks: {}, submissionZip: null };
+    const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantDocDraft: '', applicantExtraction: null, coachingSelection: [], attachmentLinks: {}, submissionZip: null, lastDownload: null };
     // 알 수 없는 포털 값이 남아 있으면 다시 고르게 한다.
     restored.portal = ['admin', 'proposal'].includes(saved.portal) ? saved.portal : '';
     // 예전에 저장한 상태에는 의뢰 건 정보가 없다. 빈 값으로 채우기만 하고 기존 데이터는 건드리지 않는다.
@@ -3092,7 +3094,7 @@ function saveState() {
   const safe = { ...state, reviewDetail: false, reviewPanels: [], reviewFocus: false, companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [],
     archiveNotices: (state.archiveNotices || []).slice(0, CACHED_NOTICES), archiveProposals: (state.archiveProposals || []).slice(0, CACHED_NOTICES), noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', applicantComparison: null, applicantDocDraft: '', applicantExtraction: null, files: state.files.map(({ text, ...meta }) => meta),
     // 첨부 원본은 브라우저 메모리에만 있다. 새로고침 뒤에 파일이 있다고 잘못 말하지 않도록 연결 기록도 저장하지 않는다.
-    attachmentLinks: {}, submissionZip: null };
+    attachmentLinks: {}, submissionZip: null, lastDownload: null };
   // 참고자료처럼 큰 원문이 들어오면 브라우저 저장 한도를 넘을 수 있다. 저장 실패가 화면을 멈추지 않게 한다.
   try { localStorage.setItem('ms12_project_v3', JSON.stringify(safe)); }
   catch { console.warn('브라우저 자동 저장 용량을 초과해 이번 상태는 저장하지 못했습니다.'); }
@@ -3369,6 +3371,7 @@ function stepMenu() {
 function toolMenu() {
   const items = [
     ['open-archive-box', '공고보관함', ''], ['open-proposal-box', '계획서보관함', ''],
+    ['open-verified-box', '계획서 검증보관함', 'verified'],
     ['open-engagement', '의뢰 건', 'engagement'],
     ['open-applicants', '신청기관 정보', 'applicants'],
     ['open-coaching', '계획서 검증·코칭', 'coaching']
@@ -3391,7 +3394,7 @@ function bindTopMenus() {
 function shell(content) {
   // 홈은 작업용 단계 내비게이션 없이 자체 화면으로만 보여 준다.
   // 다만 간편 화면은 홈 자리에 오더라도 머리띠를 그대로 둔다. 보관함·계정·포털 이동이 사라지면 안 된다.
-  if (state.activeTool === 'home' && !showSimpleHome()) return `<div class="layout home-layout"><main class="main">${aiResultBanner()}${state.notice ? `<div class="alert success">${escapeHtml(state.notice)}</div>` : ''}${state.error ? `<div class="alert danger">${escapeHtml(state.error)}</div>` : ''}${content}${state.busy ? `<div class="busy"><div class="loader"></div><strong>${escapeHtml(state.busy)}</strong></div>` : ''}</main></div>`;
+  if (state.activeTool === 'home' && !showSimpleHome()) return `<div class="layout home-layout"><main class="main">${aiResultBanner()}${state.notice ? `<div class="alert success">${escapeHtml(state.notice)}</div>` : ''}${afterDownloadView()}${state.error ? `<div class="alert danger">${escapeHtml(state.error)}</div>` : ''}${content}${state.busy ? `<div class="busy"><div class="loader"></div><strong>${escapeHtml(state.busy)}</strong></div>` : ''}</main></div>`;
   return `
     <div class="layout">
       <main class="main">
@@ -3402,6 +3405,7 @@ function shell(content) {
         ${viewModeBadge()}
         ${aiResultBanner()}
         ${state.notice ? `<div class="alert success">${escapeHtml(state.notice)}</div>` : ''}
+        ${afterDownloadView()}
         ${state.error ? `<div class="alert danger">${escapeHtml(state.error)}</div>` : ''}
         <section class="workspace">${content}</section>
         ${state.busy ? `<div class="busy"><div class="loader"></div><strong>${escapeHtml(state.busy)}</strong><small>창을 닫지 마세요.${busyStartedAt ? `<span data-ai-elapsed data-started-at="${busyStartedAt}" style="display:block">경과시간 00초</span>` : ''}</small></div>` : ''}
@@ -3735,6 +3739,7 @@ function archiveTableRow(row, table) {
 // 9) 계획서 보관함. 공고 목록과 구분해서 보여 주되 저장 데이터는 그대로 쓴다(중복 저장 없음).
 function proposalArchiveStatus(item) {
   const stage = String(item.stage || '');
+  if (isVerifiedStage(stage)) return '검증 완료';
   if (stage === 'final') return '최종본';
   if (stage.startsWith('revision-')) return '수정중';
   if (stage.startsWith('coaching-')) return Number(stage.replace('coaching-v', '')) > 1 ? '재검토' : '검토중';
@@ -3758,6 +3763,31 @@ function proposalArchiveView(proposals) {
         <div class="actions" style="margin:8px 0 0"><span></span><div><button class="button secondary" data-proposal-detail="${escapeHtml(item.id)}">${open === item.id ? '닫기' : '내용 보기'}</button><button class="button primary" data-open-archived-proposal="${escapeHtml(item.id)}">이어서 작업</button></div></div>
         ${open === item.id ? proposalArchiveDetail(item) : ''}</article>`).join('')}</div></details>`;
   }).join('')}</div>`;
+}
+// 10) 계획서 검증보관함. 검증·코칭까지 마친 완성본만 모은다.
+// 계획서보관함은 작업 중인 것까지 다 담지만, 여기에는 검증을 통과한 판만 들어온다.
+function verifiedProposals() {
+  return (state.archiveProposals || []).filter(item => isVerifiedStage(item.stage));
+}
+function verifiedArchiveView() {
+  const items = verifiedProposals();
+  const open = state.archiveOpenProposal || '';
+  const noticeTitleOf = key => (state.archiveNotices || []).find(entry => entry.archiveNoticeKey === key)?.title || '';
+  return `<div class="page-heading"><div><h2>계획서 검증보관함</h2>
+    <p>검증·코칭을 마친 완성본만 담깁니다. 작업 중인 계획서는 「계획서보관함」에 그대로 있습니다.</p></div>
+    <button class="button secondary" id="open-proposal-box-from-verified">계획서보관함 열기</button></div>
+    ${items.length ? '' : `<div class="empty-state"><div>▣</div><h2>아직 담긴 완성본이 없습니다</h2>
+      <p>계획서를 「계획서 검증·코칭」으로 보내 검증을 마치면, 판정이 <b>제출 검토 완료</b>인 판이 이 자리에 자동으로 담깁니다.</p>
+      <button class="button primary" id="open-coaching-from-verified">계획서 검증·코칭으로 가기</button></div>`}
+    ${items.length ? `<div class="card"><h4>검증 완료 완성본 ${items.length}건</h4>
+      <div class="archive-index"><div class="requirement-list">${items.map(item => `<article class="requirement"><div>
+        <span class="status 충족">검증 완료</span>
+        <div><strong>${escapeHtml(item.title)}</strong>
+          <small class="muted">${escapeHtml(archiveStageLabel(item.stage))} · ${escapeHtml(noticeTitleOf(item.noticeKey) || item.noticeKey || '공고 미연결')} · 담은 날 ${escapeHtml(String(item.updatedAt || item.createdAt || '').slice(0, 10))}</small></div></div>
+        <div class="actions" style="margin:8px 0 0"><span></span><div>
+          <button class="button secondary" data-proposal-detail="${escapeHtml(item.id)}">${open === item.id ? '닫기' : '내용 보기'}</button>
+          <button class="button primary" data-open-archived-proposal="${escapeHtml(item.id)}">이 완성본 열기</button></div></div>
+        ${open === item.id ? proposalArchiveDetail(item) : ''}</article>`).join('')}</div></div></div>` : ''}`;
 }
 // 계획서 하나를 열면 공고·신청기관·현재 버전·버전/검토/수정 이력을 한 자리에서 본다.
 function proposalArchiveDetail(item) {
@@ -3883,7 +3913,10 @@ function archiveView() {
 }
 
 
-function archiveStageLabel(stage) { if (String(stage).startsWith('revision-v')) return `코칭 반영 수정본 ${String(stage).replace('revision-', '')}`; return String(stage).startsWith('coaching-v') ? `검증·코칭 ${String(stage).replace('coaching-', '')}` : ({ master: '마스터 설계', parts: '분할 생성', complete: '완성본·검토전', review: '검토본', final: '최종본' })[stage] || stage; }
+// 검증·코칭을 마친 완성본만 따로 담는 단계. 이 표시가 붙은 것만 검증보관함에 들어간다.
+const VERIFIED_STAGE = version => `verified-v${Number(version) || 1}`;
+const isVerifiedStage = stage => String(stage || '').startsWith('verified-v');
+function archiveStageLabel(stage) { if (isVerifiedStage(stage)) return `검증 완료 완성본 ${String(stage).replace('verified-', '').toUpperCase()}`; if (String(stage).startsWith('revision-v')) return `코칭 반영 수정본 ${String(stage).replace('revision-', '')}`; return String(stage).startsWith('coaching-v') ? `검증·코칭 ${String(stage).replace('coaching-', '')}` : ({ master: '마스터 설계', parts: '분할 생성', complete: '완성본·검토전', review: '검토본', final: '최종본' })[stage] || stage; }
 
 // 공고에서 「선정 논리」만 구조화한다. 공고 저장·계획서 기능은 건드리지 않는다.
 function noticeLogicSource() {
@@ -3945,6 +3978,38 @@ function nextStepBar(overview) {
     <div><span class="next-step-tag">다음 단계</span><strong>${escapeHtml(step.label)}</strong>
       <small>${escapeHtml(step.why)}</small></div>
     <button class="button primary" data-next-step="${step.go}" data-next-anchor="${escapeHtml(step.anchor)}">${escapeHtml(step.label)} →</button>
+  </div>`;
+}
+
+// 파일을 받은 다음. 받고 끝나면 여기서 길이 끊긴다. 무엇을 받았는지와 남은 한 걸음을 화면에 남긴다.
+// 만들지 못한 출력에는 부르지 않는다. 실패한 뒤에 다음 단계를 권하지 않는다.
+function noteDownload(copy, format, extraNotice = '') {
+  const summary = currentSubmissionPackage();
+  const zip = state.submissionZip;
+  const missing = (currentFormSpec()?.attachments || [])
+    .filter(item => item.required && !(state.attachmentLinks || {})[item.name] && !zipSkipReason(currentZipPlan(), item.name)).length;
+  const step = nextAfterDownload({
+    copy, format,
+    openMarks: openMarkCount(),
+    blockers: (summary?.blockers || []).length,
+    saved: Boolean(state.archiveProposalId),
+    reviewed: Boolean(state.coaching?.result || state.reviewResult || state.preciseReview?.summary),
+    approved: proposalStatus() === '최종본',
+    attachmentsMissing: missing,
+    zipDone: Boolean(zip), zipStale: submissionZipStale(),
+    deadline: state.selectedNotice?.deadline || ''
+  });
+  setState({ lastDownload: step, busy: '', error: '', notice: `${step.headline}${extraNotice ? ` ${extraNotice}` : ''} 다음: ${step.label}` });
+}
+// 받은 직후에만 뜨는 한 줄. 어느 화면에서 받았든 알림 바로 아래 같은 자리에 나온다.
+function afterDownloadView() {
+  const step = state.lastDownload;
+  if (!step) return '';
+  return `<div class="next-step" id="after-download">
+    <div><span class="next-step-tag">${step.done ? '남은 일' : '다음 단계'}</span><strong>${escapeHtml(step.headline)} ${escapeHtml(step.label)}</strong>
+      <small>${escapeHtml(step.why)}</small></div>
+    ${step.done ? '' : `<button class="button primary" data-next-step="${step.go}" data-next-anchor="${escapeHtml(step.anchor)}">${escapeHtml(step.label)} →</button>`}
+    <button class="button secondary" id="dismiss-download-step">닫기</button>
   </div>`;
 }
 
@@ -4235,6 +4300,15 @@ function guard(reason = '', goto = '') {
   return `data-blocked="${escapeHtml(reason)}"${goto ? ` data-goto="${escapeHtml(goto)}"` : ''}`;
 }
 
+// 적은 순서대로 찾아 첫 번째 자리로 데려간다.
+// querySelector에 선택자를 쉼표로 늘어놓으면 「적은 순서」가 아니라 「문서 순서」로 잡혀 엉뚱한 카드에서 멈춘다.
+function scrollToFirst(...selectors) {
+  for (const selector of selectors) {
+    const found = document.querySelector(selector);
+    if (found) return found.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
 // 안내를 띄우고, 갈 곳이 있으면 그리로 옮긴다.
 function explainBlocked(reason, goto = '') {
   const targets = {
@@ -4244,7 +4318,10 @@ function explainBlocked(reason, goto = '') {
     blueprint: () => { setState({ activeTool: '', step: 3, notice: reason, error: '' }); },
     write: () => { setState({ activeTool: '', step: 4, notice: reason, error: '' }); },
     account: () => { setState({ activeTool: 'account', notice: reason, error: '' }); },
-    membership: () => { setState({ activeTool: 'account', notice: reason, error: '' }); document.querySelector('#membership-guide')?.scrollIntoView({ behavior: 'smooth' }); }
+    // 이용현황은 내 정보 화면 안에 있다. 예전 앵커(#membership-guide)는 로그아웃 소개 화면에만 있어 아무 데도 가지 않았다.
+    membership: () => { setState({ activeTool: 'account', notice: reason, error: '' }); scrollToFirst('#membership-status', '#membership-guide'); },
+    // 저장된 버전 때문에 막힌 것은 지금 이 화면에서 푼다. 다른 화면으로 데려가지 않는다.
+    version: () => { setState({ notice: reason, error: '' }); scrollToFirst('#version-picker', '#submission-package'); }
   };
   const move = targets[goto];
   if (move) return move();
@@ -4414,7 +4491,7 @@ function exportFinalPackage(kind) {
       project: state.project, sections: version.sections, tables: version.tables || [],
       fileName: submissionFileName(state.project, { applicantName, version: version.version, kind: 'pdf' })
     });
-  run.catch(showError);
+  run.then(() => noteDownload('제출본', kind === 'docx' ? 'DOCX' : 'PDF')).catch(showError);
 }
 function toggleAttachment(name) {
   const included = new Set(state.submissionIncluded || []);
@@ -4511,7 +4588,7 @@ function versionPickerView() {
   const versions = state.proposalVersions || [];
   if (!versions.length) return '<div class="alert warning"><strong>저장된 버전이 없습니다</strong><p>저장되지 않은 계획서는 출력하지 않습니다.</p></div>';
   const { version, reason } = selectedSavedVersion();
-  return `<details open><summary>저장된 버전 ${versions.length}개 · 현재 <b>${version ? `V${version.version} ${escapeHtml(version.label)}` : '선택 안 됨'}</b></summary>
+  return `<details open id="version-picker" tabindex="-1"><summary>저장된 버전 ${versions.length}개 · 현재 <b>${version ? `V${version.version} ${escapeHtml(version.label)}` : '선택 안 됨'}</b></summary>
     ${reason ? `<div class="alert danger"><strong>출력 차단</strong><p>${escapeHtml(reason)}</p></div>` : ''}
     ${unsavedChanges() ? '<div class="alert warning"><strong>화면 내용이 저장된 버전과 다릅니다</strong><p>저장된 내용만 출력합니다. 버전을 다시 열거나 수정본을 저장하세요.</p></div>' : ''}
     <div class="requirement-list">${versions.map(item => `<article class="requirement"><div><span class="status ${item.versionId === state.currentVersionId ? '충족' : '확인-필요'}">V${item.version}</span><div><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(String(item.savedAt).slice(0, 16).replace('T', ' '))} · 본문 ${(item.sections || []).length}개 · 표 ${(item.tables || []).length}개${item.reason ? ` · ${escapeHtml(item.reason)}` : ''}</small>${item.context?.preciseReview ? `<small class="muted">정밀검증 ${item.context.preciseReview.round}차 · 제출 불가 ${item.context.preciseReview.summary?.blocking ?? 0}건 · 판정 ${escapeHtml(item.context.gateStatus || '-')}</small>` : ''}</div></div>
@@ -4558,8 +4635,8 @@ function submissionPackageView() {
     ${summary.checklist.length ? `<details><summary>제출 전 확인 목록 ${summary.checklist.length}건</summary><div class="requirement-list">${summary.checklist.map(item => `<article class="requirement"><div><span class="status 확인-필요">${escapeHtml(item.status)}</span><div><strong>${escapeHtml(item.area)}</strong><small>${escapeHtml(item.item)}</small></div></div></article>`).join('')}</div></details>` : ''}
     ${versionPickerView()}
     <div class="actions"><span class="muted">${escapeHtml(summary.canExport ? (exportBlock || '제출본을 출력할 수 있습니다.') : '위 사유를 해결해야 출력할 수 있습니다.')}</span><div>
-      <button class="button secondary" id="package-pdf" ${guard(exportBlock || (summary.canExport ? '' : '아직 내려받을 내용이 없습니다. 계획서를 먼저 작성해 주세요.'), exportBlock ? 'membership' : 'write')}>최종 PDF 내려받기</button>
-      <button class="button primary" id="package-docx" ${guard(exportBlock || (summary.canExport ? '' : '아직 내려받을 내용이 없습니다. 계획서를 먼저 작성해 주세요.'), exportBlock ? 'membership' : 'write')}>최종 DOCX 내려받기</button></div></div></div>`;
+      <button class="button secondary" id="package-pdf" ${guard(exportBlock || (summary.canExport ? '' : '아직 내려받을 내용이 없습니다. 계획서를 먼저 작성해 주세요.'), exportBlock ? 'version' : 'write')}>최종 PDF 내려받기</button>
+      <button class="button primary" id="package-docx" ${guard(exportBlock || (summary.canExport ? '' : '아직 내려받을 내용이 없습니다. 계획서를 먼저 작성해 주세요.'), exportBlock ? 'version' : 'write')}>최종 DOCX 내려받기</button></div></div></div>`;
 }
 
 // 정밀 검증 — 정밀형에서만 보이고, 운영자가 버튼으로 실행한다. 검증만으로 본문은 바뀌지 않는다.
@@ -5136,12 +5213,14 @@ function attachmentView() {
   if (!attachments.length) return '';
   return `<div class="card"><div class="card-title"><div><h3>공식 첨부파일</h3><span>${state.selectedNotice.officialTextExtracted ? '공고문 텍스트 반영 완료' : '안내 페이지 내용만 반영됨'}</span></div></div><div class="requirement-list">${attachments.map((file, index) => {
     const type = attachmentType(file.name, file.fileType);
-    const supported = ['PDF', 'DOCX', 'TXT'].includes(type);
-    const hwp = ['HWP', 'HWPX'].includes(type);
-    return `<article class="requirement"><div><span class="tag">${escapeHtml(type)}</span><strong>${escapeHtml(file.name)}</strong>${hwp ? '<small>공식 한글 양식 파일 · 한글 프로그램에서 PDF로 저장한 뒤 다시 업로드하면 공고문 내용을 분석할 수 있습니다.</small>' : type === 'ZIP' ? '<small>ZIP 내부 자동 해제는 지원하지 않습니다.</small>' : type === 'UNSUPPORTED' ? '<small>지원하지 않는 파일 형식입니다.</small>' : ''}</div><span><button class="button secondary" data-download-attachment="${index}">원본 다운로드</button>${supported ? `<button class="button primary" data-extract-attachment="${index}">내용 추출</button>` : ''}</span></article>`;
+    // 한글 파일도 읽는다. 예전에는 PDF로 바꿔 다시 올리라고 했지만 지금은 앱이 직접 연다.
+    const supported = EXTRACTABLE_ATTACHMENTS.includes(type);
+    return `<article class="requirement"><div><span class="tag">${escapeHtml(type)}</span><strong>${escapeHtml(file.name)}</strong>${type === 'ZIP' ? '<small>ZIP 내부 자동 해제는 지원하지 않습니다. 내려받아 푼 뒤 개별 파일을 올려 주세요.</small>' : type === 'UNSUPPORTED' ? '<small>지원하지 않는 파일 형식입니다.</small>' : '<small class="muted">공고문·신청서식을 이 자리에서 바로 읽어 분석에 넣습니다.</small>'}</div><span><button class="button secondary" data-download-attachment="${index}">원본 다운로드</button>${supported ? `<button class="button primary" data-extract-attachment="${index}">내용 추출</button>` : ''}</span></article>`;
   }).join('')}</div></div>`;
 }
 
+// 앱이 직접 읽을 수 있는 첨부 형식. files.js의 SUPPORTED와 같은 목록을 화면 표기로 옮긴 것이다.
+export const EXTRACTABLE_ATTACHMENTS = Object.freeze(['PDF', 'DOCX', 'TXT', 'HWPX', 'HWP']);
 export function attachmentType(name, provided = '') {
   if (['PDF', 'DOCX', 'TXT', 'HWP', 'HWPX', 'ZIP', 'UNSUPPORTED'].includes(provided)) return provided;
   const extension = String(name || '').split('.').pop()?.toLowerCase();
@@ -5515,7 +5594,7 @@ function documentView() {
     ${completionMode ? finalSubmissionView() : ''}
     ${completionMode ? proposalReviewView() : ''}
     ${revisionPlanView()}
-    <div class="editor-layout"><aside class="outline">${state.sections.map((s, i) => `<a href="#section-${i}"><span>${i + 1}</span>${escapeHtml(s.title.replace(/^\d+[.)]?\s*/, ''))}</a>`).join('')}</aside><div class="paper">${state.sections.map((s, i) => `<section id="section-${i}" class="doc-section"><div class="section-head"><input data-section-title="${i}" value="${escapeHtml(s.title)}"><span class="status ${s.status?.replace(' ', '-')}">${escapeHtml(s.status || '검토 필요')}</span></div><textarea data-section-content="${i}">${escapeHtml(s.content)}</textarea><div class="section-meta"><span>근거 ${s.citations?.length || 0}개</span><span><button data-confirm-fact="${i}">회사 정보로 확정 저장</button><button data-rewrite="${i}">이 항목 재작성</button></span></div>${sectionCoachingView(s)}${s.citations?.length ? `<details><summary>반영한 원문 근거</summary>${s.citations.map(id => { const r = (state.analysis?.requirements || []).find(v => v.id === id); return r ? `<blockquote>${escapeHtml(r.evidence)} <small>${escapeHtml(r.location)}</small></blockquote>` : ''; }).join('')}</details>` : ''}</section>`).join('')}</div></div>`;
+    <div class="editor-layout" id="proposal-body" tabindex="-1"><aside class="outline">${state.sections.map((s, i) => `<a href="#section-${i}"><span>${i + 1}</span>${escapeHtml(s.title.replace(/^\d+[.)]?\s*/, ''))}</a>`).join('')}</aside><div class="paper">${state.sections.map((s, i) => `<section id="section-${i}" class="doc-section"><div class="section-head"><input data-section-title="${i}" value="${escapeHtml(s.title)}"><span class="status ${s.status?.replace(' ', '-')}">${escapeHtml(s.status || '검토 필요')}</span></div><textarea data-section-content="${i}">${escapeHtml(s.content)}</textarea><div class="section-meta"><span>근거 ${s.citations?.length || 0}개</span><span><button data-confirm-fact="${i}">회사 정보로 확정 저장</button><button data-rewrite="${i}">이 항목 재작성</button></span></div>${sectionCoachingView(s)}${s.citations?.length ? `<details><summary>반영한 원문 근거</summary>${s.citations.map(id => { const r = (state.analysis?.requirements || []).find(v => v.id === id); return r ? `<blockquote>${escapeHtml(r.evidence)} <small>${escapeHtml(r.location)}</small></blockquote>` : ''; }).join('')}</details>` : ''}</section>`).join('')}</div></div>`;
 }
 
 // 검증·코칭에서 전달받은 수정 요청. 실제 재작성은 「계획서 쓰기」에서 한다.
@@ -5720,7 +5799,8 @@ function markProposalAssembled() {
   void archiveCurrentProposal('complete').catch(() => {});
 }
 function proposalStatusTone(status) {
-  return status === '최종본' ? '충족' : status === '완성본·검토전' ? '부분-충족' : status === '검토중' || status === '재검토' ? '확인-필요' : '확인-필요';
+  if (status === '최종본' || status === '검증 완료') return '충족';
+  return status === '완성본·검토전' ? '부분-충족' : '확인-필요';
 }
 // 1) 완성본 화면: 보기·출력과 다음 갈래(수정 요청 / 검토 제출)를 한 곳에 모은다.
 function completionPanelView() {
@@ -6131,7 +6211,7 @@ function render() {
   if (state.activeTool === 'operator' && !isOperator()) state.activeTool = 'home';
   if (state.activeTool === 'premium' && !isPremium()) state.activeTool = 'home';
   if (state.activeTool === 'diagnosis' && !auth.membership?.canDiagnosis) state.activeTool = 'home';
-  const tools = { home: homeView, coaching: coachingView, applicants: applicantsToolView, sample: sampleView, engagement: engagementView, account: accountView, admin: adminView, operator: operatorView, premium: premiumView, diagnosis: diagnosisView };
+  const tools = { home: homeView, coaching: coachingView, applicants: applicantsToolView, sample: sampleView, engagement: engagementView, account: accountView, admin: adminView, operator: operatorView, premium: premiumView, diagnosis: diagnosisView, verified: verifiedArchiveView };
   app.innerHTML = shell((tools[state.activeTool] || views[state.step] || views[0])()); bind(); startBusyElapsedTimer(); fitAutoGrow(); runPendingAiMove();
 }
 // 소개 화면에는 폼이 없다. 로그인 화면으로 넘기는 버튼과 구역 이동만 연결하고 서버는 부르지 않는다.
@@ -6735,11 +6815,13 @@ function bind() {
   });
   void loadNoticeOrgs();
   document.querySelectorAll('[data-step]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(Number(el.dataset.step), { notice: '', error: '' }); });
+  document.querySelector('#dismiss-download-step')?.addEventListener('click', () => setState({ lastDownload: null, notice: '' }));
   // 분석 다음 걸음. 분석에서 멈추지 않고 그다음 자리로 데려간다.
   document.querySelectorAll('[data-next-step]').forEach(el => el.onclick = () => {
     state.activeTool = 'workflow';
     const anchor = el.dataset.nextAnchor || '';
-    navigateToStep(Number(el.dataset.nextStep), { notice: '', error: '' });
+    // 데려다준 뒤에는 「다음 단계」 줄을 지운다. 이미 그 자리에 와 있는데 또 권하지 않는다.
+    navigateToStep(Number(el.dataset.nextStep), { notice: '', error: '', lastDownload: null });
     // 그 단계의 맨 위가 아니라 실제로 할 일이 있는 자리로 데려간다.
     if (anchor) setTimeout(() => document.querySelector(anchor)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 90);
   });
@@ -6861,6 +6943,15 @@ function bind() {
   document.querySelectorAll('[data-social]').forEach(el => el.addEventListener('click', () => void beginSocial(el.dataset.social, el.dataset.socialMode)));
   document.querySelector('#open-archive-box')?.addEventListener('click', () => openArchiveBox('notices'));
   document.querySelector('#open-proposal-box')?.addEventListener('click', () => openArchiveBox('proposals'));
+  // 검증보관함. 목록 자료는 계획서보관함과 같은 것을 쓰고, 검증을 마친 것만 걸러 보여 준다.
+  for (const id of ['#open-verified-box', '#open-verified-home']) {
+    document.querySelector(id)?.addEventListener('click', () => {
+      setState({ activeTool: 'verified', archiveOpenProposal: '', notice: '', error: '' });
+      void loadRecentArchive();
+    });
+  }
+  document.querySelector('#open-proposal-box-from-verified')?.addEventListener('click', () => openArchiveBox('proposals'));
+  document.querySelector('#open-coaching-from-verified')?.addEventListener('click', () => setState({ activeTool: 'coaching', notice: '', error: '' }));
   document.querySelector('#open-coaching-home')?.addEventListener('click', () => setState({ activeTool: 'coaching', notice: '', error: '' }));
   document.querySelector('#open-coaching')?.addEventListener('click', () => setState({ activeTool: 'coaching', notice: '', error: '' }));
   document.querySelector('#close-coaching')?.addEventListener('click', () => setState({ activeTool: 'workflow', notice: '', error: '' }));
@@ -6981,13 +7072,19 @@ function bind() {
   document.querySelector('#archive-delete-selected')?.addEventListener('click', () => hideArchivedNotices(archiveTableState().selected || []));
   document.querySelector('#archive-restore-hidden')?.addEventListener('click', () => setState({ archiveHiddenNotices: [], notice: '숨긴 공고를 다시 목록에 표시했습니다.' }));
   // 환류 작업흐름: 완성본 → 수정 요청 → 검토 제출 → 버전 이력 → 최종 승인.
-  document.querySelector('#open-full-proposal')?.addEventListener('click', () => document.querySelector('#final-submission, #result-pipeline')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-  document.querySelector('#final-docx-top')?.addEventListener('click', () => { if (!refusePartial()) exportDocx(state.project, reviewSections()); });
+  // 「전체 계획서 보기」는 본문으로 데려간다. 예전에는 문서 순서상 먼저 나오는 진행 상태 카드에서 멈췄다.
+  document.querySelector('#open-full-proposal')?.addEventListener('click', () => scrollToFirst('#proposal-body', '#final-submission', '#result-pipeline'));
+  document.querySelector('#final-docx-top')?.addEventListener('click', () => {
+    if (refusePartial()) return;
+    // 표를 빼고 주지 않는다. 바로 옆 PDF와 같은 내용이어야 한다.
+    const out = reviewOutput();
+    exportDocx(state.project, out.sections, { tables: out.tables, pageBreaks: out.pageBreaks }).then(() => noteDownload('검토본', 'DOCX')).catch(showError);
+  });
   document.querySelector('#final-hwpx-top')?.addEventListener('click', () => { if (!refusePartial()) downloadProposalHwpx(); });
   document.querySelector('#final-form-docx')?.addEventListener('click', () => { if (!refusePartial()) void downloadFormFilled(); });
   document.querySelector('#preview-form-docx')?.addEventListener('click', () => void downloadFormFilled());
   // 제출 판정에 막혀도 지금까지 쓴 내용은 검토본으로 받는다.
-  document.querySelector('#package-review-docx')?.addEventListener('click', () => exportDocx(state.project, state.sections, { tables: state.proposalTables || [] }).catch(showError));
+  document.querySelector('#package-review-docx')?.addEventListener('click', () => exportDocx(state.project, state.sections, { tables: state.proposalTables || [] }).then(() => noteDownload('검토본', 'DOCX')).catch(showError));
   document.querySelector('#package-review-pdf')?.addEventListener('click', () => void downloadProposalPdf());
   document.querySelector('#package-fill-open')?.addEventListener('click', () => setState({ expertDetail: true, activeTool: '', step: 4, notice: '확인 필요 표시가 남은 항목입니다. 값을 채우면 제출본이 열립니다.' }));
   document.querySelector('#final-pdf-top')?.addEventListener('click', () => { if (!refusePartial()) downloadProposalPdf(); });
@@ -7106,7 +7203,7 @@ function bind() {
   document.querySelectorAll('[data-confirm-fact]').forEach(el => el.onclick = () => confirmCompanyFact(Number(el.dataset.confirmFact)));
   document.querySelector('#confirm-company-fact')?.addEventListener('click', confirmCompanyFactDraft);
   document.querySelector('#save-proposal-archive')?.addEventListener('click', () => { if (!refusePartial()) archiveCurrentProposal(undefined, true).catch(showError); });
-  document.querySelector('#docx')?.addEventListener('click', () => exportDocx(state.project, state.sections).catch(showError));
+  document.querySelector('#docx')?.addEventListener('click', () => exportDocx(state.project, state.sections).then(() => noteDownload('검토본', 'DOCX')).catch(showError));
   document.querySelector('#pdf')?.addEventListener('click', () => downloadProposalPdf());
   // 제출서류에서 내려받는 최종본은 판정을 통과했을 때만 나간다. 출력 방식은 기존과 같다.
   document.querySelector('#package-docx')?.addEventListener('click', () => { if (!refusePartial()) exportFinalPackage('docx'); });
@@ -7118,7 +7215,7 @@ function bind() {
   document.querySelector('#package-zip')?.addEventListener('click', () => exportSubmissionZip());
   document.querySelector('#print')?.addEventListener('click', printDocument);
   // 최종 제출본 카드의 출력 버튼. 상단 도구모음과 같은 현재 본문을 출력한다.
-  document.querySelector('#final-docx')?.addEventListener('click', () => exportDocx(state.project, state.sections).catch(showError));
+  document.querySelector('#final-docx')?.addEventListener('click', () => exportDocx(state.project, state.sections).then(() => noteDownload('검토본', 'DOCX')).catch(showError));
   document.querySelector('#final-pdf')?.addEventListener('click', () => downloadProposalPdf());
   document.querySelector('#final-print')?.addEventListener('click', printDocument);
   document.querySelector('#proposal-review')?.addEventListener('click', () => runProposalReview(Boolean(state.reviewResult)));
@@ -7687,6 +7784,21 @@ async function pollProposalCoaching() {
   } finally { coachingPollActive = false; }
 }
 
+// 검증을 마친 완성본을 검증보관함에 담는다. 판정이 「제출 검토 완료」일 때만 담고,
+// 화면에 계획서 본문이 없는 외부 계획서 코칭은 담을 것이 없으므로 건너뛴다.
+// 담더라도 계획서보관함의 원본은 그대로 둔다. 옮기는 것이 아니라 검증을 마친 판을 따로 남기는 것이다.
+async function depositVerifiedProposal(version, verdict) {
+  if (verdict?.verdict !== '제출 검토 완료') return '';
+  if (!state.sections.length) return '';
+  try {
+    await archiveCurrentProposal(VERIFIED_STAGE(version));
+    await loadRecentArchive();
+    return ` 검증을 통과해 완성본을 계획서 검증보관함에 담았습니다.`;
+  } catch {
+    return ' 검증은 통과했지만 검증보관함에 담지 못했습니다. 보관함 저장을 다시 시도해 주세요.';
+  }
+}
+
 async function completeProposalCoaching(result) {
   try {
     const version = Number(state.coaching.version || 0) + 1;
@@ -7700,7 +7812,9 @@ async function completeProposalCoaching(result) {
     await saveArchivedProposal({ id, noticeKey: state.coaching.sourceNoticeKey, title: `${state.coaching.title || '외부 계획서'} · 코칭 v${version}`, stage: `coaching-v${version}`, snapshot: { coaching: structuredClone(state.coaching), parentProposalId: state.coaching.sourceProposalId || '', coachingSeriesId: seriesId } });
     // 검토 회차를 환류 이력에 기록한다. 검증 결과 구조는 그대로 둔다.
     recordReviewRound({ ...result, comparison: rounds ? { resolvedIssues: rounds.resolved } : null });
-    setState({ busy: '', coaching: state.coaching, coachingSelection: [], reviewDetail: false, reviewPanels: [], reviewFocus: false, notice: `검증·코칭 v${version} 결과를 계획서보관함에 저장했습니다.${rounds ? ` 해결 ${rounds.resolved.length}건 · 남은 문제 ${rounds.remaining.length}건 · 새 문제 ${rounds.added.length}건` : ''}` });
+    // 검증을 통과한 판은 완성본으로 검증보관함에 담는다. 통과하지 못한 판은 담지 않는다.
+    const verified = await depositVerifiedProposal(version, coachingVerdict(result, state.coaching.workItems || []));
+    setState({ busy: '', coaching: state.coaching, coachingSelection: [], reviewDetail: false, reviewPanels: [], reviewFocus: false, notice: `검증·코칭 v${version} 결과를 계획서보관함에 저장했습니다.${rounds ? ` 해결 ${rounds.resolved.length}건 · 남은 문제 ${rounds.remaining.length}건 · 새 문제 ${rounds.added.length}건` : ''}${verified}` });
   } catch (error) {
     state.coaching.pendingJob = null;
     setState({ busy: '', coaching: state.coaching, error: error.message });
@@ -8238,7 +8352,9 @@ function openArchiveMenu(key, x, y) {
   menu.id = 'archive-context-menu';
   menu.className = 'archive-menu';
   menu.innerHTML = `<p class="archive-menu-title">${escapeHtml(row.title.slice(0, 40))}</p>
-    <a class="archive-menu-item" href="${escapeHtml(row.sourceUrl)}" target="_blank" rel="noopener noreferrer">원문 바로가기 ↗</a>
+    ${row.sourceUrl
+      ? `<a class="archive-menu-item" href="${escapeHtml(row.sourceUrl)}" target="_blank" rel="noopener noreferrer">원문 바로가기 ↗</a>`
+      : '<span class="archive-menu-item muted">원문 주소를 수집하지 못했습니다</span>'}
     <hr>
     ${ARCHIVE_WORK_STEPS.map((item, index) => {
       const done = progress >= 0 && item.step < progress;
@@ -8475,14 +8591,15 @@ async function handleOfficialAttachment(value, extract) {
   const attachment = state.selectedNotice?.attachments?.[Number(value)];
   if (!attachment) return setState({ error: '선택한 첨부파일을 찾지 못했습니다.' });
   const type = attachmentType(attachment.name, attachment.fileType);
-  if (extract && !['PDF', 'DOCX', 'TXT'].includes(type)) return setState({ error: `${type} 파일은 내용을 추출할 수 없습니다. 원본을 내려받아 확인해 주세요.` });
+  if (extract && !EXTRACTABLE_ATTACHMENTS.includes(type)) return setState({ error: `${type} 파일은 내용을 추출할 수 없습니다. 원본을 내려받아 확인해 주세요.` });
   setState({ busy: extract ? '공식 공고문 내용을 추출하는 중...' : '공식 첨부파일을 내려받는 중...', error: '', notice: '' });
   try {
     const response = await fetch('/api/notices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'downloadAttachment', attachment }) });
     if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(data.error || '첨부파일 다운로드 실패'); }
     const blob = await response.blob();
     if (!extract) { downloadOriginal(blob, attachment.name); return setState({ busy: '', notice: `${attachment.name} 원본을 내려받았습니다.` }); }
-    const key = `${attachment.dstbBsnsCode}:${attachment.fileSeCode}:${attachment.sn}:${attachment.fileSn}`;
+    // 같은 첨부를 두 번 넣지 않기 위한 표시. 주소로 받은 첨부는 주소가 곧 그 표시다.
+    const key = attachment.url || `${attachment.dstbBsnsCode}:${attachment.fileSeCode}:${attachment.sn}:${attachment.fileSn}`;
     if (state.selectedNotice.extractedAttachmentKeys.includes(key)) return setState({ busy: '', notice: '이미 반영한 공식 첨부파일입니다.' });
     const parsed = await extractFile(new File([blob], attachment.name, { type: blob.type }));
     const relevantText = relevantAttachmentText(parsed.text, state.selectedNotice.selectedSubproject);
@@ -8557,7 +8674,7 @@ async function downloadFormFilled() {
   setState({ busy: '올린 서식에 맞춰 배치하는 중...', error: '', notice: '' });
   try {
     await exportDocx(state.project, laid.sections, { tables: laid.tables, suffix: '서식대로' });
-    setState({ busy: '', notice: `올린 서식대로 받았습니다. ${fillSummary(laid)}` });
+    noteDownload('검토본', '서식대로 DOCX', fillSummary(laid));
   } catch (error) {
     setState({ busy: '', error: `서식대로 만들지 못했습니다. ${String(error?.message || '').slice(0, 60)}` });
   }
@@ -8570,7 +8687,7 @@ function downloadProposalHwpx() {
   try {
     const blob = buildHwpxBlob({ project: state.project, sections: reviewSections(), tables: state.proposalTables || [] });
     downloadBlob(blob, `${String(state.project.title || '사업계획서').replace(/[\/:*?"<>|]/g, ' ').trim().slice(0, 80)}_검토용.hwpx`);
-    setState({ notice: '한글 파일(HWPX)을 내려받았습니다. 한글 2014 이상에서 열립니다. 표 서식이 그대로 필요하면 DOCX를 쓰세요.', error: '' });
+    noteDownload('검토본', 'HWPX', '한글 2014 이상에서 열립니다. 표 서식이 그대로 필요하면 DOCX를 쓰세요.');
   } catch (error) {
     setState({ error: `한글 파일을 만들지 못했습니다. ${String(error?.message || '').slice(0, 60)}` });
   }
@@ -8581,11 +8698,10 @@ async function downloadProposalPdf() {
   setState({ busy: 'PDF를 만드는 중...', error: '', notice: '' });
   try {
     await exportProposalPdf({
-      project: state.project, sections: reviewSections(),
-      tables: state.proposalTables || [], pageBreaks: state.stagedGeneration?.pageBreaks || [],
+      project: state.project, ...reviewOutput(),
       fileName: `${state.project.title || '사업계획서'}_검토용.pdf`
     });
-    setState({ busy: '', notice: 'PDF를 내려받았습니다.' });
+    noteDownload('검토본', 'PDF');
   } catch (error) {
     setState({ busy: '', error: String(error?.message || 'PDF를 만들지 못했습니다.') });
   }
@@ -9214,6 +9330,18 @@ function currentGapReport() {
 function reviewSections() {
   const cover = gapCoverSection(currentGapReport());
   return cover ? [{ ...cover, status: '내부 안내' }, ...state.sections] : state.sections;
+}
+
+// 검토본에 들어가는 것. DOCX·PDF가 같은 내용을 주도록 한 곳에서만 정한다.
+// 앞에 보완 안내 한 장이 붙으면 항목 번호가 하나씩 밀리므로 쪽 나눔 자리도 같이 민다.
+function reviewOutput() {
+  const sections = reviewSections();
+  const shift = sections.length - state.sections.length;
+  return {
+    sections,
+    tables: state.proposalTables || [],
+    pageBreaks: (state.stagedGeneration?.pageBreaks || []).map(index => index + shift)
+  };
 }
 
 // 부분 결과로 저장·출력을 막는 사유. 화면과 처리기가 같은 판단을 쓴다.

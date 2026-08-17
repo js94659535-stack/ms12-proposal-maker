@@ -215,7 +215,11 @@ test('승인 흐름과 차단이 화면에 연결된다', () => {
 });
 
 test('의뢰 건 화면은 기존 화면을 대체하지 않고 덧붙는다', () => {
-  assert.match(app, /tools = \{ home: homeView, coaching: coachingView, applicants: applicantsToolView, sample: sampleView, engagement: engagementView, account: accountView, admin: adminView, operator: operatorView, premium: premiumView, diagnosis: diagnosisView \}/);
+  // 화면은 덧붙기만 한다. 기존 화면이 목록에서 빠지지 않았는지 하나씩 본다.
+  const tools = app.slice(app.indexOf('const tools = {'), app.indexOf('};', app.indexOf('const tools = {')));
+  for (const entry of ['home: homeView', 'coaching: coachingView', 'applicants: applicantsToolView', 'sample: sampleView', 'engagement: engagementView', 'account: accountView', 'admin: adminView', 'operator: operatorView', 'premium: premiumView', 'diagnosis: diagnosisView']) {
+    assert.ok(tools.includes(entry), `화면 목록에서 빠졌다: ${entry}`);
+  }
   assert.ok(app.includes("['open-engagement', '의뢰 건'"), '작업 메뉴에 의뢰 건 항목이 있다');
   assert.ok(app.includes("querySelector('#open-engagement')"), '의뢰 건 처리기가 그대로 있다');
   assert.match(app, /function engagementView\(\)/);

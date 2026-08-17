@@ -196,7 +196,7 @@ test('제출 ZIP에 AI 호출이 없고 첨부 원본을 브라우저 저장소�
   assert.doesNotMatch(engine, /fetch\(|WithAI\(|localStorage/);
   // 앱은 실제 파일을 메모리에만 두고 저장하지 않는다.
   assert.match(app, /const attachmentFiles = new Map\(\);/);
-  assert.match(app, /attachmentLinks: \{\}, submissionZip: null \};/);
+  assert.match(app, /attachmentLinks: \{\}, submissionZip: null[,}]/);
   assert.doesNotMatch(app, /attachmentLinks.*base64|toBase64\(file/);
   // ZIP은 고른 저장 버전으로만 만들고, 저장 안 된 화면 내용은 막는다.
   const zipFn = app.slice(app.indexOf('async function exportSubmissionZip()'), app.indexOf('const PACKAGE_TONE'));

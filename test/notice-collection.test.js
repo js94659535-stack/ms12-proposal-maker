@@ -216,6 +216,10 @@ test('공식 허용 도메인 밖으로는 요청하지 않는다', async () => 
   const collect = fs.readFileSync(new URL('../functions/api/notices.js', import.meta.url), 'utf8');
   const hosts = [...collect.matchAll(/https:\/\/([a-z0-9.-]+)/g)].map(match => match[1]);
   for (const host of new Set(hosts)) assert.ok(/(^|\.)chest\.or\.kr$/.test(host), `허용 도메인 밖: ${host}`);
+  // 다른 출처의 첨부(공고문·신청서식)는 주소로 받아 오되, 수집 허용 목록을 통과한 주소만 연다.
+  // 주소를 이 파일에 적어 두지 않고 allowedOrigin이 판단한다.
+  assert.match(collect, /import \{ allowedOrigin \} from '\.\.\/\.\.\/server\/notice-sources\.js'/);
+  assert.match(collect, /if \(!\/\^https:\\\/\\\/\/i\.test\(url\) \|\| !allowedOrigin\(url\)\) return json\(/);
 });
 
 test('마이그레이션은 표를 만들기만 하고 기존 자료를 건드리지 않는다', () => {

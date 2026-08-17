@@ -82,13 +82,22 @@ export function noticeStatus(notice, link = {}, today = '') {
   return notice?.linkedProposalCount ? '작성중' : '신규';
 }
 
+// 원문 바로가기 주소. 수집할 때 실제로 열어 본 주소가 있으면 그것이 정답이다.
+// 이것을 버리고 주소를 지어내면 부스러기사랑나눔회 공고를 눌러도 사랑의열매 게시판이 열린다.
+// 사랑의열매 게시판 주소는 사랑의열매 공고에만 쓴다. 다른 출처에 붙이면 엉뚱한 기관으로 데려간다.
+const CHEST_SOURCES = ['central', 'gwangju', 'chest', 'sample'];
 export function noticeSourceUrl(notice) {
   const reference = notice?.references?.[0] || {};
   const source = String(notice?.source || reference.source || '');
   const code = String(notice?.dstbBsnsCode || '').trim();
   if (code) return `https://proposal.chest.or.kr/mobile/mobileMainBsnsDetail.do?dstbBsnsCode=${encodeURIComponent(code)}&appnDocNo=`;
-  const origin = source === 'gwangju' ? 'https://gwangju.chest.or.kr' : 'https://chest.or.kr';
-  return `${origin}/bbs/1000/initPostList.do`;
+  const stored = String(notice?.sourceUrl || '').trim();
+  if (/^https?:\/\//i.test(stored)) return stored;
+  if (!source || CHEST_SOURCES.includes(source)) {
+    return `${source === 'gwangju' ? 'https://gwangju.chest.or.kr' : 'https://chest.or.kr'}/bbs/1000/initPostList.do`;
+  }
+  // 주소를 모르면 없는 대로 둔다. 아무 기관 게시판이나 열어 주지 않는다.
+  return '';
 }
 
 export function applicantLabel(ids = [], applicants = []) {
