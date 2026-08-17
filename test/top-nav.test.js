@@ -66,7 +66,8 @@ test('드롭다운은 서로 닫히고 바깥 클릭·ESC로 닫히며 키보드
   assert.match(app, /bindTopMenus\(\);/);
   // 바깥 클릭과 ESC로 닫는다.
   assert.match(app, /const inside = event\.target\.closest\('details\.topmenu'\);\s*\n\s*closeTopMenus\(inside\);/);
-  assert.match(app, /if \(event\.key === 'Escape'\) \{ closeArchiveMenu\(\); closeTopMenus\(\); \}/);
+  // ESC는 열려 있는 것을 모두 닫는다. 옆에서 나온 패널도 함께 닫힌다.
+  assert.match(app, /if \(event\.key === 'Escape'\) \{ closeArchiveMenu\(\); closeTopMenus\(\); if \(state\.sheet\) closeSheet\(\); \}/);
   // 키보드 초점이 보이게 한다.
   assert.match(css, /\.topmenu-item:focus-visible\{outline:2px solid var\(--blue\)/);
 });

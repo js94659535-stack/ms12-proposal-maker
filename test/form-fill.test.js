@@ -86,7 +86,11 @@ test('서식을 읽지 못하면 배치했다고 말하지 않는다', () => {
 });
 
 test('화면에서 서식대로 받는 길이 열려 있다', () => {
-  assert.match(app, /id="final-form-docx"/);
+  // 「받기」 패널에서 고른다. 서식을 올린 경우에만 이 길이 열린다.
+  assert.match(app, /currentFormSpec\(\) \? format\('review-form', '올린 서식대로'/);
+  assert.match(app, /if \(id === 'review-form'\) return void downloadFormFilled\(\);/);
+  // 예전 자리의 처리기도 그대로 살아 있다(다른 화면에서 부른다).
+  assert.match(app, /id="final-form-docx"|'#final-form-docx'/);
   assert.match(app, /fillFormLayout\(/);
 });
 

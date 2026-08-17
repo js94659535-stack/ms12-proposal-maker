@@ -130,7 +130,7 @@ const initial = {
   // 서버가 붙여 준 근거 검증·평가자 검토. 화면은 판정하지 않고 그대로 보여 준다.
   serverGuard: null, serverEvidence: null, evaluatorReview: null, proposalVersions: [], proposalFlow: { status: '', baselineVersion: 0, reviewTarget: null, rounds: [], requests: [], requestOpen: false, requestText: '', requestScope: [], openVersion: 0, compareVersion: 0, approvedVersion: 0, approvedAt: '' }, coachingSelection: [], applicantSkipped: false, noticeLogic: null, redesignForContract: false,
   // 「사업계획서 의뢰 건」 한 건의 고객 담당자와 공고 요청서. 기관 영구정보와 섞지 않는다.
-  engagement: { client: makeClient(), request: makeNoticeRequest(), design: makeDesignApproval(), view: 'customer', mode: '표준형' }, proposalTables: [], preciseReview: null, submissionIncluded: [], currentVersionId: '', attachmentLinks: {}, submissionZip: null, lastDownload: null,
+  engagement: { client: makeClient(), request: makeNoticeRequest(), design: makeDesignApproval(), view: 'customer', mode: '표준형' }, proposalTables: [], preciseReview: null, submissionIncluded: [], currentVersionId: '', attachmentLinks: {}, submissionZip: null, lastDownload: null, sheet: null, exportCopy: '검토본',
   analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null, timeline: [], calls: {}, stoppedAt: '', failedGroupId: '' }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveTable: { query: '', sortKey: 'collectedAt', sortDir: 'desc', page: 1, pageSize: 0, selected: [], expandedKey: '', applicantPickerKey: '', filters: { collected: '', institution: '', field: '', status: '', applicant: '', deadline: '' } }, archiveNoticeLinks: {}, archiveHiddenNotices: [], archiveOpenProposal: '', sampleStage: '', sampleReturn: '', aiResult: null, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeSources: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
@@ -3054,7 +3054,7 @@ function loadState() {
     const stagedGeneration = saved.stagedGeneration && typeof saved.stagedGeneration === 'object'
       ? { ...structuredClone(initial.stagedGeneration), ...saved.stagedGeneration, parts: Array.isArray(saved.stagedGeneration.parts) ? saved.stagedGeneration.parts : [], completedGroupIds: Array.isArray(saved.stagedGeneration.completedGroupIds) ? saved.stagedGeneration.completedGroupIds : [] }
       : structuredClone(initial.stagedGeneration);
-    const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantDocDraft: '', applicantExtraction: null, coachingSelection: [], attachmentLinks: {}, submissionZip: null, lastDownload: null };
+    const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantDocDraft: '', applicantExtraction: null, coachingSelection: [], attachmentLinks: {}, submissionZip: null, lastDownload: null, sheet: null };
     // 알 수 없는 포털 값이 남아 있으면 다시 고르게 한다.
     restored.portal = ['admin', 'proposal'].includes(saved.portal) ? saved.portal : '';
     // 예전에 저장한 상태에는 의뢰 건 정보가 없다. 빈 값으로 채우기만 하고 기존 데이터는 건드리지 않는다.
@@ -3094,7 +3094,7 @@ function saveState() {
   const safe = { ...state, reviewDetail: false, reviewPanels: [], reviewFocus: false, companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [],
     archiveNotices: (state.archiveNotices || []).slice(0, CACHED_NOTICES), archiveProposals: (state.archiveProposals || []).slice(0, CACHED_NOTICES), noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', applicantComparison: null, applicantDocDraft: '', applicantExtraction: null, files: state.files.map(({ text, ...meta }) => meta),
     // 첨부 원본은 브라우저 메모리에만 있다. 새로고침 뒤에 파일이 있다고 잘못 말하지 않도록 연결 기록도 저장하지 않는다.
-    attachmentLinks: {}, submissionZip: null, lastDownload: null };
+    attachmentLinks: {}, submissionZip: null, lastDownload: null, sheet: null };
   // 참고자료처럼 큰 원문이 들어오면 브라우저 저장 한도를 넘을 수 있다. 저장 실패가 화면을 멈추지 않게 한다.
   try { localStorage.setItem('ms12_project_v3', JSON.stringify(safe)); }
   catch { console.warn('브라우저 자동 저장 용량을 초과해 이번 상태는 저장하지 못했습니다.'); }
@@ -3408,6 +3408,7 @@ function shell(content) {
         ${afterDownloadView()}
         ${state.error ? `<div class="alert danger">${escapeHtml(state.error)}</div>` : ''}
         <section class="workspace">${content}</section>
+        ${sheetView()}
         ${state.busy ? `<div class="busy"><div class="loader"></div><strong>${escapeHtml(state.busy)}</strong><small>창을 닫지 마세요.${busyStartedAt ? `<span data-ai-elapsed data-started-at="${busyStartedAt}" style="display:block">경과시간 00초</span>` : ''}</small></div>` : ''}
       </main>
     </div>`;
@@ -3979,6 +3980,74 @@ function nextStepBar(overview) {
       <small>${escapeHtml(step.why)}</small></div>
     <button class="button primary" data-next-step="${step.go}" data-next-anchor="${escapeHtml(step.anchor)}">${escapeHtml(step.label)} →</button>
   </div>`;
+}
+
+// ---------- 옆에서 밀려 들어오는 패널 ----------
+// 화면을 갈아치우지 않고 덮는다. 뒤 화면이 남아 있어야 어디에 있었는지를 잃지 않는다.
+// 세로 스크롤 방식은 그대로 두고, 눌렀을 때만 이 패널이 옆에서 나온다.
+const SHEETS = { export: exportSheet };
+function openSheet(kind, payload = null) {
+  if (!SHEETS[kind]) return;
+  setState({ sheet: { kind, payload }, notice: '', error: '' });
+}
+function closeSheet() { setState({ sheet: null }); }
+function sheetView() {
+  const sheet = state.sheet;
+  const render = sheet && SHEETS[sheet.kind];
+  if (!render) return '';
+  const panel = render(sheet.payload);
+  return `<div class="sheet-scrim" data-sheet-close="1"></div>
+    <aside class="sheet" role="dialog" aria-modal="true" aria-label="${escapeHtml(panel.title)}" id="app-sheet" tabindex="-1">
+      <div class="sheet-head"><div><h3>${escapeHtml(panel.title)}</h3><p>${escapeHtml(panel.lead)}</p></div>
+        <button class="sheet-close" data-sheet-close="1" aria-label="닫기">✕</button></div>
+      <div class="sheet-body">${panel.body}</div>
+    </aside>`;
+}
+
+// 「받기」 한 자리. 화면마다 흩어져 있던 내려받기 버튼을 여기로 모은다.
+// 무엇을 받는지(검토본·제출본)를 먼저 고르고 형식을 고른다. 출력 경로는 기존 것을 그대로 쓴다.
+function exportSheet() {
+  const copy = state.exportCopy === '제출본' ? '제출본' : '검토본';
+  const summary = currentSubmissionPackage();
+  const { version, reason: versionReason } = selectedSavedVersion();
+  const submissionBlock = versionReason
+    || (unsavedChanges() ? `화면 내용이 저장된 V${version?.version}과 달라 제출본을 출력할 수 없습니다.` : '')
+    || (summary?.canExport ? '' : `제출 ${summary?.status || '판정'} 상태입니다. ${(summary?.blockers || []).map(item => item.reason).join(' / ') || '먼저 계획서를 작성하세요.'}`);
+  const blocked = copy === '제출본' ? submissionBlock : (state.sections.length ? '' : '아직 만든 계획서가 없습니다.');
+  const pick = (value, label, hint, disabled = '') => `<button data-export-copy="${value}" aria-pressed="${copy === value}" ${disabled ? 'disabled' : ''}>
+    <div><b>${escapeHtml(label)}</b><small>${escapeHtml(hint)}</small></div></button>`;
+  const format = (id, label, hint) => `<button class="button secondary" data-export-format="${id}" ${blocked ? 'disabled' : ''} title="${escapeHtml(hint)}">${escapeHtml(label)}</button>`;
+  return {
+    title: '받기',
+    lead: '무엇을 받을지 고르고 형식을 누르세요. 받은 뒤 할 일은 화면 위에 남습니다.',
+    body: `<div class="sheet-pick">
+        ${pick('검토본', '검토본', '내부 확인용입니다. 보완 안내가 앞에 붙고 항목마다 검토 상태가 적힙니다.')}
+        ${pick('제출본', '제출본', '실제로 낼 파일입니다. 내부 표시가 없고 저장된 버전 그대로 나갑니다.')}
+      </div>
+      ${blocked ? `<div class="alert warning"><strong>지금은 ${escapeHtml(copy)}을 받을 수 없습니다</strong><p>${escapeHtml(blocked)}</p></div>` : ''}
+      <div class="sheet-formats">
+        ${copy === '제출본'
+          ? `${format('submission-pdf', '최종 PDF', '저장된 버전 그대로 출력합니다.')}${format('submission-docx', '최종 DOCX', '저장된 버전 그대로 출력합니다.')}`
+          : `${format('review-pdf', 'PDF', '표와 쪽 나눔까지 반영합니다.')}${format('review-docx', 'DOCX', '표를 함께 넣습니다.')}
+             ${format('review-hwpx', '한글(HWPX)', '한글 2014 이상에서 열립니다.')}
+             ${currentFormSpec() ? format('review-form', '올린 서식대로', '올린 신청서 서식의 항목 이름·순서에 맞춰 넣습니다.') : ''}`}
+      </div>
+      ${copy === '검토본' && !blocked ? '<p class="muted">검토본은 제출용이 아닙니다. 낼 파일은 「제출본」에서 받으세요.</p>' : ''}
+      <div class="actions" style="margin:0"><span class="muted">인쇄는 화면 그대로 나갑니다.</span>
+        <button class="button secondary" data-export-format="print" ${state.sections.length ? '' : 'disabled'}>인쇄</button></div>`
+  };
+}
+// 패널에서 고른 형식을 기존 출력 경로로 넘긴다. 새 출력 방식을 만들지 않는다.
+function runExportFormat(id) {
+  if (id === 'print') return printDocument();
+  if (id.startsWith('submission-')) return exportFinalPackage(id.replace('submission-', ''));
+  if (refusePartial()) return;
+  const out = reviewOutput();
+  if (id === 'review-pdf') return void downloadProposalPdf();
+  if (id === 'review-hwpx') return downloadProposalHwpx();
+  if (id === 'review-form') return void downloadFormFilled();
+  return void exportDocx(state.project, out.sections, { tables: out.tables, pageBreaks: out.pageBreaks })
+    .then(() => noteDownload('검토본', 'DOCX')).catch(showError);
 }
 
 // 파일을 받은 다음. 받고 끝나면 여기서 길이 끊긴다. 무엇을 받았는지와 남은 한 걸음을 화면에 남긴다.
@@ -5497,10 +5566,7 @@ function simpleResultActions() {
     <button class="button secondary" id="simple-view">계획서 확인</button>
     <button class="button primary" id="simple-revise" ${guard(left.total ? '' : `이 계획서의 AI 수정 2회를 모두 썼습니다. 직접 편집은 계속할 수 있습니다.`)}>한 번에 수정 요청 ${left.total ? `(${left.total}회 남음)` : '(소진)'}</button>
     <button class="button secondary" id="save-proposal-archive">저장${saved ? ' 완료' : ''}</button>
-    <button class="button secondary" id="final-docx-top">DOCX 받기</button>
-    <button class="button secondary" id="final-hwpx-top">한글(HWPX) 받기</button>
-    ${currentFormSpec() ? '<button class="button primary" id="final-form-docx">올린 서식대로 받기(DOCX)</button>' : ''}
-    <button class="button secondary" id="final-pdf-top">PDF 받기</button>
+    <button class="button secondary" data-open-sheet="export">받기 ↗</button>
     <button class="button secondary" id="simple-expert">전문 검토 보기</button>
   </div>
   ${trimNoticeView()}
@@ -5815,7 +5881,7 @@ function completionPanelView() {
       <div><span>보관 상태</span><strong>${escapeHtml(status)}</strong><small>${state.archiveProposalId ? '계획서보관함 저장됨' : '저장 대기'}</small></div>
       <div><span>검토 제출</span><strong>${target ? `V${target.version} · ${target.round}차` : '아직 없음'}</strong><small>${target ? '검토 대상 고정됨' : '만족하는 버전에서 보내세요'}</small></div>
       <div><span>검토 회차</span><strong>${(flow.rounds || []).length}회</strong><small>회차별 결과 보존</small></div></div>
-    <div class="actions"><span>출력물은 검토본입니다.</span><div><button class="button secondary" id="open-full-proposal">전체 계획서 보기</button><button class="button secondary" id="final-docx-top">DOCX 내려받기</button><button class="button secondary" id="final-pdf-top">PDF 내려받기</button></div></div>
+    <div class="actions"><span>받기 한 자리에서 검토본·제출본과 형식을 고릅니다.</span><div><button class="button secondary" id="open-full-proposal">전체 계획서 보기</button><button class="button secondary" data-open-sheet="export">받기 ↗</button></div></div>
     <div class="actions"><span>${flow.status === '최종본' ? '최종본입니다. 수정하면 새 버전으로 쌓입니다.' : '수정 요청은 지정한 범위만 바꿉니다. 확정값·공고 근거·기관 확인정보는 바꾸지 않습니다.'}</span><div><button class="button secondary" id="open-revision-request">수정 요청</button><button class="button primary" id="send-to-review">검토·제출로 보내기</button></div></div>
     ${flow.requestOpen ? revisionRequestView() : ''}
     ${versionHistoryView()}
@@ -6816,6 +6882,12 @@ function bind() {
   void loadNoticeOrgs();
   document.querySelectorAll('[data-step]').forEach(el => el.onclick = () => { state.activeTool = 'workflow'; navigateToStep(Number(el.dataset.step), { notice: '', error: '' }); });
   document.querySelector('#dismiss-download-step')?.addEventListener('click', () => setState({ lastDownload: null, notice: '' }));
+  // 옆에서 나온 패널. 바깥을 누르거나 닫기를 누르면 있던 자리로 돌아간다.
+  document.querySelectorAll('[data-sheet-close]').forEach(el => el.onclick = () => closeSheet());
+  document.querySelectorAll('[data-open-sheet]').forEach(el => el.onclick = () => openSheet(el.dataset.openSheet));
+  document.querySelectorAll('[data-export-copy]').forEach(el => el.onclick = () => setState({ exportCopy: el.dataset.exportCopy }));
+  document.querySelectorAll('[data-export-format]').forEach(el => el.onclick = () => { closeSheet(); runExportFormat(el.dataset.exportFormat); });
+  if (state.sheet) requestAnimationFrame(() => document.querySelector('#app-sheet')?.focus());
   // 분석 다음 걸음. 분석에서 멈추지 않고 그다음 자리로 데려간다.
   document.querySelectorAll('[data-next-step]').forEach(el => el.onclick = () => {
     state.activeTool = 'workflow';
@@ -9428,7 +9500,7 @@ document.addEventListener('click', event => {
   const inside = event.target.closest('details.topmenu');
   closeTopMenus(inside);
 });
-document.addEventListener('keydown', event => { if (event.key === 'Escape') { closeArchiveMenu(); closeTopMenus(); } });
+document.addEventListener('keydown', event => { if (event.key === 'Escape') { closeArchiveMenu(); closeTopMenus(); if (state.sheet) closeSheet(); } });
 window.addEventListener('scroll', closeArchiveMenu, true);
 window.addEventListener('resize', closeArchiveMenu);
 render();

@@ -108,7 +108,9 @@ test('본문에 든 특수문자가 파일을 깨뜨리지 않는다', () => {
 });
 
 test('화면에 한글 파일 받기 단추가 있고 표 안내를 함께 적는다', () => {
-  assert.match(app, /id="final-hwpx-top">한글\(HWPX\) 받기<\/button>/);
+  // 「받기」 패널에서 형식으로 고른다.
+  assert.match(app, /format\('review-hwpx', '한글\(HWPX\)', '한글 2014 이상에서 열립니다\.'\)/);
+  assert.match(app, /if \(id === 'review-hwpx'\) return downloadProposalHwpx\(\);/);
   // 부분 결과는 내보내지 않는다. 완성된 뒤에만 실제로 만든다.
   assert.match(app, /#final-hwpx-top'\)\?\.addEventListener\('click', \(\) => \{ if \(!refusePartial\(\)\) downloadProposalHwpx\(\); \}\);/);
   // 계획서가 없으면 만들지 않는다.

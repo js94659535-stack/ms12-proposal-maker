@@ -714,3 +714,36 @@ select{max-width:100%}
 .guide-part li{font-size:13px;font-weight:500;line-height:1.6;margin:0 0 6px}
 .guide-part li small{display:block;font-size:11.5px;margin-top:1px}
 .guide-part.general{border-left:3px solid var(--camel,#b98b5a);padding-left:10px;background:#fffdf9;border-radius:0 8px 8px 0}
+
+/* 옆에서 밀려 들어오는 패널. 화면을 갈아치우지 않고 덮는다.
+   뒤 화면이 그대로 남아 있어야 「내가 어디 있었는지」를 잃지 않는다.
+   좁은 화면에서는 옆이 아니라 아래에서 올라온다. 손이 닿는 자리가 아래이기 때문이다. */
+.sheet-scrim{position:fixed;inset:0;z-index:40;background:rgba(58,41,29,.42);backdrop-filter:blur(2px);animation:sheet-fade .16s ease-out}
+.sheet{position:fixed;top:0;right:0;bottom:0;z-index:41;width:min(460px,92vw);display:flex;flex-direction:column;
+  background:#fff;border-left:1px solid var(--line,#e8dfd4);box-shadow:-18px 0 48px rgba(76,53,33,.18);animation:sheet-in .2s ease-out}
+.sheet-head{display:flex;align-items:flex-start;gap:12px;padding:20px 22px 14px;border-bottom:1px solid var(--line,#e8dfd4)}
+.sheet-head div{flex:1;min-width:0}
+.sheet-head h3{margin:0;font-size:19px}
+.sheet-head p{margin:4px 0 0;font-size:13px;color:var(--muted,#52453c);line-height:1.55}
+.sheet-close{border:1px solid #dcd7d2;background:#fff;border-radius:8px;width:32px;height:32px;font-size:16px;line-height:1;flex:none}
+.sheet-body{flex:1;overflow:auto;padding:18px 22px 24px;display:flex;flex-direction:column;gap:16px}
+.sheet-body .card{box-shadow:none;padding:16px 18px}
+/* 패널 안의 고르는 자리. 한 줄에 하나씩 두고 무엇을 받는지 그 자리에서 읽게 한다. */
+.sheet-pick{display:grid;gap:8px}
+.sheet-pick button{display:flex;align-items:center;gap:12px;width:100%;text-align:left;border:1px solid #dcd7d2;background:#fff;border-radius:10px;padding:13px 15px}
+.sheet-pick button[aria-pressed="true"]{border-color:var(--blue,#8c5a33);background:var(--blue-soft,#f6ede4)}
+.sheet-pick button[disabled]{opacity:.55}
+.sheet-pick b{display:block;font-size:14.5px}
+.sheet-pick small{display:block;color:var(--muted,#52453c);font-size:12.5px;font-weight:500;margin-top:2px;line-height:1.5}
+.sheet-formats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.sheet-formats .button{width:100%}
+@keyframes sheet-in{from{transform:translateX(100%)}to{transform:translateX(0)}}
+@keyframes sheet-up{from{transform:translateY(100%)}to{transform:translateY(0)}}
+@keyframes sheet-fade{from{opacity:0}to{opacity:1}}
+@media(max-width:700px){
+  .sheet{top:auto;left:0;width:auto;max-height:88vh;border-left:0;border-top:1px solid var(--line,#e8dfd4);
+    border-radius:16px 16px 0 0;box-shadow:0 -18px 48px rgba(76,53,33,.18);animation-name:sheet-up}
+}
+@media(prefers-reduced-motion:reduce){
+  .sheet,.sheet-scrim{animation:none}
+}
