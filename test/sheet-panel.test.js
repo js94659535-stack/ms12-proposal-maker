@@ -83,3 +83,24 @@ test('감춘 것은 도구띠의 숫자로 알린다', () => {
   // 숫자가 0이면 표시를 붙이지 않는다. 빈 배지가 늘어서면 그것도 소음이다.
   assert.match(app, /function sheetBadge\(count, tone = '확인-필요'\) \{\s*\n\s*return count \?/);
 });
+
+test('간편 화면도 완성 뒤에 카드를 쌓지 않는다', () => {
+  const view = app.slice(app.indexOf('function simpleWriteView()'), app.indexOf('function documentView()'));
+  // 완성 뒤에 딸려 오던 것들이 화면에서 빠졌다.
+  for (const card of ['gapNoticeView()', 'aiJobsView()', 'openMarksPanel()', 'revisionPanel()', 'expertDetails()']) {
+    assert.ok(!view.includes(`\${${card}}`) && !view.includes(`? ${card} :`), `${card}가 아직 간편 화면에 쌓인다`);
+  }
+  // 대신 도구띠 하나로 모았다.
+  const actions = app.slice(app.indexOf('function simpleResultActions()'), app.indexOf('// 한 번에 수정 요청. 항목별로'));
+  assert.match(actions, /class="doc-toolbelt"/);
+  for (const sheet of ['marks', 'gap', 'revise', 'design', 'export']) {
+    assert.ok(actions.includes(`data-open-sheet="${sheet}"`), `도구띠에 ${sheet}가 없다`);
+  }
+  // 쓰는 중일 때는 진행 화면만 남는다. 그때 도구를 늘어놓지 않는다.
+  assert.match(view, /\$\{writing \? writingProgressView\(\) : ''\}/);
+});
+
+test('패널을 열면 그 안의 접힘도 함께 펴진다', () => {
+  assert.match(app, /const SHEET_OPENS = \{ marks: \{ markOpen: true \}, revise: \{ reviseOpen: true \} \}/);
+  assert.match(app, /setState\(\{ sheet: \{ kind, payload \}, \.\.\.\(SHEET_OPENS\[kind\] \|\| \{\}\)/);
+});

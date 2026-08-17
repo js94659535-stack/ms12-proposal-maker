@@ -3995,8 +3995,16 @@ const SHEETS = {
   // V1 → 검증 → 수정계획 → V2 → 남은 확인 필요는 한 흐름이다. 갈라 두면 이야기가 끊긴다.
   progress: () => ({ title: '진행 상태와 이력', lead: 'V1 원문은 보존하고 수정본은 새 버전으로만 쌓입니다.', body: `${proposalPipelineView()}${decisionCenterView()}${draftBlueprintCheckView()}${revisionPlanView()}` || '<p class="muted">아직 이력이 없습니다.</p>' }),
   checks: () => ({ title: '자동 점검 결과', lead: '공고 조건·조립 상태와 어긋난 곳만 모았습니다.', body: `${submissionGateView()}${assemblyCheckView()}` || '<p class="muted">점검할 내용이 없습니다.</p>' }),
-  design: () => ({ title: '작성 과정', lead: '공고 분석·설계·질문은 숨길 뿐 생략하지 않습니다.', body: `${strategyView()}${designQuestionsView()}${stagedGenerationView()}` || '<p class="muted">아직 진행한 과정이 없습니다.</p>' })
+  design: () => ({ title: '작성 과정', lead: '공고 분석·설계·질문은 숨길 뿐 생략하지 않습니다.', body: `${strategyView()}${designQuestionsView()}${stagedGenerationView()}` || '<p class="muted">아직 진행한 과정이 없습니다.</p>' }),
+  // 간편 화면에서 완성 뒤에 쌓이던 것들.
+  marks: () => ({ title: '확인 필요 채우기', lead: '지어내지 않고 비워 둔 자리입니다. 값을 넣으면 제출본이 열립니다.', body: openMarksPanel() }),
+  gap: () => ({ title: '보완 안내', lead: '무엇이 없어 어디가 얇은지. 내부용이며 출력물에는 들어가지 않습니다.', body: gapNoticeView() || '<p class="muted">보완할 항목이 없습니다.</p>' }),
+  revise: () => ({ title: '한 번에 수정 요청', lead: '요청한 곳만 고칩니다. 확정한 사실과 요청하지 않은 내용은 그대로 둡니다.', body: revisionPanel() }),
+  jobs: () => ({ title: 'AI 작업', lead: '지금 돌고 있는 작업과 끝난 작업입니다.', body: aiJobsView() || '<p class="muted">진행 중인 작업이 없습니다.</p>' }),
+  form: () => ({ title: '올린 서식 미리보기', lead: '서식이 정한 항목 이름·순서에 우리가 쓴 내용을 넣어 봅니다.', body: `${formPreviewView()}${trimNoticeView()}` || '<p class="muted">올린 서식이 없습니다.</p>' })
 };
+// 패널을 열 때 그 안의 접힘을 함께 편다. 패널을 열었는데 내용이 접혀 있으면 두 번 눌러야 한다.
+const SHEET_OPENS = { marks: { markOpen: true }, revise: { reviseOpen: true } };
 // 감춘 것에는 표시를 남긴다. 감추기만 하면 있는 줄도 모른다.
 function sheetBadge(count, tone = '확인-필요') {
   return count ? `<span class="status ${tone}" style="margin-left:6px">${count}</span>` : '';
@@ -4023,7 +4031,7 @@ function documentToolbelt() {
 }
 function openSheet(kind, payload = null) {
   if (!SHEETS[kind]) return;
-  setState({ sheet: { kind, payload }, notice: '', error: '' });
+  setState({ sheet: { kind, payload }, ...(SHEET_OPENS[kind] || {}), notice: '', error: '' });
 }
 function closeSheet() { setState({ sheet: null }); }
 function sheetView() {
@@ -5594,18 +5602,24 @@ function gapNoticeView() {
   </div>`;
 }
 
+// 완성 뒤에 쌓이던 것들을 늘어놓지 않는다. 늘 같은 도구띠 하나만 두고 눌렀을 때 옆에서 나온다.
 function simpleResultActions() {
   const saved = Boolean(state.archiveProposalId);
   const left = remainingOf(state.revisions || []);
-  return `<div class="actions" style="flex-wrap:wrap;gap:8px;justify-content:flex-start">
+  const marks = openMarkCount();
+  const gap = currentGapReport();
+  const jobs = (state.aiJobs?.list || []).length;
+  return `<div class="doc-toolbelt" style="position:static;margin:0">
     <button class="button secondary" id="simple-view">계획서 확인</button>
-    <button class="button primary" id="simple-revise" ${guard(left.total ? '' : `이 계획서의 AI 수정 2회를 모두 썼습니다. 직접 편집은 계속할 수 있습니다.`)}>한 번에 수정 요청 ${left.total ? `(${left.total}회 남음)` : '(소진)'}</button>
+    <button class="button ${marks ? 'primary' : 'secondary'}" data-open-sheet="marks">확인 필요${sheetBadge(marks)}</button>
+    <button class="button secondary" data-open-sheet="gap">보완 안내${sheetBadge(gap.total, '부분-충족')}</button>
+    <button class="button secondary" data-open-sheet="revise" ${guard(left.total ? '' : 'AI 수정 2회를 모두 썼습니다. 직접 편집은 계속할 수 있습니다.')}>수정 요청${sheetBadge(left.total, '충족')}</button>
+    ${currentFormSpec() ? '<button class="button secondary" data-open-sheet="form">올린 서식</button>' : ''}
+    ${jobs ? `<button class="button secondary" data-open-sheet="jobs">AI 작업${sheetBadge(jobs, '충족')}</button>` : ''}
+    <button class="button secondary" data-open-sheet="design">작성 과정</button>
     <button class="button secondary" id="save-proposal-archive">저장${saved ? ' 완료' : ''}</button>
-    <button class="button secondary" data-open-sheet="export">받기 ↗</button>
-    <button class="button secondary" id="simple-expert">전문 검토 보기</button>
+    <button class="button primary" data-open-sheet="export">받기 ↗</button>
   </div>
-  ${trimNoticeView()}
-  ${currentFormSpec() ? formPreviewView() : ''}
   ${finalConfirmView()}`;
 }
 
@@ -5655,7 +5669,9 @@ function simpleWriteView() {
   // 지금 보는 화면 표시는 머리띠 아래에 한 번만 나온다. 여기서 또 그리면 두 줄이 된다.
   return `<div class="page-heading"><div><h2>간편 계획서 작성</h2>
     <p>공고를 고르고 하고 싶은 사업을 한두 문장으로 적으면 됩니다. 분석·설계·검증은 안에서 자동으로 돌아갑니다.</p></div>
-    <button class="button secondary" id="open-expert-detail">작성 과정 자세히 보기</button></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${chosen ? '<button class="button secondary" data-open-sheet="design">작성 과정 보기</button>' : ''}
+      <button class="button secondary" id="open-expert-detail">전문 화면으로</button></div></div>
     ${simpleProgress(step)}
     <div class="card">
       <div class="card-title"><div><h3>1·2 공고 찾기와 선택</h3><span>${chosen ? escapeHtml(String(state.selectedNotice?.title || '붙여넣은 공고문').slice(0, 60)) : '아직 고르지 않았습니다'}</span></div>
@@ -5672,15 +5688,10 @@ function simpleWriteView() {
       <div class="actions"><span class="muted">부족한 정보가 있어도 [확인 필요]로 남기고 만듭니다.</span>
         <button class="button primary" id="simple-generate" ${guard(chosen ? '' : '먼저 공고를 고르거나 공고문을 붙여넣어 주세요.', 'notice')}>AI가 계획서 만들기</button></div>
     </div>
-    ${done ? gapNoticeView() : ''}
     ${done ? `<div class="card"><div class="card-title"><div><h3>4 계획서 완성</h3><span>항목 ${state.sections.length}개</span></div>
       <span class="status 충족">완성</span></div>${simpleResultActions()}</div>` : ''}
-    ${!writing ? aiJobsView() : ''}
     ${writing ? writingProgressView() : ''}
-    ${!writing && progress.partial ? partialWritingView() : ''}
-    ${state.sections.length && !writing && !progress.partial ? openMarksPanel() : ''}
-    ${revisionPanel()}
-    ${chosen ? expertDetails() : ''}`;
+    ${!writing && progress.partial ? partialWritingView() : ''}`;
 }
 
 function documentView() {
