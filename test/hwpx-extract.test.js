@@ -97,7 +97,13 @@ test('업로드 화면과 안내 문구에 HWPX가 연결된다', () => {
   assert.doesNotMatch(filesSource, /jszip|pako|fflate/i);
 
   const appSource = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
-  assert.equal((appSource.match(/accept="\.pdf,\.docx,\.txt,\.hwpx,\.hwp"/g) || []).length, 4);
+  // 파일을 고르는 자리는 늘어날 수 있다. 어느 자리든 한글 파일을 받아들이는지만 본다.
+  const accepts = appSource.match(/accept="[^"]*"/g) || [];
+  assert.ok(accepts.length >= 4, `파일 고르는 자리가 없다: ${accepts.length}`);
+  for (const accept of accepts) {
+    if (!accept.includes('.pdf')) continue;
+    assert.ok(/\.hwpx/.test(accept) && /\.hwp"|\.hwp,/.test(accept), `한글 파일을 막는 자리가 있다: ${accept}`);
+  }
   assert.match(appSource, /PDF·DOCX·TXT·HWPX·HWP 불러오기/);
   assert.doesNotMatch(appSource, /accept="\.pdf,\.docx,\.txt"/);
 });

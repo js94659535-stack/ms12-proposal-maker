@@ -54,8 +54,8 @@ test('보기 전환 단추를 두 번 걸지 않는다', () => {
 
 test('작성 과정 자세히 보기는 계획서가 나오기 전에도 열린다', () => {
   // 공고를 고른 뒤부터 분석·설계·근거를 볼 수 있어야 한다. 완성 뒤에만 열면 과정을 확인할 수 없다.
-  // 공고를 고른 순간부터 「작성 과정 보기」가 머리에 나온다. 완성될 때까지 기다리지 않는다.
-  assert.match(app, /\$\{chosen \? '<button class="button secondary" data-open-sheet="design">작성 과정 보기<\/button>' : ''\}/);
+  // 「작성 과정」은 머리 앞쪽에 늘 있고, 어디까지 왔는지 배지로 알린다. 완성될 때까지 기다리지 않는다.
+  assert.match(app, /data-open-sheet="design">작성 과정\$\{sheetBadge\(`\$\{pipeline\.done\}\/\$\{pipeline\.total\}`/);
   // 열면 분석·설계·생성 과정을 그대로 보여 준다. 감출 뿐 생략하지 않는다.
   assert.match(app, /design: \(\) => \(\{ title: '작성 과정'[\s\S]{0,200}strategyView\(\)\}\$\{designQuestionsView\(\)\}\$\{stagedGenerationView\(\)/);
 });

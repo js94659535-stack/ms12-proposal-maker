@@ -59,6 +59,7 @@ import { approvedDemandEvidence, buildDemandEvidence } from './demand-evidence.j
 import { PROPOSAL_MODES, applyPatchedSections, buildReviewBasis, normalizeReviewIssues, reviewBasisReadiness, reviewSummary, sectionsToPatch, verifyUntouched } from './precise-review.js';
 import { buildSubmissionPackage, sectionsFingerprint } from './submission-package.js';
 import { nextAfterDownload } from './after-download.js';
+import { buildWritingPipeline } from './writing-pipeline.js';
 import { ENGAGEMENT_STAGES, PROPOSAL_OUTLINE, buildDocumentPlan, buildEngagement, canGenerateProposal, designSnapshotStale, designStatus, makeClient, makeDesignApproval, makeNoticeRequest, normalizeEngagement } from './engagement.js';
 import { EXTERNAL_SOURCE, appendProposalVersion, findVersionById, normalizeProposalVersions, resolveSavedVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, matchSectionsForIssue, proposalTextFromSections, proposalTextFromSnapshot, revisionInstruction, sectionsFromProposalText, verifyLockedValues } from './coaching-handoff.js';
 import { splitApplicantProfile } from './applicants.js';
@@ -3995,7 +3996,21 @@ const SHEETS = {
   // V1 → 검증 → 수정계획 → V2 → 남은 확인 필요는 한 흐름이다. 갈라 두면 이야기가 끊긴다.
   progress: () => ({ title: '진행 상태와 이력', lead: 'V1 원문은 보존하고 수정본은 새 버전으로만 쌓입니다.', body: `${proposalPipelineView()}${decisionCenterView()}${draftBlueprintCheckView()}${revisionPlanView()}` || '<p class="muted">아직 이력이 없습니다.</p>' }),
   checks: () => ({ title: '자동 점검 결과', lead: '공고 조건·조립 상태와 어긋난 곳만 모았습니다.', body: `${submissionGateView()}${assemblyCheckView()}` || '<p class="muted">점검할 내용이 없습니다.</p>' }),
-  design: () => ({ title: '작성 과정', lead: '공고 분석·설계·질문은 숨길 뿐 생략하지 않습니다.', body: `${strategyView()}${designQuestionsView()}${stagedGenerationView()}` || '<p class="muted">아직 진행한 과정이 없습니다.</p>' }),
+  // 파이프라인을 맨 위에 두어 「지금 어디」를 먼저 읽게 한다. 그 아래가 그 자리의 내용이다.
+  design: () => ({ title: '작성 과정', lead: '공고 분석·설계·질문은 숨길 뿐 생략하지 않습니다.', body: `${pipelineBar()}${strategyView()}${designQuestionsView()}${stagedGenerationView()}` }),
+  // 내가 찾은 공고를 직접 넣는 길. 주소·파일·본문 셋 다 이 자리에서 받는다.
+  notice: () => ({
+    title: '내가 찾은 공고 넣기',
+    lead: '공고 주소, 공고문 파일, 붙여넣은 본문 — 어느 것이든 됩니다.',
+    body: `<div class="card"><div class="card-title"><div><h3>공고 주소로 가져오기</h3><span>상세 페이지 주소를 넣으면 목록에 추가합니다</span></div></div>
+        <div class="inline-row"><input id="sheet-notice-url" type="url" value="${escapeHtml(state.noticeUrlDraft)}" placeholder="공식 공고 상세 주소"><button class="button primary" id="sheet-import-url">가져오기</button></div></div>
+      <div class="card"><div class="card-title"><div><h3>공고문 파일 올리기</h3><span>PDF · DOCX · TXT · HWPX · HWP</span></div></div>
+        <label class="dropzone" for="sheet-notice-file"><strong>공고문·신청서 파일을 고르세요</strong><small>서식을 함께 올리면 「올린 서식대로」 출력이 열립니다</small></label>
+        <input type="file" id="sheet-notice-file" multiple accept=".pdf,.docx,.txt,.hwpx,.hwp" style="display:none"></div>
+      <div class="card"><div class="card-title"><div><h3>공고문 붙여넣기</h3><span>30자 이상이면 그대로 분석합니다</span></div></div>
+        <textarea id="sheet-notice-text" class="source-text" style="height:180px" placeholder="공고문 본문을 붙여넣으세요">${escapeHtml(state.sourceText)}</textarea>
+        <div class="actions"><span class="muted">붙여넣은 내용은 이 브라우저에 저장됩니다.</span><button class="button primary" id="sheet-notice-save">이 공고문으로 진행</button></div></div>`
+  }),
   // 간편 화면에서 완성 뒤에 쌓이던 것들.
   marks: () => ({ title: '확인 필요 채우기', lead: '지어내지 않고 비워 둔 자리입니다. 값을 넣으면 제출본이 열립니다.', body: openMarksPanel() }),
   gap: () => ({ title: '보완 안내', lead: '무엇이 없어 어디가 얇은지. 내부용이며 출력물에는 들어가지 않습니다.', body: gapNoticeView() || '<p class="muted">보완할 항목이 없습니다.</p>' }),
@@ -4005,6 +4020,51 @@ const SHEETS = {
 };
 // 패널을 열 때 그 안의 접힘을 함께 편다. 패널을 열었는데 내용이 접혀 있으면 두 번 눌러야 한다.
 const SHEET_OPENS = { marks: { markOpen: true }, revise: { reviseOpen: true } };
+// 공고문 파일을 읽어 분석 자료로 넣는다. 공고 준비 화면과 「내가 찾은 공고 넣기」 패널이 같은 길을 쓴다.
+// 읽지 못한 파일도 목록에 남긴다. 조용히 빠지면 무엇이 빠졌는지 알 수 없다.
+async function addNoticeFiles(chosen = []) {
+  if (!chosen.length) return;
+  setState({ busy: '파일에서 텍스트를 추출하는 중...', error: '' });
+  try {
+    const done = [];
+    const failed = [];
+    for (const file of chosen) {
+      try {
+        const parsed = await extractFile(file);
+        done.push({ ...parsed, characters: parsed.text.length, extracted: true });
+      } catch (error) {
+        failed.push({ name: file.name, type: (file.name.split('.').pop() || '').toUpperCase(), size: file.size, characters: 0, tables: 0, extracted: false, reason: String(error?.message || '').replace(`${file.name}: `, '') });
+      }
+    }
+    state.files.push(...done, ...failed);
+    state.sourceText += done.map(v => `\n\n[파일: ${v.name}]\n${v.text}`).join('');
+    setState({
+      busy: '',
+      notice: done.length ? `${done.length}개 파일을 읽었습니다.${failed.length ? ` ${failed.length}개는 읽지 못해 이유를 표시했습니다.` : ''}` : '',
+      error: done.length ? '' : failed.map(item => `${item.name}: ${item.reason}`).join(' / ')
+    });
+  }
+  catch (error) { setState({ busy: '', error: error.message }); }
+}
+
+// 지금 어디까지 왔는지. 배지와 패널이 같은 값을 쓴다.
+function currentPipeline() {
+  return buildWritingPipeline({
+    notice: state.selectedNotice, pastedText: state.sourceText, analysis: state.noticeLogic,
+    projectValues: state.projectValues, master: state.stagedGeneration?.master, sections: state.sections,
+    coaching: state.coaching, preciseReview: state.preciseReview, reviewResult: state.reviewResult
+  });
+}
+// 다섯 자리를 한 줄로. 지난 자리·지금 자리·남은 자리를 눈으로 가른다.
+function pipelineBar() {
+  const pipeline = currentPipeline();
+  return `<div class="pipeline" role="list" aria-label="작성 진행">
+    ${pipeline.stages.map(stage => `<span class="pipeline-step${stage.done ? ' done' : ''}${stage.key === pipeline.current.key && !pipeline.complete ? ' now' : ''}" role="listitem" title="${escapeHtml(stage.hint)}">
+      <b>${stage.done ? '✓' : '·'}</b>${escapeHtml(stage.label)}</span>`).join('')}
+    <small>${pipeline.complete ? '다섯 자리를 모두 지났습니다' : `지금 자리: ${escapeHtml(pipeline.current.label)}`}</small>
+  </div>`;
+}
+
 // 감춘 것에는 표시를 남긴다. 감추기만 하면 있는 줄도 모른다.
 function sheetBadge(count, tone = '확인-필요') {
   return count ? `<span class="status ${tone}" style="margin-left:6px">${count}</span>` : '';
@@ -5666,19 +5726,24 @@ function simpleWriteView() {
   const writing = progress.writing;
   // 묶음이 남아 있으면 결과 화면을 열지 않는다. 부분 결과를 완성본처럼 보여 주지 않는다.
   const done = step === 'done' && !writing && !progress.partial;
+  const pipeline = currentPipeline();
   // 지금 보는 화면 표시는 머리띠 아래에 한 번만 나온다. 여기서 또 그리면 두 줄이 된다.
   return `<div class="page-heading"><div><h2>간편 계획서 작성</h2>
     <p>공고를 고르고 하고 싶은 사업을 한두 문장으로 적으면 됩니다. 분석·설계·검증은 안에서 자동으로 돌아갑니다.</p></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      ${chosen ? '<button class="button secondary" data-open-sheet="design">작성 과정 보기</button>' : ''}
+      <button class="button secondary" data-open-sheet="design">작성 과정${sheetBadge(`${pipeline.done}/${pipeline.total}`, pipeline.complete ? '충족' : '부분-충족')}</button>
       <button class="button secondary" id="open-expert-detail">전문 화면으로</button></div></div>
+    ${pipelineBar()}
     ${simpleProgress(step)}
     <div class="card">
       <div class="card-title"><div><h3>1·2 공고 찾기와 선택</h3><span>${chosen ? escapeHtml(String(state.selectedNotice?.title || '붙여넣은 공고문').slice(0, 60)) : '아직 고르지 않았습니다'}</span></div>
         <span class="status ${chosen ? '충족' : '확인-필요'}">${chosen ? '선택함' : '필요'}</span></div>
-      <div class="actions"><span class="muted">고르면 공고 분석을 자동으로 실행합니다.</span>
-        <div><button class="button ${chosen ? 'secondary' : 'primary'}" id="simple-find">공고 찾기</button>
-        ${chosen ? '<button class="button secondary" id="simple-change-notice">다른 공고로</button>' : ''}</div></div>
+      <p class="muted">공고를 얻는 길은 두 가지입니다. 어느 쪽이든 고른 뒤에는 분석이 자동으로 돌아갑니다.</p>
+      <div class="sheet-pick" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr));grid-auto-flow:column">
+        <button id="simple-find"><div><b>① 모아 둔 공고에서 찾기</b><small>사랑의열매·건강가정진흥원·부스러기사랑나눔회·나라장터 등에서 모아 둔 공고를 검색해 고릅니다.</small></div></button>
+        <button data-open-sheet="notice"><div><b>② 내가 찾은 공고 넣기</b><small>공고 주소·공고문 파일·붙여넣은 본문 — 직접 구해 온 공고로 바로 시작합니다.</small></div></button>
+      </div>
+      ${chosen ? '<div class="actions"><span class="muted">이미 고른 공고가 있습니다.</span><button class="button secondary" id="simple-change-notice">다른 공고로</button></div>' : ''}
     </div>
     ${simpleOrgPanel()}
     <div class="card">
@@ -7086,31 +7151,7 @@ function bind() {
   document.querySelector('#go-to-review')?.addEventListener('click', () => navigateToStep(4));
   document.querySelector('#menu-toggle')?.addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
   const fileInput = document.querySelector('#source-files');
-  if (fileInput) fileInput.onchange = async e => {
-    try {
-      setState({ busy: '파일에서 텍스트를 추출하는 중...', error: '' });
-      const chosen = [...e.target.files];
-      const done = [];
-      const failed = [];
-      for (const file of chosen) {
-        try {
-          const parsed = await extractFile(file);
-          done.push({ ...parsed, characters: parsed.text.length, extracted: true });
-        } catch (error) {
-          // 읽지 못한 파일도 목록에 남긴다. 무엇이 문제였는지 함께 적는다.
-          failed.push({ name: file.name, type: (file.name.split('.').pop() || '').toUpperCase(), size: file.size, characters: 0, tables: 0, extracted: false, reason: String(error?.message || '').replace(`${file.name}: `, '') });
-        }
-      }
-      state.files.push(...done, ...failed);
-      state.sourceText += done.map(v => `\n\n[파일: ${v.name}]\n${v.text}`).join('');
-      setState({
-        busy: '',
-        notice: done.length ? `${done.length}개 파일을 읽었습니다.${failed.length ? ` ${failed.length}개는 읽지 못해 이유를 표시했습니다.` : ''}` : '',
-        error: done.length ? '' : failed.map(item => `${item.name}: ${item.reason}`).join(' / ')
-      });
-    }
-    catch (error) { setState({ busy: '', error: error.message }); }
-  };
+  if (fileInput) fileInput.onchange = e => void addNoticeFiles([...e.target.files]);
   const manualFiles = document.querySelector('#manual-source-files');
   if (manualFiles) manualFiles.onchange = addManualFiles;
   document.querySelector('#add-manual-text')?.addEventListener('click', addManualText);
@@ -7245,6 +7286,16 @@ function bind() {
   document.querySelectorAll('[data-open-sample]').forEach(el => el.onclick = () => openSample(el.dataset.openSample));
   document.querySelector('#close-sample')?.addEventListener('click', closeSample);
   document.querySelector('#import-notice-url')?.addEventListener('click', addMissingNotice);
+  // 「내가 찾은 공고 넣기」 패널. 주소·파일·본문 세 길을 기존 경로에 그대로 잇는다.
+  document.querySelector('#sheet-notice-url')?.addEventListener('input', event => { state.noticeUrlDraft = event.target.value; saveState(); });
+  document.querySelector('#sheet-import-url')?.addEventListener('click', () => { closeSheet(); void addMissingNotice(); });
+  const sheetFile = document.querySelector('#sheet-notice-file');
+  if (sheetFile) sheetFile.onchange = () => { const files = [...(sheetFile.files || [])]; closeSheet(); if (files.length) void addNoticeFiles(files); };
+  document.querySelector('#sheet-notice-text')?.addEventListener('input', event => { state.sourceText = event.target.value; saveState(); });
+  document.querySelector('#sheet-notice-save')?.addEventListener('click', () => {
+    if (state.sourceText.trim().length < 30) return setState({ error: '공고문을 30자 이상 붙여넣어 주세요.' });
+    setState({ sheet: null, notice: '붙여넣은 공고문으로 진행합니다. 이어서 하고 싶은 사업을 적어 주세요.', error: '' });
+  });
   document.querySelectorAll('[data-notice-content]').forEach(panel => { panel.style.display = 'none'; });
   // 목차 줄 펼치기·접기. 어느 줄을 열어 두었는지만 기억한다.
   document.querySelectorAll('[data-notice-row]').forEach(el => el.onclick = () => {
