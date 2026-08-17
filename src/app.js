@@ -3985,7 +3985,42 @@ function nextStepBar(overview) {
 // ---------- 옆에서 밀려 들어오는 패널 ----------
 // 화면을 갈아치우지 않고 덮는다. 뒤 화면이 남아 있어야 어디에 있었는지를 잃지 않는다.
 // 세로 스크롤 방식은 그대로 두고, 눌렀을 때만 이 패널이 옆에서 나온다.
-const SHEETS = { export: exportSheet };
+// 패널 목록. 화면에 늘어놓던 카드를 이 안으로 옮긴다. 카드를 만드는 함수는 그대로 쓴다.
+// 늘 같은 자리에 같은 것이 있어야 화면을 익힐 수 있다. 상태에 따라 카드가 나타났다 사라지면 매번 처음 보는 화면이 된다.
+const SHEETS = {
+  export: exportSheet,
+  package: () => ({ title: '제출서류 한 벌', lead: '지금 버전이 제출 가능한지, 무엇을 함께 내야 하는지 봅니다.', body: submissionPackageView() || '<p class="muted">계획서를 먼저 작성해 주세요.</p>' }),
+  review: () => ({ title: '정밀 검증', lead: '확정된 기준과만 대조합니다. 검증으로 계획서를 바꾸지 않습니다.', body: preciseReviewView() || '<p class="muted">검증할 계획서가 없습니다.</p>' }),
+  tables: () => ({ title: '필수 표', lead: '예산·대상·일정 같은 표를 여기서 채웁니다.', body: proposalTablesView() || '<p class="muted">아직 만든 표가 없습니다.</p>' }),
+  // V1 → 검증 → 수정계획 → V2 → 남은 확인 필요는 한 흐름이다. 갈라 두면 이야기가 끊긴다.
+  progress: () => ({ title: '진행 상태와 이력', lead: 'V1 원문은 보존하고 수정본은 새 버전으로만 쌓입니다.', body: `${proposalPipelineView()}${decisionCenterView()}${draftBlueprintCheckView()}${revisionPlanView()}` || '<p class="muted">아직 이력이 없습니다.</p>' }),
+  checks: () => ({ title: '자동 점검 결과', lead: '공고 조건·조립 상태와 어긋난 곳만 모았습니다.', body: `${submissionGateView()}${assemblyCheckView()}` || '<p class="muted">점검할 내용이 없습니다.</p>' }),
+  design: () => ({ title: '작성 과정', lead: '공고 분석·설계·질문은 숨길 뿐 생략하지 않습니다.', body: `${strategyView()}${designQuestionsView()}${stagedGenerationView()}` || '<p class="muted">아직 진행한 과정이 없습니다.</p>' })
+};
+// 감춘 것에는 표시를 남긴다. 감추기만 하면 있는 줄도 모른다.
+function sheetBadge(count, tone = '확인-필요') {
+  return count ? `<span class="status ${tone}" style="margin-left:6px">${count}</span>` : '';
+}
+// 작성 화면의 고정 도구띠. 상태에 따라 사라지지 않고 늘 같은 자리에 있다.
+function documentToolbelt() {
+  const summary = currentSubmissionPackage();
+  const blockers = (summary?.blockers || []).length;
+  const warnings = (summary?.warnings || []).length;
+  const marks = openMarkCount();
+  const tables = (state.proposalTables || []).length;
+  const versions = (state.proposalVersions || []).length;
+  const issues = state.preciseReview?.summary?.total || 0;
+  const item = (sheet, label, badge) => `<button class="button secondary" data-open-sheet="${sheet}">${label}${badge}</button>`;
+  return `<div class="doc-toolbelt">
+    ${item('package', '제출서류', sheetBadge(blockers || warnings, blockers ? '부족' : '부분-충족'))}
+    ${item('checks', '자동 점검', sheetBadge(marks, marks ? '확인-필요' : ''))}
+    ${item('review', '정밀 검증', sheetBadge(issues))}
+    ${item('tables', '필수 표', sheetBadge(tables, '충족'))}
+    ${item('progress', '이력·수정', sheetBadge(versions, '충족'))}
+    ${item('design', '작성 과정', '')}
+    <button class="button secondary" data-open-sheet="export">받기 ↗</button>
+  </div>`;
+}
 function openSheet(kind, payload = null) {
   if (!SHEETS[kind]) return;
   setState({ sheet: { kind, payload }, notice: '', error: '' });
@@ -5656,10 +5691,11 @@ function documentView() {
   const toolbarActions = completionMode
     ? `${sampleButton('final', '[샘플] 완성본 보기')}<button class="button secondary" id="save-proposal-archive">계획서보관함에 저장</button><button class="button secondary" id="proposal-review">${state.reviewResult ? '명시적으로 재검토' : '심사 검토·고도화'}</button><button class="button secondary" id="print">인쇄</button><button class="button secondary" id="pdf">PDF 인쇄·저장</button><button class="button primary" id="docx">검토용 DOCX</button>`
     : `${sampleButton('draftV1', '[샘플] V1 보기')}<button class="button secondary" id="save-proposal-archive">계획서보관함에 저장</button><button class="button primary" id="go-to-review">검토·완성으로 이동 →</button>`;
-  return `${strategy}${questions}${completionPanelView()}${submissionGateView()}${submissionPackageView()}${preciseReviewView()}${proposalTablesView()}${proposalPipelineView()}${decisionCenterView()}${draftBlueprintCheckView()}${assemblyCheckView()}<div class="document-toolbar"><div><h2>${escapeHtml(state.project.title || '사업계획서 검토본')}</h2><p><span class="mode">신청기관 ${escapeHtml(selectedApplicant()?.name || '미선택')}</span> ${(state.proposalVersions || [])[0]?.source === EXTERNAL_SOURCE ? '<span class="mode">외부 계획서 작업본 · 원본 보존</span> ' : ''}<span class="mode">${state.selectedNotice?.officialTextExtracted ? '공고문 반영 초안' : '안내 페이지 기반 임시 초안'}</span> <span class="mode ${state.aiMode === 'ai' ? 'ai' : ''}">${state.aiMode === 'ai' ? 'AI 정밀 사업설계' : '로컬 사실 추출'}</span> ${completionMode ? '심사 검토와 출력 전 최종 편집을 진행하세요. DOCX는 공식 신청서 양식이 아닌 검토본입니다.' : '필요한 질문을 확인하고 초안을 편집하세요.'}</p></div><div>${toolbarActions}</div></div>
+  // 카드를 늘어놓지 않는다. 늘 같은 자리에 도구띠를 두고, 각 카드는 눌렀을 때 옆에서 나온다.
+  // 지금 무엇이 걸려 있는지는 도구띠의 숫자로 알린다.
+  return `${completionPanelView()}${documentToolbelt()}<div class="document-toolbar"><div><h2>${escapeHtml(state.project.title || '사업계획서 검토본')}</h2><p><span class="mode">신청기관 ${escapeHtml(selectedApplicant()?.name || '미선택')}</span> ${(state.proposalVersions || [])[0]?.source === EXTERNAL_SOURCE ? '<span class="mode">외부 계획서 작업본 · 원본 보존</span> ' : ''}<span class="mode">${state.selectedNotice?.officialTextExtracted ? '공고문 반영 초안' : '안내 페이지 기반 임시 초안'}</span> <span class="mode ${state.aiMode === 'ai' ? 'ai' : ''}">${state.aiMode === 'ai' ? 'AI 정밀 사업설계' : '로컬 사실 추출'}</span> ${completionMode ? '심사 검토와 출력 전 최종 편집을 진행하세요. DOCX는 공식 신청서 양식이 아닌 검토본입니다.' : '필요한 질문을 확인하고 초안을 편집하세요.'}</p></div><div>${toolbarActions}</div></div>
     ${completionMode ? finalSubmissionView() : ''}
     ${completionMode ? proposalReviewView() : ''}
-    ${revisionPlanView()}
     <div class="editor-layout" id="proposal-body" tabindex="-1"><aside class="outline">${state.sections.map((s, i) => `<a href="#section-${i}"><span>${i + 1}</span>${escapeHtml(s.title.replace(/^\d+[.)]?\s*/, ''))}</a>`).join('')}</aside><div class="paper">${state.sections.map((s, i) => `<section id="section-${i}" class="doc-section"><div class="section-head"><input data-section-title="${i}" value="${escapeHtml(s.title)}"><span class="status ${s.status?.replace(' ', '-')}">${escapeHtml(s.status || '검토 필요')}</span></div><textarea data-section-content="${i}">${escapeHtml(s.content)}</textarea><div class="section-meta"><span>근거 ${s.citations?.length || 0}개</span><span><button data-confirm-fact="${i}">회사 정보로 확정 저장</button><button data-rewrite="${i}">이 항목 재작성</button></span></div>${sectionCoachingView(s)}${s.citations?.length ? `<details><summary>반영한 원문 근거</summary>${s.citations.map(id => { const r = (state.analysis?.requirements || []).find(v => v.id === id); return r ? `<blockquote>${escapeHtml(r.evidence)} <small>${escapeHtml(r.location)}</small></blockquote>` : ''; }).join('')}</details>` : ''}</section>`).join('')}</div></div>`;
 }
 

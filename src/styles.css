@@ -747,3 +747,11 @@ select{max-width:100%}
 @media(prefers-reduced-motion:reduce){
   .sheet,.sheet-scrim{animation:none}
 }
+
+/* 작성 화면의 고정 도구띠. 상태에 따라 사라지지 않고 늘 같은 자리에 있다.
+   감춘 카드는 여기 숫자로 존재를 알린다. 감추기만 하면 있는 줄도 모른다. */
+.doc-toolbelt{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 18px;padding:12px 14px;
+  background:#fff;border:1px solid var(--line,#e8dfd4);border-radius:12px;position:sticky;top:0;z-index:5}
+.doc-toolbelt .button{display:inline-flex;align-items:center}
+.doc-toolbelt .status{font-size:10.5px;padding:2px 6px}
+@media(max-width:600px){.doc-toolbelt{position:static}}

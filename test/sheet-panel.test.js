@@ -57,3 +57,29 @@ test('좁은 화면에서는 옆이 아니라 아래에서 올라오고, 움직�
   // 패널 안에서만 스크롤한다. 뒤 화면의 세로 스크롤 방식은 그대로 둔다.
   assert.match(css, /\.sheet-body\{flex:1;overflow:auto/);
 });
+
+test('작성 화면은 카드를 늘어놓지 않고 고정 도구띠 하나만 둔다', () => {
+  const view = app.slice(app.indexOf('function documentView()'), app.indexOf('// 검증·코칭에서 전달받은 수정 요청'));
+  // 본문 바로 위에 도구띠가 있고, 카드는 도구띠 뒤 패널로 들어갔다.
+  assert.match(view, /\$\{completionPanelView\(\)\}\$\{documentToolbelt\(\)\}/);
+  for (const card of ['submissionPackageView()', 'preciseReviewView()', 'proposalTablesView()', 'proposalPipelineView()', 'decisionCenterView()', 'assemblyCheckView()']) {
+    assert.ok(!view.includes(`\${${card}}`), `${card}가 아직 화면에 늘어서 있다`);
+  }
+  // 카드를 만드는 함수는 지우지 않는다. 패널이 그대로 불러 쓴다.
+  for (const card of ['submissionPackageView()', 'preciseReviewView()', 'proposalTablesView()', 'proposalPipelineView()']) {
+    assert.ok(app.includes(card), `${card}가 사라졌다`);
+  }
+});
+
+test('감춘 것은 도구띠의 숫자로 알린다', () => {
+  const belt = app.slice(app.indexOf('function documentToolbelt()'), app.indexOf('// 「받기」 한 자리'));
+  assert.match(belt, /sheetBadge\(blockers \|\| warnings, blockers \? '부족' : '부분-충족'\)/);
+  assert.match(belt, /sheetBadge\(marks, marks \? '확인-필요' : ''\)/);
+  for (const sheet of ['package', 'checks', 'review', 'tables', 'progress', 'design', 'export']) {
+    assert.ok(belt.includes(`'${sheet}'`) || belt.includes(`"${sheet}"`), `도구띠에 ${sheet}가 없다`);
+    // 도구띠가 부르는 패널은 모두 실제로 등록되어 있어야 한다.
+    assert.match(app, new RegExp(`\\n  ${sheet}:`), `${sheet} 패널이 등록되지 않았다`);
+  }
+  // 숫자가 0이면 표시를 붙이지 않는다. 빈 배지가 늘어서면 그것도 소음이다.
+  assert.match(app, /function sheetBadge\(count, tone = '확인-필요'\) \{\s*\n\s*return count \?/);
+});
