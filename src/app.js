@@ -3177,7 +3177,7 @@ function setState(patch) {
 function trackActivity(patch, previousStep) {
   if (auth.status !== 'signedIn' || auth.user?.status !== 'active') return;
   if (Number.isInteger(patch.step) && patch.step !== previousStep) void reportStep(patch.step);
-  if (patch.error) void reportError(state.step, patch.error);
+  if (patch.error) void reportError(state.step, patch.error, patch.errorFrom || '');
 }
 function setAiBusy(message, patch = {}, taskId = '') {
   busyStartedAt = Date.now();
@@ -8947,7 +8947,7 @@ async function downloadFormFilled() {
     await exportDocx(state.project, laid.sections, { tables: laid.tables, suffix: '서식대로' });
     noteDownload('검토본', '서식대로 DOCX', fillSummary(laid));
   } catch (error) {
-    setState({ busy: '', error: `서식대로 만들지 못했습니다. ${String(error?.message || '').slice(0, 60)}` });
+    setState({ busy: '', error: `서식대로 만들지 못했습니다. ${String(error?.message || '').slice(0, 60)}`, errorFrom: 'export-form' });
   }
 }
 
@@ -8960,7 +8960,7 @@ function downloadProposalHwpx() {
     downloadBlob(blob, `${String(state.project.title || '사업계획서').replace(/[\/:*?"<>|]/g, ' ').trim().slice(0, 80)}_검토용.hwpx`);
     noteDownload('검토본', 'HWPX', '한글 2014 이상에서 열립니다. 표 서식이 그대로 필요하면 DOCX를 쓰세요.');
   } catch (error) {
-    setState({ error: `한글 파일을 만들지 못했습니다. ${String(error?.message || '').slice(0, 60)}` });
+    setState({ error: `한글 파일을 만들지 못했습니다. ${String(error?.message || '').slice(0, 60)}`, errorFrom: 'export-hwpx' });
   }
 }
 
@@ -8974,7 +8974,7 @@ async function downloadProposalPdf() {
     });
     noteDownload('검토본', 'PDF');
   } catch (error) {
-    setState({ busy: '', error: String(error?.message || 'PDF를 만들지 못했습니다.') });
+    setState({ busy: '', error: String(error?.message || 'PDF를 만들지 못했습니다.'), errorFrom: 'export-review' });
   }
 }
 
