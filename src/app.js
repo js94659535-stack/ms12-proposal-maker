@@ -1,4 +1,4 @@
-import { analyzeWithAI, coreProposalWithAI, diagnoseWithAI, draftPartWithAI, draftWithAI, finalizeWithAI, fullProposalWithAI, masterWithAI, patchSectionsWithAI, preciseReviewWithAI, proposalJobs, rewriteWithAI, setUsageProposalId } from './api.js';
+import { regionBriefWithAI, analyzeWithAI, coreProposalWithAI, diagnoseWithAI, draftPartWithAI, draftWithAI, finalizeWithAI, fullProposalWithAI, masterWithAI, patchSectionsWithAI, preciseReviewWithAI, proposalJobs, rewriteWithAI, setUsageProposalId } from './api.js';
 import { EXAMPLE_NOTE, EXAMPLE_POINTS, EXAMPLE_SECTIONS, EXAMPLE_SUMMARY, EXAMPLE_TITLE } from './example-plan.js';
 import { extractFile, extractFiles } from './files.js';
 import { localAnalyze } from './fallback.js';
@@ -60,6 +60,7 @@ import { PROPOSAL_MODES, applyPatchedSections, buildReviewBasis, normalizeReview
 import { buildSubmissionPackage, sectionsFingerprint } from './submission-package.js';
 import { nextAfterDownload } from './after-download.js';
 import { buildWritingPipeline } from './writing-pipeline.js';
+import { INDICATORS, INDICATOR_KINDS, derivedFigures, emptySurvey, filledIndicators, openIndicators } from '../server/region-indicators.js';
 import { ENGAGEMENT_STAGES, PROPOSAL_OUTLINE, buildDocumentPlan, buildEngagement, canGenerateProposal, designSnapshotStale, designStatus, makeClient, makeDesignApproval, makeNoticeRequest, normalizeEngagement } from './engagement.js';
 import { EXTERNAL_SOURCE, appendProposalVersion, findVersionById, normalizeProposalVersions, resolveSavedVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, matchSectionsForIssue, proposalTextFromSections, proposalTextFromSnapshot, revisionInstruction, sectionsFromProposalText, verifyLockedValues } from './coaching-handoff.js';
 import { splitApplicantProfile } from './applicants.js';
@@ -131,7 +132,7 @@ const initial = {
   // 서버가 붙여 준 근거 검증·평가자 검토. 화면은 판정하지 않고 그대로 보여 준다.
   serverGuard: null, serverEvidence: null, evaluatorReview: null, proposalVersions: [], proposalFlow: { status: '', baselineVersion: 0, reviewTarget: null, rounds: [], requests: [], requestOpen: false, requestText: '', requestScope: [], openVersion: 0, compareVersion: 0, approvedVersion: 0, approvedAt: '' }, coachingSelection: [], applicantSkipped: false, noticeLogic: null, redesignForContract: false,
   // 「사업계획서 의뢰 건」 한 건의 고객 담당자와 공고 요청서. 기관 영구정보와 섞지 않는다.
-  engagement: { client: makeClient(), request: makeNoticeRequest(), design: makeDesignApproval(), view: 'customer', mode: '표준형' }, proposalTables: [], preciseReview: null, submissionIncluded: [], currentVersionId: '', attachmentLinks: {}, submissionZip: null, lastDownload: null, sheet: null, exportCopy: '검토본',
+  engagement: { client: makeClient(), request: makeNoticeRequest(), design: makeDesignApproval(), view: 'customer', mode: '표준형' }, proposalTables: [], preciseReview: null, submissionIncluded: [], currentVersionId: '', attachmentLinks: {}, submissionZip: null, lastDownload: null, sheet: null, exportCopy: '검토본', regionSurvey: null, regionBrief: null,
   analysis: null, sponsorIntent: null, projectDesign: null, missingInformation: [], evidenceMap: [], qualityCheck: null, designAnswers: {}, designUnavailable: false, stagedGeneration: { phase: 'idle', master: null, parts: [], completedGroupIds: [], continuitySummary: null, timeline: [], calls: {}, stoppedAt: '', failedGroupId: '' }, assemblyCheck: null, archiveProposalId: '', archiveNotices: [], archiveProposals: [], archiveFilters: { institution: '', from: '', to: '', keyword: '' }, archiveTable: { query: '', sortKey: 'collectedAt', sortDir: 'desc', page: 1, pageSize: 0, selected: [], expandedKey: '', applicantPickerKey: '', filters: { collected: '', institution: '', field: '', status: '', applicant: '', deadline: '' } }, archiveNoticeLinks: {}, archiveHiddenNotices: [], archiveOpenProposal: '', sampleStage: '', sampleReturn: '', aiResult: null, archiveKeyDraft: '', manualSources: [], manualSourceType: SOURCE_TYPES[0], manualSourceName: '', manualSourceText: '', matches: [], answers: [], sections: [], reviewResult: null, reviewOriginalDraft: null, reviewFingerprint: '', reviewBusy: false, companyFacts: [], companyFactDraft: '', noticeResults: [], noticeSources: [], noticeTrash: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', selectedNotice: null, busy: '', notice: '', error: '', aiMode: ''
 };
 let state = loadState();
@@ -3998,6 +3999,9 @@ const SHEETS = {
   checks: () => ({ title: '자동 점검 결과', lead: '공고 조건·조립 상태와 어긋난 곳만 모았습니다.', body: `${submissionGateView()}${assemblyCheckView()}` || '<p class="muted">점검할 내용이 없습니다.</p>' }),
   // 파이프라인을 맨 위에 두어 「지금 어디」를 먼저 읽게 한다. 그 아래가 그 자리의 내용이다.
   design: () => ({ title: '작성 과정', lead: '공고 분석·설계·질문은 숨길 뿐 생략하지 않습니다.', body: `${pipelineBar()}${strategyView()}${designQuestionsView()}${stagedGenerationView()}` }),
+  // 지역 조사표. 계획서 「지역 현황」에 들어갈 값을 여기서 모은다.
+  // 지표마다 어디서 어떻게 받는지 적어 두었고, 채운 값만으로 AI가 문단을 쓴다.
+  region: () => ({ title: '지역 조사표', lead: '지역 수치를 모아 두면 계획서 「지역 현황」을 그 값으로만 씁니다.', body: regionSurveyView() }),
   // 내가 찾은 공고를 직접 넣는 길. 주소·파일·본문 셋 다 이 자리에서 받는다.
   notice: () => ({
     title: '내가 찾은 공고 넣기',
@@ -4047,6 +4051,94 @@ async function addNoticeFiles(chosen = []) {
   catch (error) { setState({ busy: '', error: error.message }); }
 }
 
+// ---------- 지역 조사표 ----------
+// 계획서에서 가장 자주 비는 자리가 지역 수치다. 값을 몰라서가 아니라 어디서 받는지를 몰라서 빈다.
+// 그래서 지표마다 출처·받는 방법을 함께 두고, 채운 값만으로 문단을 쓰게 한다.
+function regionSurvey() {
+  return { ...emptySurvey(), ...(state.regionSurvey || {}) };
+}
+function setRegionValue(key, field, value) {
+  const survey = regionSurvey();
+  const entry = { ...(survey.values[key] || {}), [field]: value };
+  setState({ regionSurvey: { ...survey, values: { ...survey.values, [key]: entry }, updatedAt: new Date().toISOString() } });
+}
+const KIND_TONE = { auto: '충족', download: '부분-충족', request: '확인-필요' };
+function regionSurveyView() {
+  const survey = regionSurvey();
+  const filled = filledIndicators(survey);
+  const derived = derivedFigures(survey);
+  const brief = state.regionBrief;
+  const groups = [...new Set(INDICATORS.map(item => item.group))];
+  return `<div class="card">
+      <div class="card-title"><div><h3>조사 지역</h3><span>이 지역 기준으로 값을 모읍니다</span></div>
+        <span class="status ${filled.length ? '충족' : '확인-필요'}">${filled.length} / ${INDICATORS.length}</span></div>
+      <div class="inline-row"><input id="region-survey-name" value="${escapeHtml(survey.region || '')}" placeholder="예: 광주 5개 자치구(동구·서구·남구·북구·광산구)"></div>
+      <p class="muted">행정구역 명칭이 바뀐 지역은 <b>공고가 쓰는 이름</b>을 그대로 적으세요. 계획서와 공고의 지역 이름이 다르면 심사자가 확인해야 합니다.</p></div>
+    ${groups.map(group => `<div class="card"><div class="card-title"><div><h3>${escapeHtml(group)}</h3></div></div>
+      <div class="requirement-list">${INDICATORS.filter(item => item.group === group).map(item => {
+    const entry = survey.values[item.key] || {};
+    return `<article class="requirement"><div><span class="status ${KIND_TONE[item.kind]}">${escapeHtml(INDICATOR_KINDS[item.kind])}</span>
+        <div><strong>${escapeHtml(item.label)}</strong><small class="muted">${escapeHtml(item.why)}</small></div></div>
+        <div class="two-col" style="margin:8px 0 0">
+          <div class="field"><label for="rv-${item.key}">값 (${escapeHtml(item.unit)})</label>
+            <input id="rv-${item.key}" data-region-value="${item.key}" value="${escapeHtml(entry.value || '')}" placeholder="확인한 값"></div>
+          <div class="field"><label for="ra-${item.key}">기준 시점</label>
+            <input id="ra-${item.key}" data-region-asof="${item.key}" value="${escapeHtml(entry.asOf || '')}" placeholder="예: 2025-12-31"></div>
+        </div>
+        <p class="muted"><b>어디서:</b> ${escapeHtml(item.source)}<br><b>어떻게:</b> ${escapeHtml(item.how)}</p>
+        <div class="actions" style="margin:6px 0 0"><span></span><div>
+          ${item.link ? `<a class="button secondary" href="${escapeHtml(item.link)}" target="_blank" rel="noopener noreferrer">출처 열기 ↗</a>` : ''}
+          ${item.kind === 'auto' ? '<button class="button secondary" id="region-auto-population">앱으로 조회</button>' : ''}
+        </div></div></article>`;
+  }).join('')}</div></div>`).join('')}
+    ${derived.length ? `<div class="card"><div class="card-title"><div><h3>확인된 값에서 계산되는 것</h3><span>두 값이 모두 있을 때만 나옵니다</span></div></div>
+      <div class="summary-grid">${derived.map(item => `<div><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(item.value)}</strong><small>${escapeHtml(item.basis)}</small></div>`).join('')}</div></div>` : ''}
+    <div class="card"><div class="card-title"><div><h3>지역 현황 문단 만들기</h3><span>채운 값만 근거로 씁니다</span></div></div>
+      <p class="muted">조사표에 없는 수치는 문장에 넣지 않고 <b>[확인 필요]</b>로 남깁니다. 다 쓴 뒤 문장에 나온 숫자가 조사표에 있는 값인지 다시 대조합니다.</p>
+      <div class="actions"><span class="muted">${filled.length ? `근거 ${filled.length}건으로 씁니다.` : '아직 채운 값이 없습니다. 하나라도 채운 뒤에 쓰는 편이 낫습니다.'}</span>
+        <button class="button primary" id="region-brief-run" ${state.busy ? 'disabled' : ''}>AI로 지역 현황 쓰기</button></div>
+      ${brief ? regionBriefResultView(brief) : ''}</div>`;
+}
+function regionBriefResultView(brief) {
+  const check = brief.verification;
+  return `${check && !check.ok ? `<div class="alert danger"><strong>조사표에 없는 수치가 있습니다</strong><p>${escapeHtml(check.reason)}</p>
+      <p class="muted">그대로 쓰지 마세요. 해당 값을 조사표에 채운 뒤 다시 쓰거나, 그 문장을 지우고 [확인 필요]로 두세요.</p></div>`
+    : '<div class="alert success"><strong>문장에 쓰인 수치가 모두 조사표 값과 맞습니다</strong></div>'}
+    ${(brief.paragraphs || []).map(item => `<div class="card" style="margin-top:10px"><div class="card-title"><div><h4>${escapeHtml(item.heading)}</h4>
+      <span>${(item.basis || []).length ? `근거 ${item.basis.map(key => escapeHtml(INDICATORS.find(one => one.key === key)?.label || key)).join(' · ')}` : '수치 없이 쓴 문단'}</span></div></div>
+      <p style="white-space:pre-wrap">${escapeHtml(item.text)}</p></div>`).join('')}
+    ${(brief.openItems || []).length ? `<details open style="margin-top:10px"><summary>아직 받아야 하는 값 ${brief.openItems.length}건</summary>
+      <div class="requirement-list">${brief.openItems.map(item => `<article class="requirement"><div><span class="status 확인-필요">필요</span>
+        <div><strong>${escapeHtml(item.what)}</strong><small class="muted">${escapeHtml(item.where)}</small></div></div></article>`).join('')}</div></details>` : ''}
+    <div class="actions"><span class="muted">계획서 「사업 필요성」 자리에 넣습니다.</span>
+      <button class="button primary" id="region-brief-apply">이 문단을 계획서에 넣기</button></div>`;
+}
+async function runRegionBrief() {
+  if (aiBusy('이미 쓰고 있습니다')) return;
+  const survey = regionSurvey();
+  setAiBusy('지역 현황을 쓰는 중...', { error: '', notice: '' });
+  try {
+    const result = await regionBriefWithAI({
+      regionBrief: {
+        region: survey.region, survey,
+        projectTitle: state.project.title || '', target: (state.projectValues || []).find(item => item.key === 'target')?.value || '',
+        noticeProblem: state.noticeLogic?.structure?.fields?.find(item => item.title === '해결하려는 문제')?.evidence?.[0]?.sentence || ''
+      }
+    });
+    setState({ busy: '', regionBrief: result, notice: result.verification?.ok === false ? '문장에 조사표에 없는 수치가 있습니다. 확인해 주세요.' : '지역 현황 문단을 썼습니다.' });
+  } catch (error) { setState({ busy: '', error: error.message }); }
+}
+// 쓴 문단을 계획서 본문으로 옮긴다. 기존 항목을 지우지 않고 「사업 필요성」 자리에 넣는다.
+function applyRegionBrief() {
+  const brief = state.regionBrief;
+  if (!brief?.paragraphs?.length) return setState({ error: '먼저 지역 현황 문단을 만들어 주세요.' });
+  const text = brief.paragraphs.map(item => `${item.heading}\n${item.text}`).join('\n\n');
+  const index = state.sections.findIndex(item => /필요성/.test(item.title));
+  if (index < 0) return setState({ error: '계획서에 「사업 필요성」 항목이 없습니다. 계획서를 먼저 만들어 주세요.' });
+  const sections = state.sections.map((item, position) => position === index ? { ...item, content: `${item.content}\n\n${text}`.trim(), status: '확인 필요' } : item);
+  setState({ sections, sheet: null, notice: '지역 현황을 「사업 필요성」에 넣었습니다. 내용을 읽고 다듬어 주세요.', error: '' });
+}
+
 // 지금 어디까지 왔는지. 배지와 패널이 같은 값을 쓴다.
 function currentPipeline() {
   return buildWritingPipeline({
@@ -4085,6 +4177,7 @@ function documentToolbelt() {
     ${item('review', '정밀 검증', sheetBadge(issues))}
     ${item('tables', '필수 표', sheetBadge(tables, '충족'))}
     ${item('progress', '이력·수정', sheetBadge(versions, '충족'))}
+    ${item('region', '지역 조사표', sheetBadge(filledIndicators(regionSurvey()).length, '충족'))}
     ${item('design', '작성 과정', '')}
     <button class="button secondary" data-open-sheet="export">받기 ↗</button>
   </div>`;
@@ -5676,6 +5769,7 @@ function simpleResultActions() {
     <button class="button secondary" data-open-sheet="revise" ${guard(left.total ? '' : 'AI 수정 2회를 모두 썼습니다. 직접 편집은 계속할 수 있습니다.')}>수정 요청${sheetBadge(left.total, '충족')}</button>
     ${currentFormSpec() ? '<button class="button secondary" data-open-sheet="form">올린 서식</button>' : ''}
     ${jobs ? `<button class="button secondary" data-open-sheet="jobs">AI 작업${sheetBadge(jobs, '충족')}</button>` : ''}
+    <button class="button secondary" data-open-sheet="region">지역 조사표${sheetBadge(filledIndicators(regionSurvey()).length, '충족')}</button>
     <button class="button secondary" data-open-sheet="design">작성 과정</button>
     <button class="button secondary" id="save-proposal-archive">저장${saved ? ' 완료' : ''}</button>
     <button class="button primary" data-open-sheet="export">받기 ↗</button>
@@ -7288,6 +7382,13 @@ function bind() {
   document.querySelector('#import-notice-url')?.addEventListener('click', addMissingNotice);
   // 「내가 찾은 공고 넣기」 패널. 주소·파일·본문 세 길을 기존 경로에 그대로 잇는다.
   document.querySelector('#sheet-notice-url')?.addEventListener('input', event => { state.noticeUrlDraft = event.target.value; saveState(); });
+  // 지역 조사표. 입력한 값은 곧바로 저장하고, 화면을 다시 그리지 않아 입력 중 커서가 튀지 않는다.
+  document.querySelector('#region-survey-name')?.addEventListener('input', event => { state.regionSurvey = { ...regionSurvey(), region: event.target.value }; saveState(); });
+  document.querySelectorAll('[data-region-value]').forEach(el => el.addEventListener('change', () => setRegionValue(el.dataset.regionValue, 'value', el.value)));
+  document.querySelectorAll('[data-region-asof]').forEach(el => el.addEventListener('change', () => setRegionValue(el.dataset.regionAsof, 'asOf', el.value)));
+  document.querySelector('#region-brief-run')?.addEventListener('click', () => void runRegionBrief());
+  document.querySelector('#region-brief-apply')?.addEventListener('click', applyRegionBrief);
+  document.querySelector('#region-auto-population')?.addEventListener('click', () => { closeSheet(); setState({ activeTool: 'account', notice: '통계 조회는 내 정보 화면의 공식 통계 근거 찾기에서 실행합니다.' }); });
   document.querySelector('#sheet-import-url')?.addEventListener('click', () => { closeSheet(); void addMissingNotice(); });
   const sheetFile = document.querySelector('#sheet-notice-file');
   if (sheetFile) sheetFile.onchange = () => { const files = [...(sheetFile.files || [])]; closeSheet(); if (files.length) void addNoticeFiles(files); };

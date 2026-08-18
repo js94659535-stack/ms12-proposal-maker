@@ -22,6 +22,8 @@ export const coreProposalWithAI = payload => request('coreProposal', payload);
 // 선정 가능성 진단서. 구독회원 기능이며 서버가 남은 편수를 확인한다.
 export const diagnoseWithAI = payload => request('diagnosis', payload);
 export const analyzeWithAI = payload => request('analyze', payload);
+// 지역 현황 문단. 조사표에 채운 값만 근거로 쓰고, 없는 수치는 [확인 필요]로 남긴다.
+export const regionBriefWithAI = payload => request('regionBrief', payload);
 export const draftWithAI = payload => request('draft', payload);
 // 설계는 두 걸음으로 나눠 부른다.
 //

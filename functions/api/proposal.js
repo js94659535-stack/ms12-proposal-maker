@@ -5,6 +5,7 @@ import { CORE_PROPOSAL_ACTION, TRIAL_ACTION, TRIAL_SPENT, consumeTrial, hasFullA
 import { DIAGNOSIS_ACTION, QUOTA_SPENT, corePagesFor, membershipOf, membershipRefusal } from '../../server/membership.js';
 import { consumeQuota, loadSubscription, releaseQuota } from '../../server/subscription.js';
 import { DIAGNOSIS_SCHEMA, OUTPUT_TOKENS as DIAGNOSIS_TOKENS, diagnosisPrompt, normalizeDiagnosis, validateDiagnosisInput } from '../../server/diagnosis.js';
+import { OUTPUT_TOKENS as REGION_BRIEF_TOKENS, REGION_BRIEF_ACTION, REGION_BRIEF_SCHEMA, regionBriefPrompt, verifyRegionBrief } from '../../server/region-brief.js';
 import { contractState } from '../../server/premium.js';
 import { MARKS, generalNotes, guardSections, guardText, repetitionReport, sanitizeSourceText } from '../../server/fact-guard.js';
 import { claimTable, claimsFromGuard } from '../../server/evidence.js';
@@ -29,7 +30,7 @@ const LIMITS = Object.freeze({
   rewriteInstructionChars: 4_000,
   analysisChars: 300_000,
   timeoutMs: 300_000,
-  outputTokens: Object.freeze({ analyze: 6_000, master: 12_000, masterDesign: 8_000, masterPlan: 7_000, draftPart: 7_000, draft: 12_000, fullProposal: 20_000, preciseReview: 8_000, patchSections: 10_000, rewrite: 4_000, finalize: 9_000, coreProposal: 5_000 })
+  outputTokens: Object.freeze({ analyze: 6_000, master: 12_000, masterDesign: 8_000, masterPlan: 7_000, draftPart: 7_000, draft: 12_000, fullProposal: 20_000, preciseReview: 8_000, patchSections: 10_000, rewrite: 4_000, finalize: 9_000, coreProposal: 5_000, regionBrief: REGION_BRIEF_TOKENS })
 });
 const ACTIONS = ['jobs', 'analyze', 'master', 'masterDesign', 'masterPlan', 'draftPart', 'draft', 'fullProposal', 'preciseReview', 'patchSections', 'rewrite', 'finalize', CORE_PROPOSAL_ACTION, DIAGNOSIS_ACTION];
 
@@ -346,6 +347,11 @@ export async function onRequest(context) {
         criteria: body.payload?.criteria || [], attachments: body.payload?.attachments || null, sources
       });
     }
+    // 지역 현황은 조사표에 있는 값만 써야 한다. 없는 숫자가 들어왔으면 그대로 내보내지 않는다.
+    if (body.action === REGION_BRIEF_ACTION) {
+      const check = verifyRegionBrief(result, body.payload.regionBrief?.survey || {});
+      result.verification = check;
+    }
     if (body.action === 'analyze') result.analysis.mode = 'ai';
     if (body.action === 'draft' && typeof body.payload.sourceText === 'string') {
       const qualityError = validateEngineResult(result, body.payload);
@@ -586,6 +592,10 @@ const GENERAL_KNOWLEDGE_RULE = `자료에 없는 내용은 두 가지로 나눠 
 - 조사 결과가 필요한 자리에는 없는 결과를 지어내는 대신, [일반 정보]로 알려진 경향을 적고 그 자리에서 무엇을 어떻게 확인하면 되는지(자체 설문, 이용자 면담, 공공 통계 확인 등) 한 문장 덧붙인다.`
 
 export function taskSpecification(action, payload) {
+  // 지역 현황 문단. 조사표에 채운 값만 근거로 쓰고, 빈 자리는 [확인 필요]로 남긴다.
+  if (action === REGION_BRIEF_ACTION) {
+    return { name: 'ms12_region_brief', schema: REGION_BRIEF_SCHEMA, prompt: regionBriefPrompt(payload.regionBrief || {}) };
+  }
   // 선정 가능성 진단서. 계획서를 쓰지 않고 지원 판단에 필요한 것만 정리한다.
   if (action === DIAGNOSIS_ACTION) {
     return { name: 'ms12_diagnosis', schema: DIAGNOSIS_SCHEMA, prompt: diagnosisPrompt(payload.diagnosis) };
