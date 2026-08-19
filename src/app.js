@@ -5299,9 +5299,19 @@ function emptyAssetDraft() {
 }
 const assetList = () => state.ideaAssets || [];
 async function loadIdeaAssets() {
-  const result = await listIdeaAssets().catch(() => ({ ok: false }));
-  if (!result.ok) return setState({ error: result.error || '사업 아이디어를 불러오지 못했습니다.' });
-  setState({ ideaAssets: result.assets || [], ideaAssetsLoaded: true });
+  // 다시 부르지 않겠다는 표시를 조회보다 먼저 세운다. bind 는 렌더마다 돌고
+  // 이 함수는 setState 로 끝나므로, 표시가 늦으면 렌더 → 조회 → setState → 렌더 고리가 된다.
+  // 실제로 그렇게 돌았다 — 화면 전체가 1초마다 갈아끼워져 드롭다운과 커서가 사라졌다.
+  // 판정은 응답의 ok 가 아니라 실패했는지로 한다. 서버는 listAssets 에 ok 를 붙이지 않아
+  // 성공해도 ok 는 undefined 이고, 그것을 실패로 읽은 것이 고리의 시작이었다.
+  // (ok 규약 정리는 별도 작업이다 — docs/archive-ok-contract.md)
+  state.ideaAssetsLoaded = true;
+  try {
+    const result = await listIdeaAssets();
+    setState({ ideaAssets: result.assets || [], ideaAssetsLoaded: true });
+  } catch (error) {
+    setState({ error: error.message || '사업 아이디어를 불러오지 못했습니다.', ideaAssetsLoaded: true });
+  }
 }
 async function submitIdeaAsset() {
   const draft = state.assetDraft || emptyAssetDraft();
