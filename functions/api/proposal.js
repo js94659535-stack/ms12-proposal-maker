@@ -292,8 +292,13 @@ export async function onRequest(context) {
       return json({ jobId: startedId, status: raw?.status || 'queued', pending: true }, 200);
     }
     // 응답이 끝까지 생성되지 않은 경우와 형식 오류를 구분한다. 자동 재시도는 하지 않는다.
-    await noteUsage(raw, true, '');
+    //
+    // 순서가 중요하다. noteUsage가 먼저 돌면 길이에서 끊긴 호출이 사용량 기록에 성공으로 남는다.
+    // 그러면 「출력 상한에 부딪히는 호출이 늘고 있다」를 기록으로 볼 수 없다 —
+    // 정작 그 사건만 안 보인다. 먼저 판정하고 그 결과로 기록한다.
+    // 토큰은 이미 나갔으므로 기록 자체는 건너뛰지 않는다.
     const incomplete = incompleteFailure(raw);
+    await noteUsage(raw, !incomplete, incomplete ? incomplete.failureStage : '');
     if (incomplete) return refund(json(incomplete, 502));
     const outputText = extractOutputText(raw);
     if (!outputText) return refund(json({ error: 'AI 응답에서 결과 본문을 찾지 못했습니다.' }, 502));

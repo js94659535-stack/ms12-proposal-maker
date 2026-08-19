@@ -966,3 +966,17 @@ test('일부 출처만 못 가져온 것은 실패라고 부르지 않는다', (
   // 못 가져온 출처는 그대로 알린다. 감추지 않는다.
   assert.match(source, /공고를 가져오지 못했습니다/);
 });
+
+// 길이에서 끊긴 호출이 사용량 기록에 성공으로 남으면, 「출력 상한에 부딪히는 호출이
+// 늘고 있다」를 기록으로 볼 수 없다. 정작 그 사건만 안 보인다.
+test('잘린 응답을 사용량 기록에 성공으로 남기지 않는다', () => {
+  const api = fs.readFileSync(new URL('../functions/api/proposal.js', import.meta.url), 'utf8');
+  // 판정이 먼저, 기록이 나중이다.
+  assert.match(api, /const incomplete = incompleteFailure\(raw\);\s*\n\s*await noteUsage\(raw, !incomplete, incomplete \? incomplete\.failureStage : ''\);/);
+  // 순서가 뒤집혀 있던 옛 모양이 남아 있으면 안 된다.
+  assert.doesNotMatch(api, /await noteUsage\(raw, true, ''\);\s*\n\s*const incomplete/);
+  // 토큰은 이미 나갔으므로 기록 자체를 건너뛰지는 않는다.
+  assert.match(api, /await noteUsage\(raw, !incomplete/);
+  // 집계 이름은 그대로 둔다. 바꾸면 기존 기록과 갈린다.
+  assert.match(api, /failureStage: 'output-incomplete'/);
+});
