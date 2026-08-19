@@ -3415,8 +3415,11 @@ function shell(content) {
     </div>`;
 }
 
-function footer({ next = true, back = true, nextLabel = '다음 단계', nextId = 'next' } = {}) {
-  return `<div class="actions">${back && state.step > 0 ? '<button class="button secondary" id="back">이전</button>' : '<span></span>'}${next ? `<button class="button primary" id="${nextId}">${nextLabel} →</button>` : ''}</div>`;
+function footer({ next = true, back = true, nextLabel = '다음 단계', nextId = 'next', hint = '' } = {}) {
+  // 왼쪽 자리는 「이전」이 없을 때 비어 있다. 무엇이 있어야 다음이 준비되는지 그 자리에 적는다.
+  // 버튼은 막지 않는다 — 지금도 검사 없이 넘어가고, 그 동작을 바꾸지 않는다.
+  const left = back && state.step > 0 ? '<button class="button secondary" id="back">이전</button>' : (hint || '<span></span>');
+  return `<div class="actions">${left}${next ? `<button class="button primary" id="${nextId}">${nextLabel} →</button>` : ''}</div>`;
 }
 
 // 홈 대시보드. 작업 화면과 분리된 별도 화면이며 기존 상태·단계 이동만 재사용한다.
@@ -3635,15 +3638,31 @@ function fileReportRow(item, index) {
 }
 
 function noticeImportView() {
+  // 카드 여섯이 나란히 있지만 하는 일은 세 갈래다. 무엇에 값을 넣는지로 갈린다.
+  //   공고 고르기  → state.noticeResults (셋 중 하나만 하면 된다)
+  //   공고문 넣기  → state.sourceText   (업로드와 붙여넣기가 같은 칸이다)
+  //   자료 더하기  → state.manualSources(서식 규격표를 읽는 유일한 통로)
+  // 배치만 그 사실에 맞춘다. 상태·이벤트·판정은 그대로다.
+  const ready = isStepComplete(0);
+  const hint = ready
+    ? '<span class="status 충족">다음 단계 준비됨</span>'
+    : '<span class="muted">공고를 하나 고르거나 공고문을 넣으면 다음이 준비됩니다. 지금도 넘어갈 수는 있습니다.</span>';
   return `${stageHero({ eyebrow: '1단계 · 공고 준비', title: '어떤 공고로 시작할까요?', lead: '공식 공고를 가져오거나 가지고 있는 공고문을 올리면 다음 단계부터 자동으로 이어집니다. 파일은 분석을 요청할 때만 전송됩니다.', actions: sampleButton('notice', '[샘플] 공고 먼저 보기'), routes: [{ title: '중앙회·광주지회 진행 중 공고', desc: '사랑의열매 중앙회·광주지회 진행 중 공고를 조회해 목록으로 가져옵니다.', label: '공고 조회', action: 'fetch' }, { title: 'PDF·DOCX·TXT·HWPX', desc: '공고문·신청서 파일을 읽어 분석 자료로 씁니다.', label: '파일 선택', action: 'upload' }, { title: '전에 가져온 공고 다시 열기', desc: '공고보관함에서 이어서 작업합니다.', label: '공고보관함', action: 'archive' }] })}
     <div class="dense-step">
+    <div class="card-title" style="margin-bottom:4px"><div><h3>묶음 1 · 공고 고르기 <span class="tag">이 중 하나</span></h3>
+      <span>기관에서 가져오거나, 빠진 공고를 주소로 넣거나, 전에 담아 둔 것을 다시 엽니다.</span></div></div>
     <div class="card"><div class="card-title"><div><h3>기관 공고 가져오기</h3><span>사랑의열매 중앙회 · 광주지회</span></div><button class="button primary" id="fetch-notices">공고 가져오기</button></div><p class="muted">${state.noticeResults.length ? `진행 중 공고 ${state.noticeResults.length}건을 가져왔습니다.` : '버튼을 누를 때만 공식 공모사업을 조회합니다.'} 가져온 목록은 <b>이 화면에서만 쓰는 임시 목록</b>이라 새로고침하면 사라지며, 과거 공고는 아래 <b>「공고보관함」</b>에서 다시 열 수 있습니다.</p>${state.noticeResults.length ? '<div class="actions"><span></span><button class="button primary" data-step="1">가져온 공고 확인 →</button></div>' : ''}</div>
+    <details class="card org-details"><summary>누락 공고 URL과 공식 사이트</summary><div class="inline-row"><label for="missing-notice-url">누락 공고 가져오기</label><input id="missing-notice-url" type="url" value="${escapeHtml(state.noticeUrlDraft)}" placeholder="공식 공고 상세 주소"><button class="button secondary" id="import-notice-url">목록에 추가</button></div><div class="inline-row"><a class="button secondary" href="https://chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">중앙회 공식 사이트</a><a class="button secondary" href="https://gwangju.chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">광주지회 공식 사이트</a></div></details>
+    ${archiveView()}
+    <div class="card-title" style="margin:18px 0 4px"><div><h3>묶음 2 · 공고문 넣기 <span class="tag">둘 중 하나</span></h3>
+      <span>파일을 올리든 붙여넣든 <b>같은 칸에 들어갑니다</b>. 둘 다 할 필요는 없습니다.</span></div></div>
     <div class="source-grid"><div class="card" id="notice-upload" tabindex="-1"><div class="card-title"><h3>공고문·신청서 업로드</h3><span>PDF · DOCX · TXT · HWPX · HWP</span></div><label class="dropzone" for="source-files"><strong>파일 선택 또는 여기에 놓기</strong><small>스캔 PDF는 OCR이 필요할 수 있습니다.</small><input id="source-files" type="file" accept=".pdf,.docx,.txt,.hwpx,.hwp" multiple></label><div class="file-list">${state.files.length ? state.files.map(fileReportRow).join('') : '<p class="empty-inline">업로드한 파일이 없습니다.</p>'}</div></div>
     <div class="card"><div class="card-title"><h3>공고문 직접 붙여넣기</h3><span id="char-count">${state.sourceText.length.toLocaleString()}자</span></div><textarea id="source-text" class="source-text" placeholder="기관 공고문 또는 신청서 원문을 붙여넣으세요.">${escapeHtml(state.sourceText)}</textarea></div></div>
-    ${manualSourcesView()}
-    <details class="card org-details"><summary>누락 공고 URL과 공식 사이트</summary><div class="inline-row"><label for="missing-notice-url">누락 공고 가져오기</label><input id="missing-notice-url" type="url" value="${escapeHtml(state.noticeUrlDraft)}" placeholder="공식 공고 상세 주소"><button class="button secondary" id="import-notice-url">목록에 추가</button></div><div class="inline-row"><a class="button secondary" href="https://chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">중앙회 공식 사이트</a><a class="button secondary" href="https://gwangju.chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">광주지회 공식 사이트</a></div></details>
-    ${archiveView()}</div>
-    ${footer({ back: false, nextLabel: state.noticeResults.length ? '공고 확인' : '직접 자료로 계획서 작성', nextId: state.noticeResults.length ? 'next' : 'analyze' })}`;
+    <p class="muted" style="margin:6px 0 0">묶음 1과 2는 서로 대체가 아니라 <b>보완</b>입니다. 공고를 고르고 원문까지 넣으면 분석이 더 정확해집니다.</p>
+    <div class="card-title" style="margin:18px 0 4px"><div><h3>묶음 3 · 자료 더하기 <span class="tag">선택</span></h3>
+      <span>기관 소개서·예산 기준 같은 참고자료입니다. <b>신청서 서식은 이 자리로만 들어갑니다</b> — 여기 없으면 서식 없이 작성됩니다.</span></div></div>
+    ${manualSourcesView()}</div>
+    ${footer({ back: false, hint, nextLabel: state.noticeResults.length ? '공고 확인' : '직접 자료로 계획서 작성', nextId: state.noticeResults.length ? 'next' : 'analyze' })}`;
 }
 
 // 자료보관함. 보관량이 많아도 빠르게 찾도록 「표 + 검색 + 필터」 목록으로 보여 준다.

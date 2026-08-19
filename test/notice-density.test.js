@@ -65,22 +65,50 @@ test('현황 넷은 숫자가 먼저 보이는 작은 배지로 가로 나열된
   assert.match(archive, /title="\$\{escapeHtml\(`\$\{label\} \$\{value\}건 · \$\{detail\}`\)\}"/);
 });
 
-test('보조 영역은 접히고 주요 세 영역은 먼저 보인다', () => {
+test('보조 영역은 접히고 세 묶음이 순서대로 나온다', () => {
   // 직접 자료 추가는 접힌 채로 시작하고 자료가 있으면 펼친다.
   assert.match(manualView, /<details class="card org-details" id="manual-sources" \$\{count \? 'open' : ''\}>/);
   assert.match(manualView, /<summary><b>직접 자료 추가<\/b>\$\{count \? ` · \$\{count\}건` : ''\}/);
-  // 누락 공고 URL도 접힌 보조 영역이다.
+  // 누락 공고 URL도 접힌 보조 영역이다. 공고를 고르는 세 길 가운데 가장 드물게 쓴다.
   assert.match(importView, /<details class="card org-details"><summary>누락 공고 URL과 공식 사이트<\/summary>/);
-  // 주요 세 영역은 접지 않고 순서대로 먼저 나온다.
-  const order = ['기관 공고 가져오기', '공고문·신청서 업로드', '공고문 직접 붙여넣기', 'manualSourcesView()', '누락 공고 URL'];
-  // 히어로 안내 카드에도 같은 문구가 있으므로 밀도 정리 영역부터 본다.
+
+  // 카드 여섯을 하는 일로 묶었다. 1~6 번호를 매기면 「순서대로 다 해야 한다」로 읽히는데
+  // 실제로는 묶음 1의 셋 중 하나, 묶음 2의 둘 중 하나만 하면 되고 묶음 3은 선택이다.
   const body = importView.slice(importView.indexOf('<div class="dense-step">'));
+  const order = [
+    '묶음 1 · 공고 고르기', '기관 공고 가져오기', '누락 공고 URL', 'archiveView()',
+    '묶음 2 · 공고문 넣기', '공고문·신청서 업로드', '공고문 직접 붙여넣기',
+    '묶음 3 · 자료 더하기', 'manualSourcesView()'
+  ];
   let last = -1;
   for (const needle of order) {
     const at = body.indexOf(needle);
     assert.ok(at > last, `${needle} 순서`);
     last = at;
   }
+  // 몇 개를 해야 하는지 묶음 제목이 말한다. 「셋 중 하나」를 안 적으면 셋 다 해야 하는 줄 안다.
+  assert.match(body, /묶음 1 · 공고 고르기 <span class="tag">이 중 하나<\/span>/);
+  assert.match(body, /묶음 2 · 공고문 넣기 <span class="tag">둘 중 하나<\/span>/);
+  assert.match(body, /묶음 3 · 자료 더하기 <span class="tag">선택<\/span>/);
+  // 업로드와 붙여넣기는 같은 state.sourceText에 들어간다. 둘 다 할 필요가 없다고 적는다.
+  assert.match(body, /같은 칸에 들어갑니다/);
+  // 묶음 1과 2는 대체가 아니라 보완이다.
+  assert.match(body, /서로 대체가 아니라 <b>보완<\/b>입니다/);
+  // 서식이 묶음 3으로만 들어온다는 사실도 그 자리에서 말한다.
+  assert.match(body, /신청서 서식은 이 자리로만 들어갑니다/);
+});
+
+test('다음 단계에 무엇이 필요한지 버튼 옆에 적되 막지는 않는다', () => {
+  // 지금도 #next는 검사 없이 넘어간다. 그 동작은 바꾸지 않는다 — 막으면 위험하다.
+  assert.match(app, /document\.querySelector\('#next'\)\?\.addEventListener\('click', \(\) => navigateToStep\(state\.step \+ 1/);
+  // 대신 「이전」이 없어 비어 있던 왼쪽 자리에 안내를 넣는다.
+  assert.match(app, /const left = back && state\.step > 0 \? '<button class="button secondary" id="back">이전<\/button>' : \(hint \|\| '<span><\/span>'\);/);
+  // 준비되면 표시를 바꾸고, 아니면 무엇이 필요한지 적는다.
+  assert.match(importView, /const ready = isStepComplete\(0\);/);
+  assert.match(importView, /다음 단계 준비됨/);
+  assert.match(importView, /공고를 하나 고르거나 공고문을 넣으면 다음이 준비됩니다/);
+  // 넘어갈 수는 있다는 사실을 숨기지 않는다.
+  assert.match(importView, /지금도 넘어갈 수는 있습니다/);
 });
 
 test('공고보관함은 목록을 먼저 보여 주고 상세 필터는 펼쳐서 본다', () => {
