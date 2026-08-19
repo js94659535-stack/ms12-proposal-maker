@@ -229,7 +229,9 @@ test('마감된 공고는 따로 모아 두고 지우지 않는다', () => {
   // 화면: 마감된 공고함이 따로 있고, 몇 건인지 위 상자에도 적는다.
   assert.match(appSource, /function closedArchiveView\(\)/);
   assert.match(appSource, /id="closed-archive-box"/);
-  assert.match(appSource, /\['마감된 공고', archiveTableData\('closed'\)\.total, '아래 「마감된 공고함」에 보관'\]/);
+  // 배지 이름을 「마감」으로 줄이고 안내도 옮긴 자리를 가리키게 바꿨다.
+  // 「목록 + 마감」이 위 요약의 수와 같지 않다 — 목록에는 보기용 샘플이 한 건 더 들어간다.
+  assert.match(appSource, /\['마감', `\$\{archiveTableData\('closed'\)\.total\}건`, '아래 「지난 공고와 내 계획서」에 보관'\]/);
   assert.match(appSource, /마감된 공고로는 새 계획서를 시작하지 않습니다/);
   // 지우는 문장이 없다.
   assert.ok(!/DELETE FROM archived_notices/i.test(appSource));

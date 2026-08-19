@@ -1588,7 +1588,7 @@ function accessPanel() {
         <option value="proposal" ${view.draft.targetKind === 'proposal' ? 'selected' : ''}>지정한 계획서</option></select></div>
     </div>
     ${view.draft.targetKind === 'all' ? '' : `<div class="field"><label for="grant-target-id">대상 식별자</label><input id="grant-target-id" value="${escapeHtml(view.draft.targetId)}" placeholder="회원 또는 계획서 식별자"></div>`}
-    <div class="field"><label>허용할 동작</label><div class="stat-badges">${ABILITIES.map(ability => `<label class="stat-badge" style="gap:6px;cursor:pointer"><input type="checkbox" data-grant-ability="${ability}" ${view.draft.abilities[ability] ? 'checked' : ''}><span>${escapeHtml(ABILITY_LABELS[ability] || ability)}</span></label>`).join('')}</div>
+    <div class="field"><label>허용할 동작</label><div class="stat-badges">${ABILITIES.map(ability => `<label class="stat-badge pickable" style="gap:6px"><input type="checkbox" data-grant-ability="${ability}" ${view.draft.abilities[ability] ? 'checked' : ''}><span>${escapeHtml(ABILITY_LABELS[ability] || ability)}</span></label>`).join('')}</div>
       <small class="muted">원문 열람 없이 수정·내려받기만 줄 수는 없습니다. 서버가 거절합니다.</small></div>
     <div class="two-col">
       <div class="field"><label for="grant-starts">시작일</label><input id="grant-starts" type="date" value="${escapeHtml(view.draft.startsOn)}"></div>
@@ -3873,14 +3873,21 @@ function archiveView() {
   const archiveOpen = state.aiResult?.anchor === '#archive-box';
   // 접혀 있어도 몇 건인지는 보여 준다. 숫자가 없으면 열어 볼 이유를 알 수 없다.
   // 계획서 건수는 여기서 세지 않는다. 계획서보관함은 「지난 공고와 내 계획서」 묶음으로 옮겼다.
-  const archiveCount = (state.archiveNotices || []).length ? `${(state.archiveNotices || []).length}건` : '';
+  //
+  // 이 수는 「불러온 보관 공고 전부」이고, 안쪽 배지의 「목록」은 「지금 표에 뜨는 것」이다.
+  // 둘을 같은 이름으로 부르면 어느 쪽이 맞는지 알 수 없어 이름을 갈랐다.
+  // 안쪽 목록에는 보기용 샘플 공고가 한 건 더 들어가므로 「목록 + 마감」이 이 수와 같지 않다.
+  const archiveCount = (state.archiveNotices || []).length ? `전체 ${(state.archiveNotices || []).length}건` : '';
   return `<details class="card org-details" id="archive-box" ${archiveOpen ? 'open' : ''}><summary class="card-title row-summary"><div><h3>공고보관함${archiveCount ? ` <span class="status 충족">${escapeHtml(archiveCount)}</span>` : ''}</h3><span>가져온 공고는 자동 보관됩니다. 검색·필터로 찾아 원하는 단계로 이동하세요.</span></div><span class="button secondary">공고 검색</span></summary>
     <div class="stat-badges">${[
-      ['보관 공고', data.total, `기관 ${data.institutions.length}곳`],
-      ['검색 결과', data.matched, data.matched ? `${data.from}–${data.to}번 표시` : '조건에 맞는 공고 없음'],
-      ['신청기관 연결', linkedCount, '공고당 여러 기관 연결 가능'],
-      ['마감된 공고', archiveTableData('closed').total, '아래 「마감된 공고함」에 보관']
-    ].map(([label, value, detail]) => `<span class="stat-badge" title="${escapeHtml(`${label} ${value}건 · ${detail}`)}"><strong>${value}</strong><span>${escapeHtml(label)}</span><small>${escapeHtml(detail)}</small></span>`).join('')}</div>
+      // 「보관 공고」와 「검색 결과」를 따로 두면 필터가 없을 때 같은 수가 두 번 나온다.
+      // 걸러진 것이 있을 때만 「N건 중 M건」으로 적는다.
+      ['목록', data.matched === data.total ? `${data.total}건` : `${data.total}건 중 ${data.matched}건`,
+        `마감 전과 기간 미표기를 함께 셉니다 · 기관 ${data.institutions.length}곳${data.matched === data.total ? '' : ` · ${data.from}–${data.to}번 표시`}`],
+      ['신청기관 연결', `${linkedCount}건`, '공고당 여러 기관 연결 가능'],
+      // 「목록」과 더해서 위 요약의 수가 되지 않는다. 샘플 공고가 목록에만 들어가기 때문이다.
+      ['마감', `${archiveTableData('closed').total}건`, '아래 「지난 공고와 내 계획서」에 보관']
+    ].map(([label, value, detail]) => `<span class="stat-badge" title="${escapeHtml(`${label} ${value} · ${detail}`)}"><strong>${value}</strong><span>${escapeHtml(label)}</span><small>${escapeHtml(detail)}</small></span>`).join('')}</div>
     <label class="archive-search-label" for="archive-query">보관 공고 검색</label>
     <div class="archive-toolbar"><input id="archive-query" type="search" name="archive-search" autocomplete="off" autocapitalize="off" spellcheck="false" value="${escapeHtml(table.query)}" placeholder="사업명·기관·분야·지원대상·공고번호로 찾기">
       ${table.query ? `<button class="button secondary" id="archive-clear-query">검색어 지우기</button>` : ''}

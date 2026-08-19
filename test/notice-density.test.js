@@ -41,13 +41,17 @@ test('내용이 없어도 큰 빈 상자가 생기지 않는다', () => {
   assert.match(rule('.dense-step select'), /padding:8px 10px/);
 });
 
-test('현황 넷은 숫자가 먼저 보이는 작은 배지로 가로 나열된다', () => {
+test('현황 배지는 숫자가 먼저 보이고 눌러 보이지 않는다', () => {
   // 큰 카드 넷(.summary-grid)을 이 화면에서는 쓰지 않는다.
   assert.doesNotMatch(archive, /class="summary-grid"/);
   assert.match(archive, /class="stat-badges"/);
-  for (const label of ['보관 공고', '검색 결과', '신청기관 연결', '저장한 계획서']) {
+  // 「보관 공고」와 「검색 결과」를 하나로 합쳤다. 필터가 없으면 같은 수가 두 번 나왔다.
+  for (const label of ['목록', '신청기관 연결', '마감', '저장한 계획서']) {
     assert.ok(archive.includes(`'${label}'`), `${label} 배지`);
   }
+  assert.ok(!archive.includes("'검색 결과'"), '검색 결과를 따로 세지 않는다');
+  // 걸러진 것이 있을 때만 「N건 중 M건」으로 적는다.
+  assert.match(archive, /data\.matched === data\.total \? `\$\{data\.total\}건` : `\$\{data\.total\}건 중 \$\{data\.matched\}건`/);
   // 숫자를 먼저 그린다.
   assert.match(archive, /<strong>\$\{value\}<\/strong><span>\$\{escapeHtml\(label\)\}<\/span>/);
   // 가로로 늘어놓고 좁아지면 줄바꿈한다.
@@ -62,7 +66,16 @@ test('현황 넷은 숫자가 먼저 보이는 작은 배지로 가로 나열된
   // 긴 설명은 배지에서 빼고 도움말로만 남긴다.
   assert.match(rule('.stat-badge small'), /display:none/);
   // 좁은 화면에서 접히는 설명은 배지 제목으로 남겨 둔다.
-  assert.match(archive, /title="\$\{escapeHtml\(`\$\{label\} \$\{value\}건 · \$\{detail\}`\)\}"/);
+  assert.match(archive, /title="\$\{escapeHtml\(`\$\{label\} \$\{value\} · \$\{detail\}`\)\}"/);
+
+  // 27곳 가운데 26곳이 표시 전용인데 흰 바탕에 테두리라 탭처럼 보였다.
+  // 「눌렀는데 안 눌린다」가 그래서 났다. 표시 전용은 테두리를 지우고 바탕을 옅게 깐다.
+  assert.match(rule('.stat-badge'), /border:1px solid transparent/);
+  assert.match(rule('.stat-badge'), /cursor:default/);
+  // 진짜 누르는 한 곳만 눌러 보이게 남긴다.
+  assert.match(rule('.stat-badge.pickable'), /cursor:pointer/);
+  assert.match(rule('.stat-badge.pickable'), /background:#fff/);
+  assert.ok(rule('.stat-badge.pickable:hover'), '누를 수 있으면 손을 올렸을 때 반응한다');
 });
 
 test('보조 영역은 접히고 세 묶음이 순서대로 나온다', () => {
