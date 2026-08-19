@@ -90,31 +90,44 @@ function formSourceName(formSpec) {
 export function formSpecNotice(formSpec = null, attachments = []) {
   const zip = (attachments || []).some(file => /\.zip$/i.test(String(file?.name || '')));
   const items = formSpec?.items || [];
-  // 분량 제한을 실제로 찾은 항목 수. 서식을 읽어도 이게 0이면 분량은 기본값이다.
-  const withLimit = items.filter(item => item.limitChars || item.limitPages).length;
   const fileName = formSourceName(formSpec);
+  const total = PROPOSAL_OUTLINE.length;
 
   if (!items.length || !fileName) {
     return {
-      state: 'none', tone: 'warning',
-      headline: `서식 미인식 — 기본 ${PROPOSAL_OUTLINE.length}개 항목으로 작성됨`,
+      state: 'none', tone: 'warning', applied: 0,
+      headline: `서식 미인식 — 기본 ${total}개 항목으로 작성됨`,
       detail: '공고 서식이 따로 있으면 항목·분량이 다를 수 있습니다.',
       // ZIP은 자동으로 풀지 않는다. 서식이 그 안에 있는데 못 읽었을 수 있다.
       zipHint: zip ? '이 ZIP 안에 서식이 있을 수 있습니다. 내려받아 푼 뒤 사업계획서 서식 파일을 올려 주세요.' : ''
     };
   }
-  if (!withLimit) {
+
+  // 서식을 읽었다고 목차에 반영되는 것이 아니다. applyFormSpecToOutline은 세 조건이
+  // 모두 맞을 때만 적용한다 — 항목 이름이 OUTLINE_MATCH에 걸리고, 그 항목에 글자 수나
+  // 쪽수 제한이 있을 때. 그때 그 항목만 이름과 분량이 서식 것으로 바뀐다.
+  // 그래서 「읽은 항목 수」가 아니라 「실제로 적용된 항목 수」를 세야 사실과 맞는다.
+  const applied = applyFormSpecToOutline(PROPOSAL_OUTLINE, formSpec)
+    .filter(item => item.limitSource === '신청서 서식').length;
+  const tables = (formSpec.tables || []).length;
+  const files = (formSpec.attachments || []).length;
+  const read = [tables ? `필수 표 ${tables}개` : '', files ? `첨부서류 ${files}개` : ''].filter(Boolean).join(' · ');
+
+  if (!applied) {
     return {
-      state: 'partial', tone: 'caution',
-      headline: `서식 일부만 읽음 — 항목은 ${fileName} 기준, 분량은 기본값`,
-      detail: `작성 항목 ${items.length}개를 읽었고 항목별 분량 제한은 찾지 못했습니다.`,
+      state: 'partial', tone: 'caution', applied: 0,
+      headline: `서식 일부만 읽음 — ${fileName}에서 항목 ${items.length}개를 읽었으나 목차에 반영된 것은 없음`,
+      detail: `본문은 기본 ${total}개 항목의 이름과 분량으로 나갑니다.`
+        + (read ? ` ${read}는 서식에서 읽었습니다.` : ' 서식에서 항목별 분량 제한을 찾지 못했습니다.'),
       zipHint: ''
     };
   }
   return {
-    state: 'full', tone: 'ok',
-    headline: `서식 반영됨 — ${fileName} 기준`,
-    detail: `작성 항목 ${items.length}개 · 분량 제한 ${withLimit}개`,
+    state: 'full', tone: 'ok', applied,
+    headline: `서식 반영됨 — ${fileName} 기준 · ${total}개 중 ${applied}개 항목`,
+    detail: `그 ${applied}개는 서식의 항목 이름과 분량을 따르고, 나머지 ${total - applied}개는 기본 이름·기본 분량입니다.`
+      + (read ? ` ${read}도 서식에서 읽었습니다.` : '')
+      + (items.length > total ? ` 서식 항목 ${items.length}개 가운데 본문으로 쓰는 것은 ${total}개입니다.` : ''),
     zipHint: ''
   };
 }
