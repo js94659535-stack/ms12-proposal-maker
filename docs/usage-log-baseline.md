@@ -133,3 +133,68 @@ OPENAI_PRICE_OUTPUT_PER_MTOK        30.0
 
 넣기 전까지는 비용 상한이 계속 꺼져 있다. **넣어도 새 배포부터 반영된다.**
 그리고 이미 기록된 134건의 `cost_micro`는 0으로 남는다 — 지난 기록을 되살리지는 않는다.
+
+---
+
+## 내부 이름 유출 — 배포 기준선 (2026-08-19)
+
+계획서 설계 화면에 **「최상위 NOTICE_CONTRACT는 '지역사회 내…'」**가 그대로 인쇄된 것을
+사용자가 눈으로 발견했다. 프롬프트가 `NOTICE_CONTRACT는 … 최상위 기준이다`라고
+그 이름으로 개념을 정의했고, 모델이 근거를 설명하며 배운 이름을 그대로 불렀다.
+
+이번 배포로 두 가지가 함께 나간다 — **검사**와 **정의 문장 다섯의 수정**이다.
+
+검사는 막지 않는다. 토큰은 이미 나갔고 막으면 사용자가 결과를 통째로 못 받는다.
+`guard.internalLabels`로 돌려주고 `user_activity_events`에 `leak:<액션>:<이름>`으로 남긴다.
+한 응답에서 최대 세 개만 남기며, 접은 수는 응답의 `internalLabelsRecorded`에 그대로 있다.
+
+**배포 시점 기준선: `leak:`으로 시작하는 기록 0건.**
+
+### 고친 다섯 (프롬프트 문장 20곳 → 15곳)
+
+| 내부 이름 | 바꾼 말 | 그 말이 원래 있던 곳 |
+|---|---|---|
+| `NOTICE_CONTRACT` | 공고 실행계약서 | `contractHandoff`의 `priority[0]` |
+| `PROJECT_BLUEPRINT` | 사업 설계도 | 설계도 카드 제목 |
+| `MASTER_CONTEXT` | 마스터 설계 | 보관함 단계 라벨 |
+| `APPROVED_DESIGN_PLAN` | 승인 설계안 | 정밀 검증 안내 문구 |
+| `CONFIRMED_DESIGN` | 설계 1걸음 결과 | 진행 라벨·검증 오류 문구 |
+
+전부 코드나 화면에 이미 있던 말이다. 새로 짓지 않았다.
+태그 `<NOTICE_CONTRACT>`는 그대로 뒀다 — 경계 표시라 안전하다.
+
+**실측 1회**: `masterDesign` 81초·출력 5,795/8,000·$0.202. 응답 10,182자에서 유출 0건,
+밑줄(`_`)조차 0회. 「사업 설계도」는 2회 나왔다 — **이름을 안 쓴 것이 아니라 한국어로 부른다.**
+다만 **표본 하나다.** 「여전히 난다」를 반증했을 뿐 「이제 안 난다」를 증명하지는 못했다.
+
+### 남은 15곳
+
+`CONDITIONS` · `CORE_IDEA` · `PAGE_PLAN`(각 2회) · `CANDIDATE_ASSETS` · `CONFIRMED_VALUES` ·
+`CONTINUITY_SUMMARY` · `CURRENT_APPLICATION_GROUP` · `MANUAL_SOURCES` · `OFFICIAL_NOTICE_TEXT` ·
+`REFERENCE` · `RELEVANT_PREVIOUS_SECTIONS` · `REVIEW_BASIS` · `SELECTED_SUBPROGRAM` ·
+`SUBTITLE` · `WORKING_TITLE`(각 1회)
+
+대부분 「~에 적힌 값을 쓴다」처럼 **위치를 가리키는** 문장이라 정의 문장보다 위험이 낮다.
+**어느 것이 실제로 새는지는 운영 기록만 알려 준다.** 그래서 다 고치기 전에 배포했다 —
+전부 고쳐 버리면 그 정보를 얻을 길이 없다.
+
+### 며칠 뒤 볼 것
+
+```sql
+-- 1. 유출이 실제로 잡히는가. 0이면 안 났거나 호출이 없었던 것이다(아래 2번으로 가른다).
+SELECT code, COUNT(*) AS n, MIN(at) AS first_at, MAX(at) AS last_at
+FROM user_activity_events WHERE code LIKE 'leak:%'
+GROUP BY code ORDER BY n DESC;
+
+-- 2. 그동안 호출이 있기는 했는가. 없으면 1번의 0은 아무 뜻이 없다.
+SELECT task, COUNT(*) AS n, MAX(at) AS last_at FROM ai_usage_events
+WHERE at > '2026-08-19' GROUP BY task ORDER BY n DESC;
+
+-- 3. 어느 액션이 새는가. code는 leak:<액션>:<이름> 꼴이다.
+SELECT substr(code, 6, instr(substr(code, 6), ':') - 1) AS task, COUNT(*) AS n
+FROM user_activity_events WHERE code LIKE 'leak:%' GROUP BY task ORDER BY n DESC;
+```
+
+**읽기만 한다.** 1번이 비어 있어도 2번이 비어 있으면 「유출이 없다」가 아니라
+「잴 기회가 없었다」이다. 이 둘을 반드시 함께 본다 —
+지난번 `ok=0`이 0이던 것도 실패가 없어서가 아니라 호출이 없어서였다.
