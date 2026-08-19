@@ -51,10 +51,15 @@ test('고른다·설계한다는 것은 공고가 정한 값이 아니다', () =
   assert.equal(contractFixedRule(req('홈케어 파견 모델을 반드시 포함한다'), contract), null);
 });
 
-test('실행계약서가 없으면 예전처럼 동작한다', () => {
+test('실행계약서가 없어도 공고에 적힌 사실은 공고 조건이다', () => {
+  // 이 시험은 원래 「계약서가 없으면 기관정보에 없는 사항으로 간다」였다. 그 동작이 문제였다 —
+  // 계약서가 규칙을 못 뽑아내면 공고 마감일·예산한도가 「등록하거나 담당자에게 확인한다」로 갔다.
+  // 이제 갈래는 출처와 어미가 정하고, 계약서는 값을 붙이는 데만 쓴다.
   const result = compareNoticeWithApplicant([req('기관별 한도는 연간 3억 원이다')], { items: [] }, null);
-  assert.equal(result.fixedByNotice.length, 0);
-  assert.equal(result.missingFromApplicant.length, 1);
+  assert.equal(result.fixedByNotice.length, 1);
+  assert.equal(result.missingFromApplicant.length, 0);
+  // 어느 규칙인지 모르므로 값은 적지 않는다. 지어내지 않는 쪽이 안전한 실패다.
+  assert.equal(result.fixedByNotice[0].noticeValue, '');
 });
 
 test('낱말 목록을 늘려 판정하지 않는다', () => {

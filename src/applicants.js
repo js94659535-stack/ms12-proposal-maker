@@ -255,6 +255,30 @@ function matchItems(text_, items) {
 // REQUIRED는 공고가 요구한 수행모델이라 기관이 설계로 답할 것이다.
 const CONTRACT_FIXED_TYPES = ['EXACT', 'MIN', 'MAX'];
 const CONTRACT_SOURCE = /(NOTICE_CONTRACT|공고 실행계약)/;
+// 출처가 공고면 그 문장은 기관이 등록할 자료가 아니다. 실행계약서도 공고에서 나온 것이다.
+const NOTICE_SOURCE = /(공고|OFFICIAL_NOTICE_TEXT|NOTICE_CONTRACT)/;
+
+// 규칙이 이미 가진 appliesTo 로 어느 항목을 말하는지 알아본다. 제목 일치만으로는
+// 「신청기간」·「사업수행기간」이 「사업기간」 규칙을 가리키는 것을 놓친다.
+// 낱말 목록이 아니라 appliesTo 값마다 이름 하나다. 여기 없는 키를 더해도 아무 일도 하지 않는다.
+// appliesTo 값은 notice-contract.js 가 정한다 — 시험이 두 파일의 키가 같은지 지킨다.
+export const APPLIES_TO_WORD = Object.freeze({
+  period: '기간', budget: '예산', headcount: '인원', sessions: '회기',
+  outcomeGoals: '성과', programs: '프로그램', applicationType: '신청유형'
+});
+
+// 문장이 무엇을 하는 말인지는 어미가 말한다. 세 형태만 본다.
+// 늘리기 시작하면 또 다른 쓰레기통이 된다 — 걸리지 않으면 갈래를 바꾸지 않고 그대로 둔다.
+const STATEMENT_FORMS = [
+  { form: '결정', pattern: /(선택한다|정한다)\.?$/ },
+  { form: '요구', pattern: /(해야 한다|하여야 한다)\.?$/ },
+  { form: '사실', pattern: /(이다|까지다|된다)\.?$/ }
+];
+export function statementForm(sentence) {
+  const value = String(sentence ?? '').replace(/\s+/g, ' ').trim();
+  for (const entry of STATEMENT_FORMS) if (entry.pattern.test(value)) return entry.form;
+  return '';
+}
 
 export function contractFixedRule(requirement, contract) {
   const rules = (contract?.rules || []).filter(rule => CONTRACT_FIXED_TYPES.includes(rule?.ruleType));
@@ -268,7 +292,10 @@ export function contractFixedRule(requirement, contract) {
     const value = text(rule?.value);
     if (title.length >= 2 && label.includes(title)) return true;
     // 공고가 정한 값이 문장에 그대로 적혀 있으면 그 값을 가리키는 것이다.
-    return value.length >= 4 && label.includes(value);
+    if (value.length >= 4 && label.includes(value)) return true;
+    // 제목이 달라도 같은 항목을 말하면 알아본다. 「신청기간」→기간→period.
+    const word = APPLIES_TO_WORD[text(rule?.appliesTo)];
+    return Boolean(word) && label.includes(word);
   });
   if (matched) return matched;
   // 출처만 실행계약서인 경우. 공고가 정한 조건인 것은 맞지만 어느 규칙인지는 모른다.
@@ -291,15 +318,23 @@ export function compareNoticeWithApplicant(requirements, applicant, contract = n
       mandatory: Boolean(requirement?.mandatory),
       matchedItems: matched.map(item => ({ id: item.id, label: item.label, status: item.status, area: areaTitle(item.area), source: item.source }))
     };
-    // 공고가 이미 값을 정했으면 어느 갈래보다 먼저다. 기관이 등록할 것도, 이번에 정할 것도 아니다.
-    const fixed = contractFixedRule(requirement, contract);
-    if (fixed) {
-      result.fixedByNotice.push({
-        ...entry,
-        noticeValue: fixed.fromSourceOnly ? '' : `${text(fixed.title)}: ${text(fixed.value)}${text(fixed.unit)}`.trim(),
-        action: '공고가 정한 조건입니다. 기관정보에 등록하지 말고 그대로 지키세요.'
-      });
-      continue;
+    // 갈래는 출처와 어미가 정한다. 실행계약서가 규칙을 뽑아냈는지에 매달리지 않는다 —
+    // 계약서가 비어 있어도 공고 원문에 적힌 사실은 여전히 공고가 정한 조건이다.
+    const form = statementForm(label);
+    const fromNotice = NOTICE_SOURCE.test(String(requirement?.location || ''));
+    // 「~해야 한다」는 공고가 값을 준 것이 아니라 기관이 채우라고 요구한 것이다.
+    // 이것을 공고 조건으로 옮기면 기관이 답할 일이 화면에서 사라진다.
+    if (form !== '요구') {
+      // 어느 규칙인지 알면 값까지 붙이고, 몰라도 갈래는 준다.
+      const fixed = contractFixedRule(requirement, contract);
+      if (fixed || (form === '사실' && fromNotice)) {
+        result.fixedByNotice.push({
+          ...entry,
+          noticeValue: fixed && !fixed.fromSourceOnly ? `${text(fixed.title)}: ${text(fixed.value)}${text(fixed.unit)}`.trim() : '',
+          action: '공고가 정한 조건입니다. 기관정보에 등록하지 말고 그대로 지키세요.'
+        });
+        continue;
+      }
     }
     if (confirmed.length && !(eligibility && confirmed.every(item => !item.source))) {
       result.confirmedStrengths.push({ ...entry, action: '확인된 기관 정보를 근거로 사용한다.' });
@@ -309,7 +344,8 @@ export function compareNoticeWithApplicant(requirements, applicant, contract = n
       result.needsEvidence.push({ ...entry, action: eligibility ? '신청자격 근거자료를 확인한 뒤 확인됨으로 변경한다.' : '오래되었거나 확인되지 않은 정보이므로 증빙 확인이 필요하다.' });
       continue;
     }
-    if (PROJECT_DECISION_PATTERN.test(label)) {
+    // 「~선택한다」·「~정한다」는 공고가 고르라고 남겨 둔 것이다. 이번 사업이 정한다.
+    if (form === '결정' || PROJECT_DECISION_PATTERN.test(label)) {
       result.decideInThisProject.push({ ...entry, action: '기관 원본이 아니라 이번 사업 설계에서 새로 결정한다.' });
       continue;
     }

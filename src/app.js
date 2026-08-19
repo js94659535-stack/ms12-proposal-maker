@@ -4451,10 +4451,22 @@ function unresolvedSectionsOf(blueprint) {
   return [...grouped.entries()].map(([sectionKey, from]) => ({ sectionKey, from }));
 }
 // 공고 실행계약서. 공고가 이미 정한 조건을 규칙으로 들고 있다.
+// 공고를 바꿔도 state.noticeLogic 은 그대로 남는다. ensureNoticeLogic 이 structure 가 있으면
+// 바로 돌려주기 때문이다. 그래서 앞 공고의 분석과 실행계약서가 다음 공고 화면에 그대로 붙는다.
+// 실제로 「금융취약 중장년·노인」 공고 대조에 「경계선 지능아동」 사업기간 2027.1~2027.12 이 달렸다.
+// 분석한 공고 제목과 지금 고른 공고 제목이 다르면 앞 것으로 본다.
+// 미리보기(noticePreview)로는 판정하지 않는다 — 다른 공고를 잠깐 열어 보는 것뿐이다.
+function noticeLogicStale() {
+  const norm = value => String(value ?? '').replace(/\s+/g, ' ').trim();
+  const current = norm(state.selectedNotice?.title || state.project?.title);
+  const analysed = norm(state.noticeLogic?.structure?.noticeTitle);
+  return Boolean(current && analysed && current !== analysed);
+}
 function currentNoticeContract() {
+  if (noticeLogicStale()) state.noticeLogic = null;
   const stored = state.noticeLogic?.contract;
   if (stored?.rules?.length) return stored;
-  const structure = state.noticeLogic?.structure;
+  const structure = state.noticeLogic?.structure || ensureNoticeLogic()?.structure;
   if (!structure) return null;
   // 예전에 저장한 계획서에는 계약서가 없다. 그 자리에서 다시 만들고 이후에는 저장된 값을 쓴다.
   const rebuilt = buildNoticeContract({ structure, notice: noticeSourceOrPasted() });
@@ -8395,7 +8407,7 @@ async function analyzeNoticeBundleFiles() {
 
 // 공고에서 선정 논리를 구조화한다. AI 호출 없이 공고 원문만 사용한다.
 function ensureNoticeLogic() {
-  if (state.noticeLogic?.structure) return state.noticeLogic;
+  if (state.noticeLogic?.structure && !noticeLogicStale()) return state.noticeLogic;
   const notice = noticeSourceOrPasted();
   if (!notice) return null;
   const structure = analyzeNoticeStructure(notice);
