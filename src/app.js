@@ -82,6 +82,8 @@ const TYPES = [
 ];
 // 업무 흐름 6단계. 라벨만 정리하고 단계 번호·연결 로직은 그대로 둔다.
 const STEPS = ['공고 준비', '공고 분석', '신청기관 준비', '사업 설계', '계획서 작성', '검토·제출'];
+// 「검토·제출」 자리. 숫자를 손으로 적으면 단계가 늘 때 엉뚱한 곳으로 보낸다.
+const REVIEW_STEP = STEPS.length - 1;
 // 홈 화면에 보여 주는 업무 흐름 6단계 요약(단계 번호는 작업 화면과 같다).
 const ARCHIVE_WORK_STEPS = [
   { step: 0, label: '공고 준비' },
@@ -4228,7 +4230,7 @@ function documentToolbelt() {
 }
 function openSheet(kind, payload = null) {
   if (!SHEETS[kind]) return;
-  setState({ sheet: { kind, payload }, ...(SHEET_OPENS[kind] || {}), notice: '', error: '' });
+  setState({ sheet: { kind, payload }, ...(SHEET_OPENS[kind] || {}), notice: '', error: '', exportBlock: '' });
 }
 function closeSheet() { setState({ sheet: null }); }
 function sheetView() {
@@ -4246,17 +4248,32 @@ function sheetView() {
 
 // 「받기」 한 자리. 화면마다 흩어져 있던 내려받기 버튼을 여기로 모은다.
 // 무엇을 받는지(검토본·제출본)를 먼저 고르고 형식을 고른다. 출력 경로는 기존 것을 그대로 쓴다.
-function exportSheet() {
-  const copy = state.exportCopy === '제출본' ? '제출본' : '검토본';
+// 이 형식을 지금 받을 수 있는지. 막을 이유가 없으면 빈 문자열이다.
+//
+// 이유를 계산해 놓고 화면 밖에 버리던 것이 문제였다 — closeSheet()가 먼저 돌아 시트가 닫히고,
+// 오류는 화면 맨 위에 떠서 받기를 누른 자리에서는 보이지 않았다. 그래서 「아무 반응 없음」이 됐다.
+function exportBlockReason(id) {
+  if (!state.sections.length) return '아직 만든 계획서가 없습니다. 계획서를 먼저 작성해 주세요.';
+  if (String(id).startsWith('submission-')) return submissionExportBlock();
+  // 부분 결과는 내보내지 않는다. 사유 문구는 writing-progress가 만든 것을 그대로 쓴다.
+  return partialBlock();
+}
+
+function submissionExportBlock() {
   const summary = currentSubmissionPackage();
-  const { version, reason: versionReason } = selectedSavedVersion();
-  const submissionBlock = versionReason
+  const { version, reason } = selectedSavedVersion();
+  return reason
     || (unsavedChanges() ? `화면 내용이 저장된 V${version?.version}과 달라 제출본을 출력할 수 없습니다.` : '')
     || (summary?.canExport ? '' : `제출 ${summary?.status || '판정'} 상태입니다. ${(summary?.blockers || []).map(item => item.reason).join(' / ') || '먼저 계획서를 작성하세요.'}`);
-  const blocked = copy === '제출본' ? submissionBlock : (state.sections.length ? '' : '아직 만든 계획서가 없습니다.');
+}
+
+function exportSheet() {
+  const copy = state.exportCopy === '제출본' ? '제출본' : '검토본';
+  const blocked = copy === '제출본' ? submissionExportBlock() : (state.sections.length ? '' : '아직 만든 계획서가 없습니다.');
   const pick = (value, label, hint, disabled = '') => `<button data-export-copy="${value}" aria-pressed="${copy === value}" ${disabled ? 'disabled' : ''}>
     <div><b>${escapeHtml(label)}</b><small>${escapeHtml(hint)}</small></div></button>`;
-  const format = (id, label, hint) => `<button class="button secondary" data-export-format="${id}" ${blocked ? 'disabled' : ''} title="${escapeHtml(hint)}">${escapeHtml(label)}</button>`;
+  // 회색으로만 두면 「고장」으로 읽힌다. 누를 수는 있게 두고 누르면 이유를 이 시트 안에 띄운다.
+  const format = (id, label, hint) => `<button class="button secondary" data-export-format="${id}" aria-disabled="${Boolean(blocked)}" title="${escapeHtml(hint)}">${escapeHtml(label)}</button>`;
   return {
     title: '받기',
     lead: '무엇을 받을지 고르고 형식을 누르세요. 받은 뒤 할 일은 화면 위에 남습니다.',
@@ -4265,6 +4282,7 @@ function exportSheet() {
         ${pick('제출본', '제출본', '실제로 낼 파일입니다. 내부 표시가 없고 저장된 버전 그대로 나갑니다.')}
       </div>
       ${blocked ? `<div class="alert warning"><strong>지금은 ${escapeHtml(copy)}을 받을 수 없습니다</strong><p>${escapeHtml(blocked)}</p></div>` : ''}
+      ${state.exportBlock ? `<div class="alert danger"><strong>받지 못했습니다</strong><p>${escapeHtml(state.exportBlock)}</p></div>` : ''}
       <div class="sheet-formats">
         ${copy === '제출본'
           ? `${format('submission-pdf', '최종 PDF', '저장된 버전 그대로 출력합니다.')}${format('submission-docx', '최종 DOCX', '저장된 버전 그대로 출력합니다.')}`
@@ -4274,7 +4292,7 @@ function exportSheet() {
       </div>
       ${copy === '검토본' && !blocked ? '<p class="muted">검토본은 제출용이 아닙니다. 낼 파일은 「제출본」에서 받으세요.</p>' : ''}
       <div class="actions" style="margin:0"><span class="muted">인쇄는 화면 그대로 나갑니다.</span>
-        <button class="button secondary" data-export-format="print" ${state.sections.length ? '' : 'disabled'}>인쇄</button></div>`
+        <button class="button secondary" data-export-format="print" aria-disabled="${state.sections.length ? 'false' : 'true'}">인쇄</button></div>`
   };
 }
 // 패널에서 고른 형식을 기존 출력 경로로 넘긴다. 새 출력 방식을 만들지 않는다.
@@ -7173,8 +7191,15 @@ function bind() {
   // 옆에서 나온 패널. 바깥을 누르거나 닫기를 누르면 있던 자리로 돌아간다.
   document.querySelectorAll('[data-sheet-close]').forEach(el => el.onclick = () => closeSheet());
   document.querySelectorAll('[data-open-sheet]').forEach(el => el.onclick = () => openSheet(el.dataset.openSheet));
-  document.querySelectorAll('[data-export-copy]').forEach(el => el.onclick = () => setState({ exportCopy: el.dataset.exportCopy }));
-  document.querySelectorAll('[data-export-format]').forEach(el => el.onclick = () => { closeSheet(); runExportFormat(el.dataset.exportFormat); });
+  document.querySelectorAll('[data-export-copy]').forEach(el => el.onclick = () => setState({ exportCopy: el.dataset.exportCopy, exportBlock: '' }));
+  document.querySelectorAll('[data-export-format]').forEach(el => el.onclick = () => {
+    const id = el.dataset.exportFormat;
+    const reason = exportBlockReason(id);
+    // 막혔으면 시트를 닫지 않는다. 닫고 화면 맨 위에 오류를 띄우면 누른 자리에서는 안 보인다.
+    if (reason) return setState({ exportBlock: reason });
+    closeSheet();
+    runExportFormat(id);
+  });
   if (state.sheet) requestAnimationFrame(() => document.querySelector('#app-sheet')?.focus());
   // 분석 다음 걸음. 분석에서 멈추지 않고 그다음 자리로 데려간다.
   document.querySelectorAll('[data-next-step]').forEach(el => el.onclick = () => {
@@ -7324,7 +7349,9 @@ function bind() {
   document.querySelector('#workflow-back')?.addEventListener('click', () => { if (!navigationHistory.backStack.length) return; state.activeTool = 'workflow'; navigateBack(); });
   document.querySelector('#workflow-home')?.addEventListener('click', () => setState({ activeTool: 'home', notice: '', error: '' }));
   document.querySelector('#workflow-forward')?.addEventListener('click', () => { if (!navigationHistory.forwardStack.length) return; state.activeTool = 'workflow'; navigateForward(); });
-  document.querySelector('#go-to-review')?.addEventListener('click', () => navigateToStep(4));
+  // 이 버튼은 4단계(계획서 작성)에서만 나온다. 4로 보내면 지금 자리라 아무 일도 안 일어났다.
+  // navigateToStep은 목적지가 같으면 빈 patch로 끝내므로 화면만 다시 그려지고 조용히 멈춘다.
+  document.querySelector('#go-to-review')?.addEventListener('click', () => navigateToStep(REVIEW_STEP));
   document.querySelector('#menu-toggle')?.addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
   const fileInput = document.querySelector('#source-files');
   if (fileInput) fileInput.onchange = e => void addNoticeFiles([...e.target.files]);
@@ -9764,7 +9791,8 @@ async function archiveCurrentProposal(forcedStage, announce = false) {
   const snapshot = { ...Object.fromEntries(fields.map(key => [key, structuredClone(state[key])])), applicantSnapshot: selectedApplicant() ? structuredClone(selectedApplicant()) : null };
   const result = await saveArchivedProposal({ id, noticeKey: archiveNoticeKey(state.selectedNotice), title: state.project.title || state.selectedNotice?.title, stage, snapshot });
   state.archiveProposalId = result.id;
-  if (announce) setState({ notice: `${archiveStageLabel(stage)}을 계획서보관함에 저장했습니다.`, error: '' });
+  // 저장했다는 말만으로는 어디로 갔는지 알 수 없다. 찾아갈 자리를 함께 적는다.
+  if (announce) setState({ notice: `${archiveStageLabel(stage)}을 계획서보관함에 저장했습니다. 1단계 「공고 준비」 맨 아래 「지난 공고와 내 계획서」에서 열 수 있습니다.`, error: '' });
   return result;
 }
 
