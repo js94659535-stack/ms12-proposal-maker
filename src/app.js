@@ -51,7 +51,7 @@ import { analyzeNoticeStructure, buildSelectionLogic, noticeLogicSummary, notice
 import { cautionPoints, comparePastNotices, emphasisPoints, generalNotes as generalGuideNotes, writingApproach } from './notice-guide.js';
 import { bundleSummary, expandBundle, formSourceTypeOf, mergeBundleStructures, splitBundle } from './notice-bundle.js';
 import { matchApplicantToNotice } from './fit-matching.js';
-import { buildDesignQuestions, reusableAnswerCandidates } from './design-questions.js';
+import { buildDesignQuestions, classifyQuestion, reusableAnswerCandidates } from './design-questions.js';
 import { buildBlueprint } from './project-blueprint.js';
 import { BLUEPRINT_SECTION_MAP, UNRESOLVED_MARK, annotateDraftSections, checkDraftAgainstBlueprint, officialRequirementConflicts } from './blueprint-draft-check.js';
 import { OFFICIAL_LOCKED, buildNoticeContract, checkProposalAgainstContract, contractCapabilityCheck, contractConflicts, contractFieldLocks } from './notice-contract.js';
@@ -70,7 +70,7 @@ import { SAMPLE_MARK, SAMPLE_NOTE, SAMPLE_NOTICE, SAMPLE_NOTICE_KEY, SAMPLE_STAG
 import { SAMPLE_REAL_COACHING } from './sample-coaching-run.js';
 import { SOURCE_KINDS, makeApplicantSource, APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, mergeApplicantItems, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
 import { BASIC_AREAS, DETAIL_GROUPS, DETAIL_INTRO, basicStatus, detailProgress, draftFromApplicant, reusableCount } from './org-stage.js';
-import { toKoreanLabel } from '../server/label-leak.js';
+import { KOREAN_LABELS, toKoreanLabel } from '../server/label-leak.js';
 import { WRITE_ALL_BUTTON, partialBlockReason, recordTiming, remainingGroups, timelineRows, writingState } from './writing-progress.js';
 import { gapCoverSection, gapReport } from './gap-report.js';
 import { balanceSummary, rebalanceGroups } from './group-balance.js';
@@ -6521,6 +6521,33 @@ function currentDesignQuestions() {
     projectValues: state.projectValues, aiQuestions: state.missingInformation || [], answers: state.designAnswers || {}
   });
 }
+// 질문 한 칸. 갈래는 kind가 아니라 근거 위치로 정한다 —
+// 모델이 만든 질문에는 출처만 보고 「필수 확인」이 붙어서 갈래로 쓸 수 없다.
+const ANSWER_TONE = { '판단': '부분-충족', '사실 확인': '확인-필요', '설계': '충족' };
+function questionField(item, index) {
+  const verdict = classifyQuestion(item.question, {
+    blueprint: currentBlueprint(), contract: currentNoticeContract(),
+    noticeNames: [KOREAN_LABELS.NOTICE_CONTRACT, KOREAN_LABELS.OFFICIAL_NOTICE_TEXT]
+  });
+  const answer = String(state.designAnswers[item.question] || '');
+  // 여러 항목을 한 번에 묻는 질문. 문장을 잘라 나누지 않는다 — 한국어가 잘린다.
+  // 대신 무엇을 묻는지 이름으로 알리고, 아직 답이 없을 때만 칸을 나눠 준다.
+  const parts = verdict.items.length >= 2 ? verdict.items.map(part => part.title) : [];
+  const split = parts.length && !answer.trim();
+  // 공고가 값을 하나로 정해 두었으면 힌트로 보여 준다. 둘 이상이면 고르게 한다.
+  const twoValues = verdict.noticeValue.includes(' · ');
+  return `<div class="field"><label>${escapeHtml(item.question)}
+      <span class="status ${ANSWER_TONE[verdict.kind] || '확인-필요'}">${escapeHtml(verdict.kind)}</span>
+      <span class="tag">${escapeHtml(verdict.reason)}</span></label>
+    ${verdict.noticeValue ? `<p class="muted">${twoValues ? '<b>원문에 두 값이 있습니다</b> · 어느 것을 기준으로 할지 골라 적어 주세요 — ' : '<b>공고가 정한 값</b> · '}${escapeHtml(verdict.noticeValue)}</p>` : ''}
+    ${verdict.choices.length ? `<p class="muted"><b>공고가 준 선택지</b> · ${verdict.choices.map(choice => escapeHtml(choice)).join(' / ')}</p>` : ''}
+    ${parts.length ? `<p class="muted">이 질문은 <b>${parts.length}가지</b>를 묻습니다 · ${parts.map(part => escapeHtml(part)).join(' · ')}</p>` : ''}
+    ${split
+      ? parts.map((part, partIndex) => `<input data-design-part="${index}" data-design-question="${escapeHtml(item.question)}" data-design-part-label="${escapeHtml(part)}" placeholder="${escapeHtml(part)}${partIndex ? '' : ' — 아는 것만 적으면 됩니다'}">`).join('')
+      : `<textarea data-design-answer="${index}" data-design-question="${escapeHtml(item.question)}" placeholder="확인된 사실만 적어 주세요. 모르면 비워 두면 [확인 필요]로 남습니다.">${escapeHtml(answer)}</textarea>`}
+  </div>`;
+}
+
 function designQuestionsView() {
   const plan = currentDesignQuestions();
   if (!plan.questions.length && !plan.resolved.length) return '';
@@ -6528,7 +6555,7 @@ function designQuestionsView() {
   const reuse = reusableAnswerCandidates(plan.questions, state.designAnswers, selectedApplicant());
   return `<div class="card" id="result-questions" tabindex="-1"><div class="card-title"><div><h3>선정 가능성을 높이기 위한 핵심 질문</h3><span>공고와 신청기관 정보에서 확인되지 않은 내용 중 사업 설계와 평가에 중요한 내용만 질문합니다.</span></div><span class="status ${plan.questions.length ? '확인-필요' : '충족'}">${plan.questions.length ? `${answered}/${plan.questions.length} 답변` : '추가 질문 없음'}</span></div>
     ${plan.resolved.length ? `<p class="muted">이미 확인된 내용 ${plan.resolved.length}건은 다시 묻지 않습니다.</p>` : ''}
-    ${plan.questions.map((item, index) => `<div class="field"><label>${escapeHtml(item.question)} <span class="tag">${escapeHtml(item.kind)}</span> <span class="tag">${escapeHtml(item.reason)}</span></label><textarea data-design-answer="${index}" data-design-question="${escapeHtml(item.question)}" placeholder="확인된 사실만 적어 주세요. 모르면 비워 두면 [확인 필요]로 남습니다.">${escapeHtml(state.designAnswers[item.question] || '')}</textarea></div>`).join('')}
+    ${plan.questions.map((item, index) => questionField(item, index)).join('')}
     ${reuse.length ? `<div class="alert warning"><strong>신청기관 정보에 추가할까요?</strong><p>아래 답변은 기관 자체 정보로 다시 쓸 수 있습니다. 누르면 「확인 필요」 상태로만 추가되고 자동으로 확정되지 않습니다.</p>
       ${reuse.map(item => `<div class="actions" style="margin:6px 0"><span>${escapeHtml(item.label)}: ${escapeHtml(item.value.slice(0, 60))}…</span><button class="button secondary" data-reuse-answer="${escapeHtml(item.questionId)}">신청기관 정보에 추가</button></div>`).join('')}</div>` : ''}
     ${plan.questions.length ? `<div class="actions"><span>답변은 이번 사업 정보로만 저장하고 기관 정보와 자동으로 섞지 않습니다.</span><button class="button primary" id="regenerate-design">답변 반영해 다시 생성</button></div>` : '<p class="muted">공고 요구와 확인된 기관 정보로 설계에 필요한 값이 모두 확인되었습니다.</p>'}</div>`;
@@ -7570,6 +7597,16 @@ function bind() {
   if (analyzeButton) { analyzeButton.textContent = '사업계획서 작성 →'; analyzeButton.addEventListener('click', generateCompleteProposal); }
   document.querySelectorAll('[data-answer]').forEach(el => el.oninput = () => { const questions = state.answers.length ? state.answers : structuredClone(state.analysis.questions || []); questions[Number(el.dataset.answer)].answer = el.value; state.answers = questions; saveState(); });
   document.querySelector('#draft')?.addEventListener('click', createDraft);
+  document.querySelectorAll('[data-design-part]').forEach(el => el.oninput = () => {
+    // 나눈 칸은 하나의 답으로 합쳐 저장한다. 저장 모양(문자열)은 그대로다.
+    const question = el.dataset.designQuestion;
+    const parts = [...document.querySelectorAll(`[data-design-part][data-design-question="${CSS.escape(question)}"]`)]
+      .map(input => [input.dataset.designPartLabel, input.value.trim()])
+      .filter(([, value]) => value)
+      .map(([label, value]) => `${label}: ${value}`);
+    state.designAnswers = { ...state.designAnswers, [question]: parts.join(' / ') };
+    saveState();
+  });
   document.querySelectorAll('[data-design-answer]').forEach(el => el.oninput = () => { const question = el.dataset.designQuestion; if (question) { state.designAnswers[question] = el.value; saveState(); } });
   document.querySelectorAll('[data-reuse-answer]').forEach(el => el.onclick = () => reuseAnswerToApplicant(el.dataset.reuseAnswer));
   document.querySelector('#regenerate-design')?.addEventListener('click', generateCompleteProposal);

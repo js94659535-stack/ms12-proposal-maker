@@ -103,6 +103,62 @@ export function buildDesignQuestions({ structure = null, fitResult = null, bluep
   };
 }
 
+// 질문이 무엇을 가리키는지로 갈래를 정한다.
+//
+// kind는 쓸 수 없다. 모델이 만든 질문에 출처만 보고 「필수 확인」을 붙이므로
+// 「AI가 물으면 무엇이든 필수 확인」이 된다. 실제 다섯 질문 중 셋이 그렇게 어긋났다.
+//
+// 대신 근거가 어디 있는지를 본다. 순서가 곧 규칙이다.
+//   1) 질문이 공고를 이름으로 부르면 → 판단 (근거가 공고에 있다)
+//   2) 설계도 항목에 걸리면 그 항목의 status를 읽는다
+//      확인 필요 → 사실 확인 (기관만 안다) · 그 밖 → 설계 (이번 사업에서 정한다)
+//   3) 공고 실행계약서의 category에 걸리면 → 판단
+//   4) 아무것도 안 걸리면 → 사실 확인
+//
+// 4번이 안전한 실패다. 제안을 안 하는 쪽이 지어내는 것보다 낫다.
+export const ANSWER_KINDS = Object.freeze(['판단', '사실 확인', '설계']);
+export const SUGGESTABLE = Object.freeze(['판단', '설계']);
+
+// 공고를 가리키는 말. 이름 표는 label-leak.js 한 곳에서 온다.
+// 「공식 공고문」은 그 표의 「공고 원문」과 글자가 달라 한 낱말만 별도로 둔다.
+// 목록을 늘리지 않는다 — 늘리기 시작하면 또 다른 쓰레기통이 된다.
+const NOTICE_ALIAS = '공고문';
+
+export function classifyQuestion(question, { blueprint = null, contract = null, noticeNames = [] } = {}) {
+  const label = text(question);
+  const base = { kind: '사실 확인', reason: '가리키는 근거를 찾지 못해 기관 확인으로 둔다', items: [], noticeValue: '', choices: [] };
+  if (!label) return base;
+
+  const items = (blueprint?.items || []).filter(item => {
+    const title = text(item?.title);
+    return title.length >= 2 && label.includes(title);
+  });
+  const rules = (contract?.rules || []).filter(rule => {
+    const category = text(rule?.category);
+    return category.length >= 2 && label.includes(category);
+  });
+  // 값이 하나로 정해진 규칙만 힌트로 쓴다. CHOICE는 선택지로 따로 보여 준다.
+  const fixed = rules.filter(rule => ['EXACT', 'MIN', 'MAX'].includes(rule?.ruleType));
+  const choices = rules.filter(rule => rule?.ruleType === 'CHOICE').flatMap(rule => (Array.isArray(rule.value) ? rule.value : []));
+  const hint = fixed.map(rule => `${text(rule.title)}: ${text(rule.value)}${text(rule.unit)}`.trim());
+  const extra = { items, noticeValue: hint.join(' · '), choices };
+
+  // 1) 공고를 이름으로 부른다.
+  if ([...noticeNames, NOTICE_ALIAS].some(name => text(name) && label.includes(text(name)))) {
+    return { ...base, ...extra, kind: '판단', reason: '질문이 공고 자료를 근거로 지목한다' };
+  }
+  // 2) 설계도 항목에 걸리면 그 항목의 상태가 답한다.
+  if (items.length) {
+    const needsOrg = items.some(item => item?.status === 'NEEDS_CONFIRMATION');
+    return needsOrg
+      ? { ...base, ...extra, kind: '사실 확인', reason: `설계도 「${text(items[0].title)}」이 기관 확인을 기다린다` }
+      : { ...base, ...extra, kind: '설계', reason: `설계도 「${text(items[0].title)}」은 이번 사업에서 정한다` };
+  }
+  // 3) 공고가 그 갈래를 정해 두었다.
+  if (rules.length) return { ...base, ...extra, kind: '판단', reason: `공고가 「${text(rules[0].category)}」를 정해 두었다` };
+  return { ...base, ...extra };
+}
+
 // 9) 기관 자체 정보로 재사용할 만한 답변만 「신청기관 정보에 추가할까요?」 후보로 제안한다(자동 확정 금지).
 const REUSABLE = /인력|자격|시설|공간|장비|협력|네트워크|실적|프로그램|지역|전문|경험/;
 export function reusableAnswerCandidates(questions = [], answers = {}, applicant = null) {

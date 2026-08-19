@@ -95,5 +95,5 @@ test('이름 목록이 유출 검사와 같은 파일에서 나온다', () => {
   }
   assert.ok(names.includes('NOTICE_CONTRACT'));
   // 화면은 한국어로 보여도 모델은 여전히 태그를 인용한다. 검사는 계속 잡아야 정상이다.
-  assert.match(app, /import \{ toKoreanLabel \} from '\.\.\/server\/label-leak\.js';/);
+  assert.match(app, /import \{ KOREAN_LABELS, toKoreanLabel \} from '\.\.\/server\/label-leak\.js';/);
 });
