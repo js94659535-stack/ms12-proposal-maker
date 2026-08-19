@@ -356,6 +356,15 @@
 .dense-step .source-grid>.card{margin:0;padding:12px 14px;align-self:start;height:auto}
 .dense-step .card-title{margin-bottom:8px;gap:10px;flex-wrap:wrap}
 .dense-step .card-title h3{font-size:15px}
+/* 접힌 줄도 「카드 제목 + 오른쪽 버튼」과 같은 모양으로 보이게 한다.
+   여는 일은 details/summary가 그대로 하므로 처리기를 붙이지 않는다.
+   높이를 억지로 맞추지 않는다(min-height 금지) — 설명 길이로 맞춘다. */
+.row-summary{cursor:pointer;list-style:none;margin-bottom:0}
+.row-summary::-webkit-details-marker{display:none}
+.row-summary::marker{content:''}
+details[open]>.row-summary{margin-bottom:12px}
+/* 오른쪽 것은 버튼처럼 보이기만 한다. 실제로 누르는 것은 줄 전체다. */
+.row-summary .button{pointer-events:none}
 .dense-step .card>p.muted{margin:0;font-size:12.5px;line-height:1.5}
 /* 두 칸의 높이를 억지로 맞추지 않는다. 내용이 적은 업로드 칸이 빈 공간으로 늘어나지 않게 한다. */
 .dense-step .source-grid{gap:10px;align-items:start}

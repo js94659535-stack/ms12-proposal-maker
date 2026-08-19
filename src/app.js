@@ -3651,8 +3651,8 @@ function noticeImportView() {
     <div class="dense-step">
     <div class="card-title" style="margin-bottom:4px"><div><h3>공고 고르기 <span class="tag">이 중 하나</span></h3>
       <span>기관에서 가져오거나, 빠진 공고를 주소로 넣거나, 전에 담아 둔 것을 다시 엽니다.</span></div></div>
-    <div class="card"><div class="card-title"><div><h3>기관 공고 가져오기</h3><span>사랑의열매 중앙회 · 광주지회</span></div><button class="button primary" id="fetch-notices">공고 가져오기</button></div><p class="muted">${state.noticeResults.length ? `진행 중 공고 ${state.noticeResults.length}건을 가져왔습니다.` : '버튼을 누를 때만 공식 공모사업을 조회합니다.'} 가져온 목록은 <b>이 화면에서만 쓰는 임시 목록</b>이라 새로고침하면 사라지며, 과거 공고는 아래 <b>「공고보관함」</b>에서 다시 열 수 있습니다.</p>${state.noticeResults.length ? '<div class="actions"><span></span><button class="button primary" data-step="1">가져온 공고 확인 →</button></div>' : ''}</div>
-    <details class="card org-details"><summary>누락 공고 URL과 공식 사이트</summary><div class="inline-row"><label for="missing-notice-url">누락 공고 가져오기</label><input id="missing-notice-url" type="url" value="${escapeHtml(state.noticeUrlDraft)}" placeholder="공식 공고 상세 주소"><button class="button secondary" id="import-notice-url">목록에 추가</button></div><div class="inline-row"><a class="button secondary" href="https://chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">중앙회 공식 사이트</a><a class="button secondary" href="https://gwangju.chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">광주지회 공식 사이트</a></div></details>
+    <div class="card"><div class="card-title"><div><h3>기관 공고 가져오기</h3><span>사랑의열매 중앙회 · 광주지회</span></div><button class="button primary" id="fetch-notices">공고 가져오기</button></div><p class="muted">${state.noticeResults.length ? `진행 중 공고 ${state.noticeResults.length}건을 가져왔습니다.` : '버튼을 누를 때만 공식 공모사업을 조회합니다.'} 가져온 목록은 <b>이 화면에서만 쓰는 임시 목록</b>이라 새로고침하면 사라집니다.</p>${state.noticeResults.length ? '<div class="actions"><span></span><button class="button primary" data-step="1">가져온 공고 확인 →</button></div>' : ''}</div>
+    <details class="card org-details"><summary class="card-title row-summary"><div><h3>누락 공고 URL</h3><span>목록에 없는 공고를 공식 상세 주소로 넣습니다</span></div><span class="button secondary">주소로 추가</span></summary><div class="inline-row"><label for="missing-notice-url">누락 공고 가져오기</label><input id="missing-notice-url" type="url" value="${escapeHtml(state.noticeUrlDraft)}" placeholder="공식 공고 상세 주소"><button class="button secondary" id="import-notice-url">목록에 추가</button></div><div class="inline-row"><a class="button secondary" href="https://chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">중앙회 공식 사이트</a><a class="button secondary" href="https://gwangju.chest.or.kr/bbs/1000/initPostList.do" target="_blank" rel="noopener noreferrer">광주지회 공식 사이트</a></div></details>
     ${archiveView()}
     <div class="card-title" style="margin:18px 0 4px"><div><h3>공고문 넣기 <span class="tag">둘 중 하나</span></h3>
       <span>파일을 올리든 붙여넣든 <b>같은 칸에 들어갑니다</b>. 둘 다 할 필요는 없습니다.</span></div></div>
@@ -3872,8 +3872,9 @@ function archiveView() {
   // 결과를 보러 왔는데 닫혀 있으면 아무것도 안 나온 것처럼 보인다.
   const archiveOpen = state.aiResult?.anchor === '#archive-box';
   // 접혀 있어도 몇 건인지는 보여 준다. 숫자가 없으면 열어 볼 이유를 알 수 없다.
-  const archiveCount = [(state.archiveNotices || []).length ? `공고 ${(state.archiveNotices || []).length}건` : '', proposals.length ? `계획서 ${proposals.length}건` : ''].filter(Boolean).join(' · ');
-  return `<details class="card org-details" id="archive-box" ${archiveOpen ? 'open' : ''}><summary><b>공고보관함</b>${archiveCount ? ` <span class="status 충족">${escapeHtml(archiveCount)}</span>` : ''} <small>가져온 공고는 자동 보관됩니다. 검색·필터로 찾아 「작업하기」에서 원하는 단계로 이동하세요.</small></summary>
+  // 계획서 건수는 여기서 세지 않는다. 계획서보관함은 「지난 공고와 내 계획서」 묶음으로 옮겼다.
+  const archiveCount = (state.archiveNotices || []).length ? `${(state.archiveNotices || []).length}건` : '';
+  return `<details class="card org-details" id="archive-box" ${archiveOpen ? 'open' : ''}><summary class="card-title row-summary"><div><h3>공고보관함${archiveCount ? ` <span class="status 충족">${escapeHtml(archiveCount)}</span>` : ''}</h3><span>가져온 공고는 자동 보관됩니다. 검색·필터로 찾아 원하는 단계로 이동하세요.</span></div><span class="button secondary">공고 검색</span></summary>
     <div class="stat-badges">${[
       ['보관 공고', data.total, `기관 ${data.institutions.length}곳`],
       ['검색 결과', data.matched, data.matched ? `${data.from}–${data.to}번 표시` : '조건에 맞는 공고 없음'],

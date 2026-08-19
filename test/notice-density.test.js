@@ -73,7 +73,17 @@ test('보조 영역은 접히고 세 묶음이 순서대로 나온다', () => {
   assert.match(manualView, /const formMissing = !currentFormSpec\(\)\?\.items\?\.length;/);
   assert.match(manualView, /<summary><b>직접 자료 추가<\/b>\$\{count \? ` · \$\{count\}건` : ''\}/);
   // 누락 공고 URL도 접힌 보조 영역이다. 공고를 고르는 세 길 가운데 가장 드물게 쓴다.
-  assert.match(importView, /<details class="card org-details"><summary>누락 공고 URL과 공식 사이트<\/summary>/);
+  // 세 줄을 같은 모양으로 맞췄다. 누락 URL도 「제목 + 오른쪽 버튼」이고, 누르면 그 자리에서 펼쳐진다.
+  assert.match(importView, /<summary class="card-title row-summary"><div><h3>누락 공고 URL<\/h3>/);
+  assert.match(importView, /<span class="button secondary">주소로 추가<\/span><\/summary>/);
+  // 실제로 목록에 넣는 버튼은 안에 그대로 있다. 처리기를 건드리지 않았다.
+  assert.match(importView, /<button class="button secondary" id="import-notice-url">목록에 추가<\/button>/);
+  // 공식 사이트 링크 둘은 카드 안 보조 줄로 남았다.
+  assert.match(importView, /중앙회 공식 사이트<\/a>/);
+  assert.match(importView, /광주지회 공식 사이트<\/a>/);
+  // 설명이 가리키던 「아래 공고보관함」은 뺐다. 바로 아래 줄에 실제로 있으니 문장으로 가리킬 이유가 없다.
+  assert.doesNotMatch(importView, /과거 공고는 아래/);
+  assert.match(importView, /이 화면에서만 쓰는 임시 목록<\/b>이라 새로고침하면 사라집니다/);
 
   // 카드 여섯을 하는 일로 묶었다. 1~6 번호를 매기면 「순서대로 다 해야 한다」로 읽히는데
   // 실제로는 묶음 1의 셋 중 하나, 묶음 2의 둘 중 하나만 하면 되고 묶음 3은 선택이다.
