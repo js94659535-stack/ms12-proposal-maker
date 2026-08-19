@@ -12,13 +12,19 @@ import { ENUM_WORDS, findLeaks, internalNames, leakCode, proseLabels, tagNames }
 const route = fs.readFileSync(new URL('../functions/api/proposal.js', import.meta.url), 'utf8');
 
 // 지금 프롬프트에서 문장 속에 맨 이름으로 놓인 자리. 고칠 대상이자 진척을 재는 자다.
-// 여기가 0이 되면 유출 원인이 사라진 것이다. 지금은 20이다.
+// 여기가 0이 되면 유출 원인이 사라진다. 처음 20이었고, 정의 문장 다섯을 고쳐 15가 됐다.
+//
+// 고친 다섯: NOTICE_CONTRACT → 공고 실행계약서 · PROJECT_BLUEPRINT → 사업 설계도
+// MASTER_CONTEXT → 마스터 설계 · APPROVED_DESIGN_PLAN → 승인 설계안
+// CONFIRMED_DESIGN → 설계 1걸음 결과. 다섯 다 코드·화면에 이미 있던 말이고 새로 짓지 않았다.
+const FIXED_PROSE_LABELS = [
+  'NOTICE_CONTRACT', 'PROJECT_BLUEPRINT', 'MASTER_CONTEXT', 'APPROVED_DESIGN_PLAN', 'CONFIRMED_DESIGN'
+];
 const KNOWN_PROSE_LABELS = [
-  'CONFIRMED_DESIGN', 'CONDITIONS', 'CORE_IDEA', 'NOTICE_CONTRACT', 'PAGE_PLAN',
-  'APPROVED_DESIGN_PLAN', 'CANDIDATE_ASSETS', 'CONFIRMED_VALUES', 'CONTINUITY_SUMMARY',
-  'CURRENT_APPLICATION_GROUP', 'MANUAL_SOURCES', 'MASTER_CONTEXT', 'OFFICIAL_NOTICE_TEXT',
-  'PROJECT_BLUEPRINT', 'REFERENCE', 'RELEVANT_PREVIOUS_SECTIONS', 'REVIEW_BASIS',
-  'SELECTED_SUBPROGRAM', 'SUBTITLE', 'WORKING_TITLE'
+  'CONDITIONS', 'CORE_IDEA', 'PAGE_PLAN', 'CANDIDATE_ASSETS', 'CONFIRMED_VALUES',
+  'CONTINUITY_SUMMARY', 'CURRENT_APPLICATION_GROUP', 'MANUAL_SOURCES', 'OFFICIAL_NOTICE_TEXT',
+  'REFERENCE', 'RELEVANT_PREVIOUS_SECTIONS', 'REVIEW_BASIS', 'SELECTED_SUBPROGRAM',
+  'SUBTITLE', 'WORKING_TITLE'
 ];
 
 test('검사 목록을 손으로 적지 않고 프롬프트에서 뽑는다', () => {
@@ -64,17 +70,27 @@ test('기록 코드는 활동기록이 받는 모양이다', () => {
 
 // ---------- 지금 프롬프트의 상태 ----------
 
-test('문장 속에 맨 이름으로 놓인 자리가 지금 스무 곳이다', () => {
-  // 이 수가 유출의 원인이다. 태그는 경계 표시라 안전하지만,
-  // 조사가 붙은 주어로 쓰면 모델이 「이 사물의 이름」으로 배우고 본문에서 그렇게 부른다.
-  //
-  // **문구를 고쳐 이 수를 0으로 만드는 것이 목표다.** 줄면 이 시험이 먼저 알려 준다.
+test('정의 문장 다섯은 이제 한국어 이름으로 부른다', () => {
+  // 「X는 …이다」로 이름을 붙여 주면 모델이 그 이름을 배우고 본문에서 그렇게 부른다.
+  // 실제로 화면에 나온 것이 「최상위 NOTICE_CONTRACT는 …」이었다.
+  const found = proseLabels(route).map(item => item.name);
+  for (const name of FIXED_PROSE_LABELS) assert.ok(!found.includes(name), `${name}이 아직 문장에 남아 있다`);
+  // 태그는 그대로 둔다. 경계 표시라 안전하고, 바꾸면 자료를 찾는 자리가 흔들린다.
+  for (const name of FIXED_PROSE_LABELS) assert.ok(tagNames(route).includes(name), `<${name}> 태그까지 지우면 안 된다`);
+  // 대신 자료가 이미 쓰는 한국어 이름으로 부른다.
+  assert.match(route, /위 공고 실행계약서는 공고가 이미 정한 조건이며/);
+  assert.match(route, /위 사업 설계도는 이번 사업의 확정된 설계 기준이다/);
+  assert.match(route, /위 마스터 설계는 앞 단계에서 이미 확정·검증된 기준이다/);
+  assert.match(route, /위 승인 설계안은 고객·운영자가 승인한 설계안이며/);
+  assert.match(route, /위 설계 1걸음 결과는 앞 걸음에서 확정한 설계다/);
+});
+
+test('문장 속에 맨 이름으로 놓인 자리가 지금 열다섯 곳이다', () => {
+  // 이 수가 유출의 원인이다. **0이 되면 원인이 사라진다.**
+  // 줄면 이 시험이 먼저 깨지면서 몇 개가 남았는지 알려 준다.
   const found = proseLabels(route);
   assert.deepEqual(found.map(item => item.name).sort(), [...KNOWN_PROSE_LABELS].sort());
-  assert.equal(found.length, 20);
-  // 가장 많이 새는 것부터. NOTICE_CONTRACT는 실제로 화면까지 나온 이름이다.
-  assert.ok(found.find(item => item.name === 'NOTICE_CONTRACT').count >= 2);
-  assert.ok(found.find(item => item.name === 'PROJECT_BLUEPRINT'), '같은 꼴이라 다음 차례다');
+  assert.equal(found.length, 15);
 });
 
 test('라우트가 모든 액션에서 검사하고 막지는 않는다', () => {

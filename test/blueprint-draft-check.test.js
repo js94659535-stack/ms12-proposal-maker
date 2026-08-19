@@ -120,7 +120,10 @@ test('공고 기준과 사용자 확정값 충돌을 어느 쪽도 고치지 않
 test('설계도를 계획서 작성 요청과 화면에 연결했다', () => {
   const api = fs.readFileSync(new URL('../functions/api/proposal.js', import.meta.url), 'utf8');
   // 작성 우선순위를 프롬프트에 고정한다.
-  assert.match(api, /PROJECT_BLUEPRINT는 이번 사업의 확정된 설계 기준이다/);
+  // 자료는 <PROJECT_BLUEPRINT> 태그로 넘기되, 문장에서는 화면과 같은 「사업 설계도」로 부른다.
+  // 문장 속 영문 이름을 모델이 배워 본문에 그대로 쓴 일이 있었다.
+  assert.match(api, /<PROJECT_BLUEPRINT>/);
+  assert.match(api, /위 사업 설계도는 이번 사업의 확정된 설계 기준이다/);
   assert.match(api, /1\) 공고의 공식 요구·선정논리 2\) 사용자가 확정한 이번 사업 값/);
   assert.match(api, /다른 신청유형의 대상·프로그램·성과를 섞지 않는다/);
   assert.match(api, /과거 사업 기록\(pastProjectRecords\)의 인원·회기·기간·예산을 이번 사업 값으로 옮겨 적지 않는다/);

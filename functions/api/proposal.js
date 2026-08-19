@@ -584,15 +584,15 @@ function contractBlock(payload) {
   if (!payload.noticeContract?.rules?.length) return '';
   return `<NOTICE_CONTRACT>${JSON.stringify(payload.noticeContract)}</NOTICE_CONTRACT>\n<NOTICE_CONTRACT_RULE>${CONTRACT_RULE}</NOTICE_CONTRACT_RULE>\n`;
 }
-const CONTRACT_RULE = `NOTICE_CONTRACT는 공고가 이미 정한 조건이며 이번 작성의 최상위 기준이다. 다른 어떤 입력보다 우선한다.
-우선순위: 1) NOTICE_CONTRACT 2) 이번 사업 사용자 확정값 3) 신청기관 확인정보 4) 사용자 자유입력 5) AI 제안.
+const CONTRACT_RULE = `위 공고 실행계약서는 공고가 이미 정한 조건이며 이번 작성의 최상위 기준이다. 다른 어떤 입력보다 우선한다.
+우선순위: 1) 공고 실행계약서 2) 이번 사업 사용자 확정값 3) 신청기관 확인정보 4) 사용자 자유입력 5) AI 제안.
 ruleType별로 다음을 지킨다. EXACT는 그 값을 그대로 쓴다(사업기간을 임의로 바꾸지 않는다). MIN은 그 값 이상, MAX는 그 값 이하로만 설계한다.
 CHOICE는 공고가 선택지(options)만 정하고, 그중 무엇을 고를지는 이번 사업 사용자 확정값(selected)이 정한다. selected가 있으면 그 유형이 이번 사업의 신청유형이며 이를 공고와의 충돌로 보지 않는다.
 selected 유형의 조건만 쓰고 다른 유형의 대상·사업내용을 섞지 않는다. 선택한 신청유형 이름을 계획서 본문(사업 개요 또는 대상 항목)에 반드시 밝힌다. selected가 비어 있을 때만 신청유형을 [확인 필요]로 남긴다.
 REQUIRED는 공고가 요구한 핵심 수행모델이다. 일반적인 프로그램으로 대체하지 말고 그 요소를 계획서 본문에 실제 설계로 담는다.
 사용자 자유입력이 계약조건과 어긋나면(예: MIN 70명인데 18명으로 작성 요청) 어긋난 값으로 쓰지 말고 계약 기준을 지키며, 그 차이를 missingInformation 또는 [확인 필요]로 남긴다.
 계약조건을 지킬 수 없다고 판단되면 사실을 만들어 맞추지 말고 해당 항목을 [확인 필요]로 남긴다.`;
-const BLUEPRINT_RULE = `PROJECT_BLUEPRINT는 이번 사업의 확정된 설계 기준이다. 작성 우선순위를 다음 순서로 지킨다.
+const BLUEPRINT_RULE = `위 사업 설계도는 이번 사업의 확정된 설계 기준이다. 작성 우선순위를 다음 순서로 지킨다.
 1) 공고의 공식 요구·선정논리 2) 사용자가 확정한 이번 사업 값(상태 "확정") 3) 신청기관의 확인된 현재 정보 4) 관련성이 확인된 기관 실적 5) 설계도의 "설계안"(proposedOnly) 6) 확인되지 않은 정보는 [확인 필요].
 설계도의 applicationType(신청유형)에 해당하는 대상·사업내용·요건만 사용하고 다른 신청유형의 대상·프로그램·성과를 섞지 않는다.
 상태가 "설계안"인 항목은 확정 사실로 바꾸지 말고 설계 방향으로만 쓰며, 그 안의 인원·회기·예산·성과 수치를 만들어 확정하지 않는다.
@@ -698,8 +698,8 @@ evidenceMap에는 이후 모든 주장이 참조할 공식 원문 근거를 id·
 <SELECTED_SUBPROGRAM>${payload.selectedSubprogram || payload.project?.title || ''}</SELECTED_SUBPROGRAM>
 ${blueprintBlock(payload)}<CONFIRMED_DESIGN>${JSON.stringify(payload.design)}</CONFIRMED_DESIGN>
 
-CONFIRMED_DESIGN은 앞 걸음에서 확정한 설계다. 값을 바꾸지 말고 그대로 쓰며, 여기에 없는 사실을 새로 만들지 마라.
-masterLogic은 문제→원인→대상→전략→실행→산출→변화→성과측정이 끊기지 않는 하나의 논리사슬이어야 한다. baselineValues에는 이후 모든 분할이 그대로 재사용할 인원·기간·회기·역할·예산 기준값을 CONFIRMED_DESIGN에서 가져와 둔다. outputOutcomeMeasurementLinks에는 각 산출물과 성과목표·측정지표·측정시기·담당을 연결한다. evaluationResponsePlan에는 평가기준과 대응전략·반영항목·근거를 연결하고 claimEvidencePlan에는 핵심 주장과 공식 자료 근거·위치를 연결한다. 근거 id는 CONFIRMED_DESIGN의 evidenceMap에 있는 id만 쓴다.
+위 설계 1걸음 결과는 앞 걸음에서 확정한 설계다. 값을 바꾸지 말고 그대로 쓰며, 여기에 없는 사실을 새로 만들지 마라.
+masterLogic은 문제→원인→대상→전략→실행→산출→변화→성과측정이 끊기지 않는 하나의 논리사슬이어야 한다. baselineValues에는 이후 모든 분할이 그대로 재사용할 인원·기간·회기·역할·예산 기준값을 설계 1걸음 결과에서 가져와 둔다. outputOutcomeMeasurementLinks에는 각 산출물과 성과목표·측정지표·측정시기·담당을 연결한다. evaluationResponsePlan에는 평가기준과 대응전략·반영항목·근거를 연결하고 claimEvidencePlan에는 핵심 주장과 공식 자료 근거·위치를 연결한다. 근거 id는 설계 1걸음 결과의 evidenceMap에 있는 id만 쓴다.
 sectionPlan은 실제 공모신청서·사업계획서 서식의 질문과 목차 결합 관계를 우선하여 필요한 수만큼 가변적으로 정한다. 2~5개로 고정하거나 페이지 수·문서 길이로 나누지 않는다. 호환용 10개 sectionKeys(necessity, purpose, goals, target, programs, schedule, roles, budget, indicators, outcomes)를 빠짐없이 정확히 한 번씩 배치하고, 실제 신청서에서 함께 요구하는 항목은 같은 묶음에 둔다. 각 묶음 제목은 공식 신청서의 항목명 또는 그 구조를 명확히 나타내는 한국어로 작성한다.`
   };
   // 정밀 검증: 확정된 기준과 계획서를 대조해 문제만 찾는다. 본문을 고치지 않는다.
@@ -726,7 +726,7 @@ BLOCKING은 공고 강제조건 위반이나 승인 설계안과 어긋나 이�
   if (action === 'fullProposal') return {
     name: 'proposal_full_document', schema: FULL_PROPOSAL_SCHEMA,
     prompt: `사업 유형: ${payload.projectType}\n<SELECTED_SUBPROGRAM>${payload.selectedSubprogram || payload.project?.title || ''}</SELECTED_SUBPROGRAM>\n<PROJECT>${JSON.stringify(payload.project)}</PROJECT>\n<APPROVED_DESIGN_PLAN>${JSON.stringify(payload.designPlan)}</APPROVED_DESIGN_PLAN>\n<CONFIRMED_USER_ANSWERS>${JSON.stringify(payload.userAnswers || {})}</CONFIRMED_USER_ANSWERS>\n<CANDIDATE_ASSETS>${JSON.stringify(payload.organization)}</CANDIDATE_ASSETS>\n<USER_NARRATIVE>${String(payload.narrative || '').slice(0, 4000)}</USER_NARRATIVE>\n${blueprintBlock(payload)}
-APPROVED_DESIGN_PLAN은 고객·운영자가 승인한 설계안이며 이번 작성의 기준이다. 설계안이 정한 목차·대상·인원·기간·회기·예산·성과·핵심 수행모델을 그대로 따르고 임의로 바꾸지 않는다.
+위 승인 설계안은 고객·운영자가 승인한 설계안이며 이번 작성의 기준이다. 설계안이 정한 목차·대상·인원·기간·회기·예산·성과·핵심 수행모델을 그대로 따르고 임의로 바꾸지 않는다.
 계획서 본문은 호환용 10개 항목(necessity, purpose, goals, target, programs, schedule, roles, budget, indicators, outcomes)을 정확히 한 번씩, 설계안 목차 순서대로 작성한다. 각 항목의 id는 이 키를 그대로 쓰고 title은 설계안의 항목명을 쓴다.
 각 항목은 설계안 documentPlan의 목표 분량을 기준으로 ±30% 안에서 작성한다. 분량을 채우려고 같은 문장을 반복하거나 확인되지 않은 사실을 만들지 않는다.
 표로 보여야 하는 내용(예산·일정·성과지표·대상·인력)은 본문에 표를 그리지 말고 tables에 columns와 rows로 구조화해 넣는다. 본문에는 표가 무엇을 보여 주는지만 한 문장으로 적는다.
@@ -736,7 +736,7 @@ ${GENERAL_KNOWLEDGE_RULE}`
   if (action === 'draftPart') return {
     name: 'proposal_draft_part', schema: DRAFT_PART_SCHEMA,
     prompt: `<MASTER_CONTEXT>${JSON.stringify(partContext(payload))}</MASTER_CONTEXT>\n<CURRENT_APPLICATION_GROUP>${JSON.stringify(payload.group)}</CURRENT_APPLICATION_GROUP>\n<CONTINUITY_SUMMARY>${JSON.stringify(payload.continuitySummary || {})}</CONTINUITY_SUMMARY>\n<RELEVANT_PREVIOUS_SECTIONS>${JSON.stringify(payload.relevantSections || [])}</RELEVANT_PREVIOUS_SECTIONS>\n<CONFIRMED_USER_ANSWERS>${JSON.stringify(payload.userAnswers || {})}</CONFIRMED_USER_ANSWERS>\n${payload.noticeContract?.rules?.length ? `${CONTRACT_RULE}\n` : ''}${BLUEPRINT_RULE}\n
-MASTER_CONTEXT는 master 단계에서 이미 확정·검증된 기준이다. 다시 설계하거나 값을 바꾸지 말고 CURRENT_APPLICATION_GROUP.sectionKeys에 지정된 공식 신청서 질문·목차에 정확히 대응하는 항목만 이어서 작성하라. fixedBasis의 문제→원인→대상→전략→실행→산출→변화→성과측정 논리와 baselineValues(대상·인원·기간·회기·역할·예산·성과지표 기준값)는 모든 분할의 변경 불가능한 공통 기준이다.
+위 마스터 설계는 앞 단계에서 이미 확정·검증된 기준이다. 다시 설계하거나 값을 바꾸지 말고 CURRENT_APPLICATION_GROUP.sectionKeys에 지정된 공식 신청서 질문·목차에 정확히 대응하는 항목만 이어서 작성하라. fixedBasis의 문제→원인→대상→전략→실행→산출→변화→성과측정 논리와 baselineValues(대상·인원·기간·회기·역할·예산·성과지표 기준값)는 모든 분할의 변경 불가능한 공통 기준이다.
 공고 원문 전체는 다시 제공되지 않는다. 근거가 필요한 문장은 officialEvidence와 fixedBasis.claimEvidencePlan에 있는 근거 문장·출처만 사용하고, 그 안에 없는 공고 조건·자격·배점·수치는 새로 만들지 말고 [확인 필요]로 남긴다.
 fixedBasis.applicationType의 조건만 사용하고 excludedApplicationTypes의 대상·사업내용은 쓰지 않는다. thisProject.confirmedValues와 projectSpecificValues의 값은 그대로 유지하고 다른 수치로 바꾸지 않는다. thisProject.unresolved 항목과 officialConflicts는 임의로 확정·해결하지 말고 두 값을 함께 드러내며 [확인 필요]를 유지한다. applicantConfirmed에 없는 기관 인력·실적·자격·예산은 사실로 쓰지 않는다.
 userNarrative와 userAnswers는 사용자가 직접 적은 요청이다. 근거 순위는 공식자료 → 이번 사업 확정값 → 기관 확인정보 → 사용자 입력 → 제안 순이며, 충돌하면 상위 근거를 따르고 사용자 입력만으로 사실·수치를 확정하지 않는다. 요청 중 근거가 없는 내용은 [확인 필요]로 남긴다.

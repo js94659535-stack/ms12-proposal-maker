@@ -224,7 +224,9 @@ test('앱과 작성 엔진이 실행계약서를 최상위 기준으로 사용�
   // 작성 엔진에 계약서를 직접 넘긴다.
   assert.match(app, /noticeContract: contractHandoff\(\)/);
   assert.match(server, /<NOTICE_CONTRACT>/);
-  assert.match(server, /NOTICE_CONTRACT는 공고가 이미 정한 조건이며 이번 작성의 최상위 기준이다/);
-  assert.match(server, /우선순위: 1\) NOTICE_CONTRACT 2\) 이번 사업 사용자 확정값 3\) 신청기관 확인정보 4\) 사용자 자유입력 5\) AI 제안/);
+  // 태그는 경계 표시라 그대로 두고, 문장에서는 자료가 이미 쓰는 「공고 실행계약서」로 부른다.
+  // 「최상위 NOTICE_CONTRACT는 …」이 계획서 화면에 그대로 인쇄된 일이 있었다.
+  assert.match(server, /위 공고 실행계약서는 공고가 이미 정한 조건이며 이번 작성의 최상위 기준이다/);
+  assert.match(server, /우선순위: 1\) 공고 실행계약서 2\) 이번 사업 사용자 확정값 3\) 신청기관 확인정보 4\) 사용자 자유입력 5\) AI 제안/);
   assert.match(server, /noticeContract: payload\.noticeContract \|\| null/);
 });

@@ -86,7 +86,8 @@ test('캐시 배치 변경은 적용하지 않는다', () => {
   const spec = api.slice(at, api.indexOf(String.fromCharCode(10) + chr, at));
   assert.match(spec, /prompt: `<MASTER_CONTEXT>/);
   // 문구는 처음부터 끝까지 그대로다.
-  for (const keep of ['MASTER_CONTEXT는 master 단계에서 이미 확정·검증된 기준이다', '공고 원문 전체는 다시 제공되지 않는다', 'sections의 id는 sectionKeys와 정확히 같아야 하며']) {
+  // 이름만 한국어로 바꿨다(MASTER_CONTEXT → 마스터 설계). 순서·문장 구성은 그대로다.
+  for (const keep of ['위 마스터 설계는 앞 단계에서 이미 확정·검증된 기준이다', '공고 원문 전체는 다시 제공되지 않는다', 'sections의 id는 sectionKeys와 정확히 같아야 하며']) {
     assert.ok(spec.includes(keep), keep.slice(0, 20));
   }
 });
