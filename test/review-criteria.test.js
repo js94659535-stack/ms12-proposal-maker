@@ -72,3 +72,42 @@ test('코칭의 riskType 목록이 한 곳에서만 나온다', () => {
   assert.doesNotMatch(coaching, /value\.riskType === 'competition' && value\.priority !== '주요 개선'/);
   assert.doesNotMatch(coaching, /value\.riskType === 'expression' && value\.priority !== '일반 개선'/);
 });
+
+// 표로 옮기면서 검증 오류 문구가 바뀌면, 그 문구로 세던 집계와 갈린다.
+// 옮기기 전 문장을 여기 박아 두고 대조한다.
+test('riskType 정리로 검증 문구가 바뀌지 않았다', () => {
+  const before = {
+    competition: '선정 경쟁력 위험은 주요 개선으로 분류해야 합니다.',
+    expression: '표현 문제는 일반 개선으로 분류해야 합니다.'
+  };
+  const start = coaching.indexOf('const RISK_PRIORITY = Object.freeze({');
+  const open = coaching.indexOf('{', start + 30);
+  let depth = 0;
+  let end = open;
+  for (; end < coaching.length; end += 1) {
+    if (coaching[end] === '{') depth += 1;
+    else if (coaching[end] === '}') { depth -= 1; if (!depth) break; }
+  }
+  const table = (0, eval)(`(${coaching.slice(open, end + 1)})`); // eslint-disable-line no-eval
+  for (const [type, expected] of Object.entries(before)) {
+    const entry = table[type];
+    assert.ok(entry, `${type}이 표에 없다`);
+    assert.equal(`${entry.subject} ${entry.priority}으로 분류해야 합니다.`, expected, `${type} 문구가 바뀌었다`);
+  }
+  // 최우선 다섯은 한 문구로 함께 검사한다. 그 줄은 손대지 않았다.
+  assert.match(coaching, /제출·자격·필수항목·예산·핵심 수치 위험은 최우선 경고여야 합니다\./);
+});
+
+// proposal.js와 같은 문제가 코칭에도 있었다. 길이에서 끊긴 응답은 HTTP 200으로 온다.
+test('코칭도 잘린 응답을 성공으로 기록하지 않는다', () => {
+  // 끊김을 아예 보지 않고 response.ok 만으로 기록하던 것을 고쳤다.
+  assert.doesNotMatch(coaching, /noteCoachingUsage\(env, usageMeta, data, response\.ok, response\.ok \? '' : 'openai-upstream'/);
+  assert.match(coaching, /const truncated = response\.ok && data\?\.status === 'incomplete';/);
+  assert.match(coaching, /response\.ok && !truncated/);
+  // 집계 이름은 proposal.js와 같은 것을 쓴다. 새 이름을 만들지 않는다.
+  assert.match(coaching, /truncated \? 'output-incomplete' : ''/);
+  // 두 자리 모두 고쳤다 — 바로 부르는 쪽과 background 조회 쪽.
+  assert.equal((coaching.match(/const truncated = response\.ok && data\?\.status === 'incomplete';/g) || []).length, 2);
+  // 토큰은 이미 나갔으므로 기록을 건너뛰지는 않는다.
+  assert.doesNotMatch(coaching, /if \(truncated\) return;/);
+});

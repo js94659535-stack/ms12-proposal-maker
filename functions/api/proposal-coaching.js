@@ -133,7 +133,11 @@ async function requestOpenAI(env, { policy, input, schema, schemaName, maxOutput
     const data = await response.json().catch(() => ({}));
     const diagnostic = safeDiagnostic(env.OPENAI_MODEL, response.status, data?.error?.type || '', data?.error?.code || '', response.headers.get('x-request-id') || '', Date.now() - startedAt, response.status === 429 ? rateLimitInfo(response.headers) : {});
     if (!response.ok) console.error('openai_upstream_failure', diagnostic);
-    await noteCoachingUsage(env, usageMeta, data, response.ok, response.ok ? '' : 'openai-upstream', Date.now() - startedAt);
+    // 길이에서 끊긴 응답은 HTTP 200으로 온다. 기록까지 성공으로 남기면
+    // 「출력 상한에 부딪히는 호출이 늘고 있다」를 기록에서 볼 수 없다(proposal.js와 같은 문제).
+    // 토큰은 이미 나갔으므로 기록 자체는 남기고, 성공 여부만 바로잡는다.
+    const truncated = response.ok && data?.status === 'incomplete';
+    await noteCoachingUsage(env, usageMeta, data, response.ok && !truncated, !response.ok ? 'openai-upstream' : truncated ? 'output-incomplete' : '', Date.now() - startedAt);
     return { ok: response.ok, status: response.status, data, diagnostic, failureStage: response.ok ? '' : 'openai-upstream' };
   } catch (error) {
     const diagnostic = safeDiagnostic(env.OPENAI_MODEL, 0, error?.name || 'network_error', error?.code || '', '', Date.now() - startedAt);
@@ -152,7 +156,8 @@ async function retrieveOpenAI(env, jobId, usageMeta = null) {
     const data = await response.json().catch(() => ({}));
     const diagnostic = safeDiagnostic(env.OPENAI_MODEL, response.status, data?.error?.type || '', data?.error?.code || '', response.headers.get('x-request-id') || '', Date.now() - startedAt, response.status === 429 ? rateLimitInfo(response.headers) : {});
     // background 작업은 완료된 조회에만 usage가 실린다. 진행 중 조회는 토큰이 0이라 기록하지 않는다.
-    if (data?.usage) await noteCoachingUsage(env, usageMeta, data, response.ok, response.ok ? '' : 'openai-upstream', Date.now() - startedAt);
+    const truncated = response.ok && data?.status === 'incomplete';
+    if (data?.usage) await noteCoachingUsage(env, usageMeta, data, response.ok && !truncated, !response.ok ? 'openai-upstream' : truncated ? 'output-incomplete' : '', Date.now() - startedAt);
     return { ok: response.ok, status: response.status, data, diagnostic, failureStage: response.ok ? '' : 'openai-upstream' };
   } catch (error) {
     const diagnostic = safeDiagnostic(env.OPENAI_MODEL, 0, error?.name || 'network_error', error?.code || '', '', Date.now() - startedAt);
@@ -271,8 +276,9 @@ const RISK_PRIORITY = Object.freeze({
   'required-item': { priority: '최우선 경고', label: '필수항목 누락' },
   'budget-rule': { priority: '최우선 경고', label: '예산규정 위반' },
   'core-conflict': { priority: '최우선 경고', label: '핵심 수치 충돌' },
-  competition: { priority: '주요 개선', label: '선정 경쟁력' },
-  expression: { priority: '일반 개선', label: '표현·중복·문장' }
+  // subject 는 검증 오류 문구용이다. 표로 옮기면서 문구가 바뀌지 않게 이전 문장을 그대로 담는다.
+  competition: { priority: '주요 개선', label: '선정 경쟁력', subject: '선정 경쟁력 위험은' },
+  expression: { priority: '일반 개선', label: '표현·중복·문장', subject: '표현 문제는' }
 });
 const RISK_TYPES = Object.keys(RISK_PRIORITY);
 const PRIORITIES = [...new Set(RISK_TYPES.map(key => RISK_PRIORITY[key].priority))];
@@ -390,10 +396,10 @@ export function validateCoachingResultDetailed(result, officialEvaluationProvide
   const critical = new Set(CRITICAL_RISK_TYPES);
   if (result.issues.some(value => critical.has(value.riskType) && value.priority !== '최우선 경고')) return invalid('application-validation', '제출·자격·필수항목·예산·핵심 수치 위험은 최우선 경고여야 합니다.');
   // 최우선이 아닌 종류도 표가 정한 짝을 지킨다. 짝은 RISK_PRIORITY 한 곳에서만 나온다.
-  for (const [type, { priority, label }] of Object.entries(RISK_PRIORITY)) {
+  for (const [type, { priority, subject }] of Object.entries(RISK_PRIORITY)) {
     if (priority === '최우선 경고') continue;
     if (result.issues.some(value => value.riskType === type && value.priority !== priority)) {
-      return invalid('application-validation', `${label} 위험은 ${priority}으로 분류해야 합니다.`);
+      return invalid('application-validation', `${subject} ${priority}으로 분류해야 합니다.`);
     }
   }
   if (result.issues.some(value => !value.evidenceRefs.length && (!value.requiresConfirmation || !value.example.includes('[확인 필요')))) return invalid('evidence-validation', '근거 없는 수정 예시는 확인 필요 상태로 남겨야 합니다.');
