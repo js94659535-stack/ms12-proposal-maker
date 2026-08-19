@@ -11,7 +11,7 @@ import { onRequest as authRoute } from '../functions/api/auth.js';
 import { onRequest as middleware } from '../functions/api/_middleware.js';
 import { createPasswordRecord } from '../server/password.js';
 import { SESSION_COOKIE } from '../server/session.js';
-import { DEFAULT_CAPS, budgetState, capsOf, costMicro, extractUsage, priceOf, usageReport, usd } from '../server/ai-usage.js';
+import { DEFAULT_CAPS, PRICE_VARS, budgetState, capsOf, costMicro, extractUsage, priceOf, usageReport, usd } from '../server/ai-usage.js';
 import { BLOCKED_ACTIONS, OPERATOR_ACTIONS } from '../server/operator-scope.js';
 import { fakeDb } from './fixtures/fake-d1.js';
 
@@ -293,6 +293,35 @@ test('단가를 넣지 않으면 비용을 0으로 지어내지 않고 미설정
   assert.equal(report.priced, false);
   assert.equal(report.price, null);
   assert.equal(report.totals.tokens, 12_000);
+});
+
+// 단가는 대시보드가 아니라 wrangler.toml에 있다. 이 프로젝트는 대시보드에서
+// 암호만 넣을 수 있고 일반 변수는 넣을 수 없다. 그래서 배포 설정 자체를 읽어 확인한다.
+// 「단가를 넣었다고 생각했는데 형식이 안 맞아 안 읽혔다」가 이 시험이 막는 사고다.
+test('배포 설정의 단가를 priceOf가 실제로 읽는다', () => {
+  const toml = fs.readFileSync(new URL('../wrangler.toml', import.meta.url), 'utf8');
+  assert.ok(!toml.includes('OPENAI_API_KEY ='), 'API 키는 wrangler.toml에 적지 않는다');
+
+  // [vars] 블록만 본다. 주석에 적힌 이름을 값으로 오해하지 않기 위해서다.
+  const env = {};
+  for (const line of toml.slice(toml.indexOf('[vars]')).split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) continue;
+    const name = trimmed.slice(0, trimmed.indexOf('=')).trim();
+    env[name] = trimmed.slice(trimmed.indexOf('=') + 1).trim().replace(/"/g, '');
+  }
+  for (const name of PRICE_VARS) assert.ok(env[name], `wrangler.toml에 ${name}이 없다`);
+
+  const price = priceOf(env);
+  assert.equal(price.priced, true, '값이 있어도 형식이 맞지 않으면 priced가 거짓이 된다');
+  assert.equal(price.input, 5);
+  assert.equal(price.cached, 0.5);
+  assert.equal(price.output, 30);
+
+  // 실제로 잰 호출 한 건을 이 단가로 계산해 본다. 0이 아니어야 상한이 동작한다.
+  const cost = costMicro({ input: 2_058, cached: 0, output: 4_666, reasoning: 288, total: 6_724 }, price);
+  assert.ok(cost > 0, '단가가 있는데 비용이 0이면 상한은 여전히 꺼져 있다');
+  assert.equal(Math.round(usd(cost) * 10_000) / 10_000, 0.1503);
 });
 
 test('migration은 새 표만 만들고 원문을 담을 열을 두지 않는다', () => {
