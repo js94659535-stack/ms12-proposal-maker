@@ -41,7 +41,14 @@ test('과거 공고는 공고보관함에서 찾고 임시 목록과 구분해 �
   // 접혀 있어도 몇 건인지는 보인다. 숫자가 없으면 열어 볼 이유를 알 수 없다.
   assert.match(appSource, /<summary><b>공고보관함<\/b>\$\{archiveCount \? /);
   assert.match(appSource, /<small>가져온 공고는 자동 보관됩니다\./);
-  assert.match(appSource, /id="proposal-box" open><summary><b>계획서보관함<\/b>/);
+  // 계획서보관함은 공고가 아니라 계획서다. 「어떤 공고로 시작할까」에 답하는 물건이 아니라
+  // 이미 시작한 것을 이어 쓰는 곳이라, 고르는 자리에서 떼어 맨 아래로 옮기고 접었다.
+  // 홈 화면에 같은 자료·같은 버튼(data-open-archived-proposal)의 「계속 작업」이 이미 있다.
+  assert.match(appSource, /id="proposal-box"><summary><b>계획서보관함<\/b>/);
+  assert.doesNotMatch(appSource, /id="proposal-box" open/);
+  assert.match(appSource, /function pastRecordsView\(\) \{/);
+  // 옮겨도 여는 방법은 그대로다. 처리기를 건드리지 않았다.
+  assert.match(appSource, /data-open-archived-proposal="\$\{escapeHtml\(item\.id\)\}"/);
   // 보관량이 많아도 빠르게 찾도록 표·검색·필터·페이지 구조로 보여 준다.
   assert.match(appSource, /class="archive-table"/);
   assert.match(appSource, /id="archive-query"/);

@@ -3661,7 +3661,10 @@ function noticeImportView() {
     <p class="muted" style="margin:6px 0 0">위 두 가지는 서로 대체가 아니라 <b>보완</b>입니다. 공고를 고르고 원문까지 넣으면 분석이 더 정확해집니다.</p>
     <div class="card-title" style="margin:18px 0 4px"><div><h3>자료 더하기 <span class="tag">선택</span></h3>
       <span>기관 소개서·예산 기준 같은 참고자료입니다. <b>신청서 서식은 이 자리로만 들어갑니다</b> — 여기 없으면 서식 없이 작성됩니다.</span></div></div>
-    ${manualSourcesView()}</div>
+    ${manualSourcesView()}
+    <div class="card-title" style="margin:18px 0 4px"><div><h3>지난 공고와 내 계획서 <span class="tag">참고·이어쓰기</span></h3>
+      <span>이번에 새로 고를 대상이 아닙니다. 접수가 끝난 공고를 참고하거나, 쓰던 계획서를 이어서 씁니다.</span></div></div>
+    ${pastRecordsView()}</div>
     ${footer({ back: false, hint, nextLabel: state.noticeResults.length ? '공고 확인' : '직접 자료로 계획서 작성', nextId: state.noticeResults.length ? 'next' : 'analyze' })}`;
 }
 
@@ -3920,9 +3923,19 @@ function archiveView() {
       <button class="button secondary" data-archive-page="${data.page - 1}" ${data.page <= 1 ? 'disabled' : ''}>이전</button>
       <button class="button secondary" data-archive-page="${data.page + 1}" ${data.page >= data.pageCount ? 'disabled' : ''}>다음</button></div>` : '<p class="muted">보관된 공고가 없습니다. 공고를 한 번 가져오면 자동으로 보관됩니다.</p>'}
     ${(state.archiveHiddenNotices || []).length ? `<div class="archive-bulk"><span>목록에서 숨긴 공고 ${(state.archiveHiddenNotices || []).length}건 (보관 원본과 연결된 계획서는 남아 있습니다)</span><button class="button secondary" id="archive-restore-hidden">숨긴 공고 되돌리기</button></div>` : ''}
-  </details>
-  ${closedArchiveView()}
-  <details class="card org-details" id="proposal-box" open><summary><b>계획서보관함</b> <small>저장한 계획서를 이어서 씁니다. 「이어서 작업」을 누르면 그 계획서로 돌아갑니다.</small></summary>
+  </details>`;
+}
+
+// 마감된 공고와 계획서보관함. 「어떤 공고로 시작할까」에 답하는 물건이 아니라
+// 이미 있는 것을 참고하거나 이어 쓰는 자리다. 그래서 고르는 자리에서 떼어 맨 아래로 옮겼다.
+// 계획서보관함은 홈 화면의 「계속 작업」과 같은 자료·같은 버튼(data-open-archived-proposal)을 쓰고,
+// 홈에 이미 그 자리가 있으므로 여기서는 펼쳐 두지 않는다.
+function pastRecordsView() {
+  const proposals = state.archiveProposals || [];
+  // 서버 검색 조건은 계획서보관함 쪽 입력칸이라 함께 옮겨 왔다. 값도 같은 곳에서 읽는다.
+  const filters = state.archiveFilters || initial.archiveFilters;
+  return `${closedArchiveView()}
+  <details class="card org-details" id="proposal-box"><summary><b>계획서보관함</b> <small>저장한 계획서를 이어서 씁니다. 「이어서 작업」을 누르면 그 계획서로 돌아갑니다.</small></summary>
     <div class="stat-badges">${[
       ['저장한 계획서', proposals.length, '이어서 작업으로 계속 씁니다'],
       ['연결된 공고', new Set(proposals.map(item => String(item.noticeKey || ''))).size, '공고 한 건에 여러 계획서를 둘 수 있습니다']
