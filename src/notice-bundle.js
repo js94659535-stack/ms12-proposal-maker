@@ -65,7 +65,12 @@ export async function readBundleFile(file, { extractText = null } = {}) {
   try {
     if (typeof file?.text === 'string' && file.text.trim()) return { ...base, status: '읽음', text: file.text, chars: file.text.length };
     const buffer = file?.bytes?.buffer ? file.bytes.buffer.slice(file.bytes.byteOffset, file.bytes.byteOffset + file.bytes.byteLength) : file?.buffer;
-    if (!buffer) return { ...base, status: '미지원', text: '', chars: 0, error: '파일 내용을 받지 못했습니다.' };
+    // 내려받기가 실패해 바이트가 없는 것과, 받았는데 형식이 안 맞는 것은 다른 문제다.
+    // 앞의 것을 「미지원」으로 적으면 원인이 파일 형식인 줄 알고 엉뚱한 곳을 고치게 된다.
+    // 부르는 쪽이 이유를 함께 넘겼으면(예: 내려받지 못했습니다 (404)) 그것을 그대로 남긴다.
+    if (!buffer) return { ...base, status: '받지 못함', text: '', chars: 0, error: file?.error || '파일 내용을 받지 못했습니다.' };
+    // HWP는 여기서 직접 읽는다. 그래서 부르는 쪽 extractText 허용 목록에 hwp가 없어도 된다.
+    // 목록만 보면 안 읽는 것처럼 보이지만, 이 분기가 먼저라 extractText까지 가지 않는다.
     if (extension === 'hwp') {
       const text = await extractHwpText(buffer);
       return { ...base, status: '읽음', text, chars: text.length };
@@ -217,7 +222,7 @@ export function mergeBundleStructures(noticeStructure, readFiles) {
     }
   }
   merged.hasOfficialScoring = merged.evaluationScores.length > 0;
-  merged.unreadAttachments = readFiles.filter(file => file.status === '변환 필요' || file.status === '미지원').map(file => `${file.name} (${file.error || file.status})`);
+  merged.unreadAttachments = readFiles.filter(file => file.status === '변환 필요' || file.status === '미지원' || file.status === '받지 못함').map(file => `${file.name} (${file.error || file.status})`);
   return { structure: merged, conflicts };
 }
 
@@ -226,7 +231,9 @@ export function bundleSummary(files, conflicts = []) {
     total: files.length,
     read: files.filter(file => file.status === '읽음').length,
     conversionNeeded: files.filter(file => file.status === '변환 필요').length,
+    // 형식이 안 맞는 것과 파일이 오지 않은 것을 따로 센다. 고칠 방법이 서로 다르다.
     unsupported: files.filter(file => file.status === '미지원').length,
+    missing: files.filter(file => file.status === '받지 못함').length,
     chars: files.reduce((sum, file) => sum + (file.chars || 0), 0),
     roles: ATTACHMENT_ROLES.map(role => ({ role, count: files.filter(file => file.role === role && file.status === '읽음').length })).filter(item => item.count),
     conflicts: conflicts.length

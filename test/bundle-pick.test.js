@@ -8,7 +8,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { bundlePick, classifyAttachmentRole, formSourceTypeOf, leafName, splitBundle } from '../src/notice-bundle.js';
+import { bundlePick, bundleSummary, classifyAttachmentRole, formSourceTypeOf, leafName, readBundleFile, splitBundle } from '../src/notice-bundle.js';
 
 const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
 const read = (name, text = '가'.repeat(80)) => ({
@@ -40,6 +40,52 @@ test('이름이 서식이어도 읽지 못했으면 넣지 않고 이유를 그�
   assert.equal(pick.include, false);
   // 「미지원」으로 뭉개지 않고 원래 이유를 남긴다.
   assert.equal(pick.reason, '파일 내용을 받지 못했습니다.');
+});
+
+test('내려받기 실패가 미지원으로 표시되지 않는다', async () => {
+  // 실제로 났던 일: 「미지원 2」로 떠서 파일 형식 문제로 보였는데,
+  // 실은 바이트가 아예 오지 않은 것이었다. 고칠 곳이 서로 다르다 —
+  // 형식은 변환해서 다시 올리면 되고, 못 받은 것은 원본 사이트나 링크를 봐야 한다.
+  const failed = await readBundleFile({ name: '2. 양식.zip', error: '내려받지 못했습니다 (404)' });
+  assert.equal(failed.status, '받지 못함');
+  assert.notEqual(failed.status, '미지원');
+  // 부르는 쪽이 남긴 이유가 그대로 살아 있어야 한다. 예전에는 base가 덮어썼다.
+  assert.equal(failed.error, '내려받지 못했습니다 (404)');
+
+  // 이유를 안 넘겼으면 기본 문구를 쓰되 상태는 여전히 「받지 못함」이다.
+  const bare = await readBundleFile({ name: '공고문.hwp' });
+  assert.equal(bare.status, '받지 못함');
+  assert.equal(bare.error, '파일 내용을 받지 못했습니다.');
+
+  // 형식이 안 맞는 것은 그대로 「미지원」이다. 둘을 뭉개지 않는다.
+  const jpg = await readBundleFile({ name: '포스터.jpg', bytes: new Uint8Array([1, 2, 3]) });
+  assert.equal(jpg.status, '미지원');
+  assert.match(jpg.error, /형식은 현재 자동 추출 대상이 아닙니다/);
+});
+
+test('요약이 받지 못함과 미지원을 따로 센다', async () => {
+  const files = [
+    await readBundleFile({ name: '1. 공고문.hwp', error: '내려받지 못했습니다 (404)' }),
+    await readBundleFile({ name: '2. 양식.zip', error: '내려받지 못했습니다 (404)' }),
+    await readBundleFile({ name: '포스터.jpg', bytes: new Uint8Array([1, 2, 3]) })
+  ];
+  const summary = bundleSummary(files);
+  assert.equal(summary.missing, 2, '받지 못한 것은 따로 센다');
+  assert.equal(summary.unsupported, 1, '형식이 안 맞는 것만 미지원이다');
+  assert.equal(summary.read, 0);
+  // 화면 줄도 둘을 나눠 적는다.
+  assert.match(app, /받지 못함 \$\{analysis\.summary\.bundle\.missing \|\| 0\}/);
+  assert.match(app, /미지원 \$\{analysis\.summary\.bundle\.unsupported\}/);
+});
+
+test('HWP는 extractText 목록과 무관하게 읽힌다', () => {
+  // analyzeNoticeBundleFiles의 extractText는 ['pdf','docx','txt','hwpx']만 허용한다.
+  // 목록만 보면 hwp가 빠진 버그로 보이지만, readBundleFile이 그 앞에서 직접 읽는다.
+  const source = fs.readFileSync(new URL('../src/notice-bundle.js', import.meta.url), 'utf8');
+  const hwpAt = source.indexOf("if (extension === 'hwp')");
+  const extractAt = source.indexOf('if (extractText) {');
+  assert.ok(hwpAt > 0 && extractAt > hwpAt, 'HWP 분기가 extractText보다 앞에 있어야 한다');
+  assert.match(source, /extractText 허용 목록에 hwp가 없어도 된다/);
 });
 
 test('ZIP 껍데기 자체는 넣지 않는다', () => {
