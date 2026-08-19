@@ -69,7 +69,7 @@ import { ARCHIVE_PAGE_SIZES, ARCHIVE_PAGE_SIZE_LABEL, ARCHIVE_STATUSES, DEFAULT_
 import { SAMPLE_MARK, SAMPLE_NOTE, SAMPLE_NOTICE, SAMPLE_NOTICE_KEY, SAMPLE_STAGES, SAMPLE_STAGE_BY_STEP, buildSampleProject } from './sample-project.js';
 import { SAMPLE_REAL_COACHING } from './sample-coaching-run.js';
 import { SOURCE_KINDS, makeApplicantSource, APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, mergeApplicantItems, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
-import { BASIC_AREAS, DETAIL_GROUPS, DETAIL_INTRO, basicStatus, detailProgress, draftFromApplicant, reusableCount } from './org-stage.js';
+import { BASIC_AREAS, areaDestination, DETAIL_GROUPS, DETAIL_INTRO, basicStatus, detailProgress, draftFromApplicant, reusableCount } from './org-stage.js';
 import { KOREAN_LABELS, toKoreanLabel } from '../server/label-leak.js';
 import { WRITE_ALL_BUTTON, partialBlockReason, recordTiming, remainingGroups, timelineRows, writingState } from './writing-progress.js';
 import { gapCoverSection, gapReport } from './gap-report.js';
@@ -931,7 +931,7 @@ function bindMembership() {
 // 역할·승인·이용권·수주계약 상태·사용량은 이 폼에 없다. 서버도 그 항목은 받지 않는다.
 const MEMBER_FIELDS = [
   ['name', '담당자 이름', 'input'], ['phone', '연락처', 'input'], ['orgName', '기관명', 'input'],
-  ['orgType', '기관 유형', 'input'], ['orgAddress', '기관 주소', 'input'], ['orgIntro', '기관 소개', 'area'],
+  ['orgType', '기관 유형', 'choices'], ['orgAddress', '기관 주소', 'input'], ['orgIntro', '기관 소개', 'area'],
   ['staff', '보유 인력', 'area'], ['facilities', '시설과 장비', 'area'], ['programs', '주요 프로그램', 'area'],
   ['achievements', '사업 실적', 'area'], ['partners', '협력기관', 'area'],
   ['reuseNote', '계획서 작성에 재사용할 기관정보', 'area']
@@ -952,7 +952,11 @@ function memberProfileForm() {
     <div class="two-col">${MEMBER_FIELDS.map(([key, label, kind]) => `<div class="field"><label for="member-${key}">${escapeHtml(label)}</label>${
       kind === 'area'
         ? `<textarea id="member-${key}" class="source-text" data-member-field="${key}" rows="3">${escapeHtml(memberProfileValue(key))}</textarea>`
-        : `<input id="member-${key}" data-member-field="${key}" value="${escapeHtml(memberProfileValue(key))}">`
+        // 기관 유형은 신청기관 화면에서 이미 목록으로 고른다. 같은 값을 여기서만 자유 입력으로 두면
+        // 「사단법인」과 「사단·재단법인」이 따로 저장되고 두 화면이 다른 값을 보게 된다.
+        : kind === 'choices'
+          ? `<select id="member-${key}" data-member-field="${key}"><option value="">고르세요</option>${ORG_TYPES.map(type => `<option value="${escapeHtml(type)}" ${memberProfileValue(key) === type ? 'selected' : ''}>${escapeHtml(type)}</option>`).join('')}${ORG_TYPES.includes(memberProfileValue(key)) || !memberProfileValue(key) ? '' : `<option value="${escapeHtml(memberProfileValue(key))}" selected>${escapeHtml(memberProfileValue(key))} (이전에 적은 값)</option>`}</select>`
+          : `<input id="member-${key}" data-member-field="${key}" value="${escapeHtml(memberProfileValue(key))}">`
     }</div>`).join('')}</div>
     <p class="muted">${escapeHtml(LOCKED_NOTE)}</p>
     <div class="actions"><span class="muted">${changed ? '저장하지 않은 변경이 있습니다.' : '변경 내용이 없습니다.'}</span>
@@ -5211,7 +5215,7 @@ function removeApplicantSource(id) {
 // 기존 기관 문서에서 정보를 뽑아 ‘업데이트 후보’로만 만든다. 사용자가 반영을 눌러야 기관 정보가 바뀐다.
 function applicantDocumentView(applicant) {
   const review = state.applicantExtraction?.applicantId === applicant.id ? state.applicantExtraction : null;
-  return `<div class="card"><div class="card-title"><div><h3>기관 문서에서 정보 추출</h3><span>사업계획서·결과보고서·기관소개서를 넣으면 기관정보 업데이트 후보를 만듭니다. 기존 정보는 자동으로 덮어쓰지 않습니다.</span></div></div>
+  return `<div class="card" id="applicant-doc" tabindex="-1"><div class="card-title"><div><h3>기관 문서에서 정보 추출</h3><span>사업계획서·결과보고서·기관소개서를 넣으면 기관정보 업데이트 후보를 만듭니다. 기존 정보는 자동으로 덮어쓰지 않습니다.</span></div></div>
     <div class="field"><label for="applicant-doc-file">기관 문서 파일 (PDF·DOCX·TXT·HWPX·HWP)</label><input type="file" id="applicant-doc-file" accept=".pdf,.docx,.txt,.hwpx,.hwp"><small class="muted">한글 파일(HWPX·HWP)도 본문과 표를 읽습니다. 읽지 못하면 이유를 알려 드립니다.</small></div>
     <div class="field"><label for="applicant-doc-text">또는 문서 내용 붙여넣기</label><textarea id="applicant-doc-text" style="min-height:110px" placeholder="예) 기관명: 사단법인 ○○센터 / 상근 인력: 5명 / 2025년 청소년 마음건강 지원사업">${escapeHtml(state.applicantDocDraft)}</textarea></div>
     <div class="actions" style="margin:0"><span class="muted">${escapeHtml(review ? `${review.documentName || '붙여넣은 문서'} · 문서 기준시점 ${review.documentAsOf || ASOF_UNKNOWN}` : '외부 AI 호출 없이 규칙 기반으로 추출합니다.')}</span><button class="button primary" id="extract-applicant-doc">업데이트 후보 만들기</button></div>
@@ -5507,8 +5511,14 @@ function applicantSelectView() {
 
 function applicantLoadedView(applicant) {
   const confirmed = confirmedItems(applicant);
+  const summary = applicantAreaSummary(applicant);
+  // 열한 칸이 전부 비었으면 하나씩 적는 것보다 문서를 올리는 쪽이 훨씬 빠르다.
+  // 그 카드는 이 화면 맨 아래에 있어 위에서부터 손으로 채우는 사람은 끝까지 못 본다.
+  const empty = summary.every(area => !area.total);
   return `<div class="card"><div class="card-title"><div><h3>불러온 신청기관 정보 · ${escapeHtml(applicant.name)}</h3><span>확인된 정보만 계획서 작성에 전달됩니다.</span></div></div>
-    <div class="summary-grid">${applicantAreaSummary(applicant).map(area => `<div><span>${escapeHtml(area.title)}</span><strong>${area.confirmed}건 확인됨</strong><small>확인 필요·오래된 정보 ${area.needsCheck}건</small></div>`).join('')}</div>
+    ${empty ? `<div class="alert warning"><strong>기존 사업계획서나 결과보고서를 올리면 여러 칸을 한 번에 채울 수 있습니다</strong>
+      <p>열한 칸을 하나씩 적지 않아도 됩니다. <button class="button secondary" id="go-applicant-doc">기관 문서에서 정보 추출로 가기</button></p></div>` : ''}
+    <div class="summary-grid">${summary.map(area => `<button type="button" data-open-area="${escapeHtml(area.key)}" title="${escapeHtml(area.title)} 적으러 가기"><span>${escapeHtml(area.title)}</span><strong>${area.confirmed}건 확인됨</strong><small>확인 필요·오래된 정보 ${area.needsCheck}건</small></button>`).join('')}</div>
     <details open><summary>계획서 작성에 전달할 확인된 정보 ${confirmed.length}건</summary><div class="cap-grid">${confirmed.length ? confirmed.map(item => `<div><span>${escapeHtml(areaTitle(item.area))}</span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.value)}</small></div>`).join('') : '<p class="muted">확인됨으로 표시된 정보가 없습니다. 기관 사실은 [확인 필요]로만 처리됩니다.</p>'}</div></details>
     <details><summary>전달하지 않는 확인 필요·오래된 정보 ${applicant.items.length - confirmed.length}건</summary><p class="muted">아래 항목은 항목명만 표시하며 내용은 계획서 작성 요청에 포함하지 않습니다.</p><div class="cap-grid">${applicant.items.filter(item => item.status !== CONFIRMED_STATUS).map(item => `<div><span>${escapeHtml(areaTitle(item.area))}</span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.status)}</small></div>`).join('') || '<p class="muted">없음</p>'}</div></details></div>`;
 }
@@ -7798,6 +7808,17 @@ function bindApplicants() {
     quickOrg: { ...quickDraft(), ...draftFromApplicant(findApplicant(state.applicants, el.dataset.editApplicant)) }, notice: '', error: ''
   }));
   // 필요한 구역만 연다. 다시 그려도 열어 둔 구역이 닫히지 않게 기억한다.
+  // 요약 열한 칸을 누르면 그 칸을 적는 자리를 열고 그리로 데려간다.
+  // 이미 열어 둔 묶음은 닫지 않는다 — 사용자가 펼쳐 둔 것을 뺏지 않는다.
+  document.querySelectorAll('[data-open-area]').forEach(el => el.addEventListener('click', () => {
+    const target = areaDestination(el.dataset.openArea);
+    if (!target) return;
+    setState({ openOrgGroups: [...new Set([...(state.openOrgGroups || []), target])] });
+    requestAnimationFrame(() => document.querySelector(`[data-detail-group="${target}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  }));
+  document.querySelector('#go-applicant-doc')?.addEventListener('click', () => {
+    document.querySelector('#applicant-doc')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
   document.querySelectorAll('[data-detail-group]').forEach(el => el.addEventListener('toggle', () => {
     const key = el.dataset.detailGroup;
     const open = new Set(state.openOrgGroups || []);

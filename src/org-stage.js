@@ -21,6 +21,17 @@ export const DETAIL_GROUPS = Object.freeze([
   { key: 'budget', title: '예산정보', areas: ['budget'], hint: '연간 예산 규모·자부담 가능액·회계 처리' }
 ]);
 
+// 11칸 요약에서 편집 자리로 가는 대응표. 요약은 저장 영역(APPLICANT_AREAS) 열한 개인데
+// 편집은 기본정보 둘(BASIC_AREAS)과 상세 여덟 묶음(DETAIL_GROUPS)이라 1:1이 아니다.
+// 「성과측정 경험」과 「근거자료·출처」는 둘 다 「성과자료」 묶음으로 간다.
+// 돌려주는 값은 화면의 data-detail-group 값 그대로다 — 그것이 openOrgGroups 에 담기는 키다.
+// 대응이 없으면 빈 문자열이다. 시험이 열한 칸에 빠짐이 없는지 본다.
+export function areaDestination(areaKey) {
+  const key = String(areaKey ?? '');
+  if (BASIC_AREAS.includes(key)) return key;
+  return (DETAIL_GROUPS.find(group => group.areas.includes(key)) || {}).key || '';
+}
+
 // 상세정보 화면 맨 위에 그대로 띄우는 안내. 문구를 바꾸지 않는다.
 export const DETAIL_INTRO = '인력·사업실적·시설·보유 프로그램 등의 상세정보를 등록하면 AI가 기관의 실제 역량을 계획서에 반영할 수 있습니다. 반복 입력과 [확인 필요]가 줄어들며, 한 번 확인한 정보는 다음 계획서에서도 다시 사용할 수 있습니다.';
 
