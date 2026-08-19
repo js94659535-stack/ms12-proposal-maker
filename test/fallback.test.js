@@ -728,7 +728,7 @@ test('HWP 안내와 공고문 추출 상태를 명확히 표시한다', () => {
   assert.match(source, /안내 페이지 기반 임시 초안/);
   assert.match(source, /공고문 추출 실패/);
   // 한글 파일도 앱이 직접 읽는다. 예전처럼 PDF로 바꿔 다시 올리라고 하지 않는다.
-  assert.match(source, /export const EXTRACTABLE_ATTACHMENTS = Object\.freeze\(\['PDF', 'DOCX', 'TXT', 'HWPX', 'HWP'\]\)/);
+  assert.match(source, /export const EXTRACTABLE_ATTACHMENTS = Object\.freeze\(\['PDF', 'DOCX', 'TXT', 'HWPX', 'HWP', 'ZIP'\]\)/);
   assert.match(source, /if \(extract && !EXTRACTABLE_ATTACHMENTS\.includes\(type\)\)/);
   assert.doesNotMatch(source, /한글 프로그램에서 PDF로 저장한 뒤 다시 업로드/);
 });

@@ -81,6 +81,65 @@ export async function readBundleFile(file, { extractText = null } = {}) {
   }
 }
 
+// 읽은 파일 가운데 무엇을 본문 입력으로 넣을지 정한다.
+//
+// 다른 기관의 예시 계획서 문장이 근거로 섞이면 지어내지 않는다는 원칙이 무너진다.
+// 읽되 본문에 넣지 않는다. 안내서류·작성가이드도 같은 이유로 뺀다 —
+// 사업 자체의 사실이 아니라 「어떻게 쓰라」는 설명이라 본문 근거가 될 수 없다.
+//
+// 판정이 틀릴 수 있으므로 뺀 것도 목록에 남기고 이름과 이유를 함께 보여 준다.
+// 사용자가 그 자리에서 하나씩 되넣을 수 있어야 한다.
+const INCLUDE_ROLES = ['공고문', '신청서·계획서 양식', '평가표·심사기준', '예산편성 기준'];
+const SKIP_RULES = [
+  { reason: '예시 자료', pattern: /예시|샘플|sample|작성\s*예/i },
+  // 「안내서류」가 「안내서」 규칙에 먼저 걸리면 이유가 엉뚱하게 적힌다. 좁은 것을 앞에 둔다.
+  { reason: '안내서류', pattern: /안내\s*서류|참고\s*서류|붙임\s*서류|제출\s*서류\s*목록/ },
+  { reason: '작성가이드', pattern: /작성\s*가이드|가이드|매뉴얼|작성\s*요령|안내서|설명서/ },
+  { reason: '이미지', pattern: /\.(?:jpe?g|png|gif|bmp|webp|tiff?)$/i }
+];
+
+// ZIP 안 파일 이름은 「양식 및 안내서류.zip > 사업계획서 양식.hwpx」처럼 부모 이름을 달고 온다.
+// 그대로 규칙에 걸면 부모의 「안내서류」가 안쪽 서식까지 끌어내린다. 실제로 그렇게 빠졌다.
+// 판정은 언제나 마지막 조각(제 이름)으로만 한다.
+export function leafName(name) {
+  return String(name || '').split('>').pop().trim();
+}
+
+/** 파일 하나를 넣을지 말지와 그 이유. 읽지 못한 파일은 애초에 넣을 것이 없다. */
+export function bundlePick(file) {
+  const name = leafName(file?.name);
+  // ZIP 껍데기 자체는 내용이 없다. 안의 파일이 따로 판정된다.
+  if (file?.extension === 'zip') return { include: false, reason: '압축 파일(안의 파일을 따로 읽었습니다)' };
+  if (file?.status !== '읽음' || !String(file?.text || '').trim()) {
+    return { include: false, reason: file?.error || '내용을 읽지 못했습니다' };
+  }
+  const skip = SKIP_RULES.find(rule => rule.pattern.test(name));
+  if (skip) return { include: false, reason: skip.reason };
+  // 역할도 제 이름으로 다시 본다. readBundleFile은 부모가 붙은 이름으로 판정했다.
+  const role = String(file?.name || '').includes('>') ? classifyAttachmentRole(name) : file?.role;
+  if (!INCLUDE_ROLES.includes(role)) return { include: false, reason: `${role || '기타 참고자료'}로 판정` };
+  return { include: true, reason: role, role };
+}
+
+/** 묶음을 「넣음」과 「읽었지만 넣지 않음」으로 나눈다. 화면과 입력이 같은 판정을 쓴다. */
+export function splitBundle(files = []) {
+  const included = [];
+  const skipped = [];
+  for (const file of files) {
+    const pick = bundlePick(file);
+    (pick.include ? included : skipped).push({ ...file, pickReason: pick.reason });
+  }
+  return { included, skipped };
+}
+
+// 서식으로 판정된 파일은 본문이 아니라 「직접 자료」로 보내야 buildFormSpec이 읽는다.
+// 지금까지는 전부 sourceText로만 가서, 첨부에 서식이 있어도 「서식 미인식」이 떴다.
+const FORM_SOURCE_BY_ROLE = { '신청서·계획서 양식': '사업계획서 서식', '예산편성 기준': '예산 편성 기준' };
+export function formSourceTypeOf(file) {
+  const role = String(file?.name || '').includes('>') ? classifyAttachmentRole(leafName(file.name)) : file?.role;
+  return FORM_SOURCE_BY_ROLE[role] || '';
+}
+
 // ZIP은 내부 파일까지 펼쳐서 묶음을 만든다.
 export async function expandBundle(files, options = {}) {
   const results = [];

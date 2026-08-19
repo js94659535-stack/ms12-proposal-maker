@@ -49,7 +49,7 @@ import { analyzeProposalStructure, buildStructuralRevision, reviewProposalStruct
 import { applyRepairPlans, buildRepairPlans, repairPlanSummary } from './repair-plan.js';
 import { analyzeNoticeStructure, buildSelectionLogic, noticeLogicSummary, noticeOverview, selectionRequirements } from './notice-logic.js';
 import { cautionPoints, comparePastNotices, emphasisPoints, generalNotes as generalGuideNotes, writingApproach } from './notice-guide.js';
-import { bundleSummary, expandBundle, mergeBundleStructures } from './notice-bundle.js';
+import { bundleSummary, expandBundle, formSourceTypeOf, mergeBundleStructures, splitBundle } from './notice-bundle.js';
 import { matchApplicantToNotice } from './fit-matching.js';
 import { buildDesignQuestions, reusableAnswerCandidates } from './design-questions.js';
 import { buildBlueprint } from './project-blueprint.js';
@@ -4327,6 +4327,7 @@ function selectionLogicView() {
     <div><span>공식 근거 확인 항목</span><strong>${summary.confirmedFields}/${structure.fields.length}</strong><small>확인 필요 ${structure.fields.length - summary.confirmedFields}개</small></div>
     <div><span>배점</span><strong>${escapeHtml(logic.scoring.mode)}</strong><small>${escapeHtml(logic.scoring.items.map(item => `${item.criterion} ${item.points}점`).join(' · ') || '공식 평가표 없음 · 점수 임의 생성 안 함')}</small></div>
     <div><span>선정 요건</span><strong>${requirements.length}개</strong><small>공식 근거 ${summary.officialRequirements} · 확인 필요 ${summary.checkRequirements}</small></div></div>
+    ${analysis.picked ? bundlePickView(analysis.picked) : ''}
     ${analysis.files ? `<details open><summary>공고 자료묶음 ${analysis.files.length}건 · 읽음 ${analysis.summary.bundle.read} · 변환 필요 ${analysis.summary.bundle.conversionNeeded} · 미지원 ${analysis.summary.bundle.unsupported}</summary><div class="cap-grid">${analysis.files.map(file => `<div><span>${escapeHtml(file.role)} · ${escapeHtml(file.status)}</span><strong>${escapeHtml(String(file.name).split(" > ").pop())}</strong><small>${file.chars ? file.chars.toLocaleString() + "자" : escapeHtml(file.error || "")}</small></div>`).join("")}</div>${analysis.conflicts?.length ? `<p><b>자료 간 충돌</b> ${analysis.conflicts.map(item => `${escapeHtml(item.field)} · ${escapeHtml(item.label)}: ${escapeHtml(item.values.join(" vs "))}`).join(" / ")}</p>` : ""}</details>` : ""}
     ${structure.unreadAttachments.length ? `<div class="alert warning"><strong>읽지 못한 자료</strong><p>${escapeHtml(structure.unreadAttachments.join(' / '))} — 이 안의 조건은 읽지 못했습니다. 파일을 직접 자료로 추가하면 함께 분석합니다.</p></div>` : ''}
     ${(() => {
@@ -4361,6 +4362,25 @@ function noticeConfirmView() {
     ${selectionLogicView()}
     ${noticeTrashView()}${noticePreviewView()}
     ${!state.noticeResults.length ? '<div class="empty-state"><div>⌕</div><h2>가져온 공고가 없습니다</h2><button class="button primary" data-step="0">공고 가져오기로 이동</button></div>' : ''}`;
+}
+
+// 무엇을 본문에 넣었고 무엇을 뺐는지 나눠 보여 준다.
+//
+// 조용히 다 넣으면 무엇이 들어갔는지 알 수 없고, 조용히 빼면 빠진 줄도 모른다.
+// 자동 판정이 틀릴 수 있으므로 뺀 것마다 이유를 적고 그 자리에서 되넣을 수 있게 둔다.
+function bundlePickView(picked) {
+  const included = picked.included || [];
+  const skipped = picked.skipped || [];
+  if (!included.length && !skipped.length) return '';
+  const row = (file, index, adopt) => `<article class="requirement"><div>
+    <span class="status ${adopt ? '충족' : '확인-필요'}">${escapeHtml(file.pickReason || '')}</span>
+    <div><strong>${escapeHtml(file.name)}</strong><small class="muted">${file.chars ? `${file.chars.toLocaleString()}자` : '내용 없음'}${formSourceTypeOf(file) ? ` · 직접 자료 「${escapeHtml(formSourceTypeOf(file))}」로 넣음` : ''}</small></div></div>
+    ${adopt || !file.chars ? '' : `<button class="button secondary" data-adopt-bundle="${index}">이것도 넣기</button>`}</article>`;
+  return `<div class="card" id="bundle-pick"><div class="card-title"><div><h3>본문에 넣은 자료 ${included.length}건</h3>
+      <span>읽었지만 넣지 않은 것 ${skipped.length}건 · 예시·안내서류는 넣지 않습니다</span></div></div>
+    <div class="requirement-list">${included.map((file, index) => row(file, index, true)).join('')}</div>
+    ${skipped.length ? `<details style="margin-top:10px"><summary>읽었지만 넣지 않음 ${skipped.length}건</summary>
+      <div class="requirement-list">${skipped.map((file, index) => row(file, index, false)).join('')}</div></details>` : ''}</div>`;
 }
 
 // 사업 설계도. 엔진(project-blueprint.js)의 결과만 그려 주고 화면에서 다시 계산하지 않는다.
@@ -5534,12 +5554,12 @@ function attachmentView() {
     const type = attachmentType(file.name, file.fileType);
     // 한글 파일도 읽는다. 예전에는 PDF로 바꿔 다시 올리라고 했지만 지금은 앱이 직접 연다.
     const supported = EXTRACTABLE_ATTACHMENTS.includes(type);
-    return `<article class="requirement"><div><span class="tag">${escapeHtml(type)}</span><strong>${escapeHtml(file.name)}</strong>${type === 'ZIP' ? `<small>ZIP 내부 자동 해제는 지원하지 않습니다. 내려받아 푼 뒤 개별 파일을 올려 주세요.${formSpecNotice(currentFormSpec(), []).state === 'none' ? ' <b>지금 서식을 못 읽은 상태라, 이 안에 사업계획서 서식이 있을 수 있습니다.</b>' : ''}</small>` : type === 'UNSUPPORTED' ? '<small>지원하지 않는 파일 형식입니다.</small>' : '<small class="muted">공고문·신청서식을 이 자리에서 바로 읽어 분석에 넣습니다.</small>'}</div><span><button class="button secondary" data-download-attachment="${index}">원본 다운로드</button>${supported ? `<button class="button primary" data-extract-attachment="${index}">내용 추출</button>` : ''}</span></article>`;
+    return `<article class="requirement"><div><span class="tag">${escapeHtml(type)}</span><strong>${escapeHtml(file.name)}</strong>${type === 'ZIP' ? `<small>안에 든 파일을 펼쳐서 읽습니다. 서식·공고문·평가표·예산기준만 본문에 넣고 예시·안내서류는 목록에만 남깁니다.${formSpecNotice(currentFormSpec(), []).state === 'none' ? ' <b>지금 서식을 못 읽은 상태라, 이 안에 사업계획서 서식이 있을 수 있습니다.</b>' : ''}</small>` : type === 'UNSUPPORTED' ? '<small>지원하지 않는 파일 형식입니다.</small>' : '<small class="muted">공고문·신청서식을 이 자리에서 바로 읽어 분석에 넣습니다.</small>'}</div><span><button class="button secondary" data-download-attachment="${index}">원본 다운로드</button>${supported ? `<button class="button primary" data-extract-attachment="${index}">내용 추출</button>` : ''}</span></article>`;
   }).join('')}</div></div>`;
 }
 
 // 앱이 직접 읽을 수 있는 첨부 형식. files.js의 SUPPORTED와 같은 목록을 화면 표기로 옮긴 것이다.
-export const EXTRACTABLE_ATTACHMENTS = Object.freeze(['PDF', 'DOCX', 'TXT', 'HWPX', 'HWP']);
+export const EXTRACTABLE_ATTACHMENTS = Object.freeze(['PDF', 'DOCX', 'TXT', 'HWPX', 'HWP', 'ZIP']);
 export function attachmentType(name, provided = '') {
   if (['PDF', 'DOCX', 'TXT', 'HWP', 'HWPX', 'ZIP', 'UNSUPPORTED'].includes(provided)) return provided;
   const extension = String(name || '').split('.').pop()?.toLowerCase();
@@ -7487,6 +7507,18 @@ function bind() {
   document.querySelectorAll('[data-notice-check]').forEach(el => el.onchange = () => toggleNoticeSelection(el.dataset.noticeCheck, el.checked));
   document.querySelector('#analyze-notice-logic')?.addEventListener('click', analyzeNoticeSelectionLogic);
   document.querySelector('#analyze-notice-bundle')?.addEventListener('click', analyzeNoticeBundleFiles);
+  document.querySelectorAll('[data-adopt-bundle]').forEach(el => el.onclick = () => {
+    const picked = state.noticeLogic?.picked;
+    const file = (picked?.skipped || [])[Number(el.dataset.adoptBundle)];
+    if (!file) return;
+    const added = adoptBundleFiles([{ ...file, role: file.role }]);
+    if (!added.length) return setState({ notice: '이미 넣은 자료입니다.' });
+    // 넣은 것은 넣음 쪽으로 옮긴다. 판정이 바뀐 이유도 그대로 적는다.
+    const skipped = picked.skipped.filter(item => item !== file);
+    const included = [...picked.included, { ...file, pickReason: '사용자가 넣음' }];
+    setState({ sourceText: state.sourceText, manualSources: [...state.manualSources],
+      noticeLogic: { ...state.noticeLogic, picked: { included, skipped } }, notice: `「${file.name}」을 넣었습니다.` });
+  });
   document.querySelectorAll('[data-blueprint-type]').forEach(el => el.onclick = () => setBlueprintValue('applicationType', '신청유형', el.dataset.blueprintType));
   document.querySelectorAll('[data-blueprint-save]').forEach(el => el.onclick = () => saveBlueprintInputs(el.dataset.blueprintSave));
   document.querySelector('#blueprint-draft')?.addEventListener('click', createDraft);
@@ -8216,6 +8248,34 @@ function toggleCoachingSelection(index, checked) {
   saveState();
 }
 
+// 읽은 파일을 실제 입력으로 넣는다. 자동 선별과 「이것도 넣기」가 같은 길을 쓴다.
+//
+// 서식은 sourceText가 아니라 manualSources로 보내야 buildFormSpec이 읽는다.
+// 지금까지 첨부에 서식이 있어도 「서식 미인식」이 뜬 이유가 이 갈림길이 없어서였다.
+function adoptBundleFiles(files = []) {
+  const added = [];
+  for (const file of files) {
+    const text = String(file?.text || '').trim();
+    if (!text) continue;
+    const sourceType = formSourceTypeOf(file);
+    if (sourceType) {
+      if (state.manualSources.some(item => item.fileName === file.name)) continue;
+      state.manualSources.push({
+        id: `bundle-${state.manualSources.length}-${file.name}`, fileName: file.name, sourceType,
+        extractedText: text, extractionStatus: 'success', extractionError: '', autoKind: sourceType, autoConfidence: 'high'
+      });
+    } else {
+      if (state.sourceText.includes(`[공고 자료: ${file.name}]`)) continue;
+      state.sourceText = `${state.sourceText}
+
+[공고 자료: ${file.name}]
+${text}`;
+    }
+    added.push(file.name);
+  }
+  return added;
+}
+
 // 공고 본문 + 첨부파일을 하나의 자료묶음으로 읽어 선정 논리를 다시 완성한다. AI 호출 없음.
 async function analyzeNoticeBundleFiles() {
   const notice = noticeLogicSource();
@@ -8243,8 +8303,11 @@ async function analyzeNoticeBundleFiles() {
     const logic = buildSelectionLogic(structure);
     const requirements = selectionRequirements(structure);
     const summary = { ...noticeLogicSummary(structure, logic, requirements), bundle: bundleSummary(files, conflicts) };
+    // 무엇을 본문에 넣고 무엇을 뺐는지 한 곳에서 정한다. 화면과 입력이 같은 판정을 쓴다.
+    const picked = splitBundle(files);
+    adoptBundleFiles(picked.included);
     setState({
-      busy: '', noticeLogic: { structure, logic, requirements, summary, files, conflicts, contract: buildNoticeContract({ structure, notice }) },
+      busy: '', noticeLogic: { structure, logic, requirements, summary, files, conflicts, picked, contract: buildNoticeContract({ structure, notice }) },
       notice: `자료묶음 ${files.length}건 중 ${summary.bundle.read}건을 읽었습니다${elapsedLabel()}. 공식 근거 확인 ${summary.confirmedFields}/${structure.fields.length} · 확정 선정요건 ${summary.officialRequirements}개${summary.bundle.conversionNeeded ? ` · 변환 필요 ${summary.bundle.conversionNeeded}건` : ''}`,
       error: ''
     });
