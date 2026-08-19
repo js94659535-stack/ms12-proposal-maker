@@ -7798,6 +7798,23 @@ function bind() {
   if (state.activeTool === 'coaching' && state.coaching.pendingJob && !coachingPollActive) setTimeout(() => pollProposalCoaching(), 250);
 }
 
+// 11칸 요약(applicantSelectView)과 편집칸(applicantsToolView)은 서로 다른 화면이다.
+// 요약 화면에는 data-detail-group 도 문서 추출 카드도 그려지지 않는다. 그래서 처음 붙인 처리기는
+// 열 자리도 스크롤할 자리도 그 시점 DOM 에 없어 조용히 아무 일도 하지 않았다.
+// 시험이 코드가 있는지만 봐서 놓쳤다 — 이제 두 화면의 실제 마크업을 대조해 잡는다.
+// 먼저 기관정보 화면으로 옮기고, 그 화면이 그려진 다음 프레임에서 연다.
+function openApplicantEditor({ group = '', anchor = '' }) {
+  setState({
+    activeTool: 'applicants',
+    // 카드는 이번 사업 신청기관의 것이다. 앞서 다른 기관을 열어 둔 채면 엉뚱한 기관이 열린다.
+    applicantEditingId: state.selectedApplicantId,
+    openOrgGroups: group ? [...new Set([...(state.openOrgGroups || []), group])] : state.openOrgGroups,
+    notice: '', error: ''
+  });
+  const selector = group ? `[data-detail-group="${group}"]` : anchor;
+  requestAnimationFrame(() => document.querySelector(selector)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+}
+
 function bindApplicants() {
   document.querySelector('#applicant-name-draft')?.addEventListener('input', event => { state.applicantNameDraft = event.target.value; });
   document.querySelector('#add-applicant')?.addEventListener('click', addApplicant);
@@ -7812,13 +7829,9 @@ function bindApplicants() {
   // 이미 열어 둔 묶음은 닫지 않는다 — 사용자가 펼쳐 둔 것을 뺏지 않는다.
   document.querySelectorAll('[data-open-area]').forEach(el => el.addEventListener('click', () => {
     const target = areaDestination(el.dataset.openArea);
-    if (!target) return;
-    setState({ openOrgGroups: [...new Set([...(state.openOrgGroups || []), target])] });
-    requestAnimationFrame(() => document.querySelector(`[data-detail-group="${target}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    if (target) openApplicantEditor({ group: target });
   }));
-  document.querySelector('#go-applicant-doc')?.addEventListener('click', () => {
-    document.querySelector('#applicant-doc')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  });
+  document.querySelector('#go-applicant-doc')?.addEventListener('click', () => openApplicantEditor({ anchor: '#applicant-doc' }));
   document.querySelectorAll('[data-detail-group]').forEach(el => el.addEventListener('toggle', () => {
     const key = el.dataset.detailGroup;
     const open = new Set(state.openOrgGroups || []);

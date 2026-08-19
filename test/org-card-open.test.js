@@ -36,8 +36,11 @@ test('요약 칸이 눌리는 모양이고 눌리면 그 자리를 연다', () =
   assert.doesNotMatch(app, /summary-grid">\$\{applicantAreaSummary\(applicant\)\.map\(area => `<div>/, '순수 div로 되돌아가면 다시 죽는다');
   // 처리기는 대응표를 통해 자리를 찾는다. 화면에 키를 손으로 적지 않는다.
   assert.match(app, /const target = areaDestination\(el\.dataset\.openArea\);/);
-  assert.match(app, /setState\(\{ openOrgGroups: \[\.\.\.new Set\(\[\.\.\.\(state\.openOrgGroups \|\| \[\]\), target\]\)\] \}\)/);
-  assert.match(app, /document\.querySelector\(`\[data-detail-group="\$\{target\}"\]`\)\?\.scrollIntoView/);
+  // 열 자리는 다른 화면에 있다. 화면을 옮기지 않으면 처리기가 조용히 아무 일도 하지 않는다.
+  // 실제로 눌러 보는 검사는 test/org-card-click.test.js 가 한다 — 여기서는 옮긴다는 것만 본다.
+  assert.match(app, /function openApplicantEditor\(\{ group = '', anchor = '' \}\) \{/);
+  assert.match(app, /activeTool: 'applicants',/);
+  assert.doesNotMatch(app, /if \(target\) setState\(\{ openOrgGroups:/, '화면을 안 옮기던 옛 처리기로 돌아가면 다시 죽는다');
   // 눌러도 되는 것처럼 보여야 한다. 배지와 반대다.
   assert.match(css, /\.summary-grid>button\{text-align:left/);
   assert.match(css, /\.summary-grid>button:hover,\.summary-grid>button:focus-visible\{border-color:var\(--blue\)/);
@@ -51,7 +54,7 @@ test('전부 0건일 때만 문서 추출을 가리킨다', () => {
   // 말만 하고 데려가지 않으면 지금과 다를 것이 없다.
   assert.match(view, /id="go-applicant-doc"/);
   assert.match(app, /<div class="card" id="applicant-doc" tabindex="-1">/);
-  assert.match(app, /document\.querySelector\('#go-applicant-doc'\)\?\.addEventListener\('click'/);
+  assert.match(app, /document\.querySelector\('#go-applicant-doc'\)\?\.addEventListener\('click', \(\) => openApplicantEditor\(\{ anchor: '#applicant-doc' \}\)\);/);
 });
 
 test('기관 유형은 두 화면 모두 같은 목록에서 고른다', () => {
