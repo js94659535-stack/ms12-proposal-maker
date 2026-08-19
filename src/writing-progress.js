@@ -17,9 +17,10 @@ export function writingState(staged, { busy = false, sections = 0 } = {}) {
     started: Boolean(staged?.master),
     // 쓰는 중. 설계만 끝난 순간에도 이미 보여 줄 것이 있다.
     writing: Boolean(busy) && (sections > 0 || Boolean(staged?.master)),
-    // 멈췄거나 실패해서 일부만 남은 상태. 결과처럼 보여 주면 안 된다.
-    partial: total > 0 && done < total && (done > 0 || sections > 0),
-    complete: total > 0 && done === total,
+    // 한 번에 다 쓴 경우. 그때는 묶음 기록이 비어 있어도 부분 결과가 아니다.
+    // 이 표시가 없으면 이미 저장해 둔 계획서가 계속 막힌다 — 기록은 저장 시점 그대로이기 때문이다.
+    partial: total > 0 && done < total && (done > 0 || sections > 0) && staged?.phase !== 'complete',
+    complete: (total > 0 && done === total) || (staged?.phase === 'complete' && sections > 0),
     stopped: Boolean(staged?.stoppedAt),
     failedGroupId: String(staged?.failedGroupId || '')
   };
@@ -32,11 +33,22 @@ export function remainingGroups(staged) {
 }
 
 // 부분 결과일 때 완성·저장·출력을 막는 사유. 막을 이유가 없으면 빈 문자열이다.
+// 화면에 실제로 있는 버튼 이름. 문구에서 「저기를 누르세요」라고 가리키려면 이름이 맞아야 한다.
+export const WRITE_ALL_BUTTON = 'AI와 함께 전체 계획서 작성';
+export const WRITE_REST_BUTTON = '남은 내용 이어서 작성';
+
 export function partialBlockReason(staged, { busy = false, sections = 0 } = {}) {
   const view = writingState(staged, { busy, sections });
   if (view.writing) return '아직 쓰는 중입니다. 다 끝나면 저장과 출력이 열립니다.';
-  if (view.partial) return `${view.total}묶음 중 ${view.done}묶음까지만 작성되었습니다. 남은 내용을 이어서 작성하면 저장과 출력이 열립니다.`;
-  return '';
+  if (!view.partial) return '';
+  // 「묶음」은 우리끼리 쓰는 말이다. 그리고 무엇을 눌러야 하는지 말하지 않으면 멈춘 채로 남는다.
+  //
+  // 본문이 아예 없는 경우는 여기까지 오지 않는다(앞 관문이 먼저 잡는다).
+  // 여기 오는 것은 쓰다 만 것이고, 한 항목도 못 끝냈으면 처음부터 다시 쓰는 편이 빠르다.
+  if (!view.done) {
+    return `본문이 만들다 만 상태로 남아 있습니다. 화면의 「${WRITE_ALL_BUTTON}」을 다시 누르면 본문이 만들어지고 그때 받을 수 있습니다.`;
+  }
+  return `본문 ${view.total}개 항목 가운데 ${view.done}개까지 썼습니다. 화면의 「${WRITE_REST_BUTTON}」을 누르면 나머지가 채워지고 그때 받을 수 있습니다.`;
 }
 
 export function recordTiming(timeline, entry) {

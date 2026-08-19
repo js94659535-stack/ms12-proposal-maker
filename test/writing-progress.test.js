@@ -24,13 +24,30 @@ test('묶음이 남아 있으면 완성이 아니다', () => {
 });
 
 test('부분 결과에서는 저장·출력을 열지 않는다', () => {
-  assert.match(partialBlockReason(staged(2), { busy: '', sections: 5 }), /3묶음 중 2묶음까지만/);
+  // 「묶음」은 내부 용어라 화면에 내지 않는다. 그리고 무엇을 눌러야 하는지 이름으로 말한다.
+  const partial = partialBlockReason(staged(2), { busy: '', sections: 5 });
+  assert.match(partial, /본문 3개 항목 가운데 2개까지 썼습니다/);
+  assert.match(partial, /「남은 내용 이어서 작성」/);
+  assert.doesNotMatch(partial, /묶음/);
+  // 한 항목도 못 끝냈으면 처음부터 다시 쓰는 편이 빠르다. 그때는 다른 버튼을 가리킨다.
+  const none = partialBlockReason(staged(0), { busy: '', sections: 3 });
+  assert.match(none, /「AI와 함께 전체 계획서 작성」/);
+  assert.doesNotMatch(none, /묶음/);
   // 쓰는 중에도 열지 않는다.
   assert.match(partialBlockReason(staged(1), { busy: '작성 중', sections: 2 }), /아직 쓰는 중/);
   // 다 끝나면 막을 이유가 없다.
   assert.equal(partialBlockReason(staged(3), { busy: '', sections: 9 }), '');
   // 아직 시작도 안 했으면 이 판단이 관여하지 않는다.
   assert.equal(partialBlockReason(null, { busy: '', sections: 0 }), '');
+
+  // 한 번에 다 쓴 계획서를 막지 않는다.
+  // 진행 기록이 묶음 단위 길에서만 채워져, 「AI와 함께 전체 계획서 작성」으로 쓴 계획서가
+  // 「6묶음 중 0묶음」으로 잡혀 저장·출력이 영영 막혔다. 이미 저장된 것까지 살리려면
+  // 기록이 비어 있어도 phase가 complete면 부분 결과가 아니어야 한다.
+  const oneShot = { ...staged(0), phase: 'complete' };
+  assert.equal(partialBlockReason(oneShot, { busy: '', sections: 10 }), '');
+  assert.equal(writingState(oneShot, { busy: '', sections: 10 }).partial, false);
+  assert.equal(writingState(oneShot, { busy: '', sections: 10 }).complete, true);
 });
 
 test('이어쓰기는 남은 묶음만 다시 부른다', () => {

@@ -70,7 +70,7 @@ import { SAMPLE_MARK, SAMPLE_NOTE, SAMPLE_NOTICE, SAMPLE_NOTICE_KEY, SAMPLE_STAG
 import { SAMPLE_REAL_COACHING } from './sample-coaching-run.js';
 import { SOURCE_KINDS, makeApplicantSource, APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, mergeApplicantItems, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
 import { BASIC_AREAS, DETAIL_GROUPS, DETAIL_INTRO, basicStatus, detailProgress, draftFromApplicant, reusableCount } from './org-stage.js';
-import { partialBlockReason, recordTiming, remainingGroups, timelineRows, writingState } from './writing-progress.js';
+import { WRITE_ALL_BUTTON, partialBlockReason, recordTiming, remainingGroups, timelineRows, writingState } from './writing-progress.js';
 import { gapCoverSection, gapReport } from './gap-report.js';
 import { balanceSummary, rebalanceGroups } from './group-balance.js';
 
@@ -4253,7 +4253,7 @@ function sheetView() {
 // 이유를 계산해 놓고 화면 밖에 버리던 것이 문제였다 — closeSheet()가 먼저 돌아 시트가 닫히고,
 // 오류는 화면 맨 위에 떠서 받기를 누른 자리에서는 보이지 않았다. 그래서 「아무 반응 없음」이 됐다.
 function exportBlockReason(id) {
-  if (!state.sections.length) return '아직 만든 계획서가 없습니다. 계획서를 먼저 작성해 주세요.';
+  if (!state.sections.length) return `아직 본문을 쓰지 않았습니다. 화면의 「${WRITE_ALL_BUTTON}」을 누르면 본문이 만들어지고 그때 받을 수 있습니다.`;
   if (String(id).startsWith('submission-')) return submissionExportBlock();
   // 부분 결과는 내보내지 않는다. 사유 문구는 writing-progress가 만든 것을 그대로 쓴다.
   return partialBlock();
@@ -9569,7 +9569,10 @@ async function generateFullProposal() {
     state.reviewResult = null;
     state.reviewOriginalDraft = null;
     state.reviewFingerprint = '';
-    state.stagedGeneration = { ...state.stagedGeneration, phase: 'complete' };
+    // 진행 기록이 묶음 단위 길(draftPart)에서만 채워지고 있었다. 한 번에 쓰면 completedGroupIds가
+    // 빈 채로 남아 「6묶음 중 0묶음」이 되고, 저장·출력이 영영 막혔다. 한 번에 썼으면 전부 쓴 것이다.
+    const writtenGroups = (state.stagedGeneration?.master?.sectionPlan || []).map(group => group.id);
+    state.stagedGeneration = { ...state.stagedGeneration, phase: 'complete', completedGroupIds: writtenGroups };
     if (!(state.proposalVersions || []).length) recordProposalVersion({ sections: state.sections, label: 'V1 완성본', source: '승인 설계안 기반 작성' });
     markProposalAssembled();
     markAiDoneAt('fullProposal', startedAt, {

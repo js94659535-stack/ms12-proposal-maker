@@ -24,7 +24,11 @@ test('전체 계획서 작성 요청은 정확히 한 번만 만들어진다', (
   assert.ok(fullProposalFn.length > 200, '함수를 찾지 못했다');
   assert.equal((fullProposalFn.match(/await fullProposalWithAI\(/g) || []).length, 1);
   // 분할 반복을 쓰지 않는다.
-  assert.doesNotMatch(fullProposalFn, /for \(const group of|draftPartWithAI|completedGroupIds/);
+  assert.doesNotMatch(fullProposalFn, /for \(const group of|draftPartWithAI/);
+  // 다만 진행 기록은 남긴다. 예전에는 묶음 단위 길에서만 채워져, 한 번에 쓰면
+  // completedGroupIds가 빈 채로 남고 「6묶음 중 0묶음」이 되어 저장·출력이 영영 막혔다.
+  assert.match(fullProposalFn, /completedGroupIds: writtenGroups/);
+  assert.doesNotMatch(fullProposalFn, /completedGroupIds: \[\]/);
   // 신규 경로 버튼은 이 함수를 부르고, 이어쓰기 버튼만 기존 분할 경로를 쓴다.
   assert.match(app, /document\.querySelector\('#generate-proposal'\)\?\.addEventListener\('click', \(\) => generateFullProposal\(\)\);/);
   assert.match(app, /이 경로는 이미 분할 작성을 시작한 기존 계획서의 이어쓰기 전용이다/);
