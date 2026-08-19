@@ -40,7 +40,7 @@
 .landing-lead{max-width:760px;color:#64594e;line-height:1.75;font-size:15px;margin:0}
 .landing-cta{display:flex;gap:10px;flex-wrap:wrap;margin:26px 0 14px}
 .landing-cta .button{padding:13px 22px}
-.landing-note{color:var(--muted);font-size:13px;margin:0}
+.landing-note{color:var(--muted);font-size:13px;margin:0}.landing-files{display:grid;gap:10px;margin-bottom:16px}.landing-file{display:flex;align-items:center;justify-content:space-between;gap:16px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 20px;color:inherit;text-decoration:none}.landing-file:hover,.landing-file:focus-visible{border-color:var(--blue);background:var(--blue-soft)}.landing-file-name{display:grid;gap:4px;min-width:0}.landing-file-name strong{font-size:15px}.landing-file-name small{color:var(--muted);font-size:13px}.landing-file-meta{white-space:nowrap;font-size:12px;font-weight:800;color:var(--blue);background:var(--blue-soft);border-radius:999px;padding:6px 11px}
 .landing-section{padding:36px 0;border-bottom:1px solid var(--line)}
 .landing-head{margin-bottom:20px}
 .landing-head h2{font-size:22px;letter-spacing:-.02em;margin:0 0 6px;color:var(--navy)}

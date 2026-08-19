@@ -2334,7 +2334,7 @@ const LANDING_SECURITY = [
   ['로그인 상태는 쿠키로만', '로그인 정보는 HttpOnly·Secure 쿠키로만 오갑니다. 계정 승인·중지·복구·세션 종료 같은 운영 동작은 실행자·대상·시각이 감사기록으로 남습니다.'],
   ['원문은 요청할 때만 전송', '올린 파일과 작성 중인 내용은 분석을 요청할 때만 서버로 갑니다. 진행 상태는 이 브라우저에 보관됩니다.']
 ];
-const LANDING_SECTIONS = [['landing-value', '핵심 가치'], ['landing-flow', '이용 흐름'], ['landing-notices', '공모정보 검색'], ['landing-features', '주요 기능'], ['membership-guide', '회원 안내'], ['landing-audience', '이용 대상'], ['landing-security', '보안·승인']];
+const LANDING_SECTIONS = [['landing-value', '핵심 가치'], ['landing-flow', '이용 흐름'], ['landing-materials', '강의 자료'], ['landing-notices', '공모정보 검색'], ['landing-features', '주요 기능'], ['membership-guide', '회원 안내'], ['landing-audience', '이용 대상'], ['landing-security', '보안·승인']];
 const landingCta = extra => `<div class="landing-cta"><button class="button primary" data-landing="signup">3페이지 무료 체험</button><button class="button secondary" data-landing="login">로그인</button><button class="button secondary" data-landing-notices="1">공모정보 검색</button><button class="button secondary" data-landing-example="1">우수 계획서 예시 보기</button>${extra || ''}</div>`;
 // 갈 곳이 있고 로그인해 있으면 카드째로 문이 된다. 로그인 전에는 열 화면이 없으므로 글로만 둔다.
 const landingCards = (items, plain = true, { linked = false } = {}) => items.map(([title, body, go]) => {
@@ -2347,6 +2347,16 @@ const landingCards = (items, plain = true, { linked = false } = {}) => items.map
 
 // 서비스 소개 구역. 공개 랜딩과 관리자 랜딩이 같은 내용을 쓴다.
 // 한 곳에서만 고치면 두 화면이 같이 바뀐다. 따로 베껴 두지 않는다.
+// 강의에서 쓰는 표. 로그인도 이메일도 요구하지 않는다.
+// 파일은 public/files/ 에 두면 dist 로 그대로 복사되고 Cloudflare Pages 가 정적으로 내보낸다.
+// 파일명을 영문으로 둔 것은 한글 이름이 97자짜리 퍼센트 인코딩 주소가 되기 때문이다.
+// 받을 때 보이는 이름은 download 속성이 정하므로 사용자에게는 한글 이름 그대로 저장된다.
+const LANDING_MATERIALS = [
+  { href: '/files/worksheet-example.xlsx', saveAs: '공고 분석 워크시트 (예시).xlsx', title: '공고 분석 워크시트 (예시)', desc: '채워진 예시로 양식을 봅니다', size: '21KB' },
+  { href: '/files/worksheet-practice.xlsx', saveAs: '공고 분석 워크시트 (실습).xlsx', title: '공고 분석 워크시트 (실습)', desc: '같은 양식 빈칸. 직접 채웁니다', size: '18KB' },
+  { href: '/files/budget-sheet.xlsx', saveAs: '사업예산 편성시트.xlsx', title: '사업예산 편성시트', desc: '단가×수량×횟수 자동 계산', size: '27KB' }
+];
+
 function introSections({ forAdmin = false } = {}) {
   return `
     <div class="landing-section" id="landing-value">
@@ -2365,6 +2375,14 @@ function introSections({ forAdmin = false } = {}) {
           : ' class="landing-card"';
         return `<article${attrs}><header><span class="landing-step">${escapeHtml(step.no)}</span><h3>${escapeHtml(step.title)}</h3></header><p>${escapeHtml(step.desc)}</p><ul>${step.items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>${opens ? '<span class="landing-open-hint">눌러서 공고 준비 화면 열기</span>' : ''}</article>`;
       }).join('')}</div>
+    </div>
+
+    <div class="landing-section" id="landing-materials">
+      <div class="landing-head"><h2>강의 자료 내려받기</h2><p>공모사업 계획서를 손으로 쓸 때 쓰는 표입니다. 로그인 없이 받으실 수 있습니다.</p></div>
+      <div class="landing-files">${LANDING_MATERIALS.map(file => `<a class="landing-file" href="${escapeHtml(file.href)}" download="${escapeHtml(file.saveAs)}">
+        <span class="landing-file-name"><strong>${escapeHtml(file.title)}</strong><small>${escapeHtml(file.desc)}</small></span>
+        <span class="landing-file-meta">XLSX · ${escapeHtml(file.size)}</span></a>`).join('')}</div>
+      <p class="landing-note">이 표를 손으로 채우면 반나절입니다. 같은 일을 자동으로 하려고 이 도구를 만들었습니다.</p>
     </div>
 
     <div class="landing-section" id="landing-notices">
