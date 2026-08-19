@@ -70,6 +70,7 @@ import { SAMPLE_MARK, SAMPLE_NOTE, SAMPLE_NOTICE, SAMPLE_NOTICE_KEY, SAMPLE_STAG
 import { SAMPLE_REAL_COACHING } from './sample-coaching-run.js';
 import { SOURCE_KINDS, makeApplicantSource, APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, mergeApplicantItems, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
 import { BASIC_AREAS, DETAIL_GROUPS, DETAIL_INTRO, basicStatus, detailProgress, draftFromApplicant, reusableCount } from './org-stage.js';
+import { toKoreanLabel } from '../server/label-leak.js';
 import { WRITE_ALL_BUTTON, partialBlockReason, recordTiming, remainingGroups, timelineRows, writingState } from './writing-progress.js';
 import { gapCoverSection, gapReport } from './gap-report.js';
 import { balanceSummary, rebalanceGroups } from './group-balance.js';
@@ -5502,18 +5503,19 @@ function applicantLoadedView(applicant) {
 
 function applicantFitView(applicant) {
   const requirements = comparisonRequirements();
-  const comparison = compareNoticeWithApplicant(requirements, applicant);
+  const comparison = compareNoticeWithApplicant(requirements, applicant, currentNoticeContract());
   state.applicantComparison = comparison;
   if (!requirements.length) return '<div class="card"><h3>공고 × 신청기관 비교</h3><p class="muted">비교할 공고 원문이 아직 없습니다. 공고를 선택하거나 원문을 추가하세요.</p></div>';
   const groups = [
     ['확인된 강점', comparison.confirmedStrengths, '충족'],
     ['신청자격 또는 근거 확인이 필요한 사항', comparison.needsEvidence, '부분-충족'],
+    ['공고가 정한 조건 (기관에 등록할 것이 아님)', comparison.fixedByNotice, '충족'],
     ['기관정보에 없는 사항', comparison.missingFromApplicant, '부족'],
     ['이번 사업에서 새로 결정해야 할 사항', comparison.decideInThisProject, '확인-필요']
   ];
   return `<div class="card"><div class="card-title"><div><h3>공고 × 신청기관 비교</h3><span>AI 호출 없이 공고 원문과 등록 정보만으로 구분합니다.</span></div></div>
     <div class="match-summary">${groups.map(([name, items, status]) => `<div><span class="status ${status}">${escapeHtml(name)}</span><strong>${items.length}</strong></div>`).join('')}</div>
-    ${groups.map(([name, items, status]) => `<details ${items.length ? 'open' : ''}><summary>${escapeHtml(name)} ${items.length}건</summary><div class="requirement-list">${items.length ? items.map(item => `<article class="requirement"><div><span class="status ${status}">${escapeHtml(name)}</span><div><strong>${escapeHtml(item.requirement)}</strong><small>${escapeHtml(item.location || '공고 원문')} · ${escapeHtml(item.action)}</small></div></div>${item.matchedItems.length ? `<p class="muted">연결된 기관 정보: ${escapeHtml(item.matchedItems.map(value => `${value.label}(${value.status})`).join(', '))}</p>` : ''}</article>`).join('') : '<p class="muted">해당 항목이 없습니다.</p>'}</div></details>`).join('')}</div>`;
+    ${groups.map(([name, items, status]) => `<details ${items.length ? 'open' : ''}><summary>${escapeHtml(name)} ${items.length}건</summary><div class="requirement-list">${items.length ? items.map(item => `<article class="requirement"><div><span class="status ${status}">${escapeHtml(name)}</span><div><strong>${escapeHtml(item.requirement)}</strong>${item.noticeValue ? `<small><b>공고가 정한 값</b> · ${escapeHtml(item.noticeValue)}</small>` : ''}<small>${escapeHtml(toKoreanLabel(item.location) || '공고 원문')} · ${escapeHtml(item.action)}</small></div></div>${item.matchedItems.length ? `<p class="muted">연결된 기관 정보: ${escapeHtml(item.matchedItems.map(value => `${value.label}(${value.status})`).join(', '))}</p>` : ''}</article>`).join('') : '<p class="muted">해당 항목이 없습니다.</p>'}</div></details>`).join('')}</div>`;
 }
 
 function projectValuesView(applicant) {

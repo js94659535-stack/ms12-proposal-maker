@@ -67,6 +67,36 @@ export function proseLabels(source) {
   return found.sort((left, right) => right.count - left.count || left.name.localeCompare(right.name));
 }
 
+// 모델이 태그 이름을 「출처 위치」로 인용한다. 태그가 그것이 읽은 자료의 유일한 이름이기 때문이다.
+// 태그 44개를 전부 바꾸는 대신 화면에서 갈아 끼운다 — 이미 새어 나와 보관된 자료에도 적용된다.
+// 이름 목록이 검사와 같은 파일에 있어야 한 쪽만 늘어나는 일이 없다.
+export const KOREAN_LABELS = Object.freeze({
+  NOTICE_CONTRACT: '공고 실행계약서',
+  OFFICIAL_NOTICE_TEXT: '공고 원문',
+  MANUAL_SOURCES: '직접 올린 자료',
+  PROJECT_BLUEPRINT: '사업 설계도',
+  APPROVED_DESIGN_PLAN: '승인 설계안',
+  CONFIRMED_DESIGN: '설계 1걸음 결과',
+  MASTER_CONTEXT: '마스터 설계',
+  CANDIDATE_ASSETS: '신청기관 정보',
+  SELECTED_SUBPROGRAM: '선택한 세부사업',
+  REVIEW_BASIS: '검토 기준',
+  CORE_IDEA: '핵심 아이디어',
+  REFERENCE: '참고자료',
+  PAGE_PLAN: '쪽 구성안',
+  CONDITIONS: '입력 조건'
+});
+
+/** 화면에 내보내기 전에 내부 이름을 한국어로 바꾼다. 앞뒤가 영문·숫자·밑줄이면 건드리지 않는다. */
+export function toKoreanLabel(value) {
+  let text = String(value ?? '');
+  if (!text) return text;
+  for (const [name, korean] of Object.entries(KOREAN_LABELS)) {
+    text = text.replace(new RegExp(`(?<![A-Za-z0-9_])${name}(?![A-Za-z0-9_])`, 'g'), korean);
+  }
+  return text;
+}
+
 // 기록에 남길 짧은 코드. user_activity_events의 code 규칙(소문자·숫자·: _ -, 40자)을 지킨다.
 export function leakCode(action, name) {
   const clean = value => String(value || '').toLowerCase().replace(/[^a-z0-9_-]/g, '');

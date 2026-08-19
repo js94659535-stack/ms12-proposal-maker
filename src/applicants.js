@@ -242,9 +242,43 @@ function matchItems(text_, items) {
 }
 
 // 공고 요구사항과 신청기관 정보를 비교해 네 갈래로 구분한다.
-export function compareNoticeWithApplicant(requirements, applicant) {
+// 공고가 이미 값을 정해 둔 요구사항인지. 정했으면 기관이 등록할 것이 아니다.
+//
+// 예전에는 「기관정보에 없음」이 「알 수 없으면 여기」인 쓰레기통이라, 공고 마감일·예산 한도가
+// 거기로 가고 안내가 「등록하거나 담당자에게 확인한다」고 했다. 따르면 공고 값이 기관정보에
+// 박히고 다음 계획서에 「확인된 기관 사실」로 재사용된다.
+//
+// 낱말 목록을 늘려 잡지 않는다. 그것도 또 다른 쓰레기통이 된다.
+// 판정 근거는 공고 실행계약서(noticeContract)가 실제로 뽑아 둔 규칙뿐이다.
+//
+// EXACT·MIN·MAX만 본다. CHOICE는 공고가 선택지만 주고 고르는 것은 이번 사업이며,
+// REQUIRED는 공고가 요구한 수행모델이라 기관이 설계로 답할 것이다.
+const CONTRACT_FIXED_TYPES = ['EXACT', 'MIN', 'MAX'];
+const CONTRACT_SOURCE = /(NOTICE_CONTRACT|공고 실행계약)/;
+
+export function contractFixedRule(requirement, contract) {
+  const rules = (contract?.rules || []).filter(rule => CONTRACT_FIXED_TYPES.includes(rule?.ruleType));
+  if (!rules.length) return null;
+  const label = text(requirement?.requirement);
+  const where = text(requirement?.location);
+  // 출처가 실행계약서면 그 자체로 공고가 정한 값이다.
+  const fromContract = CONTRACT_SOURCE.test(where);
+  const matched = rules.find(rule => {
+    const title = text(rule?.title);
+    const value = text(rule?.value);
+    if (title.length >= 2 && label.includes(title)) return true;
+    // 공고가 정한 값이 문장에 그대로 적혀 있으면 그 값을 가리키는 것이다.
+    return value.length >= 4 && label.includes(value);
+  });
+  if (matched) return matched;
+  // 출처만 실행계약서인 경우. 공고가 정한 조건인 것은 맞지만 어느 규칙인지는 모른다.
+  // 아무 규칙이나 붙이면 「신청 마감」에 「사업기간」 값이 달리는 사고가 난다.
+  return fromContract ? { id: '', title: '', value: '', unit: '', ruleType: '', fromSourceOnly: true } : null;
+}
+
+export function compareNoticeWithApplicant(requirements, applicant, contract = null) {
   const items = applicant?.items || [];
-  const result = { applicantId: applicant?.id || '', applicantName: applicant?.name || '', confirmedStrengths: [], needsEvidence: [], missingFromApplicant: [], decideInThisProject: [] };
+  const result = { applicantId: applicant?.id || '', applicantName: applicant?.name || '', confirmedStrengths: [], needsEvidence: [], missingFromApplicant: [], fixedByNotice: [], decideInThisProject: [] };
   for (const requirement of Array.isArray(requirements) ? requirements : []) {
     const label = String(requirement?.requirement || '');
     const matched = matchItems(`${label} ${requirement?.category || ''}`, items);
@@ -257,6 +291,16 @@ export function compareNoticeWithApplicant(requirements, applicant) {
       mandatory: Boolean(requirement?.mandatory),
       matchedItems: matched.map(item => ({ id: item.id, label: item.label, status: item.status, area: areaTitle(item.area), source: item.source }))
     };
+    // 공고가 이미 값을 정했으면 어느 갈래보다 먼저다. 기관이 등록할 것도, 이번에 정할 것도 아니다.
+    const fixed = contractFixedRule(requirement, contract);
+    if (fixed) {
+      result.fixedByNotice.push({
+        ...entry,
+        noticeValue: fixed.fromSourceOnly ? '' : `${text(fixed.title)}: ${text(fixed.value)}${text(fixed.unit)}`.trim(),
+        action: '공고가 정한 조건입니다. 기관정보에 등록하지 말고 그대로 지키세요.'
+      });
+      continue;
+    }
     if (confirmed.length && !(eligibility && confirmed.every(item => !item.source))) {
       result.confirmedStrengths.push({ ...entry, action: '확인된 기관 정보를 근거로 사용한다.' });
       continue;
