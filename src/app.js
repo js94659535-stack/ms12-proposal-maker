@@ -26,6 +26,7 @@ import { REGIONS, SUPPORTED_REGION_TEXT } from '../server/kosis.js';
 import { statLookup } from './stats-api.js';
 import { FITNESS_LABELS } from '../server/notice-classify.js';
 import { ORG_TYPES, QUICK_FIELDS, followUpQuestions, quickToApplicantItems, readyToDraft } from '../server/quick-org.js';
+import { MAX_PAGES as CORE_MAX_PAGES, MIN_PAGES as CORE_MIN_PAGES } from '../server/core-proposal.js';
 import { ANSWER_CHOICES, HIDDEN_EXPERT, MAX_QUESTIONS as SIMPLE_MAX_QUESTIONS, RESULT_ACTIONS, SIMPLE_STEPS, answerValue, currentStep as simpleStep, viewModeFor } from '../server/simple-flow.js';
 import { ASSIGNABLE_ROLES, ROLE_DUTY, canHoldClients, roleLabel } from '../server/roles.js';
 import { PASSWORD_MIN, validateSignup } from '../server/signup.js';
@@ -2821,8 +2822,6 @@ const AUDIENCE_OPTIONS = [
   ['other', '기타', '적으신 목적과 받는 분을 기준으로 구성']
 ];
 const CORE_MIN_IDEA = 20;
-const CORE_MIN_PAGES = 1;
-const CORE_MAX_PAGES = 20;
 const CORE_LOCKED = [
   ['공모사업 전체 계획서', '공고를 분석해 신청서 10개 항목과 제출용 표까지 만드는 기능'],
   ['상세 산출내역·제출용 예산표', '인건비 단가 × 수량 × 개월수까지 계산해 서식 예산표로 만드는 기능'],

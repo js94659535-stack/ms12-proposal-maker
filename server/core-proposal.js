@@ -3,7 +3,10 @@
 
 export const CORE_PROPOSAL_LABEL = '핵심제안서';
 export const MIN_PAGES = 1;
-export const MAX_PAGES = 20;
+// 10쪽에서 멈춘다. 출력 상한 식이 min(16_000, ...)이라 10쪽에서 천장에 닿는데,
+// 요구하는 본문은 그 위로도 계속 늘어난다. 15쪽은 계산상 상한의 112%, 20쪽은 149%로
+// 반드시 잘린다(docs/core-proposal-limits.md). 고를 수 있는데 반드시 실패하는 값을 남겨 두지 않는다.
+export const MAX_PAGES = 10;
 // 아이디어를 실제로 적게 한다. 한 줄도 안 적으면 지어내는 수밖에 없다.
 export const MIN_IDEA_CHARS = 20;
 export const MAX_IDEA_CHARS = 3_000;

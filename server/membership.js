@@ -1,3 +1,5 @@
+import { MAX_PAGES } from './core-proposal.js';
+
 // 회원체계 한 곳. 랜딩·계정 설정·관리자 화면이 모두 이 값을 읽으므로 가격과 편수가 어긋나지 않는다.
 //
 // 네 가지는 서로 별개다.
@@ -82,7 +84,8 @@ export const PRICING = Object.freeze({
 
 export const QUOTAS = Object.freeze({
   // 구독 주기마다 새로 주어지는 편수.
-  subscriber: Object.freeze({ coreProposal: 3, diagnosis: 5, maxPages: 20 }),
+  // 쪽수 상한은 core-proposal.js가 정한다. 여기서 따로 적으면 두 값이 갈린다.
+  subscriber: Object.freeze({ coreProposal: 3, diagnosis: 5, maxPages: MAX_PAGES }),
   // 승인회원은 계정당 한 번, 5쪽 고정, 읽기 전용이다.
   member: Object.freeze({ coreProposal: 1, diagnosis: 0, maxPages: 5 })
 });

@@ -135,7 +135,7 @@ test('처음부터 긴 설문을 펼치지 않고 한 번에 다섯 개까지만
   assert.equal(state.ready, false);
 });
 
-test('5~20쪽에 필요한 항목을 모두 받는다', () => {
+test('여러 쪽짜리 제안서에 필요한 항목을 모두 받는다', () => {
   const keys = INTAKE_FIELDS.map(field => field.key);
   for (const expected of ['problem', 'problemEvidence', 'audience', 'audienceCount', 'selection', 'period', 'sessions',
     'place', 'activities', 'staff', 'partners', 'budgetLimit', 'selfFunding', 'outcome', 'indicator', 'measurement', 'difference']) {

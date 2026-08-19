@@ -10,6 +10,7 @@ import { onRequest as operatorRoute } from '../functions/api/operator.js';
 import { onRequest as accountRoute } from '../functions/api/account.js';
 import { onRequest as authRoute } from '../functions/api/auth.js';
 import { onRequest as publicRoute } from '../functions/api/public.js';
+import { MAX_PAGES } from '../server/core-proposal.js';
 import { onRequest as middleware } from '../functions/api/_middleware.js';
 import { createPasswordRecord } from '../server/password.js';
 import { SESSION_COOKIE } from '../server/session.js';
@@ -28,7 +29,7 @@ const ENV = { OPENAI_API_KEY: 'mock-only', OPENAI_MODEL: 'mock-model' };
 const ROUTES = { proposal: proposalRoute, archive: archiveRoute, admin: adminRoute, operator: operatorRoute, account: accountRoute, auth: authRoute, public: publicRoute };
 const CORE_INPUT = {
   proposer: '○○지역아동센터', coreIdea: '초등 고학년 정서지원 집단 프로그램을 주 1회 16회기로 운영하려 합니다.',
-  purpose: '내년도 예산 지원 요청', audienceType: 'public', recipient: '○○시청', targetPages: 12
+  purpose: '내년도 예산 지원 요청', audienceType: 'public', recipient: '○○시청', targetPages: 8
 };
 const DIAGNOSIS_INPUT = {
   noticeTitle: '2027년 아동 정서지원 공모',
@@ -178,7 +179,7 @@ test('정식회원은 5쪽 1회 읽기 전용이고 저장·재작성이 막힌�
   const cookie = await signIn(db, 'member@ms12.test');
   const mock = mockOpenAI(CORE_RESULT);
   try {
-    // 12쪽을 넣어도 5쪽으로 고정된다.
+    // 8쪽을 넣어도 5쪽으로 고정된다.
     const first = await through(db, post('/api/proposal', { action: 'coreProposal', payload: CORE_INPUT }, { cookie }), 'proposal');
     assert.equal(first.status, 200);
     const body = await first.json();
@@ -226,7 +227,8 @@ test('정식회원 생성이 실패하면 한 번의 기회를 돌려준다', as
 test('구독회원은 핵심제안서 3편·진단서 5편을 따로 쓴다', async () => {
   assert.equal(QUOTAS.subscriber.coreProposal, 3);
   assert.equal(QUOTAS.subscriber.diagnosis, 5);
-  assert.equal(QUOTAS.subscriber.maxPages, 20);
+  // 쪽수 상한은 여기서 따로 정하지 않고 core-proposal.js 값을 그대로 쓴다.
+  assert.equal(QUOTAS.subscriber.maxPages, MAX_PAGES);
   assert.equal(PRICING.monthly, 6000);
 
   const db = fakeDb();
@@ -239,7 +241,7 @@ test('구독회원은 핵심제안서 3편·진단서 5편을 따로 쓴다', as
       const response = await through(db, post('/api/proposal', { action: 'coreProposal', payload: CORE_INPUT }, { cookie }), 'proposal');
       assert.equal(response.status, 200, `${index + 1}편째`);
       const body = await response.json();
-      assert.equal(body.targetPages, 12, '구독회원은 희망 쪽수를 그대로 쓴다');
+      assert.equal(body.targetPages, 8, '구독회원은 희망 쪽수를 그대로 쓴다');
       assert.equal(body.remaining.coreProposal, 2 - index);
     }
     // 네 번째는 OpenAI를 부르기 전에 막힌다.
@@ -374,7 +376,7 @@ test('공개 회원 안내는 고객등급 넷만 담고 한 설정에서 나온
   assert.equal(plans.pricing.priceLabel, '월 6,000원');
   assert.ok(plans.tiers[2].features.some(item => item.includes('3편')));
   assert.ok(plans.tiers[2].features.some(item => item.includes('5편')));
-  assert.ok(plans.tiers[2].features.some(item => item.includes('20쪽')));
+  assert.ok(plans.tiers[2].features.some(item => item.includes(`${MAX_PAGES}쪽`)));
 
   // 로그인 없이 랜딩에서 읽는다.
   const db = fakeDb();
@@ -441,8 +443,9 @@ test('쪽수 상한은 등급이 정한다', () => {
   assert.equal(corePagesFor(member, 20), MEMBER_FREE_PAGES);
   assert.equal(corePagesFor(member, 1), MEMBER_FREE_PAGES);
   const subscriber = membershipOf({ user: { role: 'customer', status: 'active', plan: 'trial' }, subscription: { status: 'active' } });
-  assert.equal(corePagesFor(subscriber, 20), 20);
-  assert.equal(corePagesFor(subscriber, 30), 20, '편당 최대 20쪽');
+  // 상한을 넘겨 부르면 상한으로 깎인다. 상한값 자체는 core-proposal.js 한 곳에서 온다.
+  assert.equal(corePagesFor(subscriber, MAX_PAGES), MAX_PAGES);
+  assert.equal(corePagesFor(subscriber, MAX_PAGES + 10), MAX_PAGES, `편당 최대 ${MAX_PAGES}쪽`);
   assert.equal(corePagesFor(subscriber, 7), 7);
 });
 

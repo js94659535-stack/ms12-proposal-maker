@@ -135,7 +135,7 @@ export async function onRequest(context) {
       }).catch(() => {});
       return json({ error: validation, rejected: true }, 400);
     }
-    // 쪽수는 등급이 정한다. 승인회원은 5쪽 고정, 구독·프리미엄은 편당 최대 20쪽이다.
+    // 쪽수는 등급이 정한다. 승인회원은 5쪽 고정, 구독·프리미엄은 core-proposal.js의 MAX_PAGES까지다.
     if (body.action === CORE_PROPOSAL_ACTION) {
       const pages = corePagesFor(membership, body.payload.core.targetPages);
       if (pages !== body.payload.plan.pages) body.payload.plan = planPages({ pages, audienceType: body.payload.core.audienceType });
