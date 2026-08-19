@@ -67,7 +67,10 @@ test('현황 넷은 숫자가 먼저 보이는 작은 배지로 가로 나열된
 
 test('보조 영역은 접히고 세 묶음이 순서대로 나온다', () => {
   // 직접 자료 추가는 접힌 채로 시작하고 자료가 있으면 펼친다.
-  assert.match(manualView, /<details class="card org-details" id="manual-sources" \$\{count \? 'open' : ''\}>/);
+  // 서식을 못 읽었으면 펼쳐 둔다. 서식은 이 자리로만 들어오는데 접혀 있으면
+  // 「서식 미인식」 경고만 보이고 고칠 자리는 한 번 더 눌러야 나온다.
+  assert.match(manualView, /<details class="card org-details" id="manual-sources" \$\{count \|\| formMissing \? 'open' : ''\}>/);
+  assert.match(manualView, /const formMissing = !currentFormSpec\(\)\?\.items\?\.length;/);
   assert.match(manualView, /<summary><b>직접 자료 추가<\/b>\$\{count \? ` · \$\{count\}건` : ''\}/);
   // 누락 공고 URL도 접힌 보조 영역이다. 공고를 고르는 세 길 가운데 가장 드물게 쓴다.
   assert.match(importView, /<details class="card org-details"><summary>누락 공고 URL과 공식 사이트<\/summary>/);
@@ -76,9 +79,9 @@ test('보조 영역은 접히고 세 묶음이 순서대로 나온다', () => {
   // 실제로는 묶음 1의 셋 중 하나, 묶음 2의 둘 중 하나만 하면 되고 묶음 3은 선택이다.
   const body = importView.slice(importView.indexOf('<div class="dense-step">'));
   const order = [
-    '묶음 1 · 공고 고르기', '기관 공고 가져오기', '누락 공고 URL', 'archiveView()',
-    '묶음 2 · 공고문 넣기', '공고문·신청서 업로드', '공고문 직접 붙여넣기',
-    '묶음 3 · 자료 더하기', 'manualSourcesView()'
+    '공고 고르기', '기관 공고 가져오기', '누락 공고 URL', 'archiveView()',
+    '공고문 넣기', '공고문·신청서 업로드', '공고문 직접 붙여넣기',
+    '자료 더하기', 'manualSourcesView()'
   ];
   let last = -1;
   for (const needle of order) {
@@ -87,9 +90,11 @@ test('보조 영역은 접히고 세 묶음이 순서대로 나온다', () => {
     last = at;
   }
   // 몇 개를 해야 하는지 묶음 제목이 말한다. 「셋 중 하나」를 안 적으면 셋 다 해야 하는 줄 안다.
-  assert.match(body, /묶음 1 · 공고 고르기 <span class="tag">이 중 하나<\/span>/);
-  assert.match(body, /묶음 2 · 공고문 넣기 <span class="tag">둘 중 하나<\/span>/);
-  assert.match(body, /묶음 3 · 자료 더하기 <span class="tag">선택<\/span>/);
+  assert.match(body, /<h3>공고 고르기 <span class="tag">이 중 하나<\/span>/);
+  assert.match(body, /<h3>공고문 넣기 <span class="tag">둘 중 하나<\/span>/);
+  assert.match(body, /<h3>자료 더하기 <span class="tag">선택<\/span>/);
+  // 「묶음」은 내부 개념어다. 화면에 내지 않는다. 번호도 없는 순서를 암시해 빼 두었다.
+  assert.doesNotMatch(body, /묶음 \d/);
   // 업로드와 붙여넣기는 같은 state.sourceText에 들어간다. 둘 다 할 필요가 없다고 적는다.
   assert.match(body, /같은 칸에 들어갑니다/);
   // 묶음 1과 2는 대체가 아니라 보완이다.

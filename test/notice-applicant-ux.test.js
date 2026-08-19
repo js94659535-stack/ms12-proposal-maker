@@ -35,7 +35,12 @@ test('공고 불러오기는 기존 경과시간 표시를 사용하고 완료·
 });
 
 test('과거 공고는 공고보관함에서 찾고 임시 목록과 구분해 표시한다', () => {
-  assert.match(appSource, /<summary><b>공고보관함<\/b> <small>가져온 공고는 자동 보관됩니다\./);
+  // 큰 표라서 기본은 접는다. 검색·맞춤 공고 확인이 끝나 이 자리로 데려온 때만 펼친다.
+  assert.match(appSource, /id="archive-box" \$\{archiveOpen \? 'open' : ''\}>/);
+  assert.match(appSource, /const archiveOpen = state\.aiResult\?\.anchor === '#archive-box';/);
+  // 접혀 있어도 몇 건인지는 보인다. 숫자가 없으면 열어 볼 이유를 알 수 없다.
+  assert.match(appSource, /<summary><b>공고보관함<\/b>\$\{archiveCount \? /);
+  assert.match(appSource, /<small>가져온 공고는 자동 보관됩니다\./);
   assert.match(appSource, /id="proposal-box" open><summary><b>계획서보관함<\/b>/);
   // 보관량이 많아도 빠르게 찾도록 표·검색·필터·페이지 구조로 보여 준다.
   assert.match(appSource, /class="archive-table"/);
