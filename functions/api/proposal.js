@@ -8,6 +8,8 @@ import { DIAGNOSIS_SCHEMA, OUTPUT_TOKENS as DIAGNOSIS_TOKENS, diagnosisPrompt, n
 import { OUTPUT_TOKENS as REGION_BRIEF_TOKENS, REGION_BRIEF_ACTION, REGION_BRIEF_SCHEMA, regionBriefPrompt, verifyRegionBrief } from '../../server/region-brief.js';
 import { contractState } from '../../server/premium.js';
 import { MARKS, generalNotes, guardSections, guardText, repetitionReport, sanitizeSourceText } from '../../server/fact-guard.js';
+import { findLeaks, internalNames, leakCode } from '../../server/label-leak.js';
+import { recordActivity } from '../../server/activity.js';
 import { claimTable, claimsFromGuard } from '../../server/evidence.js';
 import { evaluatorReview } from '../../server/evaluator-review.js';
 import { limitCheck, limitKindFor } from '../../server/agency.js';
@@ -304,6 +306,22 @@ export async function onRequest(context) {
     if (!outputText) return refund(json({ error: 'AI 응답에서 결과 본문을 찾지 못했습니다.' }, 502));
     let result;
     try { result = JSON.parse(outputText); } catch { return refund(json({ error: 'AI 응답 형식을 해석하지 못했습니다.', failureStage: 'output-parse' }, 502)); }
+    // 프롬프트의 내부 이름이 결과에 그대로 나왔는지 본다.
+    //
+    // 막지 않는다. 토큰은 이미 나갔고, 여기서 막으면 사용자가 결과를 통째로 못 받는다.
+    // failureStage도 건드리지 않는다 — 이건 실패가 아니라 품질 흠이다.
+    // 검사 목록은 이번 프롬프트에서 뽑는다. 손으로 적으면 태그가 늘 때 새 이름이 빠진다.
+    const leaks = findLeaks(outputText, internalNames(specification.prompt));
+    if (leaks.length) {
+      // 어느 액션에서 어느 이름이 샜는지 셀 수 있어야 한다. 계정당 기록 수에 한도가 있어
+      // 한 응답에서 최대 세 개만 남기고, 몇 개를 접었는지는 guard에 그대로 실어 보낸다.
+      for (const leak of leaks.slice(0, 3)) {
+        await recordActivity(context.env.ARCHIVE_DB, user.id, {
+          kind: 'error', step: 4, code: leakCode(body.action, leak.name)
+        }).catch(() => {});
+      }
+    }
+
     // 무료 체험은 결과와 함께 「이번 한 번을 썼다」는 사실을 돌려준다. 화면은 이 값을 따른다.
     if (body.action === CORE_PROPOSAL_ACTION) {
       // 화면과 출력이 목표 쪽수를 알아야 쪽 나눔을 맞출 수 있다.
@@ -387,6 +405,8 @@ export async function onRequest(context) {
       // 자기점검 실패·공고 충돌만으로는 분할 결과를 폐기하지 않는다. 상태로 알린다.
       Object.assign(result, partReviewState(result, body.payload));
     }
+    // 검사 결과는 결과와 함께 돌려준다. 화면이 쓰지 않더라도 응답에 남아 있어야 확인할 수 있다.
+    if (leaks.length) result.guard = { ...(result.guard || {}), internalLabels: leaks, internalLabelsRecorded: Math.min(leaks.length, 3) };
     // 끝난 결과를 기록에 남긴다. 같은 입력이 다시 오면 이 사본을 주고 AI를 부르지 않는다.
     await finishJob(context.env.ARCHIVE_DB, jobRecordId, result, extractUsage(raw).total).catch(() => {});
     return json(result);
