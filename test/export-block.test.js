@@ -52,6 +52,15 @@ test('형식 버튼을 회색으로만 두지 않는다', () => {
   assert.doesNotMatch(sheet, /data-export-format="print" \$\{state\.sections\.length \? '' : 'disabled'\}/);
 });
 
+test('화면 인쇄는 제출용이 아니라고 이름에 적는다', () => {
+  // 이름이 「인쇄」뿐이면 위의 PDF·DOCX와 같은 급으로 읽힌다. 실제로는 화면을 그대로 찍는다 —
+  // 완료 띠·탭 줄이 함께 나오고, 본문이 textarea라 보이는 부분만 인쇄되며, 머리말에 주소와 날짜가 붙는다.
+  assert.match(app, />화면 인쇄 \(제출용 아님\)<\/button>/);
+  assert.match(app, /본문이 잘릴 수 있습니다\. 제출용은 위 PDF·DOCX를 쓰세요\./);
+  // 「화면 그대로 나갑니다」는 사실이지만 무엇이 나쁜지 말하지 않았다.
+  assert.doesNotMatch(app, /인쇄는 화면 그대로 나갑니다/);
+});
+
 test('받을 것을 바꾸거나 시트를 다시 열면 앞선 이유는 지운다', () => {
   // 남겨 두면 원인을 고친 뒤에도 빨간 상자가 계속 붙어 있다.
   assert.match(app, /setState\(\{ exportCopy: el\.dataset\.exportCopy, exportBlock: '' \}\)/);

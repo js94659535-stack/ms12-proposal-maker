@@ -4291,8 +4291,8 @@ function exportSheet() {
              ${currentFormSpec() ? format('review-form', '올린 서식대로', '올린 신청서 서식의 항목 이름·순서에 맞춰 넣습니다.') : ''}`}
       </div>
       ${copy === '검토본' && !blocked ? '<p class="muted">검토본은 제출용이 아닙니다. 낼 파일은 「제출본」에서 받으세요.</p>' : ''}
-      <div class="actions" style="margin:0"><span class="muted">인쇄는 화면 그대로 나갑니다.</span>
-        <button class="button secondary" data-export-format="print" aria-disabled="${state.sections.length ? 'false' : 'true'}">인쇄</button></div>`
+      <div class="actions" style="margin:0"><span class="muted">본문이 잘릴 수 있습니다. 제출용은 위 PDF·DOCX를 쓰세요.</span>
+        <button class="button secondary" data-export-format="print" aria-disabled="${state.sections.length ? 'false' : 'true'}" title="화면을 그대로 찍습니다. 완료 띠·탭 줄이 함께 나오고 머리말에 주소와 날짜가 붙습니다.">화면 인쇄 (제출용 아님)</button></div>`
   };
 }
 // 패널에서 고른 형식을 기존 출력 경로로 넘긴다. 새 출력 방식을 만들지 않는다.
