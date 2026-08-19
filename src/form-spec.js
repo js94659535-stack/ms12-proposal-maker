@@ -41,7 +41,7 @@ const ITEM_HINT = /문제\s*의식|지향점|전략|차별성|강점|모집|연�
 const ITEM_SKIP = /제출\s*서류|첨부|유의|안내|문의|접수|신청\s*방법|작성\s*요령|서식\s*\d|붙임|해당\s*(?:없음|있음)|회계부정|인권침해|조사\/수사|재판|처분|체크|서명|동의/;
 
 // 작성 항목은 신청서·계획서 서식에서만 읽는다. 공고문의 조항·안내 문장을 작성 항목으로 오인하지 않는다.
-const ITEM_SOURCE_TYPES = ['공모신청서', '사업계획서 서식'];
+export const ITEM_SOURCE_TYPES = ['공모신청서', '사업계획서 서식'];
 export function extractFormItems(sources) {
   const marked = sources.filter(item => ITEM_SOURCE_TYPES.includes(item.sourceType));
   // 사용자가 종류를 잘못 골랐거나 자동 분류가 애매해도 작업을 멈추지 않는다.

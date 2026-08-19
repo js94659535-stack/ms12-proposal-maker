@@ -97,7 +97,13 @@ test('첨부서류는 준비할 것으로 알리고 계획서 출력까지 막�
   assert.equal(base({ included: ALL_INCLUDED }).status, '제출 가능');
   // 서식을 읽지 못했으면 막지 않되 확인하라고 알린다.
   const noForm = base({ formSpec: null, included: [] });
-  assert.ok(noForm.warnings.some(item => item.reason === '첨부서류 목록 없음'));
+  // 이름을 바꿨다. 이 문구로 세던 집계와 갈리지 않게 여기 박아 둔다.
+  // 예전 이름은 '첨부서류 목록 없음'이었고, 첨부 이야기로만 읽혀 본문이 기본값이라는 사실이 묻혔다.
+  const formWarning = noForm.warnings.find(item => item.reason === '서식 미인식');
+  assert.ok(formWarning, '서식을 못 읽었으면 그 사실을 경고로 남긴다');
+  assert.equal(formWarning.detail, '신청서 서식을 읽지 않아 본문 항목·분량이 기본값이고 필수 첨부도 확인하지 못했습니다.');
+  assert.equal(formWarning.action, 'form');
+  assert.doesNotMatch(JSON.stringify(noForm.blockers), /서식 미인식/, '서식이 없어도 제출을 막지는 않는다');
   assert.ok(!noForm.blockers.some(item => item.reason === '필수 첨부서류 누락'));
   // 제출 ZIP은 그대로 실제 파일을 요구한다.
   const zip = fs.readFileSync(new URL('../src/submission-zip.js', import.meta.url), 'utf8');

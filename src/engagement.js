@@ -1,7 +1,7 @@
 // 「사업계획서 의뢰 건」 한 건의 경계를 정한다. 규칙 기반 로컬 처리만 하고 외부 API를 호출하지 않는다.
 // 기관 영구정보(신청기관에 계속 남는 사실)와 이번 사업 정보(이 의뢰 건에서만 쓰는 값)를 절대 자동으로 섞지 않는다.
 import { CONFIRMED_STATUS, splitApplicantProfile } from './applicants.js';
-import { applyFormSpecToOutline, formItemSkeleton, mergeFormTables } from './form-spec.js';
+import { ITEM_SOURCE_TYPES, applyFormSpecToOutline, formItemSkeleton, mergeFormTables } from './form-spec.js';
 
 // 고객이 보는 단계. 내부 6단계 작업 화면과 별개이며 고객에게는 이 4단계만 보여 준다.
 export const ENGAGEMENT_STAGES = ['공고 요청', '정보 확인', '설계 승인', '결과 확인'];
@@ -68,6 +68,54 @@ export function buildDocumentPlan(contract, formSpec = null) {
     formSpecStatus: formSpec ? formSpec.status : '서식 없음',
     // 서식을 읽었더라도 분량 제한이 실제로 없으면 기본값으로 쓴다고 그대로 알린다.
     limitSource: outline.some(item => item.limitSource === '신청서 서식') ? '신청서 서식' : '기본값'
+  };
+}
+
+// 서식을 읽었는지 화면이 한 문장으로 말한다.
+//
+// 화면에서 항목 이름만 봐서는 서식을 읽었는지 알 수 없다. 읽었든 못 읽었든
+// PROPOSAL_OUTLINE의 같은 항목이 나오기 때문이다(applyFormSpecToOutline은 title을 바꾸지 않는다).
+// 그래서 「못 읽었다」를 화면이 직접 말하지 않으면 사용자가 알아챌 방법이 없다.
+//
+// 상태를 둘이 아니라 셋으로 나눈다. 서식을 읽었는데 분량 제한만 못 찾은 경우가 실제로 있고,
+// 그걸 「반영됨」에 넣으면 분량이 기본값이라는 사실이 숨는다.
+export const FORM_NOTICE_STATES = Object.freeze(['none', 'partial', 'full']);
+
+function formSourceName(formSpec) {
+  const sources = formSpec?.sources || [];
+  const item = sources.find(source => ITEM_SOURCE_TYPES.includes(source.sourceType)) || sources[0];
+  return text(item?.fileName, 120);
+}
+
+export function formSpecNotice(formSpec = null, attachments = []) {
+  const zip = (attachments || []).some(file => /\.zip$/i.test(String(file?.name || '')));
+  const items = formSpec?.items || [];
+  // 분량 제한을 실제로 찾은 항목 수. 서식을 읽어도 이게 0이면 분량은 기본값이다.
+  const withLimit = items.filter(item => item.limitChars || item.limitPages).length;
+  const fileName = formSourceName(formSpec);
+
+  if (!items.length || !fileName) {
+    return {
+      state: 'none', tone: 'warning',
+      headline: `서식 미인식 — 기본 ${PROPOSAL_OUTLINE.length}개 항목으로 작성됨`,
+      detail: '공고 서식이 따로 있으면 항목·분량이 다를 수 있습니다.',
+      // ZIP은 자동으로 풀지 않는다. 서식이 그 안에 있는데 못 읽었을 수 있다.
+      zipHint: zip ? '이 ZIP 안에 서식이 있을 수 있습니다. 내려받아 푼 뒤 사업계획서 서식 파일을 올려 주세요.' : ''
+    };
+  }
+  if (!withLimit) {
+    return {
+      state: 'partial', tone: 'caution',
+      headline: `서식 일부만 읽음 — 항목은 ${fileName} 기준, 분량은 기본값`,
+      detail: `작성 항목 ${items.length}개를 읽었고 항목별 분량 제한은 찾지 못했습니다.`,
+      zipHint: ''
+    };
+  }
+  return {
+    state: 'full', tone: 'ok',
+    headline: `서식 반영됨 — ${fileName} 기준`,
+    detail: `작성 항목 ${items.length}개 · 분량 제한 ${withLimit}개`,
+    zipHint: ''
   };
 }
 

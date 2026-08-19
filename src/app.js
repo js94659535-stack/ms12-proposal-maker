@@ -62,7 +62,7 @@ import { buildSubmissionPackage, sectionsFingerprint } from './submission-packag
 import { nextAfterDownload } from './after-download.js';
 import { buildWritingPipeline } from './writing-pipeline.js';
 import { INDICATORS, INDICATOR_KINDS, derivedFigures, emptySurvey, filledIndicators, openIndicators } from '../server/region-indicators.js';
-import { ENGAGEMENT_STAGES, PROPOSAL_OUTLINE, buildDocumentPlan, buildEngagement, canGenerateProposal, designSnapshotStale, designStatus, makeClient, makeDesignApproval, makeNoticeRequest, normalizeEngagement } from './engagement.js';
+import { ENGAGEMENT_STAGES, PROPOSAL_OUTLINE, buildDocumentPlan, formSpecNotice, buildEngagement, canGenerateProposal, designSnapshotStale, designStatus, makeClient, makeDesignApproval, makeNoticeRequest, normalizeEngagement } from './engagement.js';
 import { EXTERNAL_SOURCE, appendProposalVersion, findVersionById, normalizeProposalVersions, resolveSavedVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, matchSectionsForIssue, proposalTextFromSections, proposalTextFromSnapshot, revisionInstruction, sectionsFromProposalText, verifyLockedValues } from './coaching-handoff.js';
 import { splitApplicantProfile } from './applicants.js';
 import { ARCHIVE_PAGE_SIZES, ARCHIVE_PAGE_SIZE_LABEL, ARCHIVE_STATUSES, DEFAULT_WATCH, archiveTableRows, shortDate, watchHits } from './archive-table.js';
@@ -4326,6 +4326,16 @@ function noticeConfirmView() {
 }
 
 // 사업 설계도. 엔진(project-blueprint.js)의 결과만 그려 주고 화면에서 다시 계산하지 않는다.
+// 서식을 읽었는지 한 줄로 알린다. 접지 않는다 — 접으면 못 읽었다는 사실이 숨는다.
+// 문구는 engagement.js의 formSpecNotice 한 곳에서만 만든다. 화면마다 따로 적으면 갈린다.
+const FORM_NOTICE_TONE = { warning: 'warning', caution: 'warning', ok: 'success' };
+function formSpecNoticeView() {
+  const notice = formSpecNotice(currentFormSpec(), state.selectedNotice?.attachments || []);
+  return `<div class="alert ${FORM_NOTICE_TONE[notice.tone]}" data-form-state="${notice.state}">
+    <strong>${escapeHtml(notice.headline)}</strong><p>${escapeHtml(notice.detail)}</p>
+    ${notice.zipHint ? `<p>${escapeHtml(notice.zipHint)}</p>` : ''}</div>`;
+}
+
 const BLUEPRINT_STATUS_LABEL = { CONFIRMED: '확정', SUPPORTED: '근거 있음', PROPOSED: '설계안', NEEDS_CONFIRMATION: '확인 필요' };
 const BLUEPRINT_STATUS_CLASS = { CONFIRMED: '충족', SUPPORTED: '부분-충족', PROPOSED: '검토-필요', NEEDS_CONFIRMATION: '확인-필요' };
 // 설계도 항목에서 사용자가 바로 값을 넣을 수 있는 자리. 값은 이번 사업 값(projectSpecificValues)으로만 저장한다.
@@ -4436,6 +4446,7 @@ function blueprintView() {
   return `<div class="card" id="project-blueprint"><div class="card-title"><div><h3>사업 설계도</h3><span>공고 값·기관 값·이번 사업 값을 섞지 않습니다. 확정하지 않은 값은 [확인 필요]로 남깁니다.</span></div>
       <button class="button primary" id="blueprint-draft" ${guard(blueprint.canDraft ? '' : (draftHint || '초안을 만들 자료가 아직 없습니다. 공고를 먼저 분석해 주세요.'), 'notice')}>초안 작성</button></div>
     <p class="muted">${escapeHtml(blueprint.verdict)} · 신청기관 ${escapeHtml(blueprint.applicantName)}</p>
+    ${formSpecNoticeView()}
     <div style="margin-bottom:12px">${draftHint}</div>
     ${blueprintTypeView(blueprint)}
     <div class="summary-grid" style="margin-top:16px"><div><span>확정</span><strong>${blueprint.byStatus.CONFIRMED}</strong><small>공고·사용자 확정 값</small></div>
@@ -5466,10 +5477,13 @@ function sourceTypeOptions(selected) { return SOURCE_TYPES.map(value => `<option
 function manualSourcesView() {
   // 보조 자료라서 기본은 접어 둔다. 이미 추가한 자료가 있으면 펼친 채로 보여 준다.
   const count = state.manualSources.length;
+  // 요약은 직접 자료가 없어도 보여 준다. 공고 첨부가 ZIP 하나뿐일 때가 서식을 못 읽었을 가능성이
+  // 가장 큰 상황인데, 예전에는 바로 그때 「서식 없음」 문장이 통째로 사라졌다.
+  const hasSource = count > 0 || (state.selectedNotice?.attachments || []).length > 0;
   return `<details class="card org-details" id="manual-sources" ${count ? 'open' : ''}><summary><b>직접 자료 추가</b>${count ? ` · ${count}건` : ''} <small>PDF · DOCX · TXT / HWPX·HWP 지원</small></summary>
     <div class="two-col"><div class="field"><label for="manual-source-type">기본 자료 유형</label><select id="manual-source-type">${sourceTypeOptions(state.manualSourceType)}</select><label class="dropzone" for="manual-source-files"><strong>여러 파일 선택</strong><small>자료별 유형은 추가 후 변경할 수 있습니다.</small><input id="manual-source-files" type="file" accept=".pdf,.docx,.txt,.hwp,.hwpx" multiple></label></div>
     <div><div class="field"><label for="manual-source-name">붙여넣기 자료명</label><input id="manual-source-name" value="${escapeHtml(state.manualSourceName)}" placeholder="예: 2027년 신청서 작성항목"><label for="manual-source-text">원문 직접 붙여넣기</label><textarea id="manual-source-text" class="source-text" placeholder="공문·신청서·예산기준·심사기준 원문을 붙여넣으세요.">${escapeHtml(state.manualSourceText)}</textarea></div><button class="button secondary" id="add-manual-text">붙여넣기 자료 추가</button></div></div>
-    ${count ? `<p class="muted" id="intake-summary">${escapeHtml(intakeSummary(markDuplicates(state.manualSources)).text)}${(() => { const spec = currentFormSpec(); return spec?.items?.length ? ` · 신청서 서식 규격표: 작성 항목 ${spec.items.length}개 · 요구 표 ${spec.tables.length}개 · 첨부 ${spec.attachments.length}건` : ''; })()}</p><div class="requirement-list">${state.manualSources.map((item, index) => `<article class="requirement"><div><span class="tag ${item.extractionStatus === 'success' ? '' : 'mandatory'}">${item.extractionStatus === 'success' ? '추출 성공' : '추출 불가'}</span><div><strong>${escapeHtml(item.fileName)}</strong><select data-manual-source-type="${index}">${sourceTypeOptions(item.sourceType)}</select><small>${Number(item.extractedText?.length || 0).toLocaleString()}자${item.extractionError ? ` · ${escapeHtml(item.extractionError)}` : ''}${item.autoKind ? ` · ${item.autoConfidence === 'high' ? '자동 판정' : '자동 판정(확인 권장)'}` : ''}</small><p class="muted">${escapeHtml((item.extractedText || '').slice(0, 180) || '텍스트 미리보기 없음')}</p></div></div><button class="button secondary" data-remove-manual-source="${index}">삭제</button></article>`).join('')}</div>` : '<p class="empty-inline">직접 추가한 자료가 없습니다.</p>'}</details>`;
+    ${hasSource ? `<p class="muted" id="intake-summary">${escapeHtml(intakeSummary(markDuplicates(state.manualSources)).text)}${(() => { const spec = currentFormSpec(); return spec?.items?.length ? ` · 신청서 서식 규격표: 작성 항목 ${spec.items.length}개 · 요구 표 ${spec.tables.length}개 · 첨부 ${spec.attachments.length}건` : ''; })()}</p><div class="requirement-list">${state.manualSources.map((item, index) => `<article class="requirement"><div><span class="tag ${item.extractionStatus === 'success' ? '' : 'mandatory'}">${item.extractionStatus === 'success' ? '추출 성공' : '추출 불가'}</span><div><strong>${escapeHtml(item.fileName)}</strong><select data-manual-source-type="${index}">${sourceTypeOptions(item.sourceType)}</select><small>${Number(item.extractedText?.length || 0).toLocaleString()}자${item.extractionError ? ` · ${escapeHtml(item.extractionError)}` : ''}${item.autoKind ? ` · ${item.autoConfidence === 'high' ? '자동 판정' : '자동 판정(확인 권장)'}` : ''}</small><p class="muted">${escapeHtml((item.extractedText || '').slice(0, 180) || '텍스트 미리보기 없음')}</p></div></div><button class="button secondary" data-remove-manual-source="${index}">삭제</button></article>`).join('')}</div>` : '<p class="empty-inline">직접 추가한 자료가 없습니다.</p>'}</details>`;
 }
 
 function attachmentView() {
@@ -5479,7 +5493,7 @@ function attachmentView() {
     const type = attachmentType(file.name, file.fileType);
     // 한글 파일도 읽는다. 예전에는 PDF로 바꿔 다시 올리라고 했지만 지금은 앱이 직접 연다.
     const supported = EXTRACTABLE_ATTACHMENTS.includes(type);
-    return `<article class="requirement"><div><span class="tag">${escapeHtml(type)}</span><strong>${escapeHtml(file.name)}</strong>${type === 'ZIP' ? '<small>ZIP 내부 자동 해제는 지원하지 않습니다. 내려받아 푼 뒤 개별 파일을 올려 주세요.</small>' : type === 'UNSUPPORTED' ? '<small>지원하지 않는 파일 형식입니다.</small>' : '<small class="muted">공고문·신청서식을 이 자리에서 바로 읽어 분석에 넣습니다.</small>'}</div><span><button class="button secondary" data-download-attachment="${index}">원본 다운로드</button>${supported ? `<button class="button primary" data-extract-attachment="${index}">내용 추출</button>` : ''}</span></article>`;
+    return `<article class="requirement"><div><span class="tag">${escapeHtml(type)}</span><strong>${escapeHtml(file.name)}</strong>${type === 'ZIP' ? `<small>ZIP 내부 자동 해제는 지원하지 않습니다. 내려받아 푼 뒤 개별 파일을 올려 주세요.${formSpecNotice(currentFormSpec(), []).state === 'none' ? ' <b>지금 서식을 못 읽은 상태라, 이 안에 사업계획서 서식이 있을 수 있습니다.</b>' : ''}</small>` : type === 'UNSUPPORTED' ? '<small>지원하지 않는 파일 형식입니다.</small>' : '<small class="muted">공고문·신청서식을 이 자리에서 바로 읽어 분석에 넣습니다.</small>'}</div><span><button class="button secondary" data-download-attachment="${index}">원본 다운로드</button>${supported ? `<button class="button primary" data-extract-attachment="${index}">내용 추출</button>` : ''}</span></article>`;
   }).join('')}</div></div>`;
 }
 
@@ -6082,6 +6096,7 @@ function completionPanelView() {
   const status = proposalStatus();
   const target = flow.reviewTarget;
   return `<div class="card" id="result-completion" tabindex="-1"><div class="card-title"><div><h3>완성본 · 다음 단계 선택</h3><span>검토로 보내기 전에는 이 화면에서 수정 요청만 반영합니다. 이전 버전은 지우지 않습니다.</span></div><span class="status ${proposalStatusTone(status)}">${escapeHtml(status)}</span></div>
+    ${formSpecNoticeView()}
     <div class="summary-grid"><div><span>현재 버전</span><strong>V${versions.length || 1}</strong><small>${escapeHtml(latest?.label || '작성본')}</small></div>
       <div><span>보관 상태</span><strong>${escapeHtml(status)}</strong><small>${state.archiveProposalId ? '계획서보관함 저장됨' : '저장 대기'}</small></div>
       <div><span>검토 제출</span><strong>${target ? `V${target.version} · ${target.round}차` : '아직 없음'}</strong><small>${target ? '검토 대상 고정됨' : '만족하는 버전에서 보내세요'}</small></div>
