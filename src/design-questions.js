@@ -124,7 +124,16 @@ export const SUGGESTABLE = Object.freeze(['판단', '설계']);
 // 목록을 늘리지 않는다 — 늘리기 시작하면 또 다른 쓰레기통이 된다.
 const NOTICE_ALIAS = '공고문';
 
-export function classifyQuestion(question, { blueprint = null, contract = null, noticeNames = [] } = {}) {
+// 어미 두 형태만 본다. 낱말이 아니라 문장 끝 모양이라 늘어날 여지가 적다.
+// 「~있습니까/입니까」는 앞에 두면 안 된다 — 「어느 것이 최종 기준입니까?」는 판단이다.
+// 그래서 그것은 아무것도 안 걸렸을 때 이유를 또렷하게 하는 데만 쓴다.
+const DECIDE_ENDING = /(하시겠습니까|하시겠어요|잡으시겠습니까|정하시겠습니까)\s*\??$/;
+const HAVE_ENDING = /(있습니까|입니까|있나요|인가요)\s*\??$/;
+
+// 공고가 「값을 정해 준」 규칙. 나머지는 공고가 「기관이 충족하라」고 요구한 것이다.
+const CONTRACT_DECIDED_TYPES = ['EXACT', 'MIN', 'MAX', 'CHOICE'];
+
+export function classifyQuestion(question, { blueprint = null, contract = null, noticeNames = [], applicantName = '' } = {}) {
   const label = text(question);
   const base = { kind: '사실 확인', reason: '가리키는 근거를 찾지 못해 기관 확인으로 둔다', items: [], noticeValue: '', choices: [] };
   if (!label) return base;
@@ -143,6 +152,17 @@ export function classifyQuestion(question, { blueprint = null, contract = null, 
   const hint = fixed.map(rule => `${text(rule.title)}: ${text(rule.value)}${text(rule.unit)}`.trim());
   const extra = { items, noticeValue: hint.join(' · '), choices };
 
+  // 0) 주어가 기관이면 그것으로 끝이다. 공고 이름이 함께 있어도 이것이 이긴다.
+  //    기관 이름은 낱말 목록이 아니라 고른 신청기관에서 온다. 늘어나지 않는다.
+  const who = text(applicantName);
+  if (who.length >= 2 && label.includes(who)) {
+    return { ...base, ...extra, kind: '사실 확인', reason: `${who}에 대해 묻는다 — 기관만 아는 사실이다` };
+  }
+  // 0-1) 「~하시겠습니까」는 사실을 묻는 말이 아니다. 앞으로 정할 것을 묻는다.
+  //      어미는 두 형태만 본다. 목록을 늘리면 또 다른 쓰레기통이 된다.
+  if (DECIDE_ENDING.test(label)) {
+    return { ...base, ...extra, kind: '설계', reason: '앞으로 정할 것을 묻는다(~하시겠습니까)' };
+  }
   // 1) 공고를 이름으로 부른다.
   if ([...noticeNames, NOTICE_ALIAS].some(name => text(name) && label.includes(text(name)))) {
     return { ...base, ...extra, kind: '판단', reason: '질문이 공고 자료를 근거로 지목한다' };
@@ -154,8 +174,16 @@ export function classifyQuestion(question, { blueprint = null, contract = null, 
       ? { ...base, ...extra, kind: '사실 확인', reason: `설계도 「${text(items[0].title)}」이 기관 확인을 기다린다` }
       : { ...base, ...extra, kind: '설계', reason: `설계도 「${text(items[0].title)}」은 이번 사업에서 정한다` };
   }
-  // 3) 공고가 그 갈래를 정해 두었다.
-  if (rules.length) return { ...base, ...extra, kind: '판단', reason: `공고가 「${text(rules[0].category)}」를 정해 두었다` };
+  // 3) 공고가 값을 정해 둔 갈래만 판단이다.
+  //    ELIGIBILITY·FORMAT·EVALUATION·REQUIRED는 공고가 「기관이 충족하라」고 요구한 것이지
+  //    값을 정해 준 것이 아니다. 실제로 「신청자격」이 여기 걸려 기관 사실에 판단이 붙었다.
+  const decided = rules.filter(rule => CONTRACT_DECIDED_TYPES.includes(rule?.ruleType));
+  if (decided.length) return { ...base, ...extra, kind: '판단', reason: `공고가 「${text(decided[0].category)}」를 정해 두었다` };
+  if (rules.length) {
+    return { ...base, ...extra, kind: '사실 확인', reason: `공고가 「${text(rules[0].category)}」 충족을 요구한다 — 기관이 답한다` };
+  }
+  // 4) 아무것도 안 걸린다. 「~있습니까/입니까」면 지금 있는 것을 묻는 말이라 더 분명하다.
+  if (HAVE_ENDING.test(label)) return { ...base, ...extra, reason: '지금 있는 것을 묻는다(~있습니까/입니까)' };
   return { ...base, ...extra };
 }
 

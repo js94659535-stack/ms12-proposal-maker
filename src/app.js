@@ -6525,9 +6525,14 @@ function currentDesignQuestions() {
 // 모델이 만든 질문에는 출처만 보고 「필수 확인」이 붙어서 갈래로 쓸 수 없다.
 const ANSWER_TONE = { '판단': '부분-충족', '사실 확인': '확인-필요', '설계': '충족' };
 function questionField(item, index) {
+  // 설계도는 신청기관을 골라야 만들어진다(currentBlueprint가 없으면 null).
+  // 없으면 항목 대조가 통째로 비어 갈래가 「사실 확인」으로만 떨어지고 「N가지」도 안 나온다.
+  // 안전하기는 하지만 왜 그런지 알 수 없어, 무엇을 하면 되는지 화면이 말한다.
+  const blueprint = currentBlueprint();
   const verdict = classifyQuestion(item.question, {
-    blueprint: currentBlueprint(), contract: currentNoticeContract(),
-    noticeNames: [KOREAN_LABELS.NOTICE_CONTRACT, KOREAN_LABELS.OFFICIAL_NOTICE_TEXT]
+    blueprint, contract: currentNoticeContract(),
+    noticeNames: [KOREAN_LABELS.NOTICE_CONTRACT, KOREAN_LABELS.OFFICIAL_NOTICE_TEXT],
+    applicantName: selectedApplicant()?.name || ''
   });
   const answer = String(state.designAnswers[item.question] || '');
   // 여러 항목을 한 번에 묻는 질문. 문장을 잘라 나누지 않는다 — 한국어가 잘린다.
@@ -6539,6 +6544,7 @@ function questionField(item, index) {
   return `<div class="field"><label>${escapeHtml(item.question)}
       <span class="status ${ANSWER_TONE[verdict.kind] || '확인-필요'}">${escapeHtml(verdict.kind)}</span>
       <span class="tag">${escapeHtml(verdict.reason)}</span></label>
+    ${blueprint ? '' : '<p class="muted">신청기관을 고르면 더 정확히 나뉩니다. 지금은 설계도를 만들 수 없어 「사실 확인」으로만 둡니다.</p>'}
     ${verdict.noticeValue ? `<p class="muted">${twoValues ? '<b>원문에 두 값이 있습니다</b> · 어느 것을 기준으로 할지 골라 적어 주세요 — ' : '<b>공고가 정한 값</b> · '}${escapeHtml(verdict.noticeValue)}</p>` : ''}
     ${verdict.choices.length ? `<p class="muted"><b>공고가 준 선택지</b> · ${verdict.choices.map(choice => escapeHtml(choice)).join(' / ')}</p>` : ''}
     ${parts.length ? `<p class="muted">이 질문은 <b>${parts.length}가지</b>를 묻습니다 · ${parts.map(part => escapeHtml(part)).join(' · ')}</p>` : ''}

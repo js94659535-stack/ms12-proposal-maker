@@ -46,6 +46,45 @@ test('실제 다섯 질문이 갈래대로 나뉜다', () => {
   }
 });
 
+test('주어가 기관이면 무엇보다 먼저 사실 확인이다', () => {
+  // 실제로 났던 일: 「마인드스토리의 … 신청자격 … 자료가 있습니까?」가 「판단」으로 나왔다.
+  // 계약서에 category 「신청자격」 규칙(ELIGIBILITY)이 있어 3번 규칙이 걸렸다.
+  // 기관 사실에 「판단」이 붙으면 나중에 AI가 제안하게 된다. 가장 위험한 어긋남이다.
+  const contract = { rules: [{ category: '신청자격', title: '신청자격 충족', ruleType: 'ELIGIBILITY', value: '…' }] };
+  const question = '마인드스토리의 법적 기관유형, 신청자격, 광역사업 수행인력, 금융·복지 관련 실적을 증빙할 자료가 있습니까?';
+  const verdict = classifyQuestion(question, { blueprint, contract, noticeNames, applicantName: '마인드스토리' });
+  assert.equal(verdict.kind, '사실 확인');
+  assert.match(verdict.reason, /기관만 아는 사실/);
+  // 공고 이름이 함께 있어도 주어가 이긴다.
+  const both = classifyQuestion('공고 원문 기준으로 마인드스토리의 실적이 요건을 채웁니까?', { blueprint, contract, noticeNames, applicantName: '마인드스토리' });
+  assert.equal(both.kind, '사실 확인');
+  // 기관 이름을 모르면 이 규칙은 관여하지 않는다. 다른 규칙이 답하고 이유도 달라진다.
+  const noName = classifyQuestion(question, { blueprint, contract, noticeNames });
+  assert.doesNotMatch(noName.reason, /기관만 아는 사실/);
+});
+
+test('「~하시겠습니까」로 끝나면 설계다', () => {
+  // 실제로 났던 일: 「연차별 발굴 인원, 금융상담 인원을 어떻게 설정하시겠습니까?」가
+  // 설계도 「인원」에 걸려 「사실 확인」으로 나왔다. 사실을 묻는 말이 아니다.
+  const question = '연차별 발굴 인원, 금융상담 인원을 어떻게 설정하시겠습니까?';
+  assert.equal(classifyQuestion(question, { blueprint, contract, noticeNames }).kind, '설계');
+  // 설계도가 아예 없어도 어미로 갈린다.
+  assert.equal(classifyQuestion(question, {}).kind, '설계');
+  // 「~입니까」는 앞에 두지 않는다. 「어느 것이 최종 기준입니까?」는 판단이다.
+  assert.equal(kindOf(REAL[1][0]), '판단');
+});
+
+test('공고가 충족을 요구한 것은 판단이 아니다', () => {
+  // ELIGIBILITY·FORMAT·EVALUATION은 공고가 값을 준 것이 아니라 기관이 채우라고 요구한 것이다.
+  const contract = { rules: [{ category: '제출양식', title: '필수 제출서류·양식', ruleType: 'FORMAT', value: '…' }] };
+  const verdict = classifyQuestion('제출양식을 갖추었습니까?', { blueprint: null, contract, noticeNames });
+  assert.equal(verdict.kind, '사실 확인');
+  assert.match(verdict.reason, /충족을 요구한다/);
+  // 값을 정해 준 것만 판단이다.
+  const fixed = { rules: [{ category: '사업기간', title: '사업기간', ruleType: 'EXACT', value: '2027.1~2027.12', unit: '' }] };
+  assert.equal(classifyQuestion('사업기간 기준은 무엇으로 봅니까?', { blueprint: null, contract: fixed, noticeNames }).kind, '판단');
+});
+
 test('대조에 실패하면 사실 확인으로 떨어진다', () => {
   // 제안을 안 하는 쪽이 지어내는 것보다 낫다. 안전한 실패다.
   const verdict = classifyQuestion('전년도 이용 아동의 만족도는 어느 정도였습니까?', { blueprint, contract, noticeNames });
@@ -102,4 +141,7 @@ test('화면이 갈래·힌트·묻는 가짓수를 그린다', () => {
   assert.match(app, /state\.designAnswers = \{ \.\.\.state\.designAnswers, \[question\]: parts\.join\(' \/ '\) \}/);
   // 이미 쓴 답이 있으면 칸을 나누지 않는다. 나누면 쓰던 답을 잃는다.
   assert.match(app, /const split = parts\.length && !answer\.trim\(\);/);
+  // 설계도가 없으면 무엇을 하면 되는지 말한다. 조용히 「사실 확인」으로 떨어뜨리지 않는다.
+  assert.match(app, /신청기관을 고르면 더 정확히 나뉩니다/);
+  assert.match(app, /applicantName: selectedApplicant\(\)\?\.name \|\| ''/);
 });
