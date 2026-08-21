@@ -625,6 +625,36 @@ const GENERAL_KNOWLEDGE_RULE = `자료에 없는 내용은 두 가지로 나눠 
 - 널리 알려진 배경(사회 변화 흐름, 정책 방향, 대상 집단이 겪는 일반적 어려움, 통상적인 사업 운영·조사 방법)은 빈칸으로 두지 말고 적는다. 문장 맨 앞에 [일반 정보]를 붙이고 「일반적으로」처럼 일반론임이 드러나게 쓴다. 특정 기관명·연도·조사명·조사 수치를 출처가 있는 것처럼 단정하지 않는다.
 - 조사 결과가 필요한 자리에는 없는 결과를 지어내는 대신, [일반 정보]로 알려진 경향을 적고 그 자리에서 무엇을 어떻게 확인하면 되는지(자체 설문, 이용자 면담, 공공 통계 확인 등) 한 문장 덧붙인다.`
 
+// 항목별 목표 분량을 지시문에 직접 펼쳐 쓴다.
+//
+// 예전 문장은 「설계안 documentPlan의 목표 분량을 기준으로 ±30%」였는데, documentPlan 이라는 이름은
+// 보내는 자료 어디에도 없다 — 태그는 <APPROVED_DESIGN_PLAN>, 칸은 outline[].targetChars 다.
+// 가리키는 이름이 틀리면 지시가 아무 데도 걸리지 않는다. 심사 기준 이름 때와 같은 결함이다.
+//
+// 이름을 고쳐 적는 대신 숫자를 직접 쓴다. 손으로 옮겨 적지 않고 이번 요청의 설계안에서 만들므로
+// 서식이 분량을 따로 정한 경우에도 그 값을 그대로 따라간다.
+//
+// 실측(2026-08-21, 같은 자료로 전 2회·후 2회).
+// 본문 73% → 78%. 70% 넘은 항목 7개 → 10개 전부.
+// [확인 필요] 유지(오히려 7·8곳으로 늘었고 missingInformation 5개 고정).
+// 짧던 항목이 먼저 올랐고(예산 +14%p) 내려간 것은 목표에 가깝던 항목 1~3%p뿐.
+// 하한 문장은 넣지 않았다 — ①②만으로 충분했다.
+function lengthRule(designPlan) {
+  const outline = Array.isArray(designPlan?.outline) ? designPlan.outline : [];
+  const items = outline.filter(item => Number(item?.targetChars) > 0);
+  const tail = '분량을 채우려고 같은 문장을 반복하거나 확인되지 않은 사실을 만들지 않는다.';
+  // 설계안에 목표가 없으면 숫자를 지어내지 않는다. 예전처럼 비율만 말한다.
+  if (!items.length) return `각 항목은 <APPROVED_DESIGN_PLAN>의 outline[].targetChars를 기준으로 ±30% 안에서 작성한다. ${tail}`;
+  const list = items.map(item => `${item.title}(id ${item.key}) ${Number(item.targetChars)}자`).join(' · ');
+  const total = items.reduce((sum, item) => sum + Number(item.targetChars), 0);
+  const sample = items[0];
+  const low = Math.round(sample.targetChars * 0.7);
+  const high = Math.round(sample.targetChars * 1.3);
+  return `항목별 목표 분량은 다음과 같다 — ${list}. 합계 ${total}자.
+각 항목 content의 길이를 위 목표의 ±30% 안에 맞춘다. 예를 들어 목표가 ${sample.targetChars}자인 ${sample.title}은 ${low}~${high}자다. ${tail}`;
+}
+
+
 export function taskSpecification(action, payload) {
   // 지역 현황 문단. 조사표에 채운 값만 근거로 쓰고, 빈 자리는 [확인 필요]로 남긴다.
   if (action === REGION_BRIEF_ACTION) {
@@ -737,7 +767,7 @@ BLOCKING은 공고 강제조건 위반이나 승인 설계안과 어긋나 이�
     prompt: `사업 유형: ${payload.projectType}\n<SELECTED_SUBPROGRAM>${payload.selectedSubprogram || payload.project?.title || ''}</SELECTED_SUBPROGRAM>\n<PROJECT>${JSON.stringify(payload.project)}</PROJECT>\n<APPROVED_DESIGN_PLAN>${JSON.stringify(payload.designPlan)}</APPROVED_DESIGN_PLAN>\n<CONFIRMED_USER_ANSWERS>${JSON.stringify(payload.userAnswers || {})}</CONFIRMED_USER_ANSWERS>\n<CANDIDATE_ASSETS>${JSON.stringify(payload.organization)}</CANDIDATE_ASSETS>\n<USER_NARRATIVE>${String(payload.narrative || '').slice(0, 4000)}</USER_NARRATIVE>\n${blueprintBlock(payload)}
 위 승인 설계안은 고객·운영자가 승인한 설계안이며 이번 작성의 기준이다. 설계안이 정한 목차·대상·인원·기간·회기·예산·성과·핵심 수행모델을 그대로 따르고 임의로 바꾸지 않는다.
 계획서 본문은 호환용 10개 항목(necessity, purpose, goals, target, programs, schedule, roles, budget, indicators, outcomes)을 정확히 한 번씩, 설계안 목차 순서대로 작성한다. 각 항목의 id는 이 키를 그대로 쓰고 title은 설계안의 항목명을 쓴다.
-각 항목은 설계안 documentPlan의 목표 분량을 기준으로 ±30% 안에서 작성한다. 분량을 채우려고 같은 문장을 반복하거나 확인되지 않은 사실을 만들지 않는다.
+${lengthRule(payload.designPlan)}
 표로 보여야 하는 내용(예산·일정·성과지표·대상·인력)은 본문에 표를 그리지 말고 tables에 columns와 rows로 구조화해 넣는다. 본문에는 표가 무엇을 보여 주는지만 한 문장으로 적는다.
 확인되지 않은 인력·실적·자격·예산·수치는 만들지 말고 그 자리에 [확인 필요]로 남기고 missingInformation에 최대 5개까지 질문으로 남긴다. 확인된 기관 정보만 사실로 쓴다.
 ${GENERAL_KNOWLEDGE_RULE}`
