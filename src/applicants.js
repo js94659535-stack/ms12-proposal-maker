@@ -214,6 +214,40 @@ export function normalizeProjectValues(values, applicant) {
 // 왜. 실제 기관 연혁 한 건이 실적 96건이 되면서 호출마다 기관 자료가 508자에서 9,953자로 늘었다.
 // 계획서는 묶음마다 다시 부르므로 그만큼 매번 실린다. 실적을 버리는 것이 아니라, 이번 공고와
 // 상관없는 것을 펼치지 않고 「그 외 몇 건」으로만 알린다. 겹침 판정은 비교 화면과 같은 규칙이다.
+// 한 영역의 「확인 필요·오래된 정보」를 한 번에 확인됨으로 올린다.
+//
+// 왜 필요한가. 연혁 한 건에서 실적 99건이 들어오는데 상태는 항목마다 골라야 해서 99번을 눌러야 했다.
+// 그때까지 그 값들은 계획서로 전달되지 않는다 — 비용만 들고 값어치는 0인 상태로 남는다.
+//
+// 위험한 쪽이 맞다. 확인됨은 「기관이 사실이라고 보증한다」는 뜻이고, 그 순간부터 AI가 그대로 쓴다.
+// 그래서 무엇이 바뀌었는지 돌려주어 한 번에 되돌릴 수 있게 한다. 화면은 누르기 전에 무엇을
+// 보증하는 것인지 밝힌다.
+export function confirmAreaItems(applicant, areaKey) {
+  const base = normalizeApplicant(applicant);
+  const now = new Date().toISOString();
+  const changed = [];
+  const items = base.items.map(item => {
+    if (item.area !== areaKey || item.status === CONFIRMED_STATUS) return item;
+    changed.push({ id: item.id, status: item.status });
+    return { ...item, status: CONFIRMED_STATUS, updatedAt: now };
+  });
+  return { applicant: changed.length ? { ...base, items, updatedAt: now } : base, changed };
+}
+
+// 방금 올린 것만 되돌린다. 그 사이에 사람이 손대 다른 상태가 된 항목은 건드리지 않는다.
+export function restoreItemStatuses(applicant, changed = []) {
+  const base = normalizeApplicant(applicant);
+  const previous = new Map((Array.isArray(changed) ? changed : []).map(entry => [entry.id, entry.status]));
+  const now = new Date().toISOString();
+  let restored = 0;
+  const items = base.items.map(item => {
+    if (!previous.has(item.id) || item.status !== CONFIRMED_STATUS) return item;
+    restored += 1;
+    return { ...item, status: previous.get(item.id), updatedAt: now };
+  });
+  return { applicant: restored ? { ...base, items, updatedAt: now } : base, restored };
+}
+
 export function buildApplicantOrganization(applicant, projectValues = [], { requirements = [], noticeTitle = '' } = {}) {
   if (!applicant) return { applicantId: '', organization: '신청기관 미선택', confirmedFacts: [], needsVerification: [], projectSpecificValues: [], rule: NO_APPLICANT_RULE };
   const snapshot = structuredClone(applicant);
