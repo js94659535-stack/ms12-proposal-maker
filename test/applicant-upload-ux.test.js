@@ -40,7 +40,9 @@ test('몇 건을 찾았는지와 다음에 누를 곳을 함께 알린다', () =
 
 test('다음에 누를 곳 하나만 표시하고 화면 전체를 깜박이지 않는다', () => {
   const view = app.slice(app.indexOf('function candidateReviewView(review)'), app.indexOf('function coachingApplicantView()'));
-  assert.match(view, /class="button primary next-step" id="apply-safe-candidates"/);
+  // 다음 할 일은 화면 맨 위 띠 하나가 말한다(22-12). 목록 안 단추는 주 버튼이 아니다.
+  assert.match(view, /class="button secondary" id="apply-safe-candidates"/);
+  assert.match(app, /<button class="button primary next-step" id="next-step-action"/);
   // 맥박은 네 번만 뛰고 멈춘다. 계속 움직이면 읽는 것을 방해한다.
   assert.match(css, /\.button\.next-step\{animation:nextStep 1\.5s ease-out 4\}/);
   assert.match(css, /@keyframes nextStep\{/);

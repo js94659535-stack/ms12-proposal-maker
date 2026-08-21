@@ -69,6 +69,7 @@ import { ARCHIVE_PAGE_SIZES, ARCHIVE_PAGE_SIZE_LABEL, ARCHIVE_STATUSES, DEFAULT_
 import { SAMPLE_MARK, SAMPLE_NOTE, SAMPLE_NOTICE, SAMPLE_NOTICE_KEY, SAMPLE_STAGES, SAMPLE_STAGE_BY_STEP, buildSampleProject } from './sample-project.js';
 import { SAMPLE_REAL_COACHING } from './sample-coaching-run.js';
 import { RELATED_LIMIT, confirmAreaItems, relatedMatches, restoreItemStatuses, SOURCE_KINDS, makeApplicantSource, APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, mergeApplicantItems, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
+import { nextOrgStep } from './org-next-step.js';
 import { BASIC_AREAS, areaDestination, DETAIL_GROUPS, DETAIL_INTRO, basicStatus, detailProgress, draftFromApplicant, reusableCount } from './org-stage.js';
 import { KOREAN_LABELS, toKoreanLabel } from '../server/label-leak.js';
 import { WRITE_ALL_BUTTON, partialBlockReason, recordTiming, remainingGroups, timelineRows, writingState } from './writing-progress.js';
@@ -5178,6 +5179,36 @@ async function saveBasicInfo({ thenWrite = false } = {}) {
   setState({ activeTool: '', expertDetail: false, notice: '기본정보를 저장했습니다. 이어서 계획서를 작성합니다.', error: '' });
 }
 
+// 지금 할 일 하나만 맨 위에 띄운다.
+//
+// 실제로 났던 일: 「일괄 반영」·「모두 확인됨으로」·「계획서 작성으로」를 세 번 연속 찾지 못했다.
+// 이 화면의 주 버튼이 아홉 자리였으니 어느 것도 다음 할 일이 아니었다.
+// 판정은 nextOrgStep 한 곳에서 하고 여기서는 그 결과만 그린다. 띠 안의 하나만 주 버튼이다.
+const NEXT_STEP_ANCHORS = Object.freeze({
+  'add-org': '#applicant-name-draft', basic: '#applicant-editor', upload: '#applicant-doc',
+  apply: '#applicant-candidates', confirm: '#applicant-detail', write: ''
+});
+function orgNextStepBar() {
+  const applicant = findApplicant(state.applicants, focusedApplicantId());
+  const items = applicant?.items || [];
+  const unconfirmed = area => items.filter(item => (area === 'performance' ? item.area === 'performance' : item.area !== 'performance') && item.status !== CONFIRMED_STATUS).length;
+  const performanceUnconfirmed = unconfirmed('performance');
+  const step = nextOrgStep({
+    applicantCount: state.applicants.length,
+    hasApplicant: Boolean(applicant),
+    basicMissing: basicStatus(applicant, quickDraft()).missing,
+    itemCount: items.length,
+    candidateCount: applicant && state.applicantExtraction?.applicantId === applicant.id ? (state.applicantExtraction.candidates || []).length : 0,
+    performanceUnconfirmed,
+    otherUnconfirmed: unconfirmed('other')
+  });
+  // 실적 확인은 그 자리로 데려가는 대신 여기서 바로 끝낸다.
+  const bulk = step.key === 'confirm' && performanceUnconfirmed > 0;
+  return `<div class="next-step-bar${step.done ? ' done' : ''}" id="next-step-bar">
+    <div><span>${step.done ? '다 됐습니다' : '다음 할 일'}</span><strong>${escapeHtml(step.message)}</strong></div>
+    <button class="button primary next-step" id="next-step-action" data-next-key="${escapeHtml(step.key)}" data-next-bulk="${bulk ? '1' : ''}" data-next-anchor="${escapeHtml(NEXT_STEP_ANCHORS[step.key] || '')}">${escapeHtml(step.actionLabel)}</button></div>`;
+}
+
 // 기관정보 화면. 페이지를 새로 만들지 않고 이 한 곳을 기본정보 → 상세정보 두 단계로 나눈다.
 function applicantsToolView() {
   // 지금 관리하는 기관은 열어 둔 기관이고, 열어 둔 것이 없으면 이번 사업 신청기관이다.
@@ -5187,8 +5218,9 @@ function applicantsToolView() {
   const clients = canHoldClients(auth.user?.role);
   const who = clients ? '고객 기관' : '신청기관';
   return `<div class="page-heading"><div><h2>${who} 정보</h2><p>${clients ? '대신 계획서를 쓸 고객 기관을 등록·수정합니다' : '이번 사업을 신청하는 기관의 정보를 등록·수정합니다'}. 공고 분석 정보와는 분리해 보관하며, 확인된 정보만 계획서 작성에 전달합니다.</p><div class="actions">${sampleButton('applicant', '[샘플] 기관 보기')}</div></div><button class="button secondary" id="close-applicants">작성 흐름으로 돌아가기</button></div>
+    ${orgNextStepBar()}
     <div class="card"><div class="card-title"><div><h3>등록된 ${who} ${state.applicants.length}곳</h3><span>마인드스토리도 등록기관 중 하나로만 취급합니다.</span></div><div><button class="button secondary" id="load-applicants">계획서보관함에서 불러오기</button></div></div>
-    <div class="two-col"><div class="field"><label for="applicant-name-draft">새 ${who}명</label><input id="applicant-name-draft" value="${escapeHtml(state.applicantNameDraft)}" placeholder="예: 사단법인 ○○센터"></div><div class="field"><label>&nbsp;</label><button class="button primary" id="add-applicant">신청기관 추가</button></div></div>
+    <div class="two-col"><div class="field"><label for="applicant-name-draft">새 ${who}명</label><input id="applicant-name-draft" value="${escapeHtml(state.applicantNameDraft)}" placeholder="예: 사단법인 ○○센터"></div><div class="field"><label>&nbsp;</label><button class="button secondary" id="add-applicant">신청기관 추가</button></div></div>
     ${state.applicants.length ? `<div class="requirement-list">${state.applicants.map(applicant => {
       const confirmed = applicant.items.filter(item => item.status === CONFIRMED_STATUS).length;
       return `<article class="requirement"><div><span class="tag">${applicant.id === state.selectedApplicantId ? '이번 사업 신청기관' : '등록기관'}</span><div><strong>${escapeHtml(applicant.name)}</strong><small>확인됨 ${confirmed}건 · 확인 필요·오래된 정보 ${applicant.items.length - confirmed}건 · 최근 수정 ${escapeHtml(String(applicant.updatedAt).slice(0, 10))}</small></div></div><div class="actions" style="margin:0;gap:8px"><button class="button secondary" data-edit-applicant="${escapeHtml(applicant.id)}">${(state.applicantEditingId || state.selectedApplicantId) === applicant.id ? '관리 중' : '이 기관 관리'}</button><button class="button secondary" data-select-applicant="${escapeHtml(applicant.id)}">이번 사업 신청기관으로 선택</button><button class="button secondary" data-delete-applicant="${escapeHtml(applicant.id)}">삭제</button></div></article>`;
@@ -5237,7 +5269,7 @@ function applicantDocumentView(applicant) {
   return `<div class="card" id="applicant-doc" tabindex="-1"><div class="card-title"><div><h3>연혁·사업계획서를 올리면 자동으로 채워집니다</h3><span>올린 문서에서 찾은 것만 후보로 만듭니다. 기존 정보를 자동으로 덮어쓰지 않습니다.</span></div></div><div class="cap-grid"><div><span>올리는 것</span><strong>기관 연혁 · 사업 실적표</strong><small>채워지는 것 — 연도별 사업실적 (예: 2017년 · 송원대학교, 조선대학교 취창업 청년 캠프)</small></div><div><span>올리는 것</span><strong>사업계획서 · 결과보고서</strong><small>채워지는 것 — 인력 · 시설 · 협력기관 · 예산 (예: 상근 인력 5명, 상담실 2실)</small></div><div><span>올리는 것</span><strong>고유번호증 · 결산서</strong><small>채워지는 것 — 기관명 · 대표자 · 고유번호 · 연간 예산</small></div></div>
     <label class="dropzone" id="applicant-doc-drop" for="applicant-doc-file"><strong>파일을 고르거나 여기에 끌어다 놓으세요</strong><small>PDF · DOCX · HWP · HWPX · TXT · 파일당 20MB</small><input type="file" id="applicant-doc-file" accept=".pdf,.docx,.txt,.hwpx,.hwp"></label><p class="muted">한글 파일(HWP·HWPX)은 표를 행 그대로 읽습니다. 읽지 못하면 이유를 알려 드립니다. 그림으로만 된 문서는 아직 읽지 못합니다.</p>
     <div class="field"><label for="applicant-doc-text">또는 문서 내용 붙여넣기</label><textarea id="applicant-doc-text" style="min-height:110px" placeholder="예) 기관명: 사단법인 ○○센터 / 상근 인력: 5명 / 2025년 청소년 마음건강 지원사업">${escapeHtml(state.applicantDocDraft)}</textarea></div>
-    <div class="actions" style="margin:0"><span class="muted">${escapeHtml(review ? `${review.documentName || '붙여넣은 문서'} · 문서 기준시점 ${review.documentAsOf || ASOF_UNKNOWN}` : '외부 AI 호출 없이 규칙 기반으로 추출합니다.')}</span><button class="button primary" id="extract-applicant-doc">업데이트 후보 만들기</button></div>
+    <div class="actions" style="margin:0"><span class="muted">${escapeHtml(review ? `${review.documentName || '붙여넣은 문서'} · 문서 기준시점 ${review.documentAsOf || ASOF_UNKNOWN}` : '외부 AI 호출 없이 규칙 기반으로 추출합니다.')}</span><button class="button secondary" id="extract-applicant-doc">업데이트 후보 만들기</button></div>
     <div class="actions" style="margin-top:14px"><span class="muted">계획서보관함에 저장된 과거 사업계획서는 다시 업로드하지 않고 바로 사용할 수 있습니다.</span><button class="button secondary" id="load-applicant-archive">계획서보관함 목록</button></div>
     ${state.archiveProposals.length ? `<div class="requirement-list">${state.archiveProposals.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(archiveStageLabel(item.stage))}</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(new Date(item.updatedAt).toLocaleDateString('ko-KR'))} 저장</small></div></div><button class="button secondary" data-applicant-archive="${escapeHtml(item.id)}">이 계획서에서 기관 정보 추출</button></article>`).join('')}</div>` : ''}
     ${review ? candidateReviewView(review) : ''}</div>`;
@@ -5253,7 +5285,7 @@ function candidateReviewView(review) {
     <div class="alert success"><strong>문서에서 ${review.candidates.length}건을 찾았습니다</strong>
       <p>${safe ? `이 중 <b>${safe}건</b>은 기존 값을 바꾸지 않아 아래 버튼 한 번으로 들어갑니다.` : '기존 값과 견줘야 하는 항목이라 하나씩 보고 반영합니다.'}${rest ? ` 나머지 ${rest}건은 기존 값과 달라 항목마다 확인해 주세요.` : ''} 넣은 값은 모두 「확인 필요」로 들어가며, 확인해야 계획서에 사실로 쓰입니다.</p>
       <div class="actions" style="margin:0"><span class="muted">문서에 있는 것만 후보로 만듭니다. 없는 내용은 만들지 않습니다.</span>
-        <button class="button primary next-step" id="apply-safe-candidates">신규·누적·근거 추가만 일괄 반영${safe ? ` ${safe}건` : ''}</button></div></div>
+        <button class="button secondary" id="apply-safe-candidates">신규·누적·근거 추가만 일괄 반영${safe ? ` ${safe}건` : ''}</button></div></div>
     ${review.candidates.length ? `<div class="requirement-list">${review.candidates.map(candidate => `<article class="requirement"><div><span class="${kindTag[candidate.kind] || 'tag'}">${escapeHtml(candidate.kind)}</span><div><strong>${escapeHtml(areaTitle(candidate.area))} · ${escapeHtml(candidate.label)}</strong>
       <small>새 정보: ${escapeHtml(candidate.value)}</small>
       <small>기존 정보: ${escapeHtml(candidate.existingItemId ? `${candidate.existingValue} (${candidate.existingStatus})` : '기관 정보에 없음')}</small>
@@ -5317,7 +5349,7 @@ function profileBridgePanel(applicant) {
       <small class="muted">내 정보: ${escapeHtml(item.value)}</small>
     </div></article>`).join('')}</div>` : ''}
     <div class="actions"><span class="muted">덮어쓰지 않습니다. 새 항목으로 들어가고 회원이 고릅니다.</span>
-      <button class="button primary" id="pull-profile-info" ${state.busy ? 'disabled' : ''}>내 정보에서 ${merged.added.length + merged.conflicts.length}건 가져오기</button></div></div>`;
+      <button class="button secondary" id="pull-profile-info" ${state.busy ? 'disabled' : ''}>내 정보에서 ${merged.added.length + merged.conflicts.length}건 가져오기</button></div></div>`;
 }
 
 
@@ -5395,7 +5427,7 @@ function ideaAssetPanel() {
         : `<input id="asset-${key}" data-asset-field="${key}" value="${escapeHtml(draft[key] || '')}">`
     }</div>`).join('')}
     <div class="actions"><span class="muted">검증된 보유자산으로 두려면 운영 경험과 근거를 함께 적어야 합니다.</span>
-      <button class="button primary" id="asset-save" ${state.busy ? 'disabled' : ''}>자산·아이디어 저장</button></div>
+      <button class="button secondary" id="asset-save" ${state.busy ? 'disabled' : ''}>자산·아이디어 저장</button></div>
   </details>`;
 }
 
@@ -5461,7 +5493,7 @@ function applicantBasicView(applicant, who = '신청기관') {
     <p class="muted">적지 않은 인력·시설·실적·예산은 만들어 넣지 않고 <b>[확인 필요]</b>로 남깁니다.${reuse ? ` 지금 이 기관에서 다음 계획서에도 다시 쓰이는 확인된 정보는 ${reuse}건입니다.` : ''}</p>
     <div class="actions"><span class="muted">${status.ready ? '이 상태로 계획서를 시작할 수 있습니다. 상세정보는 선택입니다.' : `아직 ${status.missing.join(' · ')}가 비어 있습니다.`}</span>
       <div><button class="button secondary" id="save-basic-info" ${state.busy ? 'disabled' : ''}>기본정보 저장</button>
-        <button class="button primary" id="basic-to-writing" ${state.busy ? 'disabled' : ''}>저장하고 계획서 작성으로</button></div></div>
+        <button class="button secondary" id="basic-to-writing" ${state.busy ? 'disabled' : ''}>저장하고 계획서 작성으로</button></div></div>
     ${BASIC_AREAS.map(key => APPLICANT_AREAS.find(area => area.key === key)).filter(Boolean).map(area => {
       const count = areaItems(applicant, area.key).length;
       return `<details class="card org-details" data-detail-group="${area.key}" ${(state.openOrgGroups || []).includes(area.key) ? 'open' : ''}>
@@ -5507,7 +5539,7 @@ function detailGroupPanel(applicant, group) {
   // 실적은 접힌 채로도 한 번에 확인할 수 있어야 한다. 제목 줄에서 바로 누른다.
   const pending = group.key === 'performance' ? group.total - group.confirmed : 0;
   return `<details class="card org-details" data-detail-group="${group.key}" ${open ? 'open' : ''}>
-    <summary><b>${escapeHtml(group.title)}</b> <small>등록 ${group.total}건 · 확인됨 ${group.confirmed}건</small>${pending ? `<button class="button primary summary-action" id="confirm-all-performance-head">${pending}건 모두 확인</button>` : ''}</summary>
+    <summary><b>${escapeHtml(group.title)}</b> <small>등록 ${group.total}건 · 확인됨 ${group.confirmed}건</small>${pending ? `<button class="button secondary summary-action" id="confirm-all-performance-head">${pending}건 모두 확인</button>` : ''}</summary>
     <p class="muted">${escapeHtml(group.hint)}</p>
     ${group.key === 'performance' ? performanceConfirmBar(applicant) : ''}
     ${areas.map(area => applicantAreaFields(applicant, area, areas.length > 1)).join('')}
@@ -5531,7 +5563,7 @@ function performanceConfirmBar(applicant) {
     <p>확인됨으로 바꾸면 그 값이 계획서에 <b>기관이 확인한 사실</b>로 실립니다. 여기 값은 올린 문서에서 읽은 <b>원문 그대로</b>라 오탈자·옛 기관명·빠진 칸이 남아 있을 수 있습니다. 훑어보고 누르세요.</p>
     <div class="actions" style="margin:0"><span class="muted">${undo ? `방금 ${undo.items.length}건을 확인됨으로 바꿨습니다. 되돌리면 이전 상태로 돌아갑니다.` : '한 건씩 바꾸려면 아래 항목의 상태 칸을 쓰세요.'}</span>
       <span>${undo ? `<button class="button secondary" id="undo-confirm-performance">방금 확인한 ${undo.items.length}건 되돌리기</button>` : ''}
-      ${pending ? `<button class="button primary" id="confirm-all-performance">실적 ${pending}건 모두 확인됨으로</button>` : ''}</span></div></div>`;
+      ${pending ? `<button class="button secondary" id="confirm-all-performance">실적 ${pending}건 모두 확인됨으로</button>` : ''}</span></div></div>`;
 }
 
 // 실적이 이만큼을 넘으면 해마다 접는다. 열 해가 한꺼번에 펼쳐지면 화면이 끝없이 이어진다.
@@ -5574,7 +5606,7 @@ function applicantAreaFields(applicant, area, showTitle) {
         <div class="two-col"><div class="field"><label for="draft-label-${area.key}">새 항목명</label><input id="draft-label-${area.key}" data-applicant-draft="${area.key}|label" value="${escapeHtml(draft.label)}"></div><div class="field"><label for="draft-status-${area.key}">상태</label><select id="draft-status-${area.key}" data-applicant-draft="${area.key}|status">${statusOptions(draft.status)}</select></div></div>
         <div class="field"><label for="draft-value-${area.key}">새 항목 내용</label><textarea id="draft-value-${area.key}" data-applicant-draft="${area.key}|value" style="min-height:70px">${escapeHtml(draft.value)}</textarea></div>
         <div class="field"><label for="draft-source-${area.key}">근거자료·출처</label><input id="draft-source-${area.key}" data-applicant-draft="${area.key}|source" value="${escapeHtml(draft.source)}"></div>
-        <div class="actions" style="margin:0"><span></span><button class="button primary" data-add-applicant-item="${area.key}">${escapeHtml(area.title)} 항목 추가</button></div>`;
+        <div class="actions" style="margin:0"><span></span><button class="button secondary" data-add-applicant-item="${area.key}">${escapeHtml(area.title)} 항목 추가</button></div>`;
 }
 
 function comparisonRequirements() {
@@ -7997,6 +8029,14 @@ function bindApplicants() {
     setState({ applicants: state.applicants, applicantConfirmUndo: null, notice: '항목 상태를 변경했습니다. 이 기관 정보에 함께 저장합니다.' });
   });
   document.querySelector('#confirm-all-performance')?.addEventListener('click', confirmAllPerformance);
+  document.querySelector('#next-step-action')?.addEventListener('click', event => {
+    const button = event.currentTarget;
+    if (button.dataset.nextKey === 'write') return void saveBasicInfo({ thenWrite: true });
+    // 실적 확인은 데려가지 않고 여기서 끝낸다.
+    if (button.dataset.nextBulk) return confirmAllPerformance();
+    // 나머지는 그 자리로 데려가고 잠깐 강조한다. 눌렀는데 또 찾게 하지 않는다.
+    focusAnchor(button.dataset.nextAnchor || '#applicant-editor');
+  });
   document.querySelector('#undo-confirm-performance')?.addEventListener('click', undoConfirmPerformance);
   document.querySelectorAll('[data-remove-applicant-item]').forEach(el => el.onclick = () => {
     updateEditingApplicant(applicant => { applicant.items = applicant.items.filter(item => item.id !== el.dataset.removeApplicantItem); });
@@ -8066,6 +8106,13 @@ function bindApplicants() {
   document.querySelector('#add-project-value')?.addEventListener('click', addProjectValue);
   document.querySelectorAll('[data-remove-project-value]').forEach(el => el.onclick = () => setState({ projectValues: state.projectValues.filter(item => item.id !== el.dataset.removeProjectValue), notice: '이번 사업 값을 삭제했습니다.' }));
   document.querySelectorAll('[data-applicant-answer]').forEach(el => el.oninput = () => { state.designAnswers[el.dataset.question] = el.value; saveState(); });
+}
+
+// 그 자리로 데려가고 잠깐 강조한다. AI 결과 알림이 쓰는 길(pendingAiMove)을 그대로 쓴다.
+function focusAnchor(anchor) {
+  if (!anchor) return;
+  pendingAiMove = { anchor, sameView: true };
+  setState({});
 }
 
 // 기관정보 화면이 지금 다루는 기관. 열어 둔 기관이 없으면 이번 사업 신청기관을 그대로 관리한다.
