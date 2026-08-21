@@ -131,7 +131,7 @@ const initial = {
   designJobs: {},
   // 이 계획서에 남아 있는 AI 작업 기록. 다시 만들기 전에 먼저 보여 준다.
   aiJobs: { list: [], loadedFor: '' },
-  applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
+  applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openOrgYears: [], coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
   revisionPlan: null, draftReview: null, projectNarrative: '',
   // 서버가 붙여 준 근거 검증·평가자 검토. 화면은 판정하지 않고 그대로 보여 준다.
   serverGuard: null, serverEvidence: null, evaluatorReview: null, proposalVersions: [], proposalFlow: { status: '', baselineVersion: 0, reviewTarget: null, rounds: [], requests: [], requestOpen: false, requestText: '', requestScope: [], openVersion: 0, compareVersion: 0, approvedVersion: 0, approvedAt: '' }, coachingSelection: [], applicantSkipped: false, noticeLogic: null, redesignForContract: false,
@@ -5280,10 +5280,12 @@ function applicantScopeView(applicant) {
   const split = splitApplicantProfile(applicant);
   if (!split.profile.length && !split.history.length) return '';
   const line = item => `<div><span>${escapeHtml(areaTitle(item.area))} · ${escapeHtml(item.status)}</span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(String(item.value).slice(0, 60))} · 기준시점 ${escapeHtml(item.asOf || ASOF_UNKNOWN)}${(item.history || []).length ? ` · 이력 ${item.history.length}건` : ''}</small></div>`;
-  return `<details class="card org-details" open><summary>현재 기관 프로필 ${split.profile.length}건 · 사업·실적 이력 ${split.history.length}건(사업 ${split.projects.length}건)</summary>
+  // 연혁 한 건이 실적 99건이 된다. 열 해가 한꺼번에 펼쳐지면 화면이 끝없이 이어져
+  // 「너무 어마어마해서 엄두를 못 낸다」가 된다. 해마다 접어 두고 눌러서 펼친다.
+  return `<details class="card org-details"><summary>현재 기관 프로필 ${split.profile.length}건 · 사업·실적 이력 ${split.history.length}건(${split.projects.length}개 해)</summary>
     <p class="muted">현재 프로필의 ‘확인됨’ 정보만 계획서 작성·검증에 사실로 사용합니다. 사업·실적 이력은 수행 실적 근거로만 인용하며, 지난 사업의 인원·회기·기간·예산을 이번 사업 값으로 옮기지 않습니다.</p>
     <h4>현재 기관 프로필</h4><div class="cap-grid">${split.profile.map(line).join('') || '<div><span>없음</span><strong>등록된 현재 정보 없음</strong><small>기관명·대표자·인력·시설 등을 등록하세요</small></div>'}</div>
-    <h4>사업·실적 이력</h4>${split.projects.length ? split.projects.map(project => `<div><b>${escapeHtml(project.year || '연도 확인 필요')}</b> · 출처 ${escapeHtml(String(project.source).slice(0, 60) || '미기록')}<div class="cap-grid">${project.items.map(line).join('')}</div></div>`).join('') : '<p class="muted">등록된 사업 기록이 없습니다.</p>'}</details>`;
+    <h4>사업·실적 이력</h4>${split.projects.length ? split.projects.map(project => `<details class="year-fold"><summary><b>${escapeHtml(project.year || '연도 확인 필요')}</b> ${project.items.length}건 <small class="muted">출처 ${escapeHtml(String(project.source).slice(0, 40) || '미기록')}</small></summary><div class="cap-grid">${project.items.map(line).join('')}</div></details>`).join('') : '<p class="muted">등록된 사업 기록이 없습니다.</p>'}</details>`;
 }
 
 // 어떤 문서에서 어떤 정보가 들어왔는지 확인한다. 기존 source·asOf·history 구조만 사용한다.
@@ -5514,26 +5516,49 @@ function performanceConfirmBar(applicant) {
   if (!items.length) return '';
   const pending = items.filter(item => item.status !== CONFIRMED_STATUS).length;
   const undo = state.applicantConfirmUndo?.applicantId === applicant.id ? state.applicantConfirmUndo : null;
+  // 목록을 보기 전에 규모부터 말한다. 「몇 건인지·몇 해치인지·몇 건이 쓰이는지」.
+  const years = groupItemsByYear(items).map(group => group.year).filter(year => /^(19|20)/.test(year)).sort();
+  const span = years.length ? `${years[0]}~${years[years.length - 1]}년 · ` : '';
   return `<div class="alert${pending ? ' warning' : ' success'}">
-    <strong>실적 ${items.length}건 · 확인 필요 ${pending}건</strong>
+    <strong>사업실적 ${items.length}건 · ${span}확인됨 ${items.length - pending}건</strong>
     <p>확인됨으로 바꾸면 그 값이 계획서에 <b>기관이 확인한 사실</b>로 실립니다. 여기 값은 올린 문서에서 읽은 <b>원문 그대로</b>라 오탈자·옛 기관명·빠진 칸이 남아 있을 수 있습니다. 훑어보고 누르세요.</p>
     <div class="actions" style="margin:0"><span class="muted">${undo ? `방금 ${undo.items.length}건을 확인됨으로 바꿨습니다. 되돌리면 이전 상태로 돌아갑니다.` : '한 건씩 바꾸려면 아래 항목의 상태 칸을 쓰세요.'}</span>
       <span>${undo ? `<button class="button secondary" id="undo-confirm-performance">방금 확인한 ${undo.items.length}건 되돌리기</button>` : ''}
       ${pending ? `<button class="button primary" id="confirm-all-performance">실적 ${pending}건 모두 확인됨으로</button>` : ''}</span></div></div>`;
 }
 
+// 실적이 이만큼을 넘으면 해마다 접는다. 열 해가 한꺼번에 펼쳐지면 화면이 끝없이 이어진다.
+const YEAR_FOLD_MIN = 8;
+function itemYear(item) {
+  return String(`${item.asOf || ''} ${item.label || ''}`.match(/(19|20)\d{2}/)?.[0] || '연도 확인 필요');
+}
+function groupItemsByYear(items) {
+  const groups = new Map();
+  for (const item of items) groups.set(itemYear(item), [...(groups.get(itemYear(item)) || []), item]);
+  return [...groups.entries()].map(([year, list]) => ({ year, items: list })).sort((left, right) => right.year.localeCompare(left.year));
+}
+
 // 한 영역의 등록 항목과 새 항목 입력칸. 저장 구조를 바꾸지 않아 기존 자료가 그대로 보인다.
 function applicantAreaFields(applicant, area, showTitle) {
   const items = areaItems(applicant, area.key);
   const draft = state.applicantItemDrafts[area.key] || { label: '', value: '', status: '확인 필요', source: '' };
-  return `${showTitle ? `<h4>${escapeHtml(area.title)} · ${items.length}건</h4>` : ''}
-        ${items.length ? `<div class="requirement-list">${items.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(item.label || '항목명 없음')}</span>${applicantStatusTag(item.status)}</div>
+  const editor = item => `<article class="requirement"><div><span class="tag">${escapeHtml(item.label || '항목명 없음')}</span>${applicantStatusTag(item.status)}</div>
           <div class="two-col"><div class="field"><label for="label-${escapeHtml(item.id)}">항목명</label><input id="label-${escapeHtml(item.id)}" data-applicant-field="${escapeHtml(item.id)}|label" value="${escapeHtml(item.label)}"></div><div class="field"><label for="status-${escapeHtml(item.id)}">상태</label><select id="status-${escapeHtml(item.id)}" data-applicant-status="${escapeHtml(item.id)}">${statusOptions(item.status)}</select></div></div>
           <div class="field"><label for="value-${escapeHtml(item.id)}">내용</label><textarea id="value-${escapeHtml(item.id)}" data-applicant-field="${escapeHtml(item.id)}|value" style="min-height:70px">${escapeHtml(item.value)}</textarea></div>
           <div class="two-col"><div class="field"><label for="source-${escapeHtml(item.id)}">근거자료·출처</label><input id="source-${escapeHtml(item.id)}" data-applicant-field="${escapeHtml(item.id)}|source" value="${escapeHtml(item.source)}" placeholder="예: 2025 법인등기부등본"></div>
           <div class="field"><label for="asof-${escapeHtml(item.id)}">정보 기준시점</label><input id="asof-${escapeHtml(item.id)}" data-applicant-field="${escapeHtml(item.id)}|asOf" value="${escapeHtml(item.asOf || '')}" placeholder="${escapeHtml(ASOF_UNKNOWN)} (예: 2026 또는 2026-03)"></div></div>
           ${(item.history || []).length ? `<details><summary>이전 기록 ${item.history.length}건</summary><div class="cap-grid">${item.history.map(entry => `<div><span>${escapeHtml(entry.asOf || ASOF_UNKNOWN)}</span><strong>${escapeHtml(entry.value)}</strong><small>${escapeHtml(entry.source || '출처 없음')}</small></div>`).join('')}</div></details>` : ''}
-          <div class="actions" style="margin:0"><span></span><button class="button secondary" data-remove-applicant-item="${escapeHtml(item.id)}">항목 삭제</button></div></article>`).join('')}</div>` : '<p class="muted">등록한 항목이 없습니다.</p>'}
+          <div class="actions" style="margin:0"><span></span><button class="button secondary" data-remove-applicant-item="${escapeHtml(item.id)}">항목 삭제</button></div></article>`;
+  const list = entries => `<div class="requirement-list">${entries.map(editor).join('')}</div>`;
+  // 실적은 해마다 접어 둔다. 어느 해를 펼쳐 두었는지는 기억한다 — 한 건 고칠 때마다 닫히면 못 쓴다.
+  const folded = area.key === 'performance' && items.length > YEAR_FOLD_MIN;
+  const years = folded ? groupItemsByYear(items) : [];
+  return `${showTitle ? `<h4>${escapeHtml(area.title)} · ${items.length}건</h4>` : ''}
+        ${items.length
+          ? (folded
+            ? years.map(group => `<details class="year-fold" data-org-year="${escapeHtml(group.year)}" ${(state.openOrgYears || []).includes(group.year) ? 'open' : ''}><summary><b>${escapeHtml(group.year)}</b> ${group.items.length}건 <small class="muted">확인됨 ${group.items.filter(item => item.status === CONFIRMED_STATUS).length}건</small></summary>${list(group.items)}</details>`).join('')
+            : list(items))
+          : '<p class="muted">등록한 항목이 없습니다.</p>'}
         <div class="two-col"><div class="field"><label for="draft-label-${area.key}">새 항목명</label><input id="draft-label-${area.key}" data-applicant-draft="${area.key}|label" value="${escapeHtml(draft.label)}"></div><div class="field"><label for="draft-status-${area.key}">상태</label><select id="draft-status-${area.key}" data-applicant-draft="${area.key}|status">${statusOptions(draft.status)}</select></div></div>
         <div class="field"><label for="draft-value-${area.key}">새 항목 내용</label><textarea id="draft-value-${area.key}" data-applicant-draft="${area.key}|value" style="min-height:70px">${escapeHtml(draft.value)}</textarea></div>
         <div class="field"><label for="draft-source-${area.key}">근거자료·출처</label><input id="draft-source-${area.key}" data-applicant-draft="${area.key}|source" value="${escapeHtml(draft.source)}"></div>
@@ -7918,6 +7943,13 @@ function bindApplicants() {
     if (target) openApplicantEditor({ group: target });
   }));
   document.querySelector('#go-applicant-doc')?.addEventListener('click', () => openApplicantEditor({ anchor: '#applicant-doc' }));
+  document.querySelectorAll('[data-org-year]').forEach(el => el.addEventListener('toggle', () => {
+    const year = el.dataset.orgYear;
+    const open = new Set(state.openOrgYears || []);
+    if (el.open) open.add(year); else open.delete(year);
+    state.openOrgYears = [...open];
+    saveState();
+  }));
   document.querySelectorAll('[data-detail-group]').forEach(el => el.addEventListener('toggle', () => {
     const key = el.dataset.detailGroup;
     const open = new Set(state.openOrgGroups || []);

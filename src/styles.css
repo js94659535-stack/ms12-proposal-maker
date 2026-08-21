@@ -795,3 +795,10 @@ select{max-width:100%}
 @media(prefers-reduced-motion:reduce){
   .button.next-step{animation:none;outline:2px solid var(--blue);outline-offset:3px}
 }
+
+/* 실적은 해마다 접어 둔다. 열 해가 한꺼번에 펼쳐지면 화면이 끝없이 이어진다. */
+.year-fold{border:1px solid var(--line);border-radius:10px;margin:8px 0;background:#fff}
+.year-fold>summary{padding:10px 14px;font-size:13px;cursor:pointer}
+.year-fold>summary b{margin-right:6px}
+.year-fold[open]>summary{border-bottom:1px solid var(--line)}
+.year-fold .requirement-list,.year-fold .cap-grid{padding:0 14px 12px}
