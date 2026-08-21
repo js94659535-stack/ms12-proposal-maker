@@ -270,7 +270,7 @@ export function extractApplicantCandidates(text, { documentName = '', includeNar
   const source = name ? `${name}${sourceLabel ? `(${sourceLabel})` : ''}에서 추출` : `${sourceLabel || '업로드한 기관 문서'}에서 추출`;
   const seen = new Set();
   const candidates = [];
-  const add = (area, label, rawValue, lineAsOf, rawExcerpt) => {
+  const add = (area, label, rawValue, lineAsOf, rawExcerpt, detail = '') => {
     if (!rawValue || candidates.length >= MAX_CANDIDATES) return;
     // 값과 근거 문장에서 사람 정보만 잘라 낸다. 잘라 내고 남는 것이 없으면 후보로 만들지 않는다.
     const value = cleanValue(stripPersonal(rawValue));
@@ -279,7 +279,7 @@ export function extractApplicantCandidates(text, { documentName = '', includeNar
     const key = `${area}:${normalizeKey(label)}:${normalizeKey(value)}`;
     if (seen.has(key)) return;
     seen.add(key);
-    candidates.push({ id: `cand-${candidates.length + 1}`, area, label, value, source, asOf: lineAsOf, asOfStatus: lineAsOf ? '기준시점 확인됨' : ASOF_UNKNOWN, excerpt: clean(excerpt, 300) });
+    candidates.push({ id: `cand-${candidates.length + 1}`, area, label, value, source, asOf: lineAsOf, asOfStatus: lineAsOf ? '기준시점 확인됨' : ASOF_UNKNOWN, excerpt: clean(excerpt, 300), detail: clean(stripPersonal(detail), 300) });
   };
   // 실적표는 앞 행의 연도를 이어 쓴다. 표를 벗어나면 곧바로 끊는다.
   let carriedRow = null;
@@ -291,7 +291,7 @@ export function extractApplicantCandidates(text, { documentName = '', includeNar
     const row = includeNarrative ? performanceRow(line.split(SEGMENT_SPLIT), carriedRow) : null;
     if (row) {
       carriedRow = row;
-      add('performance', `${row.year}년 사업실적`, `${row.org} ${row.title}`, row.year, line);
+      add('performance', `${row.year}년 사업실적`, `${row.org} ${row.title}`, row.year, line, row.detail);
       continue;
     }
     carriedRow = null;
@@ -418,7 +418,7 @@ export function applyUpdateCandidate(applicant, candidate) {
     };
   }
   if (candidate.kind === '신규' || candidate.kind === '누적 추가' || !candidate.existingItemId) {
-    const item = makeApplicantItem({ area: candidate.area, label: candidate.label, value: candidate.value, status: '확인 필요', source, asOf: candidate.asOf, updatedAt: now });
+    const item = makeApplicantItem({ area: candidate.area, label: candidate.label, value: candidate.value, status: '확인 필요', source, asOf: candidate.asOf, detail: candidate.detail, updatedAt: now });
     return { ...base, items: [...base.items, item], updatedAt: now };
   }
   const items = base.items.map(item => {

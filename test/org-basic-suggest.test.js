@@ -33,8 +33,10 @@ test('담당자는 이름만 넣고 연락처는 비워 둔다', () => {
 
 test('대상과 강점은 무엇을 세었는지 함께 말한다', () => {
   const served = suggestServed(applicant);
-  assert.equal(served.value, '가족 · 아동');  // 많이 나온 순서다
-  assert.match(served.note, /실적·프로그램 3건에서 가족 2회 · 아동 1회/);
+  // 발주기관 이름이 대상을 그대로 말한다 — 가족센터 2곳, 지역아동센터 1곳.
+  assert.equal(served.value, '가족 · 아동');
+  assert.match(served.note, /실적·프로그램 3건에서 가족 2곳 · 아동 1곳/);
+  assert.match(served.note, /발주기관 이름과 프로그램 내용을 함께 보았습니다/);
   const strength = suggestStrength(applicant);
   assert.match(strength.value, /진로 관련 2건/);
   // 잘한다는 판단이 아니라 건수라고 밝힌다.
@@ -64,4 +66,27 @@ test('화면은 넣기 전에도 넣은 뒤에도 출처를 적는다', () => {
   // 손으로 고치면 그 표시를 지운다.
   const handler = app.slice(app.indexOf("document.querySelectorAll('[data-quick-field]')"), app.indexOf("document.querySelectorAll('select[data-quick-field]')"));
   assert.match(handler, /delete rest\[el\.dataset\.quickField\]/);
+});
+
+test('실적표의 프로그램 내용 칸까지 함께 센다', () => {
+  // 값에는 기관·사업명만 들어가고 내용은 detail에 남는다. 대상을 세려면 둘 다 봐야 한다.
+  const withDetail = {
+    items: [
+      { area: 'performance', label: '2026년 사업실적', value: '순창 복흥중학교 AI활용교육', detail: '글쓰기, 이미지 생성, 작곡 AI활용법' },
+      { area: 'performance', label: '2025년 사업실적', value: '광주 북구 여성인력개발센터 브리지커뮤니케이터', detail: '경력단절여성 실무 중심 양성' }
+    ]
+  };
+  const served = suggestServed(withDetail);
+  assert.equal(served.value, '학생 · 여성');
+  // 강점도 내용 칸의 낱말을 센다.
+  const strength = suggestStrength(withDetail);
+  assert.match(strength.value, /교육 관련/);
+});
+
+test('실적표 한 행에서 프로그램 내용을 뽑아 항목에 남긴다', async () => {
+  const { extractApplicantCandidates } = await import('../src/applicant-extract.js');
+  const row = '2026년\t1\t순창 복흥중학교\tAI활용교육\t글쓰기, 이미지 생성, 작곡 AI활용법';
+  const [candidate] = extractApplicantCandidates(row, { documentName: 'QA 연혁' }).candidates;
+  assert.equal(candidate.value, '순창 복흥중학교 AI활용교육');
+  assert.equal(candidate.detail, '글쓰기, 이미지 생성, 작곡 AI활용법');
 });

@@ -47,23 +47,50 @@ export function suggestContact(applicant, profile = {}) {
   };
 }
 
-// 주로 돕는 대상. 실적·프로그램에 여러 번 나오는 대상 낱말을 많은 순으로 셋까지.
+// 발주기관 이름은 대상을 그대로 말한다. 「○○초등학교」는 「학생」이고 「가족센터」는 「가족」이다.
+// 낱말을 세는 것보다 강한 근거다. 실제 연혁(99건)에 나온 기관만 적는다 — 목록을 넓히지 않는다.
+const ORG_AUDIENCE = [
+  [/초등학교|중학교|고등학교|교육지원청|교육청/, '학생'],
+  [/지역아동센터|아동센터|애육원/, '아동'],
+  [/가족센터|다문화센터/, '가족'],
+  [/여성새로일하기센터|여성새일센터|여성인력개발센터/, '여성'],
+  [/청년센터|대학교/, '청년'],
+  [/자활센터|복지관/, '취약계층'],
+  [/어린이집|유치원|유아숲/, '유아'],
+  [/보건소|도서관/, '지역주민']
+];
+
+// 주로 돕는 대상. 발주기관 이름으로 먼저 세고, 사업명·프로그램 내용의 대상 낱말로 보탠다.
 export function suggestServed(applicant) {
-  const values = [...itemsOf(applicant, 'performance'), ...itemsOf(applicant, 'programs'), ...itemsOf(applicant, 'clients')].map(item => text(item.value));
-  if (!values.length) return null;
-  const ranked = countWords(values, AUDIENCE_WORDS).slice(0, 3);
+  const items = [...itemsOf(applicant, 'performance'), ...itemsOf(applicant, 'programs'), ...itemsOf(applicant, 'clients')];
+  if (!items.length) return null;
+  // 값에는 기관·사업명이, detail에는 실적표의 「프로그램 내용」 칸이 들어 있다. 둘 다 본다.
+  const values = items.map(item => `${text(item.value)} ${text(item.detail)}`.trim());
+  const places = new Map();
+  for (const item of items) {
+    for (const [pattern, audience] of ORG_AUDIENCE) {
+      if (!pattern.test(text(item.value))) continue;
+      places.set(audience, (places.get(audience) || 0) + 1);
+      break;
+    }
+  }
+  const byPlace = [...places.entries()].map(([word, count]) => ({ word, count, unit: '곳' })).sort((left, right) => right.count - left.count);
+  const byWord = countWords(values, AUDIENCE_WORDS)
+    .filter(entry => !places.has(entry.word))
+    .map(entry => ({ ...entry, unit: '회' }));
+  const ranked = [...byPlace, ...byWord].sort((left, right) => right.count - left.count).slice(0, 3);
   if (!ranked.length) return null;
-  const evidence = `${values.length}건에서 ${ranked.map(entry => `${entry.word} ${entry.count}회`).join(' · ')}`;
+  const evidence = `실적·프로그램 ${items.length}건에서 ${ranked.map(entry => `${entry.word} ${entry.count}${entry.unit}`).join(' · ')}`;
   return {
     value: ranked.map(entry => entry.word).join(' · '),
-    from: [`실적·프로그램 ${evidence}`],
-    note: `올린 자료의 실적·프로그램 ${evidence}를 세어 뽑았습니다. 다르면 고쳐 주세요.`
+    from: [evidence],
+    note: `${evidence}를 세어 뽑았습니다. 발주기관 이름과 프로그램 내용을 함께 보았습니다. 다르면 고쳐 주세요.`
   };
 }
 
 // 강점·관련 경험. 반복해서 나오는 사업 낱말과 그 건수만 적는다. 잘한다는 말은 쓰지 않는다.
 export function suggestStrength(applicant) {
-  const performance = itemsOf(applicant, 'performance').map(item => text(item.value));
+  const performance = itemsOf(applicant, 'performance').map(item => `${text(item.value)} ${text(item.detail)}`.trim());
   if (!performance.length) return null;
   const ranked = countWords(performance, STRENGTH_WORDS).slice(0, 3);
   if (!ranked.length) return null;
