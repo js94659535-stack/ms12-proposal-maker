@@ -68,8 +68,9 @@ import { splitApplicantProfile } from './applicants.js';
 import { ARCHIVE_PAGE_SIZES, ARCHIVE_PAGE_SIZE_LABEL, ARCHIVE_STATUSES, DEFAULT_WATCH, archiveTableRows, shortDate, watchHits } from './archive-table.js';
 import { SAMPLE_MARK, SAMPLE_NOTE, SAMPLE_NOTICE, SAMPLE_NOTICE_KEY, SAMPLE_STAGES, SAMPLE_STAGE_BY_STEP, buildSampleProject } from './sample-project.js';
 import { SAMPLE_REAL_COACHING } from './sample-coaching-run.js';
-import { RELATED_LIMIT, confirmAreaItems, relatedMatches, restoreItemStatuses, SOURCE_KINDS, makeApplicantSource, APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, mergeApplicantItems, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
+import { RELATED_LIMIT, confirmAreaItems, relatedMatches, requiresConsortium, restoreItemStatuses, SOURCE_KINDS, makeApplicantSource, APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, mergeApplicantItems, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
 import { nextOrgStep } from './org-next-step.js';
+import { suggestBasicFields } from './org-basic-suggest.js';
 import { rollupMark } from './requirement-rollup.js';
 import { BASIC_AREAS, areaDestination, DETAIL_GROUPS, DETAIL_INTRO, basicStatus, detailProgress, draftFromApplicant, reusableCount } from './org-stage.js';
 import { KOREAN_LABELS, toKoreanLabel } from '../server/label-leak.js';
@@ -133,7 +134,7 @@ const initial = {
   designJobs: {},
   // 이 계획서에 남아 있는 AI 작업 기록. 다시 만들기 전에 먼저 보여 준다.
   aiJobs: { list: [], loadedFor: '' },
-  applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openOrgYears: [], closedOrgGroups: [], openAddAreas: [], coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
+  applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openOrgYears: [], closedOrgGroups: [], openAddAreas: [], quickFilledFrom: {}, orgPickerOpen: false, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
   revisionPlan: null, draftReview: null, projectNarrative: '',
   // 서버가 붙여 준 근거 검증·평가자 검토. 화면은 판정하지 않고 그대로 보여 준다.
   serverGuard: null, serverEvidence: null, evaluatorReview: null, proposalVersions: [], proposalFlow: { status: '', baselineVersion: 0, reviewTarget: null, rounds: [], requests: [], requestOpen: false, requestText: '', requestScope: [], openVersion: 0, compareVersion: 0, approvedVersion: 0, approvedAt: '' }, coachingSelection: [], applicantSkipped: false, noticeLogic: null, redesignForContract: false,
@@ -3084,7 +3085,7 @@ function loadState() {
     const stagedGeneration = saved.stagedGeneration && typeof saved.stagedGeneration === 'object'
       ? { ...structuredClone(initial.stagedGeneration), ...saved.stagedGeneration, parts: Array.isArray(saved.stagedGeneration.parts) ? saved.stagedGeneration.parts : [], completedGroupIds: Array.isArray(saved.stagedGeneration.completedGroupIds) ? saved.stagedGeneration.completedGroupIds : [] }
       : structuredClone(initial.stagedGeneration);
-    const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', notice: '', applicantItemDrafts: {}, applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, coachingSelection: [], attachmentLinks: {}, submissionZip: null, lastDownload: null, sheet: null };
+    const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', notice: '', applicantItemDrafts: {}, applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openAddAreas: [], quickFilledFrom: {}, coachingSelection: [], attachmentLinks: {}, submissionZip: null, lastDownload: null, sheet: null };
     // 알 수 없는 포털 값이 남아 있으면 다시 고르게 한다.
     restored.portal = ['admin', 'proposal'].includes(saved.portal) ? saved.portal : '';
     // 예전에 저장한 상태에는 의뢰 건 정보가 없다. 빈 값으로 채우기만 하고 기존 데이터는 건드리지 않는다.
@@ -3122,7 +3123,7 @@ function saveState() {
   // 다만 브라우저 저장 한도가 있으므로 앞쪽 얼마간만 남긴다. 나머지는 다시 불러올 때 채워진다.
   const CACHED_NOTICES = 120;
   const safe = { ...state, reviewDetail: false, reviewPanels: [], reviewFocus: false, companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [],
-    archiveNotices: (state.archiveNotices || []).slice(0, CACHED_NOTICES), archiveProposals: (state.archiveProposals || []).slice(0, CACHED_NOTICES), noticeUrlDraft: '', busy: '', error: '', notice: '', applicantItemDrafts: {}, applicantNameDraft: '', applicantComparison: null, applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, files: state.files.map(({ text, ...meta }) => meta),
+    archiveNotices: (state.archiveNotices || []).slice(0, CACHED_NOTICES), archiveProposals: (state.archiveProposals || []).slice(0, CACHED_NOTICES), noticeUrlDraft: '', busy: '', error: '', notice: '', applicantItemDrafts: {}, applicantNameDraft: '', applicantComparison: null, applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openAddAreas: [], quickFilledFrom: {}, files: state.files.map(({ text, ...meta }) => meta),
     // 첨부 원본은 브라우저 메모리에만 있다. 새로고침 뒤에 파일이 있다고 잘못 말하지 않도록 연결 기록도 저장하지 않는다.
     attachmentLinks: {}, submissionZip: null, lastDownload: null, sheet: null };
   // 참고자료처럼 큰 원문이 들어오면 브라우저 저장 한도를 넘을 수 있다. 저장 실패가 화면을 멈추지 않게 한다.
@@ -5222,17 +5223,34 @@ function applicantsToolView() {
   const who = clients ? '고객 기관' : '신청기관';
   return `<div class="page-heading"><div><h2>${who} 정보</h2><p>${clients ? '대신 계획서를 쓸 고객 기관을 등록·수정합니다' : '이번 사업을 신청하는 기관의 정보를 등록·수정합니다'}. 공고 분석 정보와는 분리해 보관하며, 확인된 정보만 계획서 작성에 전달합니다.</p><div class="actions">${sampleButton('applicant', '[샘플] 기관 보기')}</div></div><button class="button secondary" id="close-applicants">작성 흐름으로 돌아가기</button></div>
     ${orgNextStepBar()}
-    <div class="card"><div class="card-title"><div><h3>등록된 ${who} ${state.applicants.length}곳</h3><span>우리 기관도 등록기관 중 하나로만 다룹니다.</span></div><div><button class="button secondary" id="load-applicants">계획서보관함에서 불러오기</button></div></div>
-    <div class="two-col"><div class="field"><label for="applicant-name-draft">새 ${who}명</label><input id="applicant-name-draft" value="${escapeHtml(state.applicantNameDraft)}" placeholder="예: 사단법인 ○○센터"></div><div class="field"><label>&nbsp;</label><button class="button secondary" id="add-applicant">신청기관 추가</button></div></div>
-    ${state.applicants.length ? `<div class="requirement-list">${state.applicants.map(applicant => {
-      const confirmed = applicant.items.filter(item => item.status === CONFIRMED_STATUS).length;
-      return `<article class="requirement"><div><span class="tag">${applicant.id === state.selectedApplicantId ? '이번 사업 신청기관' : '등록기관'}</span><div><strong>${escapeHtml(applicant.name)}</strong><small>확인됨 ${confirmed}건 · 확인 필요·오래된 정보 ${applicant.items.length - confirmed}건 · 최근 수정 ${escapeHtml(String(applicant.updatedAt).slice(0, 10))}</small></div></div><div class="actions" style="margin:0;gap:8px"><button class="button secondary" data-edit-applicant="${escapeHtml(applicant.id)}">${(state.applicantEditingId || state.selectedApplicantId) === applicant.id ? '관리 중' : '이 기관 관리'}</button><button class="button secondary" data-select-applicant="${escapeHtml(applicant.id)}">이번 사업 신청기관으로 선택</button><button class="button secondary" data-delete-applicant="${escapeHtml(applicant.id)}">삭제</button></div></article>`;
-    }).join('')}</div>` : '<p class="muted">등록된 신청기관이 없습니다. 기관명을 입력하고 추가하세요.</p>'}</div>
+    ${orgPickerView(who)}
     ${editing ? applicantBasicView(editing, who) : `<div class="card"><h3>1단계 기본정보</h3><p class="muted">위에서 ${who}을(를) 추가하거나 고르면 기본정보부터 입력할 수 있습니다.</p></div>`}
     ${editing ? applicantCandidateView(editing) : ''}
     ${editing ? applicantDetailView(editing) : ''}
     ${editing ? applicantSourcesView(editing) : ''}
     ${editing ? applicantDocumentView(editing) : ''}`;
+}
+
+// 기관이 하나뿐이고 이미 고른 상태면 기관 고르는 칸을 한 줄로 줄인다.
+//
+// 「아무것도 안 써도 된다면 제거하라. 컨소시엄을 구성하게 되면 그때 나타나게 하라」 —
+// 기관 추가·불러오기·선택·삭제 넷은 기관이 하나뿐인 사람에게 쓸 일이 없다.
+// 다만 공고가 기관 둘 이상을 요구하면 감추지 않는다. 그때는 반드시 필요한 길이다.
+function orgPickerView(who) {
+  const only = state.applicants.length === 1 ? state.applicants[0] : null;
+  const consortium = requiresConsortium(comparisonRequirements(), currentNoticeContract());
+  if (only && only.id === state.selectedApplicantId && !consortium.required && !state.orgPickerOpen) {
+    const confirmed = only.items.filter(item => item.status === CONFIRMED_STATUS).length;
+    return `<div class="card"><div class="card-title"><div><h3>${escapeHtml(only.name)}</h3>
+      <span>확인됨 ${confirmed}건 · 확인 필요 ${only.items.length - confirmed}건 · 이번 사업 신청기관</span></div>
+      <button class="button secondary" id="open-org-picker">다른 기관 쓰기</button></div></div>`;
+  }
+  return `<div class="card"><div class="card-title"><div><h3>등록된 ${who} ${state.applicants.length}곳</h3><span>${consortium.required ? `이 공고는 기관 둘 이상을 요구합니다 — 「${escapeHtml(consortium.evidence)}」` : '우리 기관도 등록기관 중 하나로만 다룹니다.'}</span></div><div><button class="button secondary" id="load-applicants">계획서보관함에서 불러오기</button></div></div>
+    <div class="two-col"><div class="field"><label for="applicant-name-draft">새 ${who}명</label><input id="applicant-name-draft" value="${escapeHtml(state.applicantNameDraft)}" placeholder="예: 사단법인 ○○센터"></div><div class="field"><label>&nbsp;</label><button class="button secondary" id="add-applicant">신청기관 추가</button></div></div>
+    ${state.applicants.length ? `<div class="requirement-list">${state.applicants.map(applicant => {
+      const confirmed = applicant.items.filter(item => item.status === CONFIRMED_STATUS).length;
+      return `<article class="requirement"><div><span class="tag">${applicant.id === state.selectedApplicantId ? '이번 사업 신청기관' : '등록기관'}</span><div><strong>${escapeHtml(applicant.name)}</strong><small>확인됨 ${confirmed}건 · 확인 필요·오래된 정보 ${applicant.items.length - confirmed}건 · 최근 수정 ${escapeHtml(String(applicant.updatedAt).slice(0, 10))}</small></div></div><div class="actions" style="margin:0;gap:8px"><button class="button secondary" data-edit-applicant="${escapeHtml(applicant.id)}">${(state.applicantEditingId || state.selectedApplicantId) === applicant.id ? '관리 중' : '이 기관 관리'}</button><button class="button secondary" data-select-applicant="${escapeHtml(applicant.id)}">이번 사업 신청기관으로 선택</button><button class="button secondary" data-delete-applicant="${escapeHtml(applicant.id)}">삭제</button></div></article>`;
+    }).join('')}</div>` : '<p class="muted">등록된 신청기관이 없습니다. 기관명을 입력하고 추가하세요.</p>'}</div>`;
 }
 
 // 1) 기관자료 목록. 자료의 종류·이름·주소·기준일만 기록하고, 내용은 기존 추출 경로로 넣는다.
@@ -5478,6 +5496,8 @@ async function pullProfileIntoApplicant() {
 function applicantBasicView(applicant, who = '신청기관') {
   const draft = quickDraft();
   const status = basicStatus(applicant, draft);
+  // 올린 자료에 이미 답이 있는 칸은 그 값을 제안한다. 누르면 칸에 들어가고 고쳐 쓸 수 있다.
+  const suggestions = suggestBasicFields(applicant, { ...(auth.memberProfile || {}), name: auth.user?.name || '', phone: auth.user?.phone || '' });
   const reuse = reusableCount(applicant);
   return `<div class="card" id="applicant-editor" tabindex="-1">
     <div class="card-title"><div><h3>1단계 기본정보 · ${escapeHtml(applicant.name)}</h3>
@@ -5497,6 +5517,8 @@ function applicantBasicView(applicant, who = '신청기관') {
       ${field.choices
         ? `<select id="quick-${field.key}" data-quick-field="${field.key}"><option value="">고르세요</option>${ORG_TYPES.map(type => `<option value="${escapeHtml(type)}" ${draft[field.key] === type ? 'selected' : ''}>${escapeHtml(type)}</option>`).join('')}</select>`
         : `<input id="quick-${field.key}" data-quick-field="${field.key}" value="${escapeHtml(draft[field.key] || '')}" placeholder="${escapeHtml(field.hint)}">`}
+      ${!String(draft[field.key] || '').trim() && suggestions[field.key] ? `<div class="suggest-line"><div><strong>${escapeHtml(suggestions[field.key].value)}</strong><small class="muted">올린 자료에서 찾았습니다 · ${escapeHtml(suggestions[field.key].from.join(' · '))}</small></div><button class="button secondary" data-fill-quick="${field.key}">이 값 넣기</button></div>` : ''}
+      ${(state.quickFilledFrom || {})[field.key] && String(draft[field.key] || '').trim() ? `<small class="muted filled-from">${escapeHtml(state.quickFilledFrom[field.key])}</small>` : ''}
     </div>`).join('')}</div>
     <p class="muted">적지 않은 인력·시설·실적·예산은 만들어 넣지 않고 <b>[확인 필요]</b>로 남깁니다.${reuse ? ` 지금 이 기관에서 다음 계획서에도 다시 쓰이는 확인된 정보는 ${reuse}건입니다.` : ''}</p>
     <div class="actions"><span class="muted">${status.ready ? '이 상태로 계획서를 시작할 수 있습니다. 상세정보는 선택입니다.' : `아직 ${status.missing.join(' · ')}가 비어 있습니다.`}</span>
@@ -7992,6 +8014,7 @@ function bindApplicants() {
   document.querySelector('#applicant-name-draft')?.addEventListener('input', event => { state.applicantNameDraft = event.target.value; });
   document.querySelector('#add-applicant')?.addEventListener('click', addApplicant);
   document.querySelector('#load-applicants')?.addEventListener('click', loadApplicantsFromArchive);
+  document.querySelector('#open-org-picker')?.addEventListener('click', () => setState({ orgPickerOpen: true, notice: '기관을 더하거나 바꿀 수 있습니다.' }));
   // 기관을 열면 저장해 둔 기본정보를 입력칸에 다시 채운다. 같은 내용을 두 번 적지 않게 한다.
   document.querySelectorAll('[data-edit-applicant]').forEach(el => el.onclick = () => setState({
     activeTool: 'applicants', applicantEditingId: el.dataset.editApplicant, openOrgGroups: [], closedOrgGroups: [],
@@ -8032,6 +8055,19 @@ function bindApplicants() {
   // 제목 줄의 「모두 확인」은 묶음을 여닫지 않는다.
   document.querySelector('#confirm-all-performance-head')?.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); confirmAllPerformance(); });
   document.querySelector('#close-all-details')?.addEventListener('click', () => setState({ openOrgGroups: [], closedOrgGroups: DETAIL_GROUPS.map(group => group.key) }));
+  document.querySelectorAll('[data-fill-quick]').forEach(el => el.onclick = () => {
+    const key = el.dataset.fillQuick;
+    const suggestion = suggestBasicFields(findApplicant(state.applicants, focusedApplicantId()), { ...(auth.memberProfile || {}), name: auth.user?.name || '', phone: auth.user?.phone || '' })[key];
+    if (!suggestion) return;
+    // 칸에만 넣는다. 저장은 회원이 「기본정보 저장」을 눌러야 하고, 저장해도 상태는 「확인 필요」다.
+    // 어디서 온 값인지 칸 아래에 계속 적어 둔다 — 「내 이름이 왜 여기 있지」 하지 않도록.
+    setState({
+      quickOrg: { ...quickDraft(), [key]: suggestion.value },
+      quickFilledFrom: { ...(state.quickFilledFrom || {}), [key]: suggestion.note },
+      notice: '올린 자료에서 찾은 값을 넣었습니다. 확인 필요 상태로 저장되니 고쳐 쓰셔도 됩니다.',
+      error: ''
+    });
+  });
   document.querySelector('#save-basic-info')?.addEventListener('click', () => void saveBasicInfo());
   document.querySelector('#basic-to-writing')?.addEventListener('click', () => void saveBasicInfo({ thenWrite: true }));
   document.querySelectorAll('[data-select-applicant]').forEach(el => el.onclick = () => selectApplicantForProject(el.dataset.selectApplicant));
@@ -8068,7 +8104,15 @@ function bindApplicants() {
   // 내 정보 → 신청기관. 덮어쓰지 않고 확인 필요 항목으로 넣는다.
   document.querySelector('#pull-profile-info')?.addEventListener('click', () => void pullProfileIntoApplicant());
   // 간단 시작
-  document.querySelectorAll('[data-quick-field]').forEach(el => el.oninput = () => { state.quickOrg = { ...quickDraft(), [el.dataset.quickField]: el.value }; });
+  document.querySelectorAll('[data-quick-field]').forEach(el => el.oninput = () => {
+    state.quickOrg = { ...quickDraft(), [el.dataset.quickField]: el.value };
+    // 손으로 고쳤으면 더는 그 자료에서 온 값이 아니다. 출처 표시를 지운다.
+    if ((state.quickFilledFrom || {})[el.dataset.quickField]) {
+      const rest = { ...state.quickFilledFrom };
+      delete rest[el.dataset.quickField];
+      state.quickFilledFrom = rest;
+    }
+  });
   document.querySelectorAll('select[data-quick-field]').forEach(el => el.onchange = () => setState({ quickOrg: { ...quickDraft(), [el.dataset.quickField]: el.value } }));
   document.querySelector('#quick-idea')?.addEventListener('input', event => { state.quickOrg = { ...quickDraft(), idea: event.target.value }; });
   document.querySelector('#quick-pick')?.addEventListener('change', event => setState({ selectedApplicantId: event.target.value, applicantEditingId: event.target.value, quickOrg: { ...quickDraft(), ...draftFromApplicant(findApplicant(state.applicants, event.target.value)) }, notice: event.target.value ? '저장해 둔 기관정보를 씁니다.' : '' }));

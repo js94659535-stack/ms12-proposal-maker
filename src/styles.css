@@ -832,3 +832,11 @@ select{max-width:100%}
 /* 지금 누르면 되는 자리 하나. 맨 위 띠의 갈색과 자리가 겹치지 않을 때만 쓴다. */
 .button.go{background:var(--green);color:#fff}
 .button.go:hover,.button.go:focus-visible{filter:brightness(1.06)}
+
+/* 올린 자료에서 찾은 값 제안. 칸 아래 한 줄로 두고, 누르면 칸에 들어간다. */
+.suggest-line{display:flex;align-items:center;gap:12px;margin-top:8px;padding:10px 12px;border:1px dashed var(--camel);border-radius:9px;background:var(--sand-soft)}
+.suggest-line>div{flex:1;min-width:0}
+.suggest-line strong,.suggest-line small{display:block}
+.suggest-line strong{font-size:13px;font-weight:700}
+.suggest-line .button{white-space:nowrap;padding:8px 12px;font-size:12px}
+.filled-from{display:block;margin-top:6px;color:var(--amber)}

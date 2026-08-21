@@ -357,6 +357,23 @@ export function contractFixedRule(requirement, contract) {
   return fromContract ? { id: '', title: '', value: '', unit: '', ruleType: '', fromSourceOnly: true } : null;
 }
 
+// 이 공고가 기관 둘 이상을 요구하는가.
+//
+// 기관이 하나뿐인 사람에게 「기관 추가」·「선택」·「삭제」는 쓸 일이 없어 감춘다. 다만 공고가
+// 컨소시엄을 요구하면 그때는 반드시 필요하므로 감추지 않는다. 판정은 공고 요구 문장과
+// 실행계약서 규칙에서만 읽는다 — 없는 조건을 만들지 않는다.
+const CONSORTIUM_WORD = /컨소시엄|공동\s*(?:수행|신청|운영|사업)|협업\s*기관/;
+const CONSORTIUM_MUST = /필수|해야\s*한다|하여야|구성한다|이상/;
+const MULTI_ORG = /\d+\s*개\s*이상\s*(?:의\s*)?기관|둘\s*이상\s*(?:의\s*)?기관|기관\s*\d+\s*곳\s*이상/;
+export function requiresConsortium(requirements = [], contract = null) {
+  const texts = [
+    ...(Array.isArray(requirements) ? requirements : []).map(item => `${item?.requirement ?? item ?? ''} ${item?.category ?? ''}`),
+    ...((contract?.rules || []).map(rule => `${rule?.title ?? ''} ${rule?.value ?? ''} ${rule?.unit ?? ''}`))
+  ].map(value => String(value).replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const hit = texts.find(text => MULTI_ORG.test(text) || (CONSORTIUM_WORD.test(text) && CONSORTIUM_MUST.test(text)));
+  return hit ? { required: true, evidence: hit.slice(0, 120) } : { required: false, evidence: '' };
+}
+
 // 공고 요구와 낱말이 겹치는 항목만 고른다. 겹침 판정은 비교 화면과 같은 낱말 나누기를 쓴다.
 // 버리는 것이 아니라 펼치지 않는 것이다 — 나머지는 건수를 세어 함께 보낸다.
 //
