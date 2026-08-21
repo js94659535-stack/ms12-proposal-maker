@@ -5288,7 +5288,7 @@ function candidateReviewView(review) {
     <div class="alert success"><strong>문서에서 ${review.candidates.length}건을 찾았습니다</strong>
       <p>${safe ? `이 중 <b>${safe}건</b>은 기존 값을 바꾸지 않아 아래 버튼 한 번으로 들어갑니다.` : '기존 값과 견줘야 하는 항목이라 하나씩 보고 반영합니다.'}${rest ? ` 나머지 ${rest}건은 기존 값과 달라 항목마다 확인해 주세요.` : ''} 넣은 값은 모두 「확인 필요」로 들어가며, 확인해야 계획서에 사실로 쓰입니다.</p>
       <div class="actions" style="margin:0"><span class="muted">문서에 있는 것만 후보로 만듭니다. 없는 내용은 만들지 않습니다.</span>
-        <button class="button secondary" id="apply-safe-candidates">신규·누적·근거 추가만 일괄 반영${safe ? ` ${safe}건` : ''}</button></div></div>
+        <button class="button ${safe ? 'go' : 'secondary'}" id="apply-safe-candidates">신규·누적·근거 추가만 일괄 반영${safe ? ` ${safe}건` : ''}</button></div></div>
     ${review.candidates.length ? `<div class="requirement-list">${review.candidates.map(candidate => `<article class="requirement"><div><span class="${kindTag[candidate.kind] || 'tag'}">${escapeHtml(candidate.kind)}</span><div><strong>${escapeHtml(areaTitle(candidate.area))} · ${escapeHtml(candidate.label)}</strong>
       <small>새 정보: ${escapeHtml(candidate.value)}</small>
       <small>기존 정보: ${escapeHtml(candidate.existingItemId ? `${candidate.existingValue} (${candidate.existingStatus})` : '기관 정보에 없음')}</small>
@@ -5611,11 +5611,12 @@ function applicantAreaFields(applicant, area, showTitle) {
             ? years.map(group => `<details class="year-fold" data-org-year="${escapeHtml(group.year)}" ${(state.openOrgYears || []).includes(group.year) ? 'open' : ''}><summary><b>${escapeHtml(group.year)}</b> ${group.items.length}건 <small class="muted">확인됨 ${group.items.filter(item => item.status === CONFIRMED_STATUS).length}건</small></summary>${list(group.items)}</details>`).join('')
             : list(items))
           : '<p class="muted">등록한 항목이 없습니다.</p>'}
-        <details class="add-fold" data-add-area="${escapeHtml(area.key)}" ${(state.openAddAreas || []).includes(area.key) ? 'open' : ''}><summary>직접 항목 추가</summary>
+        <details class="add-fold" data-add-area="${escapeHtml(area.key)}" ${(state.openAddAreas || []).includes(area.key) ? 'open' : ''}><summary>문서에 없는 것을 손으로 넣기</summary>
+        <p class="muted">보통은 문서를 올리면 채워집니다. 문서에 없는 값만 여기서 넣으세요.</p>
         <div class="two-col"><div class="field"><label for="draft-label-${area.key}">새 항목명</label><input id="draft-label-${area.key}" data-applicant-draft="${area.key}|label" value="${escapeHtml(draft.label)}"></div><div class="field"><label for="draft-status-${area.key}">상태</label><select id="draft-status-${area.key}" data-applicant-draft="${area.key}|status">${statusOptions(draft.status)}</select></div></div>
         <div class="field"><label for="draft-value-${area.key}">새 항목 내용</label><textarea id="draft-value-${area.key}" data-applicant-draft="${area.key}|value" style="min-height:70px">${escapeHtml(draft.value)}</textarea></div>
         <div class="field"><label for="draft-source-${area.key}">근거자료·출처</label><input id="draft-source-${area.key}" data-applicant-draft="${area.key}|source" value="${escapeHtml(draft.source)}"></div>
-        <div class="actions" style="margin:0"><span class="muted">문서를 올려 채우는 편이 빠릅니다. 손 입력은 문서에 없는 것만 적으세요.</span><button class="button secondary" data-add-applicant-item="${area.key}">${escapeHtml(area.title)} 항목 추가</button></div></details>`;
+        <div class="actions" style="margin:0"><span></span><button class="button secondary" data-add-applicant-item="${area.key}">${escapeHtml(area.title)} 항목 추가</button></div></details>`;
 }
 
 function comparisonRequirements() {

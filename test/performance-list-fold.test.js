@@ -88,7 +88,9 @@ test('반영 뒤 열어 주는 자리는 닫힘 기록을 지운다', () => {
 test('직접 항목 추가 칸은 접어 두고 필요할 때만 편다', () => {
   const fields = app.slice(app.indexOf('function applicantAreaFields(applicant, area, showTitle)'), app.indexOf('function comparisonRequirements()'));
   // 아홉 구역 모두 같은 규칙이다. 구역마다 따로 정하지 않는다.
-  assert.match(fields, /<details class="add-fold" data-add-area="\$\{escapeHtml\(area\.key\)\}" \$\{\(state\.openAddAreas \|\| \[\]\)\.includes\(area\.key\) \? 'open' : ''\}><summary>직접 항목 추가<\/summary>/);
+  assert.match(fields, /<details class="add-fold" data-add-area="\$\{escapeHtml\(area\.key\)\}" \$\{\(state\.openAddAreas \|\| \[\]\)\.includes\(area\.key\) \? 'open' : ''\}><summary>문서에 없는 것을 손으로 넣기<\/summary>/);
+  // 무엇을 넣는 자리인지 그 아래 한 줄로 말한다.
+  assert.match(fields, /보통은 문서를 올리면 채워집니다\. 문서에 없는 값만 여기서 넣으세요\./);
   // 등록 0건인 구역도 접는다 — 문서를 올려 채우는 것이 먼저다.
   assert.doesNotMatch(fields, /items\.length \? '' : 'open'/);
   // 한 글자 칠 때마다 접히면 못 쓴다. 펼쳐 둔 구역을 기억한다.

@@ -828,3 +828,7 @@ select{max-width:100%}
 .add-fold{border-top:1px solid var(--line);margin-top:10px}
 .add-fold>summary{padding:10px 4px;font-size:13px;color:var(--muted);cursor:pointer}
 .add-fold[open]>summary{color:var(--ink);font-weight:700}
+
+/* 지금 누르면 되는 자리 하나. 맨 위 띠의 갈색과 자리가 겹치지 않을 때만 쓴다. */
+.button.go{background:var(--green);color:#fff}
+.button.go:hover,.button.go:focus-visible{filter:brightness(1.06)}

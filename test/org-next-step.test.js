@@ -96,3 +96,33 @@ test('「채우러 가기」는 그 자리로 데려간다', () => {
   const focus = app.slice(app.indexOf('function focusAnchor(anchor)'), app.indexOf('// 기관정보 화면이 지금 다루는 기관'));
   assert.match(focus, /pendingAiMove = \{ anchor, sameView: true \}/);
 });
+
+test('올려 둔 후보가 기다리면 그것부터 가리킨다', () => {
+  // 등록증을 올린 새 기관: 항목은 아직 0건이고 기본정보도 비어 있지만, 후보 5건이 기다린다.
+  // 반영해야 기관 정보가 되고 그 값이 기본정보 칸을 채우기도 한다.
+  const step = nextOrgStep({ hasApplicant: true, applicantCount: 1, basicMissing: ['기관 유형', '담당자'], itemCount: 0, candidateCount: 5 });
+  assert.equal(step.key, 'apply');
+  assert.match(step.message, /후보 5건이 아직 반영되지 않았습니다/);
+  // 후보가 없으면 예전 순서 그대로다.
+  assert.equal(nextOrgStep({ hasApplicant: true, applicantCount: 1, basicMissing: ['담당자'], itemCount: 0 }).key, 'basic');
+  assert.equal(nextOrgStep({ hasApplicant: true, applicantCount: 1, basicMissing: [], itemCount: 0 }).key, 'upload');
+  // 기관이 없으면 여전히 그것이 먼저다.
+  assert.equal(nextOrgStep({ hasApplicant: false, candidateCount: 5 }).key, 'add-org');
+});
+
+test('초록은 한 자리뿐이다', () => {
+  // 갈색이 아홉 개가 되어 뜻을 잃었던 일을 초록으로 되풀이하지 않는다.
+  const names = ['applicantsToolView', 'orgNextStepBar', 'applicantBasicView', 'profileBridgePanel', 'applicantScopeView', 'applicantSourceView',
+    'applicantDetailView', 'detailGroupPanel', 'performanceConfirmBar', 'applicantAreaFields', 'applicantSourcesView', 'applicantDocumentView', 'candidateReviewView', 'ideaAssetPanel'];
+  const found = [];
+  for (const name of names) {
+    const start = app.indexOf(`function ${name}(`);
+    if (start < 0) continue;
+    const body = app.slice(start, app.indexOf('\n}\n', start));
+    for (const match of body.matchAll(/button [^"]*\bgo\b[^"]*"[^>]*id="([^"]*)"/g)) found.push(match[1]);
+  }
+  assert.deepEqual(found, ['apply-safe-candidates'], `초록 버튼: ${found.join(', ')}`);
+  // 초록은 후보가 있을 때만 켜진다.
+  const view = app.slice(app.indexOf('function candidateReviewView(review)'), app.indexOf('function coachingApplicantView()'));
+  assert.match(view, /\$\{safe \? 'go' : 'secondary'\}/);
+});

@@ -28,6 +28,16 @@ export function nextOrgStep({
       done: false
     };
   }
+  // 방금 올린 문서에서 찾아 둔 후보가 있으면 그것부터다. 반영해야 기관 정보가 되고,
+  // 그 값이 기본정보 칸을 채우기도 한다. 올려 놓고 다른 곳으로 보내면 올린 사람이 길을 잃는다.
+  if (count(candidateCount) > 0) {
+    return {
+      key: 'apply',
+      message: `문서에서 찾은 후보 ${count(candidateCount)}건이 아직 반영되지 않았습니다.`,
+      actionLabel: '후보 반영하러 가기',
+      done: false
+    };
+  }
   const missing = (Array.isArray(basicMissing) ? basicMissing : []).filter(Boolean);
   if (missing.length) {
     return {
@@ -42,15 +52,6 @@ export function nextOrgStep({
       key: 'upload',
       message: '등록된 기관 정보가 없습니다. 연혁·사업계획서를 올리면 한 번에 채워집니다.',
       actionLabel: '연혁·사업계획서 올리기',
-      done: false
-    };
-  }
-  // 후보는 문서에서 찾아만 둔 값이다. 반영하지 않으면 기관 정보가 되지 않는다.
-  if (count(candidateCount) > 0) {
-    return {
-      key: 'apply',
-      message: `문서에서 찾은 후보 ${count(candidateCount)}건이 아직 반영되지 않았습니다.`,
-      actionLabel: '후보 반영하러 가기',
       done: false
     };
   }
