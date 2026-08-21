@@ -84,3 +84,18 @@ test('반영 뒤 열어 주는 자리는 닫힘 기록을 지운다', () => {
   // 닫아 둔 적이 있으면 열리지 않아, 넣어도 안 보이는 일이 생긴다.
   assert.match(apply, /closedOrgGroups: group \? \(state\.closedOrgGroups \|\| \[\]\)\.filter\(key => key !== group\) : state\.closedOrgGroups/);
 });
+
+test('직접 항목 추가 칸은 접어 두고 필요할 때만 편다', () => {
+  const fields = app.slice(app.indexOf('function applicantAreaFields(applicant, area, showTitle)'), app.indexOf('function comparisonRequirements()'));
+  // 아홉 구역 모두 같은 규칙이다. 구역마다 따로 정하지 않는다.
+  assert.match(fields, /<details class="add-fold" data-add-area="\$\{escapeHtml\(area\.key\)\}" \$\{\(state\.openAddAreas \|\| \[\]\)\.includes\(area\.key\) \? 'open' : ''\}><summary>직접 항목 추가<\/summary>/);
+  // 등록 0건인 구역도 접는다 — 문서를 올려 채우는 것이 먼저다.
+  assert.doesNotMatch(fields, /items\.length \? '' : 'open'/);
+  // 한 글자 칠 때마다 접히면 못 쓴다. 펼쳐 둔 구역을 기억한다.
+  assert.match(app, /openAddAreas: \[\]/);
+  const toggle = app.slice(app.indexOf("document.querySelectorAll('[data-add-area]')"), app.indexOf("document.querySelectorAll('[data-org-year]')"));
+  assert.match(toggle, /state\.openAddAreas = \[\.\.\.open\];/);
+  assert.match(toggle, /saveState\(\);/);
+  // 접힌 줄은 눌러서 펴는 것으로 보인다.
+  assert.match(css, /\.add-fold>summary\{[^}]*cursor:pointer/);
+});

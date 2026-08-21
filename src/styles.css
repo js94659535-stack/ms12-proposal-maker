@@ -823,3 +823,8 @@ select{max-width:100%}
 .next-step-bar.done{border-color:var(--green);border-left-color:var(--green);background:#f0f4ed}
 .next-step-bar.done span{color:var(--green)}
 @media(max-width:600px){.next-step-bar{flex-wrap:wrap}.next-step-bar .button{width:100%}}
+
+/* 손으로 넣는 길은 드물다. 줄 하나로 접어 두고 필요할 때 편다. */
+.add-fold{border-top:1px solid var(--line);margin-top:10px}
+.add-fold>summary{padding:10px 4px;font-size:13px;color:var(--muted);cursor:pointer}
+.add-fold[open]>summary{color:var(--ink);font-weight:700}

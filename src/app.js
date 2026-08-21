@@ -133,7 +133,7 @@ const initial = {
   designJobs: {},
   // 이 계획서에 남아 있는 AI 작업 기록. 다시 만들기 전에 먼저 보여 준다.
   aiJobs: { list: [], loadedFor: '' },
-  applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openOrgYears: [], closedOrgGroups: [], coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
+  applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openOrgYears: [], closedOrgGroups: [], openAddAreas: [], coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
   revisionPlan: null, draftReview: null, projectNarrative: '',
   // 서버가 붙여 준 근거 검증·평가자 검토. 화면은 판정하지 않고 그대로 보여 준다.
   serverGuard: null, serverEvidence: null, evaluatorReview: null, proposalVersions: [], proposalFlow: { status: '', baselineVersion: 0, reviewTarget: null, rounds: [], requests: [], requestOpen: false, requestText: '', requestScope: [], openVersion: 0, compareVersion: 0, approvedVersion: 0, approvedAt: '' }, coachingSelection: [], applicantSkipped: false, noticeLogic: null, redesignForContract: false,
@@ -5611,10 +5611,11 @@ function applicantAreaFields(applicant, area, showTitle) {
             ? years.map(group => `<details class="year-fold" data-org-year="${escapeHtml(group.year)}" ${(state.openOrgYears || []).includes(group.year) ? 'open' : ''}><summary><b>${escapeHtml(group.year)}</b> ${group.items.length}건 <small class="muted">확인됨 ${group.items.filter(item => item.status === CONFIRMED_STATUS).length}건</small></summary>${list(group.items)}</details>`).join('')
             : list(items))
           : '<p class="muted">등록한 항목이 없습니다.</p>'}
+        <details class="add-fold" data-add-area="${escapeHtml(area.key)}" ${(state.openAddAreas || []).includes(area.key) ? 'open' : ''}><summary>직접 항목 추가</summary>
         <div class="two-col"><div class="field"><label for="draft-label-${area.key}">새 항목명</label><input id="draft-label-${area.key}" data-applicant-draft="${area.key}|label" value="${escapeHtml(draft.label)}"></div><div class="field"><label for="draft-status-${area.key}">상태</label><select id="draft-status-${area.key}" data-applicant-draft="${area.key}|status">${statusOptions(draft.status)}</select></div></div>
         <div class="field"><label for="draft-value-${area.key}">새 항목 내용</label><textarea id="draft-value-${area.key}" data-applicant-draft="${area.key}|value" style="min-height:70px">${escapeHtml(draft.value)}</textarea></div>
         <div class="field"><label for="draft-source-${area.key}">근거자료·출처</label><input id="draft-source-${area.key}" data-applicant-draft="${area.key}|source" value="${escapeHtml(draft.source)}"></div>
-        <div class="actions" style="margin:0"><span></span><button class="button secondary" data-add-applicant-item="${area.key}">${escapeHtml(area.title)} 항목 추가</button></div>`;
+        <div class="actions" style="margin:0"><span class="muted">문서를 올려 채우는 편이 빠릅니다. 손 입력은 문서에 없는 것만 적으세요.</span><button class="button secondary" data-add-applicant-item="${area.key}">${escapeHtml(area.title)} 항목 추가</button></div></details>`;
 }
 
 function comparisonRequirements() {
@@ -8003,6 +8004,13 @@ function bindApplicants() {
     if (target) openApplicantEditor({ group: target });
   }));
   document.querySelector('#go-applicant-doc')?.addEventListener('click', () => openApplicantEditor({ anchor: '#applicant-doc' }));
+  document.querySelectorAll('[data-add-area]').forEach(el => el.addEventListener('toggle', () => {
+    const key = el.dataset.addArea;
+    const open = new Set(state.openAddAreas || []);
+    if (el.open) open.add(key); else open.delete(key);
+    state.openAddAreas = [...open];
+    saveState();
+  }));
   document.querySelectorAll('[data-org-year]').forEach(el => el.addEventListener('toggle', () => {
     const year = el.dataset.orgYear;
     const open = new Set(state.openOrgYears || []);
