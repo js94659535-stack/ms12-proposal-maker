@@ -62,8 +62,11 @@ test('무엇을 보증하는 것인지 누르기 전에 말한다', () => {
   assert.match(bar, /기관이 확인한 사실/);
   // 문서에서 읽은 값이라는 것을 밝힌다.
   assert.match(bar, /올린 문서에서 읽은 <b>원문 그대로<\/b>/);
-  assert.match(bar, /id="confirm-all-performance"/);
-  // 되돌리는 길이 같은 자리에 있다.
+  // 한 번에 확인하는 단추는 묶음 제목 줄 하나뿐이다(22-11). 상자 안에 같은 단추를 두지 않는다.
+  assert.doesNotMatch(bar, /id="confirm-all-performance"/);
+  assert.match(bar, /위 「실적」 제목 줄의 단추를 쓰세요/);
+  assert.match(app, /id="confirm-all-performance-head">\$\{pending\}건 모두 확인<\/button>/);
+  // 되돌리는 길은 같은 자리에 있다.
   assert.match(bar, /id="undo-confirm-performance"/);
   assert.match(bar, /방금 확인한 \$\{undo\.items\.length\}건 되돌리기/);
   // 실적 묶음에만 붙는다.

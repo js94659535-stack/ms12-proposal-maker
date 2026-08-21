@@ -5561,9 +5561,8 @@ function performanceConfirmBar(applicant) {
   return `<div class="alert${pending ? ' warning' : ' success'}">
     <strong>사업실적 ${items.length}건 · ${span}확인됨 ${items.length - pending}건</strong>
     <p>확인됨으로 바꾸면 그 값이 계획서에 <b>기관이 확인한 사실</b>로 실립니다. 여기 값은 올린 문서에서 읽은 <b>원문 그대로</b>라 오탈자·옛 기관명·빠진 칸이 남아 있을 수 있습니다. 훑어보고 누르세요.</p>
-    <div class="actions" style="margin:0"><span class="muted">${undo ? `방금 ${undo.items.length}건을 확인됨으로 바꿨습니다. 되돌리면 이전 상태로 돌아갑니다.` : '한 건씩 바꾸려면 아래 항목의 상태 칸을 쓰세요.'}</span>
-      <span>${undo ? `<button class="button secondary" id="undo-confirm-performance">방금 확인한 ${undo.items.length}건 되돌리기</button>` : ''}
-      ${pending ? `<button class="button secondary" id="confirm-all-performance">실적 ${pending}건 모두 확인됨으로</button>` : ''}</span></div></div>`;
+    <div class="actions" style="margin:0"><span class="muted">${undo ? `방금 ${undo.items.length}건을 확인됨으로 바꿨습니다. 되돌리면 이전 상태로 돌아갑니다.` : pending ? '한 번에 확인하려면 위 「실적」 제목 줄의 단추를 쓰세요. 한 건씩은 아래 항목의 상태 칸에서 바꿉니다.' : '한 건씩 바꾸려면 아래 항목의 상태 칸을 쓰세요.'}</span>
+      <span>${undo ? `<button class="button secondary" id="undo-confirm-performance">방금 확인한 ${undo.items.length}건 되돌리기</button>` : ''}</span></div></div>`;
 }
 
 // 실적이 이만큼을 넘으면 해마다 접는다. 열 해가 한꺼번에 펼쳐지면 화면이 끝없이 이어진다.
@@ -8028,7 +8027,6 @@ function bindApplicants() {
     // 한 건이라도 손으로 바꾸면 일괄 되돌리기는 더 이상 「방금 그것」이 아니다. 기록을 지운다.
     setState({ applicants: state.applicants, applicantConfirmUndo: null, notice: '항목 상태를 변경했습니다. 이 기관 정보에 함께 저장합니다.' });
   });
-  document.querySelector('#confirm-all-performance')?.addEventListener('click', confirmAllPerformance);
   document.querySelector('#next-step-action')?.addEventListener('click', event => {
     const button = event.currentTarget;
     if (button.dataset.nextKey === 'write') return void saveBasicInfo({ thenWrite: true });
