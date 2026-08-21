@@ -338,11 +338,12 @@ const RARE_RATIO = 0.1;
 const RELATED_SCORE = 2;
 // 한 번에 펼칠 실적의 최대 건수. 공고와 다 겹쳐도 호출 자료가 무한정 커지지 않게 한다.
 export const RELATED_LIMIT = 30;
-export function relatedItems(items = [], requirements = [], { limit = RELATED_LIMIT } = {}) {
+export function relatedMatches(items = [], requirements = [], { limit = RELATED_LIMIT } = {}) {
   const list = Array.isArray(items) ? items : [];
   if (!list.length) return [];
   const haystacks = new Map(list.map(item => [item.id, `${item.label} ${item.value} ${areaTitle(item.area)}`]));
   const scores = new Map();
+  const words = new Map();
   const used = new Set();
   for (const requirement of Array.isArray(requirements) ? requirements : []) {
     const label = typeof requirement === 'string' ? requirement : `${requirement?.requirement || ''} ${requirement?.category || ''}`;
@@ -352,13 +353,22 @@ export function relatedItems(items = [], requirements = [], { limit = RELATED_LI
       const hits = list.filter(item => haystacks.get(item.id).includes(token));
       if (!hits.length || hits.length > list.length * GENERIC_RATIO) continue;
       const weight = hits.length <= list.length * RARE_RATIO ? RELATED_SCORE : 1;
-      for (const item of hits) scores.set(item.id, (scores.get(item.id) || 0) + weight);
+      for (const item of hits) {
+        scores.set(item.id, (scores.get(item.id) || 0) + weight);
+        words.set(item.id, [...(words.get(item.id) || []), token]);
+      }
     }
   }
   // 겹치는 낱말이 많은 것부터, 같으면 최근 것부터 펼친다.
   const ranked = list.filter(item => (scores.get(item.id) || 0) >= RELATED_SCORE)
     .sort((left, right) => (scores.get(right.id) - scores.get(left.id)) || String(right.asOf || '').localeCompare(String(left.asOf || '')));
-  return limit > 0 ? ranked.slice(0, limit) : ranked;
+  const chosen = limit > 0 ? ranked.slice(0, limit) : ranked;
+  // 무엇 때문에 걸렸는지 함께 돌려준다. 「예방」 하나로 걸린 것을 분야가 맞는 실적으로 읽지 않게 한다.
+  return chosen.map(item => ({ item, words: [...new Set(words.get(item.id) || [])], score: scores.get(item.id) || 0 }));
+}
+
+export function relatedItems(items = [], requirements = [], options = {}) {
+  return relatedMatches(items, requirements, options).map(entry => entry.item);
 }
 
 export function compareNoticeWithApplicant(requirements, applicant, contract = null) {

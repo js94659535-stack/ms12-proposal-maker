@@ -5,6 +5,7 @@
 // 실적을 버리는 것이 아니라, 이번 공고와 상관없는 것을 펼치지 않고 건수만 알린다.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { RELATED_LIMIT, buildApplicantOrganization, normalizeApplicant, relatedItems } from '../src/applicants.js';
 
 const record = (year, value, id) => ({ id, area: 'performance', label: `${year}년 사업실적`, value, status: '확인 필요', source: 'QA 연혁에서 추출', asOf: String(year) });
@@ -70,4 +71,33 @@ test('공고와 다 겹쳐도 펼치는 건수에 상한이 있다', () => {
   assert.equal(related.length, RELATED_LIMIT);
   // 상한을 0으로 두면 전부 돌려준다. 상한은 호출 자료를 지키기 위한 것이지 규칙이 아니다.
   assert.equal(relatedItems(many, ['노인 대상 상담 사업'], { limit: 0 }).length, 50);
+});
+
+// ---------- 화면 ----------
+// 계획서에는 겹치는 실적만 펼쳐 실린다. 그 판정이 화면에 안 보이면 조용히 접힌 채로 나간다.
+const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+
+test('공고 × 신청기관 비교에 이 공고와 겹치는 실적 수를 보여 준다', () => {
+  assert.match(app, /function fitPerformanceView\(applicant, requirements\)/);
+  const view = app.slice(app.indexOf('function fitPerformanceView('), app.indexOf('function applicantFitView('));
+  assert.match(view, /이 공고와 겹치는 실적 \$\{matches\.length\}건 \/ 전체 \$\{history\.length\}건/);
+  // 무엇이 왜 걸렸는지 함께 보여 준다. 「예방」 하나로 걸린 것을 분야가 맞는 실적으로 읽지 않게 한다.
+  assert.match(view, /겹친 낱말: \$\{escapeHtml\(entry\.words\.join\(' · '\)\)\}/);
+  // 목록은 접어 둔다. 99건이 그대로 펼쳐지지 않는다.
+  assert.match(view, /<details><summary>겹친 실적 \$\{matches\.length\}건 보기<\/summary>/);
+  // 계획서에 몇 건이 실리고 몇 건이 건수로만 가는지 그 자리에서 말한다.
+  assert.match(view, /계획서 작성 요청에는 겹치는 실적 \$\{sending\}건을 내용까지 싣고/);
+  // 비교 화면이 실제로 부른다.
+  const fit = app.slice(app.indexOf('function applicantFitView(applicant)'), app.indexOf('function applicantSummaryTiles') > 0 ? app.indexOf('function applicantSummaryTiles') : app.indexOf('function applicantFitView(applicant)') + 4000);
+  assert.match(fit, /\$\{fitPerformanceView\(applicant, requirements\)\}/);
+});
+
+test('실적이 없거나 적으면 뜻을 말하되 신청 여부는 말하지 않는다', () => {
+  const view = app.slice(app.indexOf('function fitPerformanceView('), app.indexOf('function applicantFitView('));
+  assert.match(view, /이 공고 분야의 실적이 확인되지 않았습니다/);
+  assert.match(view, /수행 역량을 다른 방식\(인력·프로그램·협력기관·유사 경험\)으로 보여야 합니다/);
+  // 신청할지 말지는 회원이 정한다.
+  assert.doesNotMatch(view, /신청하지|지원하지 마|적합하지 않습니다|포기/);
+  // 실적이 하나도 없는 기관에게도 길을 알려 준다.
+  assert.match(view, /등록된 사업실적이 없습니다/);
 });

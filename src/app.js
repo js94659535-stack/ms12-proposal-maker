@@ -68,7 +68,7 @@ import { splitApplicantProfile } from './applicants.js';
 import { ARCHIVE_PAGE_SIZES, ARCHIVE_PAGE_SIZE_LABEL, ARCHIVE_STATUSES, DEFAULT_WATCH, archiveTableRows, shortDate, watchHits } from './archive-table.js';
 import { SAMPLE_MARK, SAMPLE_NOTE, SAMPLE_NOTICE, SAMPLE_NOTICE_KEY, SAMPLE_STAGES, SAMPLE_STAGE_BY_STEP, buildSampleProject } from './sample-project.js';
 import { SAMPLE_REAL_COACHING } from './sample-coaching-run.js';
-import { SOURCE_KINDS, makeApplicantSource, APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, mergeApplicantItems, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
+import { RELATED_LIMIT, relatedMatches, SOURCE_KINDS, makeApplicantSource, APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, mergeApplicantItems, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
 import { BASIC_AREAS, areaDestination, DETAIL_GROUPS, DETAIL_INTRO, basicStatus, detailProgress, draftFromApplicant, reusableCount } from './org-stage.js';
 import { KOREAN_LABELS, toKoreanLabel } from '../server/label-leak.js';
 import { WRITE_ALL_BUTTON, partialBlockReason, recordTiming, remainingGroups, timelineRows, writingState } from './writing-progress.js';
@@ -5560,6 +5560,30 @@ function applicantLoadedView(applicant) {
     <details><summary>전달하지 않는 확인 필요·오래된 정보 ${applicant.items.length - confirmed.length}건</summary><p class="muted">아래 항목은 항목명만 표시하며 내용은 계획서 작성 요청에 포함하지 않습니다.</p><div class="cap-grid">${applicant.items.filter(item => item.status !== CONFIRMED_STATUS).map(item => `<div><span>${escapeHtml(areaTitle(item.area))}</span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.status)}</small></div>`).join('') || '<p class="muted">없음</p>'}</div></details></div>`;
 }
 
+// 이 공고에 맞는 실적이 몇 건인지 보여 준다.
+//
+// 계획서 호출에는 공고와 겹치는 실적만 펼쳐 싣고 나머지는 건수만 보낸다(다사113①).
+// 그 판정이 화면에 안 보이면 「그 외 96건」이 조용히 접힌 채로 계획서가 나간다.
+// 몇 건이 맞았는지, 무엇이 왜 맞았는지 사람이 보고 판단할 수 있어야 한다.
+// 신청 여부는 말하지 않는다 — 실적이 없어도 신청할 수 있고 그것은 회원이 정한다.
+function fitPerformanceView(applicant, requirements) {
+  const history = splitApplicantProfile(applicant).history;
+  if (!history.length) {
+    return `<div class="alert"><strong>등록된 사업실적이 없습니다</strong>
+      <p>연혁이나 사업계획서를 올리면 연도별 실적이 후보로 올라옵니다. 실적이 없어도 계획서는 쓸 수 있으며, 확인되지 않은 실적은 [확인 필요]로 남습니다.</p></div>`;
+  }
+  const criteria = [String(state.selectedNotice?.title || state.project.title || '').trim(), ...requirements].filter(Boolean);
+  const matches = relatedMatches(history, criteria, { limit: 0 });
+  // 실적이 상한보다 적으면 고르지 않고 전부 보낸다. 화면도 그대로 말한다.
+  const sending = history.length > RELATED_LIMIT ? Math.min(matches.length, RELATED_LIMIT) : history.length;
+  const thin = matches.length === 0 || (matches.length < 5 && history.length >= 20);
+  const line = entry => `<article class="requirement"><div><span class="tag">${escapeHtml(entry.item.asOf || ASOF_UNKNOWN)}</span><div><strong>${escapeHtml(entry.item.value)}</strong><small class="muted">겹친 낱말: ${escapeHtml(entry.words.join(' · '))} · ${escapeHtml(entry.item.status)}</small></div></div></article>`;
+  return `<div class="${thin ? 'alert warning' : 'alert success'}"><strong>이 공고와 겹치는 실적 ${matches.length}건 / 전체 ${history.length}건</strong>
+    ${thin ? `<p>이 공고 분야의 실적이 확인되지 않았습니다. 관련 실적이 있으면 추가하시고, 없으면 수행 역량을 다른 방식(인력·프로그램·협력기관·유사 경험)으로 보여야 합니다.${matches.length ? ' 아래 항목은 분야가 아니라 낱말이 겹쳐 걸린 것일 수 있으니 그대로 실적 근거로 쓰지 마세요.' : ''}</p>` : ''}
+    <p class="muted">계획서 작성 요청에는 겹치는 실적 ${sending}건을 내용까지 싣고, 나머지 ${Math.max(0, history.length - sending)}건은 건수만 알립니다. 실적이 사라지는 것이 아니라 이번 공고와 관련된 것만 펼치는 것입니다.</p>
+    ${matches.length ? `<details><summary>겹친 실적 ${matches.length}건 보기</summary><div class="requirement-list">${matches.map(line).join('')}</div></details>` : ''}</div>`;
+}
+
 function applicantFitView(applicant) {
   const requirements = comparisonRequirements();
   const comparison = compareNoticeWithApplicant(requirements, applicant, currentNoticeContract());
@@ -5574,6 +5598,7 @@ function applicantFitView(applicant) {
   ];
   return `<div class="card"><div class="card-title"><div><h3>공고 × 신청기관 비교</h3><span>AI 호출 없이 공고 원문과 등록 정보만으로 구분합니다.</span></div></div>
     <div class="match-summary">${groups.map(([name, items, status]) => `<div><span class="status ${status}">${escapeHtml(name)}</span><strong>${items.length}</strong></div>`).join('')}</div>
+    ${fitPerformanceView(applicant, requirements)}
     ${groups.map(([name, items, status]) => `<details ${items.length ? 'open' : ''}><summary>${escapeHtml(name)} ${items.length}건</summary><div class="requirement-list">${items.length ? items.map(item => `<article class="requirement"><div><span class="status ${status}">${escapeHtml(name)}</span><div><strong>${escapeHtml(item.requirement)}</strong>${item.noticeValue ? `<small><b>공고가 정한 값</b> · ${escapeHtml(item.noticeValue)}</small>` : ''}<small>${escapeHtml(toKoreanLabel(item.location) || '공고 원문')} · ${escapeHtml(item.action)}</small></div></div>${item.matchedItems.length ? `<p class="muted">연결된 기관 정보: ${escapeHtml(item.matchedItems.map(value => `${value.label}(${value.status})`).join(', '))}</p>` : ''}</article>`).join('') : '<p class="muted">해당 항목이 없습니다.</p>'}</div></details>`).join('')}</div>`;
 }
 
