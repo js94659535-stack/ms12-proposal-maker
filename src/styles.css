@@ -802,3 +802,15 @@ select{max-width:100%}
 .year-fold>summary b{margin-right:6px}
 .year-fold[open]>summary{border-bottom:1px solid var(--line)}
 .year-fold .requirement-list,.year-fold .cap-grid{padding:0 14px 12px}
+
+/* 한 건을 한 줄로 접는다. 누르면 그때 편집칸이 펴진다. */
+.item-list{margin:6px 0}
+.item-fold{border-top:1px solid var(--line)}
+.item-fold>summary{display:flex;align-items:center;gap:8px;padding:9px 4px;font-size:13px;cursor:pointer}
+.item-fold>summary b{flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item-fold>summary small{white-space:nowrap}
+.item-fold[open]>summary{background:#faf7f3}
+.item-fold .requirement{border-top:0;padding:8px 14px 14px}
+/* 묶음 제목 줄에서 바로 누르는 단추. 제목을 밀어내지 않는다. */
+.org-details>summary{display:flex;align-items:center;gap:10px}
+.summary-action{margin-left:auto;padding:7px 12px;font-size:12px}

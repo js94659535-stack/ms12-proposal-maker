@@ -99,8 +99,9 @@ test('기본정보만 저장하고 바로 계획서 작성으로 갈 수 있다'
 test('상세정보 안내 문구를 그대로 띄우고 구역을 한 번에 펼치지 않는다', () => {
   assert.equal(DETAIL_INTRO, '인력·사업실적·시설·보유 프로그램 등의 상세정보를 등록하면 AI가 기관의 실제 역량을 계획서에 반영할 수 있습니다. 반복 입력과 [확인 필요]가 줄어들며, 한 번 확인한 정보는 다음 계획서에서도 다시 사용할 수 있습니다.');
   assert.match(app, /<p>\$\{DETAIL_INTRO\}<\/p>/);
-  // 기본값은 접힘이다. 회원이 연 구역만 기억한다.
-  assert.match(app, /const open = \(state\.openOrgGroups \|\| \[\]\)\.includes\(group\.key\);/);
+  // 자료가 있는 묶음은 펼치고 빈 묶음은 접는다. 96건이 들어왔는데 접혀 있으면 들어간 줄 모른다.
+  assert.match(app, /const open = \(state\.closedOrgGroups \|\| \[\]\)\.includes\(group\.key\)/);
+  assert.match(app, /\(\(state\.openOrgGroups \|\| \[\]\)\.includes\(group\.key\) \|\| group\.total > 0\)/);
   assert.match(app, /data-detail-group="\$\{group\.key\}" \$\{open \? 'open' : ''\}/);
   assert.match(app, /id="open-all-details"/);
   assert.match(app, /id="close-all-details"/);

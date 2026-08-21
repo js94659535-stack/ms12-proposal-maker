@@ -50,3 +50,37 @@ test('접힌 줄은 눌러서 펼치는 것으로 보인다', () => {
   assert.match(css, /\.year-fold\{border:1px solid var\(--line\)/);
   assert.match(css, /\.year-fold>summary\{[^}]*cursor:pointer/);
 });
+
+test('자료가 있는 묶음은 펼치고 빈 묶음은 접는다', () => {
+  const panel = app.slice(app.indexOf('function detailGroupPanel(applicant, group)'), app.indexOf('// 실적을 한 번에 확인됨으로 올리는 줄'));
+  assert.match(panel, /group\.total > 0/);
+  // 사람이 닫은 묶음은 자료가 있어도 닫힌 채로 둔다.
+  assert.match(panel, /const open = \(state\.closedOrgGroups \|\| \[\]\)\.includes\(group\.key\)\s*\?\s*false/);
+  const toggle = app.slice(app.indexOf("document.querySelectorAll('[data-detail-group]')"), app.indexOf("document.querySelector('#confirm-all-performance-head')"));
+  assert.match(toggle, /if \(el\.open\) \{ open\.add\(key\); closed\.delete\(key\); \} else \{ open\.delete\(key\); closed\.add\(key\); \}/);
+});
+
+test('실적은 접힌 채로도 제목 줄에서 한 번에 확인할 수 있다', () => {
+  const panel = app.slice(app.indexOf('function detailGroupPanel(applicant, group)'), app.indexOf('// 실적을 한 번에 확인됨으로 올리는 줄'));
+  assert.match(panel, /id="confirm-all-performance-head">\$\{pending\}건 모두 확인<\/button>/);
+  // 제목 줄의 단추는 묶음을 여닫지 않는다.
+  const handler = app.slice(app.indexOf("document.querySelector('#confirm-all-performance-head')"), app.indexOf("document.querySelector('#open-all-details')"));
+  assert.match(handler, /event\.stopPropagation\(\); confirmAllPerformance\(\)/);
+});
+
+test('한 건은 한 줄로 접히고 눌러야 편집칸이 펴진다', () => {
+  const fields = app.slice(app.indexOf('function applicantAreaFields(applicant, area, showTitle)'), app.indexOf('function comparisonRequirements()'));
+  assert.match(fields, /<details class="item-fold">\$\{summaryLine\(item\)\}<article class="requirement">/);
+  // 한 줄에 연도·내용·상태·출처가 보인다.
+  assert.match(fields, /const summaryLine = item =>/);
+  assert.match(fields, /\$\{applicantStatusTag\(item\.status\)\}/);
+  // 문서에서 온 값과 손으로 넣은 값을 구분해 적는다.
+  assert.match(fields, /const fromDocument = item => \/에서 추출\/\.test/);
+  assert.match(fields, /\$\{fromDocument\(item\) \? '문서에서' : '직접 입력'\}/);
+});
+
+test('반영 뒤 열어 주는 자리는 닫힘 기록을 지운다', () => {
+  const apply = app.slice(app.indexOf('function applySafeApplicantCandidates()'), app.indexOf('function selectApplicantForProject('));
+  // 닫아 둔 적이 있으면 열리지 않아, 넣어도 안 보이는 일이 생긴다.
+  assert.match(apply, /closedOrgGroups: group \? \(state\.closedOrgGroups \|\| \[\]\)\.filter\(key => key !== group\) : state\.closedOrgGroups/);
+});

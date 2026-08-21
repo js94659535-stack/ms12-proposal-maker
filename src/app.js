@@ -131,7 +131,7 @@ const initial = {
   designJobs: {},
   // 이 계획서에 남아 있는 AI 작업 기록. 다시 만들기 전에 먼저 보여 준다.
   aiJobs: { list: [], loadedFor: '' },
-  applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openOrgYears: [], coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
+  applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openOrgYears: [], closedOrgGroups: [], coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
   revisionPlan: null, draftReview: null, projectNarrative: '',
   // 서버가 붙여 준 근거 검증·평가자 검토. 화면은 판정하지 않고 그대로 보여 준다.
   serverGuard: null, serverEvidence: null, evaluatorReview: null, proposalVersions: [], proposalFlow: { status: '', baselineVersion: 0, reviewTarget: null, rounds: [], requests: [], requestOpen: false, requestText: '', requestScope: [], openVersion: 0, compareVersion: 0, approvedVersion: 0, approvedAt: '' }, coachingSelection: [], applicantSkipped: false, noticeLogic: null, redesignForContract: false,
@@ -5497,10 +5497,17 @@ function applicantDetailView(applicant) {
 }
 
 function detailGroupPanel(applicant, group) {
-  const open = (state.openOrgGroups || []).includes(group.key);
+  // 자료가 있는 묶음은 펼치고 빈 묶음은 접는다. 96건이 들어왔는데 접혀 있으면 들어간 줄 모른다.
+  // 사람이 직접 열고 닫은 것은 그 뜻을 지킨다 — 연 것도 닫은 것도 기억한다.
+  // 예전에는 편 자리만 기억해서, 어제 눌러 둔 빈 묶음 하나가 오늘도 혼자 펼쳐져 있었다.
+  const open = (state.closedOrgGroups || []).includes(group.key)
+    ? false
+    : ((state.openOrgGroups || []).includes(group.key) || group.total > 0);
   const areas = group.areas.map(key => APPLICANT_AREAS.find(area => area.key === key)).filter(Boolean);
+  // 실적은 접힌 채로도 한 번에 확인할 수 있어야 한다. 제목 줄에서 바로 누른다.
+  const pending = group.key === 'performance' ? group.total - group.confirmed : 0;
   return `<details class="card org-details" data-detail-group="${group.key}" ${open ? 'open' : ''}>
-    <summary><b>${escapeHtml(group.title)}</b> <small>등록 ${group.total}건 · 확인됨 ${group.confirmed}건</small></summary>
+    <summary><b>${escapeHtml(group.title)}</b> <small>등록 ${group.total}건 · 확인됨 ${group.confirmed}건</small>${pending ? `<button class="button primary summary-action" id="confirm-all-performance-head">${pending}건 모두 확인</button>` : ''}</summary>
     <p class="muted">${escapeHtml(group.hint)}</p>
     ${group.key === 'performance' ? performanceConfirmBar(applicant) : ''}
     ${areas.map(area => applicantAreaFields(applicant, area, areas.length > 1)).join('')}
@@ -5542,14 +5549,19 @@ function groupItemsByYear(items) {
 function applicantAreaFields(applicant, area, showTitle) {
   const items = areaItems(applicant, area.key);
   const draft = state.applicantItemDrafts[area.key] || { label: '', value: '', status: '확인 필요', source: '' };
-  const editor = item => `<article class="requirement"><div><span class="tag">${escapeHtml(item.label || '항목명 없음')}</span>${applicantStatusTag(item.status)}</div>
+  // 문서에서 온 값은 고칠 일이 거의 없다. 한 줄로 접어 두고 누르면 그때 편집칸을 편다.
+  // 96건이 편집칸 다섯 개씩 펼쳐져 있으면 화면이 96장이 된다.
+  const fromDocument = item => /에서 추출/.test(String(item.source || ''));
+  const summaryLine = item => `<summary><span class="tag">${escapeHtml(itemYear(item))}</span><b>${escapeHtml(String(item.value || item.label || '내용 없음').slice(0, 70))}</b>`
+    + `${applicantStatusTag(item.status)}<small class="muted">${fromDocument(item) ? '문서에서' : '직접 입력'}</small></summary>`;
+  const editor = item => `<details class="item-fold">${summaryLine(item)}<article class="requirement"><div><span class="tag">${escapeHtml(item.label || '항목명 없음')}</span>${applicantStatusTag(item.status)}</div>
           <div class="two-col"><div class="field"><label for="label-${escapeHtml(item.id)}">항목명</label><input id="label-${escapeHtml(item.id)}" data-applicant-field="${escapeHtml(item.id)}|label" value="${escapeHtml(item.label)}"></div><div class="field"><label for="status-${escapeHtml(item.id)}">상태</label><select id="status-${escapeHtml(item.id)}" data-applicant-status="${escapeHtml(item.id)}">${statusOptions(item.status)}</select></div></div>
           <div class="field"><label for="value-${escapeHtml(item.id)}">내용</label><textarea id="value-${escapeHtml(item.id)}" data-applicant-field="${escapeHtml(item.id)}|value" style="min-height:70px">${escapeHtml(item.value)}</textarea></div>
           <div class="two-col"><div class="field"><label for="source-${escapeHtml(item.id)}">근거자료·출처</label><input id="source-${escapeHtml(item.id)}" data-applicant-field="${escapeHtml(item.id)}|source" value="${escapeHtml(item.source)}" placeholder="예: 2025 법인등기부등본"></div>
           <div class="field"><label for="asof-${escapeHtml(item.id)}">정보 기준시점</label><input id="asof-${escapeHtml(item.id)}" data-applicant-field="${escapeHtml(item.id)}|asOf" value="${escapeHtml(item.asOf || '')}" placeholder="${escapeHtml(ASOF_UNKNOWN)} (예: 2026 또는 2026-03)"></div></div>
           ${(item.history || []).length ? `<details><summary>이전 기록 ${item.history.length}건</summary><div class="cap-grid">${item.history.map(entry => `<div><span>${escapeHtml(entry.asOf || ASOF_UNKNOWN)}</span><strong>${escapeHtml(entry.value)}</strong><small>${escapeHtml(entry.source || '출처 없음')}</small></div>`).join('')}</div></details>` : ''}
-          <div class="actions" style="margin:0"><span></span><button class="button secondary" data-remove-applicant-item="${escapeHtml(item.id)}">항목 삭제</button></div></article>`;
-  const list = entries => `<div class="requirement-list">${entries.map(editor).join('')}</div>`;
+          <div class="actions" style="margin:0"><span></span><button class="button secondary" data-remove-applicant-item="${escapeHtml(item.id)}">항목 삭제</button></div></article></details>`;
+  const list = entries => `<div class="item-list">${entries.map(editor).join('')}</div>`;
   // 실적은 해마다 접어 둔다. 어느 해를 펼쳐 두었는지는 기억한다 — 한 건 고칠 때마다 닫히면 못 쓴다.
   const folded = area.key === 'performance' && items.length > YEAR_FOLD_MIN;
   const years = folded ? groupItemsByYear(items) : [];
@@ -7932,7 +7944,7 @@ function bindApplicants() {
   document.querySelector('#load-applicants')?.addEventListener('click', loadApplicantsFromArchive);
   // 기관을 열면 저장해 둔 기본정보를 입력칸에 다시 채운다. 같은 내용을 두 번 적지 않게 한다.
   document.querySelectorAll('[data-edit-applicant]').forEach(el => el.onclick = () => setState({
-    activeTool: 'applicants', applicantEditingId: el.dataset.editApplicant, openOrgGroups: [],
+    activeTool: 'applicants', applicantEditingId: el.dataset.editApplicant, openOrgGroups: [], closedOrgGroups: [],
     quickOrg: { ...quickDraft(), ...draftFromApplicant(findApplicant(state.applicants, el.dataset.editApplicant)) }, notice: '', error: ''
   }));
   // 필요한 구역만 연다. 다시 그려도 열어 둔 구역이 닫히지 않게 기억한다.
@@ -7953,12 +7965,17 @@ function bindApplicants() {
   document.querySelectorAll('[data-detail-group]').forEach(el => el.addEventListener('toggle', () => {
     const key = el.dataset.detailGroup;
     const open = new Set(state.openOrgGroups || []);
-    if (el.open) open.add(key); else open.delete(key);
+    const closed = new Set(state.closedOrgGroups || []);
+    // 연 것과 닫은 것을 따로 기억한다. 닫아 둔 묶음이 자료가 있다고 다시 열리지 않는다.
+    if (el.open) { open.add(key); closed.delete(key); } else { open.delete(key); closed.add(key); }
     state.openOrgGroups = [...open];
+    state.closedOrgGroups = [...closed];
     saveState();
   }));
-  document.querySelector('#open-all-details')?.addEventListener('click', () => setState({ openOrgGroups: [...BASIC_AREAS, ...DETAIL_GROUPS.map(group => group.key)] }));
-  document.querySelector('#close-all-details')?.addEventListener('click', () => setState({ openOrgGroups: [] }));
+  // 제목 줄의 「모두 확인」은 묶음을 여닫지 않는다.
+  document.querySelector('#confirm-all-performance-head')?.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); confirmAllPerformance(); });
+  document.querySelector('#open-all-details')?.addEventListener('click', () => setState({ openOrgGroups: [...BASIC_AREAS, ...DETAIL_GROUPS.map(group => group.key)], closedOrgGroups: [] }));
+  document.querySelector('#close-all-details')?.addEventListener('click', () => setState({ openOrgGroups: [], closedOrgGroups: DETAIL_GROUPS.map(group => group.key) }));
   document.querySelector('#save-basic-info')?.addEventListener('click', () => void saveBasicInfo());
   document.querySelector('#basic-to-writing')?.addEventListener('click', () => void saveBasicInfo({ thenWrite: true }));
   document.querySelectorAll('[data-select-applicant]').forEach(el => el.onclick = () => selectApplicantForProject(el.dataset.selectApplicant));
@@ -8073,7 +8090,7 @@ function addApplicant() {
   state.applicants = upsertApplicant(state.applicants, applicant);
   state.applicantNameDraft = '';
   // 새 기관에는 앞서 열어 둔 기관의 담당자·유형이 따라오지 않는다. 기관명만 물려준다.
-  setState({ applicants: state.applicants, applicantNameDraft: '', applicantEditingId: applicant.id, openOrgGroups: [], quickOrg: { orgName: applicant.name }, notice: `${name} 신청기관을 추가했습니다. 기본정보부터 적어 주세요.`, error: '' });
+  setState({ applicants: state.applicants, applicantNameDraft: '', applicantEditingId: applicant.id, openOrgGroups: [], closedOrgGroups: [], quickOrg: { orgName: applicant.name }, notice: `${name} 신청기관을 추가했습니다. 기본정보부터 적어 주세요.`, error: '' });
   void persistApplicant(applicant.id, false);
 }
 
@@ -8197,6 +8214,7 @@ function applySafeApplicantCandidates() {
     applicants: state.applicants,
     applicantExtraction: { ...review, candidates: remaining },
     openOrgGroups: group ? [...new Set([...(state.openOrgGroups || []), group])] : state.openOrgGroups,
+    closedOrgGroups: group ? (state.closedOrgGroups || []).filter(key => key !== group) : state.closedOrgGroups,
     notice: `후보 ${applied}건을 ${group ? `상세정보 「${(DETAIL_GROUPS.find(item => item.key === group) || {}).title || group}」에 ` : ''}넣었습니다. 모두 ‘확인 필요’ 상태이며, 확인해야 계획서에 사실로 쓰입니다.${remaining.length ? ` 남은 ${remaining.length}건은 기존 값과 달라 항목마다 확인해 주세요.` : ''}`,
     error: ''
   });
