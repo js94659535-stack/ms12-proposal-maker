@@ -6,6 +6,8 @@ import { CONFIRMED_STATUS, makeApplicantItem, normalizeApplicant } from './appli
 export const CUMULATIVE_AREAS = ['performance'];
 export const CANDIDATE_KINDS = ['신규', '동일', '변경 가능성', '충돌', '누적 추가', '이전 시점 정보'];
 export const ASOF_UNKNOWN = '기준시점 확인 필요';
+// 한 문서에서 만들 후보의 최대치. 실제 기관 연혁 한 건이 99행이라 예전 상한(60)에서 잘렸다.
+export const MAX_CANDIDATES = 200;
 
 const LABELED_RULES = [
   { area: 'basic', label: '기관명', pattern: /^(?:기관|법인|단체|센터)\s*명\s*[:：]\s*(.+)$/ },
@@ -73,7 +75,7 @@ function labeledLine(line) {
 }
 
 // 서식의 칸 제목이 값으로 들어오지 않게 거른다.
-const HEADER_VALUE_PATTERN = /^[([]?\s*(?:활동\s*내용|수행\s*방법|산출\s*목표|세부\s*내용|구분|내용|비고|합계|계$|비율|재원|금액|단위|사업자번호|사업자등록번호|고유번호|연번|번호|해당\s*없음|없음)/;
+const HEADER_VALUE_PATTERN = /^[([]?\s*(?:활동\s*내용|프로그램\s*내용|주요\s*내용|수행\s*방법|산출\s*목표|세부\s*내용|구분|내용|비고|합계|계$|비율|재원|금액|단위|사업자번호|사업자등록번호|고유번호|연번|번호|해당\s*없음|없음)/;
 function labelKey(value) { return String(value ?? '').replace(/[\s()·:：.]/g, ''); }
 function segmentRule(segment) { return LABEL_KEY_MAP.get(labelKey(segment)) || null; }
 function usableValue(segment, rule = null) {
@@ -106,6 +108,63 @@ export function stripPersonal(value) {
     .replace(/\s{2,}/g, ' ')
     .replace(/[,·/|(\-]\s*$/, '')
     .trim();
+}
+
+// 실적표 한 행에서 실적을 읽는다.
+//
+// 끝말 규칙(「…사업」「…프로그램」으로 끝나야 실적)만으로는 실제 연혁의 절반이 떨어진다.
+// 「개별상담」 「학교폭력 예방교육」 「아름다운 산책」처럼 끝말이 다른 사업명이 그만큼 많다.
+// 그렇다고 낱말을 늘리면 아무 문장이나 실적이 되므로, 끝말 대신 더 강한 근거를 쓴다 —
+// 표가 한 행으로 「이 해에, 이 기관과, 이 사업을」이라고 이미 말하고 있다.
+// 연도와 발주기관과 사업명이 한 행에 함께 있으면 끝말과 무관하게 실적으로 본다.
+//
+// 연도 칸은 한 해의 여러 줄을 세로로 합쳐 그 해 첫 줄에만 있는 일이 흔하다. 그래서 앞 행의
+// 연도를 이어 쓰되, 칸 수가 달라지면 다른 표로 넘어간 것이므로 잇지 않는다.
+const ROW_YEAR = /^(20\d{2})\s*년?$/;
+const ROW_NUMBER = /^\d{1,3}$/;
+// 빈 칸 대신 적어 두는 표시. 값이 아니다.
+const ROW_BLANK = /^[-–—·ㆍ]+$|^없음$/;
+// 날짜 조각. 값이 아니다.
+const ROW_DATE = /^\d{1,2}\s*[월일]$/;
+function rowValue(value) {
+  const text = String(value ?? '').trim();
+  if (text.length < 2 || text.length > 60) return '';
+  // 숫자·기호만 있는 칸은 기관명도 사업명도 아니다.
+  if (!/[가-힣A-Za-z]/.test(text)) return '';
+  // 「2026년   7월   6일」처럼 띄어 쓴 날짜는 표 행이 아니다. 실제 신청서 마지막 장이 그랬다.
+  if (ROW_DATE.test(text)) return '';
+  // 「기관대표자 : 장석복」처럼 콜론이 있는 칸은 라벨과 값이다. 표의 값 칸이 아니다.
+  if (/[:：]/.test(text)) return '';
+  if (segmentRule(text) || HEADER_VALUE_PATTERN.test(text)) return '';
+  return text;
+}
+export function performanceRow(segments, carried = null) {
+  const cells = (Array.isArray(segments) ? segments : []).map(value => String(value).trim()).filter(Boolean);
+  if (cells.length < 3) return null;
+  let index = 0;
+  const head = cells[0].match(ROW_YEAR);
+  let year = '';
+  const leadNumber = ROW_NUMBER.test(cells[0]) ? Number(cells[0]) : null;
+  if (head) { year = head[1]; index = 1; }
+  // 연도 칸이 없는 행은 앞 행에서 이어받는다. 다만 같은 표가 이어지고 있다는 표시가 있어야 한다.
+  // 번호가 하나씩 늘어나는 것이 가장 확실한 표시다. 다른 표가 시작되면 번호가 1로 돌아가 끊긴다.
+  else if (carried && leadNumber !== null && carried.no !== null && leadNumber === carried.no + 1) year = carried.year;
+  if (!year) return null;
+  // 번호 칸은 값이 아니다.
+  const numberCell = ROW_NUMBER.test(cells[index] || '') ? Number(cells[index]) : null;
+  if (numberCell !== null) index += 1;
+  const org = rowValue(cells[index]);
+  // 사업명 칸이 「-」로 비어 있는 행이 있다. 그때는 다음 칸(내용)을 사업명으로 읽는다.
+  const titleAt = ROW_BLANK.test(cells[index + 1] || '') ? index + 2 : index + 1;
+  const title = rowValue(cells[titleAt]);
+  if (!org || !title || org === title) return null;
+  return {
+    year, org, title,
+    detail: cells.slice(titleAt + 1).join(' '),
+    no: numberCell,
+    // 연도 칸이 빠진 행도 연도 칸이 있는 것으로 세어 앞 행과 너비를 견준다.
+    width: head ? cells.length : cells.length + 1
+  };
 }
 
 // 라벨이 없어도 실적 줄은 연도와 함께 누적 정보로 모은다.
@@ -150,7 +209,7 @@ export function extractApplicantCandidates(text, { documentName = '', includeNar
   const seen = new Set();
   const candidates = [];
   const add = (area, label, rawValue, lineAsOf, rawExcerpt) => {
-    if (!rawValue || candidates.length >= 60) return;
+    if (!rawValue || candidates.length >= MAX_CANDIDATES) return;
     // 값과 근거 문장에서 사람 정보만 잘라 낸다. 잘라 내고 남는 것이 없으면 후보로 만들지 않는다.
     const value = stripPersonal(rawValue);
     const excerpt = stripPersonal(rawExcerpt);
@@ -160,9 +219,19 @@ export function extractApplicantCandidates(text, { documentName = '', includeNar
     seen.add(key);
     candidates.push({ id: `cand-${candidates.length + 1}`, area, label, value, source, asOf: lineAsOf, asOfStatus: lineAsOf ? '기준시점 확인됨' : ASOF_UNKNOWN, excerpt: clean(excerpt, 300) });
   };
+  // 실적표는 앞 행의 연도를 이어 쓴다. 표를 벗어나면 곧바로 끊는다.
+  let carriedRow = null;
   for (const line of body.split(/\n+/).map(value => value.trim()).filter(Boolean)) {
-    if (candidates.length >= 60) break;
+    if (candidates.length >= MAX_CANDIDATES) break;
     const lineAsOf = asOfFrom(line.match(ANY_DATE_PATTERN)) || docAsOf;
+    // 실적표 한 행이면 그 행으로 읽는다. 끝말이 아니라 연도·발주기관·사업명이 근거다.
+    const row = includeNarrative ? performanceRow(line.split(SEGMENT_SPLIT), carriedRow) : null;
+    if (row) {
+      carriedRow = row;
+      add('performance', `${row.year}년 사업실적`, `${row.org} ${row.title}`, row.year, line);
+      continue;
+    }
+    carriedRow = null;
     const performance = line.match(PERFORMANCE_PATTERN);
     if (performance) { add('performance', `${performance[1]}년 사업실적`, clean(performance[2], 500), performance[1], line); continue; }
     const labeled = labeledLine(line);

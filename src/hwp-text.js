@@ -3,6 +3,13 @@
 const CFB_SIGNATURE = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
 const HWP_SIGNATURE = 'HWP Document File';
 const PARA_TEXT_TAG = 67; // HWPTAG_PARA_TEXT
+const CTRL_HEADER_TAG = 71; // HWPTAG_CTRL_HEADER — 개체(표·그림)의 시작
+const LIST_HEADER_TAG = 72; // HWPTAG_LIST_HEADER — 표에서는 칸 하나의 시작이다
+
+// 개체 식별자는 뒤집혀 저장된다. 'tbl '가 ' lbt'로 들어 있다.
+function controlId(bytes, offset) {
+  return String.fromCharCode(...bytes.subarray(offset, offset + 4)).split('').reverse().join('');
+}
 
 export class HwpUnsupportedError extends Error {}
 
@@ -122,37 +129,74 @@ function readCompoundFile(buffer) {
 }
 
 // 본문 레코드에서 문단 텍스트만 뽑는다. 제어문자는 줄바꿈·탭으로만 바꾼다.
+//
+// 표는 칸을 탭으로, 행을 줄바꿈으로 남긴다. HWPX(</tc>=탭, </tr>=줄바꿈)와 같은 결이다.
+// 짐작하지 않는다 — HWP는 칸마다 LIST_HEADER를 두고 그 안에 몇째 행·몇째 칸인지 적어 둔다.
+//
+// 예전에는 이 구분을 버려서 표 한 칸이 한 줄이 되었다. 실제 기관 연혁(99행)에서
+// 「2017」 「1」 「송원대학교, 조선대학교」 「취창업 청년 캠프」가 서로 남남인 네 줄로 흩어져
+// 사업실적 규칙이 한 건도 걸리지 않았다(후보 0건). 행이 살아나면 같은 규칙이 그대로 읽는다.
 export function parseSectionRecords(bytes) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let offset = 0;
-  let text = '';
+  // 조각으로 모았다가 마지막에 붙인다. 칸 끝의 공백을 지울 때 앞의 글을 다시 훑지 않는다.
+  const out = [];
+  // 지금 열려 있는 표. 표 안의 표도 각자 행 번호를 따로 센다.
+  const tables = [];
+  // 칸이 끝나면 그 칸 끝의 공백을 지운다. 칸 안 문단 끝의 공백이 탭에 붙지 않게 한다.
+  const closeCell = () => {
+    while (out.length && !out[out.length - 1].trim()) out.pop();
+    if (out.length) out[out.length - 1] = out[out.length - 1].replace(/[ \t]+$/, '');
+  };
   while (offset + 4 <= bytes.length) {
     const header = view.getUint32(offset, true);
     const tag = header & 0x3ff;
+    // 레코드는 자기가 몇 단계 안에 있는지 함께 적는다. 표는 이 깊이로 시작과 끝을 안다.
+    const level = (header >> 10) & 0x3ff;
     let size = (header >> 20) & 0xfff;
     offset += 4;
     if (size === 0xfff) { size = view.getUint32(offset, true); offset += 4; }
     if (offset + size > bytes.length) break;
+    // 표보다 얕은 레코드가 나왔다면 그 표는 끝났다.
+    while (tables.length && level <= tables[tables.length - 1].level) { tables.pop(); closeCell(); out.push('\n'); }
+    if (tag === CTRL_HEADER_TAG && size >= 4 && controlId(bytes, offset) === 'tbl ') {
+      tables.push({ level, row: -1 });
+      out.push('\n');
+      offset += size;
+      continue;
+    }
+    // 표의 칸. 행 번호가 바뀌면 줄을 바꾸고, 같은 행이면 탭으로 칸만 나눈다.
+    if (tag === LIST_HEADER_TAG && size >= 12 && tables.length && level === tables[tables.length - 1].level + 1) {
+      const table = tables[tables.length - 1];
+      const row = view.getUint16(offset + 10, true);
+      if (table.row >= 0) { closeCell(); out.push(row === table.row ? '\t' : '\n'); }
+      table.row = row;
+      offset += size;
+      continue;
+    }
     if (tag === PARA_TEXT_TAG) {
+      // 표 안에서는 문단이 끝나도 줄을 바꾸지 않는다. 줄은 행이, 칸은 탭이 나눈다.
+      const paragraphBreak = tables.length ? ' ' : '\n';
+      let chunk = '';
       for (let index = 0; index + 1 < size; index += 2) {
         const code = view.getUint16(offset + index, true);
-        if (code === 13 || code === 10) { text += '\n'; continue; }
-        if (code === 9) { text += '\t'; continue; }
+        if (code === 13 || code === 10) { chunk += paragraphBreak; continue; }
+        if (code === 9) { chunk += '\t'; continue; }
         // 표·그림 등 확장 제어문자와 인라인 제어문자는 둘 다 16바이트를 차지한다.
         // 인라인(4~9, 19, 20)을 2바이트로만 건너뛰면 뒤따르는 정보 바이트가
         // 글자로 새어 나온다. 실제 공고문에서 주소 끝에 한자가 붙던 원인이다.
         if (code < 32) {
-          if ([1, 2, 3, 11, 12, 14, 15, 16, 17, 18, 21, 22, 23].includes(code)) { index += 14; text += ' '; }
+          if ([1, 2, 3, 11, 12, 14, 15, 16, 17, 18, 21, 22, 23].includes(code)) { index += 14; chunk += ' '; }
           else if ([4, 5, 6, 7, 8, 9, 19, 20].includes(code)) { index += 14; }
           continue;
         }
-        text += String.fromCharCode(code);
+        chunk += String.fromCharCode(code);
       }
-      text += '\n';
+      out.push(chunk + paragraphBreak);
     }
     offset += size;
   }
-  return text;
+  return out.join('');
 }
 
 export async function extractHwpText(buffer) {
@@ -176,14 +220,16 @@ export async function extractHwpText(buffer) {
     const bytes = compressed ? await inflateRaw(raw) : raw;
     parts.push(parseSectionRecords(bytes));
   }
-  const text = parts.join('\n\n').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  // 칸 앞뒤의 공백은 지운다. 칸 안의 문단 끝이 공백으로 남아 탭에 붙기 때문이다.
+  const text = parts.join('\n\n')
+    .replace(/ +\t/g, '\t').replace(/\t +/g, '\t')
+    .replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
   if (text.length < 30) throw new HwpUnsupportedError('HWP에서 본문 텍스트를 찾지 못했습니다. PDF 또는 HWPX로 저장해 주세요.');
   return text;
 }
 
 // 표 개수. 표는 개체(CTRL_HEADER)로 들어 있고 종류를 4바이트 식별자로 적는다.
 // 실제 공고문에서는 HWPTAG_TABLE(76)이 나타나지 않고 식별자 'tbl '로만 구분됐다.
-const CTRL_HEADER_TAG = 71;
 export function countSectionTables(bytes) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let offset = 0;
@@ -195,11 +241,7 @@ export function countSectionTables(bytes) {
     offset += 4;
     if (size === 0xfff) { size = view.getUint32(offset, true); offset += 4; }
     if (offset + size > bytes.length) break;
-    // 식별자는 뒤집혀 저장된다. 'tbl '가 ' lbt'로 들어 있다.
-    if (tag === CTRL_HEADER_TAG && size >= 4) {
-      const id = String.fromCharCode(...bytes.subarray(offset, offset + 4)).split('').reverse().join('');
-      if (id === 'tbl ') count += 1;
-    }
+    if (tag === CTRL_HEADER_TAG && size >= 4 && controlId(bytes, offset) === 'tbl ') count += 1;
     offset += size;
   }
   return count;

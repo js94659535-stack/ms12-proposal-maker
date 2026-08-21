@@ -42,6 +42,70 @@ test('표는 개체 식별자로 센다', { skip: hasSample ? false : '시험용
   assert.equal(typeof parseSectionRecords, 'function');
 });
 
+// ---------- 표 행 복원 ----------
+
+// 실제 기관 연혁 표와 같은 모양을 레코드로 만든다.
+// 연도·번호·진행기관·프로그램명·프로그램 내용 다섯 칸이고,
+// 연도 칸은 한 해의 여러 줄을 세로로 합쳐 그 해의 첫 줄에만 있다. 실제 문서가 그렇다.
+function hwpRecord(tag, level, data) {
+  const head = Buffer.alloc(4);
+  head.writeUInt32LE((tag & 0x3ff) | ((level & 0x3ff) << 10) | ((data.length & 0xfff) << 20), 0);
+  return Buffer.concat([head, data]);
+}
+// HWPTAG_LIST_HEADER. 표에서는 칸 하나이고 몇째 칸·몇째 행인지 적혀 있다.
+function hwpCell(col, row) {
+  const data = Buffer.alloc(16);
+  data.writeUInt16LE(col, 8);
+  data.writeUInt16LE(row, 10);
+  data.writeUInt16LE(1, 12);
+  data.writeUInt16LE(1, 14);
+  return hwpRecord(72, 2, data);
+}
+const hwpParagraph = (text, level = 3) => hwpRecord(67, level, Buffer.from(text, 'utf16le'));
+const hwpTableStart = () => hwpRecord(71, 1, Buffer.from(' lbt', 'latin1'));
+
+const HISTORY_ROWS = [
+  [['연도', 0], ['번호', 1], ['진행기관', 2], ['프로그램명', 3], ['프로그램 내용', 4]],
+  [['2017', 0], ['1', 1], ['송원대학교, 조선대학교', 2], ['취창업 청년 캠프', 3], ['진로역량에 맞는 취창업 지원 프로그램', 4]],
+  [['2', 1], ['광주광역시', 2], ['사회서비스 바우처', 3], ['바우처 제공 분야', 4]],
+  [['2025', 0], ['1', 1], ['전라남도장성교육지원청', 2], ['4RS 학습동기프로그램', 3], ['학습역량검사 사후 학습동기프로그램,@@P@@학부모를 위한 자녀 심리 해석 상담', 4]]
+];
+const HISTORY_TABLE = Buffer.concat([
+  hwpParagraph('㈜ 마인드스토리 기관 연혁', 1),
+  hwpTableStart(),
+  ...HISTORY_ROWS.flatMap((row, rowIndex) => row.flatMap(([value, col]) => {
+    // 한 칸 안에서 문단이 나뉜 자리(@@P@@)는 실제 문서의 두 줄짜리 칸이다.
+    const paragraphs = value.split('@@P@@');
+    return [hwpCell(col, rowIndex), ...paragraphs.map(part => hwpParagraph(part))];
+  })),
+  hwpParagraph('표 다음 문단', 1)
+]);
+
+test('HWP 표는 칸을 탭으로, 행을 줄바꿈으로 남긴다', () => {
+  const text = parseSectionRecords(new Uint8Array(HISTORY_TABLE));
+  assert.match(text, /연도\t번호\t진행기관\t프로그램명\t프로그램 내용/);
+  assert.match(text, /2017\t1\t송원대학교, 조선대학교\t취창업 청년 캠프\t진로역량에 맞는 취창업 지원 프로그램/);
+  // 세로로 합쳐진 연도 칸은 다음 줄에 다시 나오지 않는다. 없는 값을 만들어 넣지 않는다.
+  assert.match(text, /\n2\t광주광역시\t사회서비스 바우처\t바우처 제공 분야/);
+  // 한 칸 안에서 문단이 나뉘어도 칸은 하나다. 줄은 행이 나눈다.
+  assert.match(text, /4RS 학습동기프로그램\t학습역량검사 사후 학습동기프로그램, 학부모를 위한 자녀 심리 해석 상담/);
+  // 표 밖 문단은 그대로 줄로 남는다.
+  assert.match(text, /㈜ 마인드스토리 기관 연혁/);
+  assert.match(text, /표 다음 문단/);
+});
+
+test('표 밖의 문단은 표 안의 행과 섞이지 않는다', () => {
+  const text = parseSectionRecords(new Uint8Array(HISTORY_TABLE));
+  const rows = text.split(/\n/).map(line => line.trim()).filter(Boolean);
+  // 머리글 한 줄 + 실적 세 줄 + 표 앞뒤 문단 두 줄.
+  assert.equal(rows.length, 6);
+  assert.equal(rows[0], '㈜ 마인드스토리 기관 연혁');
+  assert.equal(rows.at(-1), '표 다음 문단');
+  // 한 행이 한 줄이다. 칸이 줄로 흩어지지 않는다.
+  assert.equal(rows[2].split(/\t/).length, 5);
+  assert.equal(rows[3].split(/\t/).length, 4);
+});
+
 // ---------- HWPX ----------
 
 test('HWPX 본문에서 문단과 표 칸을 구분해 읽는다', () => {

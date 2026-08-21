@@ -242,3 +242,75 @@ test('사람 정보뿐인 값은 후보로 만들지 않는다', () => {
     assert.equal(serialized.includes(personal), false, `${personal}이 수집되었습니다`);
   }
 });
+
+// ---------- 실적표 한 행 ----------
+// 실제 기관 연혁(2017~2026, 99행)의 표 모양 그대로다. 칸은 탭, 행은 줄바꿈이며
+// 연도 칸은 한 해의 여러 줄을 세로로 합쳐 그 해 첫 줄에만 있다.
+const HISTORY_TABLE_TEXT = [
+  '㈜ 마인드스토리 기관 프로그램 구성',
+  '번호\t추진사업\t사업 내용',
+  '1\t학교로 찾아가는 상담 프로그램\t대상: 학생, 교직원 내용: 심리검사 및 해석',
+  '2\t위탁사업\t광주시교육청 학교폭력 가해자 특별교육 제공 기관',
+  '㈜ 마인드스토리 기관 교육 및 활동 프로그램',
+  '연도\t번호\t진행기관\t프로그램명\t프로그램 내용',
+  '2017\t1\t송원대학교, 조선대학교\t취창업 청년 캠프\t진로역량에 맞는 취창업 지원 프로그램',
+  '2\t광주광역시교육청\t특수교육치료지원서비스 제공\t개별상담',
+  '3\t마인드스토리\t진로 학습 상담사 양성\t진로 학습 상담사 양성 및 실습',
+  '2025\t1\t장성 중학교\t학교폭력 예방교육\t미술을 통한 학교폭력 예방교육',
+  '2\t정읍 애육원\t내안의 강점으로 여는 진로여행\t진로탐색  집단 프로그램',
+  '3\t동명청년창작\t-\t초기상담이해, 상담사례분석'
+].join('\n');
+
+const historyCandidates = () => extractApplicantCandidates(HISTORY_TABLE_TEXT, { documentName: 'QA 기관 연혁' }).candidates;
+
+test('실적표는 끝말이 아니라 연도·발주기관·사업명으로 읽는다', () => {
+  const performance = historyCandidates().filter(item => item.area === 'performance');
+  // 표에 있는 여섯 행이 모두 실적이 된다.
+  assert.equal(performance.length, 6);
+  const values = performance.map(item => item.value);
+  assert.ok(values.includes('송원대학교, 조선대학교 취창업 청년 캠프'), values.join(' / '));
+  // 「…사업」「…프로그램」으로 끝나지 않아도 실적이다. 예전에는 이런 행이 통째로 떨어졌다.
+  assert.ok(values.includes('광주광역시교육청 특수교육치료지원서비스 제공'), values.join(' / '));
+  assert.ok(values.includes('장성 중학교 학교폭력 예방교육'), values.join(' / '));
+  assert.ok(values.includes('정읍 애육원 내안의 강점으로 여는 진로여행'), values.join(' / '));
+});
+
+test('세로로 합쳐진 연도 칸은 번호가 이어지는 동안만 다음 행이 물려받는다', () => {
+  const performance = historyCandidates().filter(item => item.area === 'performance');
+  const of = value => performance.find(item => item.value.startsWith(value));
+  assert.equal(of('광주광역시교육청').asOf, '2017');
+  assert.equal(of('광주광역시교육청').label, '2017년 사업실적');
+  assert.equal(of('마인드스토리').asOf, '2017');
+  // 새 연도 칸이 나오면 그때부터 그 연도다.
+  assert.equal(of('장성 중학교').asOf, '2025');
+  assert.equal(of('정읍 애육원').asOf, '2025');
+});
+
+test('실적표 앞의 다른 표는 실적이 되지 않는다', () => {
+  const values = historyCandidates().map(item => item.value);
+  // 「기관 프로그램 구성」 표는 연도 칸이 없다. 번호만 있다고 실적으로 만들지 않는다.
+  assert.ok(!values.some(value => value.includes('학교로 찾아가는 상담 프로그램')), values.join(' / '));
+  assert.ok(!values.some(value => value.includes('위탁사업')), values.join(' / '));
+  // 표 머리글도 값이 아니다.
+  assert.ok(!values.some(value => value.includes('진행기관')), values.join(' / '));
+});
+
+test('사업명 칸이 비어 있으면 다음 칸을 사업명으로 읽는다', () => {
+  const values = historyCandidates().map(item => item.value);
+  assert.ok(values.includes('동명청년창작 초기상담이해, 상담사례분석'), values.join(' / '));
+});
+
+test('띄어 쓴 날짜와 서명 줄은 실적이 아니다', () => {
+  // 실제 배분신청서 마지막 장이다. 예전 규칙에서는 「2026년 사업실적 = 기관대표자 : 장석복」이 나왔다.
+  const text = ['2026년   7월   6일', '기관대표자 :   장석복   (직인)'].join('\n');
+  const candidates = extractApplicantCandidates(text, { documentName: 'QA 배분신청서' }).candidates;
+  assert.deepEqual(candidates.filter(item => item.area === 'performance'), []);
+});
+
+test('서술형 문서에는 표 규칙이 실적을 더 만들지 않는다', () => {
+  const text = ['2000년 광주 독서문화연구원으로 시작해 26년간 이름과 사업을 여덟 번 넓혀 왔습니다.',
+    '2017년 법인 전환 이후 10년간 99건의 교육·상담 사업을 수행했습니다.'].join('\n');
+  const performance = extractApplicantCandidates(text, { documentName: 'QA 소개서' }).candidates.filter(item => item.area === 'performance');
+  // 칸이 나뉘지 않은 줄은 표 행이 아니다. 서술문 규칙이 잡던 두 건 그대로다.
+  assert.equal(performance.length, 2);
+});
