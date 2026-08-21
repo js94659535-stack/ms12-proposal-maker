@@ -54,6 +54,6 @@ test('다른 갈래는 그대로다', () => {
 
 test('화면은 두 칸을 다른 이름으로 보여 준다', () => {
   const view = app.slice(app.indexOf('function applicantFitView(applicant)'), app.indexOf('function fitPerformanceView(') > 0 ? app.indexOf('function projectValuesView(') : app.length);
-  assert.match(view, /\['계획서에 답해야 할 요구사항', comparison\.answerInProposal, '확인-필요'\]/);
+  assert.match(view, /\['계획서에 답해야 할 요구사항', comparison\.answerInProposal, '확인-필요', true\]/);
   assert.match(view, /\['기관정보에 없는 사항 \(기관이 갖춰야 할 것\)', comparison\.missingFromApplicant, '부족'\]/);
 });

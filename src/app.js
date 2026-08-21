@@ -70,6 +70,7 @@ import { SAMPLE_MARK, SAMPLE_NOTE, SAMPLE_NOTICE, SAMPLE_NOTICE_KEY, SAMPLE_STAG
 import { SAMPLE_REAL_COACHING } from './sample-coaching-run.js';
 import { RELATED_LIMIT, confirmAreaItems, relatedMatches, restoreItemStatuses, SOURCE_KINDS, makeApplicantSource, APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, mergeApplicantItems, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
 import { nextOrgStep } from './org-next-step.js';
+import { rollupMark } from './requirement-rollup.js';
 import { BASIC_AREAS, areaDestination, DETAIL_GROUPS, DETAIL_INTRO, basicStatus, detailProgress, draftFromApplicant, reusableCount } from './org-stage.js';
 import { KOREAN_LABELS, toKoreanLabel } from '../server/label-leak.js';
 import { WRITE_ALL_BUTTON, partialBlockReason, recordTiming, remainingGroups, timelineRows, writingState } from './writing-progress.js';
@@ -5649,6 +5650,14 @@ function applicantLoadedView(applicant) {
     <details><summary>전달하지 않는 확인 필요·오래된 정보 ${applicant.items.length - confirmed.length}건</summary><p class="muted">아래 항목은 항목명만 표시하며 내용은 계획서 작성 요청에 포함하지 않습니다.</p><div class="cap-grid">${applicant.items.filter(item => item.status !== CONFIRMED_STATUS).map(item => `<div><span>${escapeHtml(areaTitle(item.area))}</span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.status)}</small></div>`).join('') || '<p class="muted">없음</p>'}</div></details></div>`;
 }
 
+// 앞 항목들을 묶은 문장으로 보이면 그 자리에 적는다. 건수는 그대로 두고 꼬리표만 단다.
+// 까닭을 함께 적는 것은 다사114의 「겹친 낱말: 예방」과 같은 뜻이다 — 판정을 사람이 되짚을 수 있어야 한다.
+function rollupNote(requirement) {
+  const mark = rollupMark(requirement);
+  if (!mark.rollup) return '';
+  return `<small class="muted">앞 항목들을 묶은 문장으로 보입니다. 따로 세지 않아도 됩니다. · 그렇게 본 까닭: ${mark.reasons.map(word => `「${escapeHtml(word)}」`).join('·')}</small>`;
+}
+
 // 이 공고에 맞는 실적이 몇 건인지 보여 준다.
 //
 // 계획서 호출에는 공고와 겹치는 실적만 펼쳐 싣고 나머지는 건수만 보낸다(다사113①).
@@ -5682,14 +5691,14 @@ function applicantFitView(applicant) {
     ['확인된 강점', comparison.confirmedStrengths, '충족'],
     ['신청자격 또는 근거 확인이 필요한 사항', comparison.needsEvidence, '부분-충족'],
     ['공고가 정한 조건 (기관에 등록할 것이 아님)', comparison.fixedByNotice, '충족'],
-    ['계획서에 답해야 할 요구사항', comparison.answerInProposal, '확인-필요'],
+    ['계획서에 답해야 할 요구사항', comparison.answerInProposal, '확인-필요', true],
     ['기관정보에 없는 사항 (기관이 갖춰야 할 것)', comparison.missingFromApplicant, '부족'],
     ['이번 사업에서 새로 결정해야 할 사항', comparison.decideInThisProject, '확인-필요']
   ];
   return `<div class="card"><div class="card-title"><div><h3>공고 × 신청기관 비교</h3><span>AI 호출 없이 공고 원문과 등록 정보만으로 구분합니다.</span></div></div>
     <div class="match-summary">${groups.map(([name, items, status]) => `<div><span class="status ${status}">${escapeHtml(name)}</span><strong>${items.length}</strong></div>`).join('')}</div>
     ${fitPerformanceView(applicant, requirements)}
-    ${groups.map(([name, items, status]) => `<details ${items.length ? 'open' : ''}><summary>${escapeHtml(name)} ${items.length}건</summary><div class="requirement-list">${items.length ? items.map(item => `<article class="requirement"><div><span class="status ${status}">${escapeHtml(name)}</span><div><strong>${escapeHtml(item.requirement)}</strong>${item.noticeValue ? `<small><b>공고가 정한 값</b> · ${escapeHtml(item.noticeValue)}</small>` : ''}<small>${escapeHtml(toKoreanLabel(item.location) || '공고 원문')} · ${escapeHtml(item.action)}</small></div></div>${item.matchedItems.length ? `<p class="muted">연결된 기관 정보: ${escapeHtml(item.matchedItems.map(value => `${value.label}(${value.status})`).join(', '))}</p>` : ''}</article>`).join('') : '<p class="muted">해당 항목이 없습니다.</p>'}</div></details>`).join('')}</div>`;
+    ${groups.map(([name, items, status, markRollup]) => `<details ${items.length ? 'open' : ''}><summary>${escapeHtml(name)} ${items.length}건</summary><div class="requirement-list">${items.length ? items.map(item => `<article class="requirement"><div><span class="status ${status}">${escapeHtml(name)}</span><div><strong>${escapeHtml(item.requirement)}</strong>${item.noticeValue ? `<small><b>공고가 정한 값</b> · ${escapeHtml(item.noticeValue)}</small>` : ''}<small>${escapeHtml(toKoreanLabel(item.location) || '공고 원문')} · ${escapeHtml(item.action)}</small>${markRollup ? rollupNote(item.requirement) : ''}</div></div>${item.matchedItems.length ? `<p class="muted">연결된 기관 정보: ${escapeHtml(item.matchedItems.map(value => `${value.label}(${value.status})`).join(', '))}</p>` : ''}</article>`).join('') : '<p class="muted">해당 항목이 없습니다.</p>'}</div></details>`).join('')}</div>`;
 }
 
 function projectValuesView(applicant) {
