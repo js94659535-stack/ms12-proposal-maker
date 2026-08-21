@@ -111,6 +111,37 @@ function countXmlTables(xml, tag) {
   return (String(xml || '').match(new RegExp(`<(?:\\w+:)?${tag}(?=[\\s>])`, 'g')) || []).length;
 }
 
+// PDF 한 쪽의 글자 조각을 줄과 칸으로 되돌린다.
+//
+// 조각을 공백 하나로 이어 붙이면 한 쪽이 한 줄이 되고, 서식의 라벨과 값이 한 덩어리로 붙는다.
+// 실제 사업자등록증명원에서 「상 호 ( 법 인 명 ) 주식회사 ○○」가 다른 칸의 글자들과 이어져
+// 기관명·대표자·소재지를 한 건도 읽지 못했다. HWP 표에서 행을 되살린 것과 같은 결이다.
+//
+// 줄은 pdf.js가 알려 주는 줄 끝(hasEOL)으로 나누고, 칸은 조각 사이가 글자 하나쯤 벌어졌는지로 본다.
+// 위치는 pdf.js가 주는 값을 그대로 쓴다 — 짐작하지 않는다.
+export function pageText(items = []) {
+  const lines = [];
+  let line = '';
+  let previousEnd = null;
+  for (const item of items) {
+    if (!item.str) {
+      if (item.hasEOL) { lines.push(line); line = ''; previousEnd = null; }
+      continue;
+    }
+    const left = item.transform?.[4] ?? 0;
+    const unit = Math.abs(item.transform?.[0] ?? 10) || 10;
+    if (previousEnd !== null) {
+      const gap = left - previousEnd;
+      line += gap > unit * 0.9 ? '\t' : gap > unit * 0.15 ? ' ' : '';
+    }
+    line += item.str;
+    previousEnd = left + (item.width ?? 0);
+    if (item.hasEOL) { lines.push(line); line = ''; previousEnd = null; }
+  }
+  if (line) lines.push(line);
+  return lines.join('\n').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 export async function extractFile(file) {
   const extension = file.name.split('.').pop()?.toLowerCase();
   const size = file.size;
@@ -180,7 +211,7 @@ export async function extractFile(file) {
     for (let pageNo = 1; pageNo <= pdf.numPages; pageNo += 1) {
       const page = await pdf.getPage(pageNo);
       const content = await page.getTextContent();
-      pages.push(`[${pageNo}쪽]\n${content.items.map(item => item.str).join(' ')}`);
+      pages.push(`[${pageNo}쪽]\n${pageText(content.items)}`);
     }
     const text = pages.join('\n\n');
     // 쪽은 있는데 글자가 거의 없으면 스캔본이다. 없는 내용을 지어내지 않는다.

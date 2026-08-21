@@ -5269,8 +5269,8 @@ function removeApplicantSource(id) {
 // 기존 기관 문서에서 정보를 뽑아 ‘업데이트 후보’로만 만든다. 사용자가 반영을 눌러야 기관 정보가 바뀐다.
 function applicantDocumentView(applicant) {
   const review = state.applicantExtraction?.applicantId === applicant.id ? state.applicantExtraction : null;
-  return `<div class="card" id="applicant-doc" tabindex="-1"><div class="card-title"><div><h3>연혁·사업계획서를 올리면 자동으로 채워집니다</h3><span>올린 문서에서 찾은 것만 후보로 만듭니다. 기존 정보를 자동으로 덮어쓰지 않습니다.</span></div></div><div class="cap-grid"><div><span>올리는 것</span><strong>기관 연혁 · 사업 실적표</strong><small>채워지는 것 — 연도별 사업실적 (예: 2017년 · 송원대학교, 조선대학교 취창업 청년 캠프)</small></div><div><span>올리는 것</span><strong>사업계획서 · 결과보고서</strong><small>채워지는 것 — 인력 · 시설 · 협력기관 · 예산 (예: 상근 인력 5명, 상담실 2실)</small></div><div><span>올리는 것</span><strong>고유번호증 · 결산서</strong><small>채워지는 것 — 기관명 · 대표자 · 고유번호 · 연간 예산</small></div></div>
-    <label class="dropzone" id="applicant-doc-drop" for="applicant-doc-file"><strong>파일을 고르거나 여기에 끌어다 놓으세요</strong><small>PDF · DOCX · HWP · HWPX · TXT · 파일당 20MB</small><input type="file" id="applicant-doc-file" accept=".pdf,.docx,.txt,.hwpx,.hwp"></label><p class="muted">한글 파일(HWP·HWPX)은 표를 행 그대로 읽습니다. 읽지 못하면 이유를 알려 드립니다. 그림으로만 된 문서는 아직 읽지 못합니다.</p>
+  return `<div class="card" id="applicant-doc" tabindex="-1"><div class="card-title"><div><h3>연혁·사업계획서·등록증을 올리면 자동으로 채워집니다</h3><span>올린 문서에서 찾은 것만 후보로 만듭니다. 기존 정보를 자동으로 덮어쓰지 않습니다.</span></div></div><div class="cap-grid"><div><span>올리는 것</span><strong>기관 연혁 · 사업 실적표</strong><small>채워지는 것 — 연도별 사업실적 (예: 2017년 · 송원대학교, 조선대학교 취창업 청년 캠프)</small></div><div><span>올리는 것</span><strong>사업계획서 · 결과보고서</strong><small>채워지는 것 — 인력 · 시설 · 협력기관 · 예산 (예: 상근 인력 5명, 상담실 2실)</small></div><div><span>올리는 것</span><strong>사업자등록증 · 고유번호증 · 결산서</strong><small>채워지는 것 — 기관명 · 대표자 · 주소 · 고유번호 · 연간 예산</small></div></div>
+    <label class="dropzone" id="applicant-doc-drop" for="applicant-doc-file"><strong>파일을 고르거나 여기에 끌어다 놓으세요</strong><small>사업자등록증 · 고유번호증 · 연혁 · 사업계획서 · 결과보고서 · 결산서 · PDF · DOCX · HWP · HWPX · TXT</small><input type="file" id="applicant-doc-file" accept=".pdf,.docx,.txt,.hwpx,.hwp"></label><p class="muted">한글 파일(HWP·HWPX)은 표를 행 그대로 읽습니다. 읽지 못하면 이유를 알려 드립니다. 그림으로만 된 문서는 아직 읽지 못합니다.</p>
     <div class="field"><label for="applicant-doc-text">또는 문서 내용 붙여넣기</label><textarea id="applicant-doc-text" style="min-height:110px" placeholder="예) 기관명: 사단법인 ○○센터 / 상근 인력: 5명 / 2025년 청소년 마음건강 지원사업">${escapeHtml(state.applicantDocDraft)}</textarea></div>
     <div class="actions" style="margin:0"><span class="muted">${escapeHtml(review ? `${review.documentName || '붙여넣은 문서'} · 문서 기준시점 ${review.documentAsOf || ASOF_UNKNOWN}` : '외부 AI 호출 없이 규칙 기반으로 추출합니다.')}</span><button class="button secondary" id="extract-applicant-doc">업데이트 후보 만들기</button></div>
     <div class="actions" style="margin-top:14px"><span class="muted">계획서보관함에 저장된 과거 사업계획서는 다시 업로드하지 않고 바로 사용할 수 있습니다.</span><button class="button secondary" id="load-applicant-archive">계획서보관함 목록</button></div>
@@ -5483,6 +5483,11 @@ function applicantBasicView(applicant, who = '신청기관') {
     <div class="card-title"><div><h3>1단계 기본정보 · ${escapeHtml(applicant.name)}</h3>
       <span>계획서를 시작하는 데 필요한 것만 적습니다. 나머지는 나중에 적어도 됩니다.</span></div>
       <span class="status ${status.ready ? '충족' : '확인-필요'}">${status.ready ? (status.saved ? '저장됨' : '저장하면 시작 가능') : `${status.missing.join(' · ')} 필요`}</span></div>
+    <label class="dropzone" id="applicant-cert-drop" for="applicant-cert-file">
+      <strong>사업자등록증·고유번호증을 올리면 자동으로 채워집니다</strong>
+      <small>기관명 · 기관 유형 · 주소 · 대표자 · 고유번호 · PDF · DOCX · HWP · HWPX · TXT</small>
+      <input type="file" id="applicant-cert-file" accept=".pdf,.docx,.txt,.hwpx,.hwp"></label>
+    <p class="muted">파일을 고르거나 여기에 끌어다 놓으세요. 찾은 값은 아래 「입력 후보」에 올라오고, 반영해야 이 칸에 들어갑니다. 손으로 적어도 됩니다.</p>
     <div class="two-col">
       <div class="field"><label for="applicant-name">${escapeHtml(who)}명</label><input id="applicant-name" value="${escapeHtml(applicant.name)}"></div>
       <div class="field"><label for="applicant-note">기관 메모 <span class="muted">(선택)</span></label><input id="applicant-note" value="${escapeHtml(applicant.note)}" placeholder="예: 2026년 기준 정보"></div>
@@ -8101,6 +8106,8 @@ function bindApplicants() {
   document.querySelectorAll('[data-remove-source]').forEach(el => el.onclick = () => removeApplicantSource(el.dataset.removeSource));
   document.querySelector('#applicant-doc-text')?.addEventListener('input', event => { state.applicantDocDraft = event.target.value; });
   document.querySelector('#applicant-doc-file')?.addEventListener('change', loadApplicantDocument);
+  document.querySelector('#applicant-cert-file')?.addEventListener('change', loadApplicantDocument);
+  bindDropzone('#applicant-cert-drop', files => void loadApplicantDocumentFile(files[0]));
   bindDropzone('#applicant-doc-drop', files => void loadApplicantDocumentFile(files[0]));
   // 카드 안 아무 곳에 놓아도 파일로 받는다. 붙여넣기 칸에 놓으면 파일 이름만 글자로 붙던 자리다.
   bindDropzone('#applicant-doc', files => void loadApplicantDocumentFile(files[0]));

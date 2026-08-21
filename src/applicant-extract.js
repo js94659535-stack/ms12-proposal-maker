@@ -46,10 +46,12 @@ const NARRATIVE_RULES = [
 
 // 신청서·표 서식은 "기 관 명   수완아동센터"처럼 콜론 없이 칸으로 나뉜다. 라벨 칸과 다음 칸을 짝지어 읽는다.
 const LABEL_KEY_RULES = [
-  { area: 'basic', label: '기관명', keys: ['기관명', '법인명', '단체명', '시설명', '신청기관명', '신청기관'] },
-  { area: 'basic', label: '대표자', keys: ['대표자', '대표자명', '기관장', '시설장'] },
-  { area: 'basic', label: '설립 시기', keys: ['설립일', '설립일자', '설립연도', '설립년도', '개소일', '설립'] },
-  { area: 'basic', label: '소재지', keys: ['소재지', '주소', '기관주소'] },
+  // 사업자등록증은 「상호(법인명)」, 고유번호증은 「법인명(단체명)」이라고 쓴다.
+  { area: 'basic', label: '기관명', keys: ['기관명', '법인명', '단체명', '시설명', '신청기관명', '신청기관', '상호', '상호법인명'] },
+  // 사업자등록증은 대표자를 「성명(대표자)」이라고 쓴다.
+  { area: 'basic', label: '대표자', keys: ['대표자', '대표자명', '기관장', '시설장', '성명', '성명대표자'] },
+  { area: 'basic', label: '설립 시기', keys: ['설립일', '설립일자', '설립연도', '설립년도', '개소일', '설립', '개업연월일'] },
+  { area: 'basic', label: '소재지', keys: ['소재지', '주소', '기관주소', '사업장소재지', '본점소재지'] },
   { area: 'legal', label: '고유번호', keys: ['고유번호', '고유번호사업자등록번호', '사업자등록번호', '법인등록번호'] },
   { area: 'legal', label: '법인 유형', keys: ['법인유형', '기관유형', '단체유형', '시설유형', '기관구분'] },
   { area: 'staff', label: '상근 인력', keys: ['상근인력', '상근직원', '전담인력', '종사자수', '직원수', '인력현황'] },
@@ -64,6 +66,27 @@ const LABEL_KEY_RULES = [
   { area: 'performance', label: '주요 사업실적', keys: ['주요실적', '사업실적', '수행실적', '최근실적'] }
 ];
 const LABEL_KEY_MAP = new Map(LABEL_KEY_RULES.flatMap(rule => rule.keys.map(key => [key, rule])));
+// 「상 호 ( 법 인 명 ) 주식회사 ○○」처럼 콜론도 칸 구분도 없이 라벨 뒤에 값이 바로 오는 줄이 있다.
+// 공공 증명서가 그렇게 찍힌다. 앞에서부터 글자를 모으며 아는 라벨과 맞는지 보고, 맞으면 나머지가 값이다.
+// 공백과 괄호는 라벨 글자로 세지 않는다 — 「대 표 자」와 「상호(법인명)」이 같은 라벨이다.
+function headLabeled(line) {
+  const raw = String(line ?? '');
+  let key = '';
+  let consumed = 0;
+  for (const character of raw) {
+    consumed += 1;
+    if (/[\s()（）]/.test(character)) continue;
+    key += character;
+    if (key.length > 12) return null;
+    const rule = LABEL_KEY_MAP.get(key);
+    if (rule) {
+      // 「상 호 ( 법 인 명 ) 주식회사 ○○」의 괄호 안도 라벨이다. 값에서 떼어 낸다.
+      const rest = raw.slice(consumed).replace(/^\s*[（(][^)）]*[)）]\s*/, match => (LABEL_KEY_MAP.has(labelKey(match)) ? '' : match));
+      return { rule, value: rest.trim() };
+    }
+  }
+  return null;
+}
 const SEGMENT_SPLIT = /\t+| {2,}|(?=•)/;
 
 // 공공 서식은 「대 표 자 :」처럼 자간이 벌어지고 「법인명(단체명) :」처럼 괄호가 붙는다.
@@ -87,6 +110,10 @@ function usableValue(segment, rule = null) {
   const key = labelKey(value);
   if (!rule && !/\d/.test(value) && key.length <= 3) return false;
   if ([...LABEL_KEY_MAP.keys()].filter(label => label.length > 2 && key.includes(label)).length >= 2) return false;
+  // 값이 라벨 낱말만으로 되어 있으면 서식의 머리글이다. 증명서의 「주민(사업자)등록번호」 칸이 그랬다.
+  if (![...LABEL_KEY_MAP.keys()].filter(label => label.length > 2).reduce((text, label) => text.split(label).join(''), key).trim()) return false;
+  // 「번호」로 끝나는데 숫자가 없으면 값이 아니라 칸 이름이다. 증명서의 「주민(사업자)등록번호」가 그랬다.
+  if (/번호$/.test(key) && !/\d/.test(value)) return false;
   // 예산·번호 항목은 숫자가 있어야 실제 값으로 본다.
   if ((rule?.area === 'budget' || rule?.label === '고유번호') && !/\d/.test(value)) return false;
   return true;
@@ -224,6 +251,7 @@ export function extractApplicantCandidates(text, { documentName = '', includeNar
   for (const line of body.split(/\n+/).map(value => value.trim()).filter(Boolean)) {
     if (candidates.length >= MAX_CANDIDATES) break;
     const lineAsOf = asOfFrom(line.match(ANY_DATE_PATTERN)) || docAsOf;
+    const beforeLine = candidates.length;
     // 실적표 한 행이면 그 행으로 읽는다. 끝말이 아니라 연도·발주기관·사업명이 근거다.
     const row = includeNarrative ? performanceRow(line.split(SEGMENT_SPLIT), carriedRow) : null;
     if (row) {
@@ -272,6 +300,12 @@ export function extractApplicantCandidates(text, { documentName = '', includeNar
         add(narrative.area, narrative.label, clean(match.slice(1).filter(Boolean).join(' '), 200), segmentAsOf, segment);
       }
     }
+    // 마지막 수단. 아무 규칙도 읽지 못한 한 칸짜리 줄이 라벨로 시작하면 그 뒤가 값이다.
+    // 공공 증명서가 「상 호 ( 법 인 명 ) 주식회사 ○○」처럼 콜론도 칸 구분도 없이 찍는다.
+    // 서술문보다 뒤에 두는 이유는 「상근 직원 7명이며 문의는 …」 같은 문장을 통째로 삼키지 않기 위해서다.
+    if (candidates.length !== beforeLine || segments.length > 1) continue;
+    const head = headLabeled(line);
+    if (head && usableValue(head.value, head.rule)) add(head.rule.area, head.rule.label, clean(head.value, 300), lineAsOf, line);
   }
   return { documentName: name, documentAsOf: docAsOf, candidates };
 }
