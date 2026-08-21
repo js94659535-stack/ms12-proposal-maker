@@ -495,7 +495,7 @@ export function addCandidateItems(applicant, candidates) {
 const LEGACY_AREA_BY_CATEGORY = { 인력: 'staff', 실적: 'performance', 예산: 'budget', 프로그램: 'programs', 지역: 'facilities', 운영조건: 'basic', '사용자 확정': 'basic' };
 
 // 이전 버전의 확정 회사 정보(companyFacts)를 신청기관 한 곳으로 옮긴다.
-export function migrateCompanyFactsToApplicant(companyFacts, name = '마인드스토리') {
+export function migrateCompanyFactsToApplicant(companyFacts, name = '내 기관') {
   const items = (Array.isArray(companyFacts) ? companyFacts : [])
     .filter(fact => fact?.confirmedByUser === true && String(fact.content || '').trim())
     .map(fact => makeApplicantItem({ id: fact.id, area: LEGACY_AREA_BY_CATEGORY[fact.category] || 'basic', label: fact.title || '확정 정보', value: fact.content, status: CONFIRMED_STATUS, source: '이전 버전에서 담당자가 확정한 정보', updatedAt: fact.confirmedAt }));

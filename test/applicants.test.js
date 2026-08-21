@@ -158,7 +158,8 @@ test('이전 버전의 확정 회사 정보는 신청기관 한 곳으로 이전
     { id: 'legacy-1', category: '인력', title: '운영 인력', content: '상담사 2명', confirmedByUser: true, confirmedAt: '2026-01-02T00:00:00.000Z' },
     { id: 'legacy-2', category: '예산', title: '예산 정보', content: '추정 예산', confirmedByUser: false }
   ]);
-  assert.equal(applicant.name, '마인드스토리');
+  // 특정 기관명을 코드에 박아 두지 않는다(22-14). 이름을 주지 않으면 중립적인 이름으로 만든다.
+  assert.equal(applicant.name, '내 기관');
   assert.equal(applicant.items.length, 1);
   assert.equal(applicant.items[0].area, 'staff');
   assert.equal(applicant.items[0].status, CONFIRMED_STATUS);

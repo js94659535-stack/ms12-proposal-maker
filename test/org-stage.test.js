@@ -103,7 +103,8 @@ test('상세정보 안내 문구를 그대로 띄우고 구역을 한 번에 펼
   assert.match(app, /const open = \(state\.closedOrgGroups \|\| \[\]\)\.includes\(group\.key\)/);
   assert.match(app, /\(\(state\.openOrgGroups \|\| \[\]\)\.includes\(group\.key\) \|\| group\.total > 0\)/);
   assert.match(app, /data-detail-group="\$\{group\.key\}" \$\{open \? 'open' : ''\}/);
-  assert.match(app, /id="open-all-details"/);
+  // 「모두 펼치기」는 뺐다(22-13). 무엇을 펼칠지는 자료가 정한다.
+  assert.doesNotMatch(app, /id="open-all-details"/);
   assert.match(app, /id="close-all-details"/);
 });
 
@@ -113,9 +114,8 @@ test('상세정보를 고치면 보관자료에도 저장한다', () => {
   assert.match(app, /void persistApplicant\(focusedApplicantId\(\), false\);/);
   const add = app.slice(app.indexOf('function addApplicantItem('), app.indexOf('async function loadApplicantDocument('));
   assert.match(add, /persistApplicant\(focusedApplicantId\(\), false\)/);
-  // 직접 저장하는 단추도 남겨 둔다.
-  assert.match(app, /id="save-applicant"/);
-  assert.match(app, /#save-applicant'\)\?\.addEventListener\('click', \(\) => persistApplicant\(focusedApplicantId\(\), true\)\)/);
+  // 「이 기관 정보 저장」은 뺐다(22-13). 고칠 때마다 이미 저장하고 있어 같은 일을 두 번 시키지 않는다.
+  assert.doesNotMatch(app, /id="save-applicant"/);
 });
 
 test('첫 화면 안내 배너는 기존 기관정보 페이지로 연결한다', () => {

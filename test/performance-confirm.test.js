@@ -80,3 +80,29 @@ test('한 건이라도 손으로 바꾸면 일괄 되돌리기 기록을 지운�
   const save = app.slice(app.indexOf('function saveState()'), app.indexOf('function loadNavigationHistory()'));
   assert.match(save, /applicantConfirmUndo: null/);
 });
+
+test('「방금」은 이번 화면에서만 방금이다', () => {
+  const bar = app.slice(app.indexOf('function performanceConfirmBar(applicant)'), app.indexOf('// 실적이 이만큼을 넘으면'));
+  // 새로고침 뒤에는 되돌리기를 감춘다. 어제 한 일을 「방금」이라고 하지 않는다.
+  assert.match(bar, /Number\(record\.at \|\| 0\) >= pageOpenedAt/);
+  assert.match(app, /const pageOpenedAt = Date\.now\(\);/);
+  assert.match(app, /applicantConfirmUndo: \{ applicantId: applicant\.id, at: Date\.now\(\), items: changed \}/);
+  // 알림 문구도 그때 한 번 보여 주는 말이다. 저장하지도 되살리지도 않는다.
+  const save = app.slice(app.indexOf('function saveState()'), app.indexOf('function loadNavigationHistory()'));
+  assert.match(save, /error: '', notice: ''/);
+});
+
+test('확인할 것이 없으면 없는 단추를 가리키지 않는다', () => {
+  const bar = app.slice(app.indexOf('function performanceConfirmBar(applicant)'), app.indexOf('// 실적이 이만큼을 넘으면'));
+  // 제목 줄 단추는 확인 필요가 있을 때만 뜬다. 안내도 그때만 한다.
+  assert.match(bar, /pending \? '한 번에 확인하려면 위 「실적」 제목 줄의 단추를 쓰세요/);
+  assert.match(bar, /: '모두 확인했습니다\. 한 건씩 바꾸려면 아래 항목의 상태 칸을 쓰세요\.'/);
+});
+
+test('화면 문구에 특정 기관명을 박아 두지 않는다', () => {
+  const screens = app.slice(app.indexOf('function applicantsToolView()'), app.indexOf('function comparisonRequirements()'));
+  assert.doesNotMatch(screens, /마인드스토리/);
+  // 「우리 회사 정보」를 가리키는 표 머리도 기관명 없이 적는다.
+  assert.doesNotMatch(app, /<th>마인드스토리 정보<\/th>/);
+  assert.doesNotMatch(app, /마인드스토리 담당자가 갱신합니다/);
+});

@@ -146,6 +146,8 @@ const app = document.querySelector('#app');
 let busyStartedAt = 0;
 // 이번 AI 호출에서 무엇을 줄여 보냈는지. 화면에 그대로 알린다.
 let lastTrimNotes = [];
+// 이 화면을 연 시각. 「방금 한 일」은 이 시각 뒤에 한 것만이다.
+const pageOpenedAt = Date.now();
 let busyTimer = null;
 let archiveLoaded = false;
 let homeArchiveLoaded = false;
@@ -1092,7 +1094,7 @@ function premiumContractPanel(contract) {
   ];
   return `<div class="stat-badges">${rows.slice(0, 4).map(([label, value]) => `<span class="stat-badge"><strong>·</strong><span>${escapeHtml(label)}</span><small>${escapeHtml(value)}</small></span>`).join('')}</div>
     <div class="requirement-list">${rows.map(([label, value]) => `<article class="requirement"><div><strong>${escapeHtml(label)}</strong><small class="muted">${escapeHtml(value)}</small></div></article>`).join('')}</div>
-    <p class="muted">진행상태는 마인드스토리 담당자가 갱신합니다. 계약이 끝나도 이미 전달된 결과물은 계속 보실 수 있습니다.</p>`;
+    <p class="muted">진행상태는 운영 담당자가 갱신합니다. 계약이 끝나도 이미 전달된 결과물은 계속 보실 수 있습니다.</p>`;
 }
 
 function bindPremium() {
@@ -3081,7 +3083,7 @@ function loadState() {
     const stagedGeneration = saved.stagedGeneration && typeof saved.stagedGeneration === 'object'
       ? { ...structuredClone(initial.stagedGeneration), ...saved.stagedGeneration, parts: Array.isArray(saved.stagedGeneration.parts) ? saved.stagedGeneration.parts : [], completedGroupIds: Array.isArray(saved.stagedGeneration.completedGroupIds) ? saved.stagedGeneration.completedGroupIds : [] }
       : structuredClone(initial.stagedGeneration);
-    const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, coachingSelection: [], attachmentLinks: {}, submissionZip: null, lastDownload: null, sheet: null };
+    const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', notice: '', applicantItemDrafts: {}, applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, coachingSelection: [], attachmentLinks: {}, submissionZip: null, lastDownload: null, sheet: null };
     // 알 수 없는 포털 값이 남아 있으면 다시 고르게 한다.
     restored.portal = ['admin', 'proposal'].includes(saved.portal) ? saved.portal : '';
     // 예전에 저장한 상태에는 의뢰 건 정보가 없다. 빈 값으로 채우기만 하고 기존 데이터는 건드리지 않는다.
@@ -3119,7 +3121,7 @@ function saveState() {
   // 다만 브라우저 저장 한도가 있으므로 앞쪽 얼마간만 남긴다. 나머지는 다시 불러올 때 채워진다.
   const CACHED_NOTICES = 120;
   const safe = { ...state, reviewDetail: false, reviewPanels: [], reviewFocus: false, companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [],
-    archiveNotices: (state.archiveNotices || []).slice(0, CACHED_NOTICES), archiveProposals: (state.archiveProposals || []).slice(0, CACHED_NOTICES), noticeUrlDraft: '', busy: '', error: '', applicantItemDrafts: {}, applicantNameDraft: '', applicantComparison: null, applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, files: state.files.map(({ text, ...meta }) => meta),
+    archiveNotices: (state.archiveNotices || []).slice(0, CACHED_NOTICES), archiveProposals: (state.archiveProposals || []).slice(0, CACHED_NOTICES), noticeUrlDraft: '', busy: '', error: '', notice: '', applicantItemDrafts: {}, applicantNameDraft: '', applicantComparison: null, applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, files: state.files.map(({ text, ...meta }) => meta),
     // 첨부 원본은 브라우저 메모리에만 있다. 새로고침 뒤에 파일이 있다고 잘못 말하지 않도록 연결 기록도 저장하지 않는다.
     attachmentLinks: {}, submissionZip: null, lastDownload: null, sheet: null };
   // 참고자료처럼 큰 원문이 들어오면 브라우저 저장 한도를 넘을 수 있다. 저장 실패가 화면을 멈추지 않게 한다.
@@ -5219,7 +5221,7 @@ function applicantsToolView() {
   const who = clients ? '고객 기관' : '신청기관';
   return `<div class="page-heading"><div><h2>${who} 정보</h2><p>${clients ? '대신 계획서를 쓸 고객 기관을 등록·수정합니다' : '이번 사업을 신청하는 기관의 정보를 등록·수정합니다'}. 공고 분석 정보와는 분리해 보관하며, 확인된 정보만 계획서 작성에 전달합니다.</p><div class="actions">${sampleButton('applicant', '[샘플] 기관 보기')}</div></div><button class="button secondary" id="close-applicants">작성 흐름으로 돌아가기</button></div>
     ${orgNextStepBar()}
-    <div class="card"><div class="card-title"><div><h3>등록된 ${who} ${state.applicants.length}곳</h3><span>마인드스토리도 등록기관 중 하나로만 취급합니다.</span></div><div><button class="button secondary" id="load-applicants">계획서보관함에서 불러오기</button></div></div>
+    <div class="card"><div class="card-title"><div><h3>등록된 ${who} ${state.applicants.length}곳</h3><span>우리 기관도 등록기관 중 하나로만 다룹니다.</span></div><div><button class="button secondary" id="load-applicants">계획서보관함에서 불러오기</button></div></div>
     <div class="two-col"><div class="field"><label for="applicant-name-draft">새 ${who}명</label><input id="applicant-name-draft" value="${escapeHtml(state.applicantNameDraft)}" placeholder="예: 사단법인 ○○센터"></div><div class="field"><label>&nbsp;</label><button class="button secondary" id="add-applicant">신청기관 추가</button></div></div>
     ${state.applicants.length ? `<div class="requirement-list">${state.applicants.map(applicant => {
       const confirmed = applicant.items.filter(item => item.status === CONFIRMED_STATUS).length;
@@ -5520,8 +5522,7 @@ function applicantDetailView(applicant) {
   return `<div class="card" id="applicant-detail">
     <div class="card-title"><div><h3>2단계 상세정보 <span class="muted">(선택)</span></h3>
       <span>여덟 구역 중 ${filled}구역에 자료가 있습니다. 지금 적지 않아도 계획서는 만들어집니다.</span></div>
-      <div><button class="button secondary" id="open-all-details">모두 펼치기</button><button class="button secondary" id="close-all-details">모두 접기</button>
-        <button class="button secondary" id="save-applicant">이 기관 정보 저장</button></div></div>
+      <div><button class="button secondary" id="close-all-details">모두 접기</button></div></div>
     <div class="alert"><strong>상세정보를 등록하면 계획서가 달라집니다</strong><p>${DETAIL_INTRO}</p></div>
     <div class="stat-badges">${groups.map(group => `<span class="stat-badge" title="${escapeHtml(group.hint)}"><strong>${group.confirmed}/${group.total}</strong><span>${escapeHtml(group.title)}</span></span>`).join('')}</div>
     ${groups.map(group => detailGroupPanel(applicant, group)).join('')}
@@ -5554,14 +5555,16 @@ function performanceConfirmBar(applicant) {
   const items = areaItems(applicant, 'performance');
   if (!items.length) return '';
   const pending = items.filter(item => item.status !== CONFIRMED_STATUS).length;
-  const undo = state.applicantConfirmUndo?.applicantId === applicant.id ? state.applicantConfirmUndo : null;
+  // 새로고침하면 「방금」이 아니다. 그때는 되돌리기를 감춘다.
+  const record = state.applicantConfirmUndo;
+  const undo = record?.applicantId === applicant.id && Number(record.at || 0) >= pageOpenedAt ? record : null;
   // 목록을 보기 전에 규모부터 말한다. 「몇 건인지·몇 해치인지·몇 건이 쓰이는지」.
   const years = groupItemsByYear(items).map(group => group.year).filter(year => /^(19|20)/.test(year)).sort();
   const span = years.length ? `${years[0]}~${years[years.length - 1]}년 · ` : '';
   return `<div class="alert${pending ? ' warning' : ' success'}">
     <strong>사업실적 ${items.length}건 · ${span}확인됨 ${items.length - pending}건</strong>
     <p>확인됨으로 바꾸면 그 값이 계획서에 <b>기관이 확인한 사실</b>로 실립니다. 여기 값은 올린 문서에서 읽은 <b>원문 그대로</b>라 오탈자·옛 기관명·빠진 칸이 남아 있을 수 있습니다. 훑어보고 누르세요.</p>
-    <div class="actions" style="margin:0"><span class="muted">${undo ? `방금 ${undo.items.length}건을 확인됨으로 바꿨습니다. 되돌리면 이전 상태로 돌아갑니다.` : pending ? '한 번에 확인하려면 위 「실적」 제목 줄의 단추를 쓰세요. 한 건씩은 아래 항목의 상태 칸에서 바꿉니다.' : '한 건씩 바꾸려면 아래 항목의 상태 칸을 쓰세요.'}</span>
+    <div class="actions" style="margin:0"><span class="muted">${undo ? `방금 ${undo.items.length}건을 확인됨으로 바꿨습니다. 되돌리면 이전 상태로 돌아갑니다.` : pending ? '한 번에 확인하려면 위 「실적」 제목 줄의 단추를 쓰세요. 한 건씩은 아래 항목의 상태 칸에서 바꿉니다.' : '모두 확인했습니다. 한 건씩 바꾸려면 아래 항목의 상태 칸을 쓰세요.'}</span>
       <span>${undo ? `<button class="button secondary" id="undo-confirm-performance">방금 확인한 ${undo.items.length}건 되돌리기</button>` : ''}</span></div></div>`;
 }
 
@@ -5789,7 +5792,7 @@ function matchView() {
   const counts = ['충족', '부분 충족', '확인 필요', '부족'].map(s => [s, matches.filter(v => v.status === s).length]);
   return `<div class="page-heading"><div><h2>기관 요구와 우리 역량 비교</h2><p>사용자가 확정 저장한 회사 정보만 연결했습니다. 실적·인력·예산은 확정 전까지 사용하지 않습니다.</p></div></div>
     <div class="match-summary">${counts.map(([name, count]) => `<div><span class="status ${name.replace(' ', '-')}">${name}</span><strong>${count}</strong></div>`).join('')}</div>
-    <div class="card table-card"><div class="responsive-table"><table><thead><tr><th>기관 요구사항</th><th>마인드스토리 정보</th><th>판정</th><th>후속 조치</th></tr></thead><tbody>${matches.map(m => `<tr><td><strong>${escapeHtml(m.requirement)}</strong><small>${escapeHtml(m.evidence)}</small></td><td>${escapeHtml(m.capability)}</td><td><span class="status ${m.status.replace(' ', '-')}">${m.status}</span></td><td>${escapeHtml(m.action)}</td></tr>`).join('')}</tbody></table></div></div>
+    <div class="card table-card"><div class="responsive-table"><table><thead><tr><th>기관 요구사항</th><th>신청기관 정보</th><th>판정</th><th>후속 조치</th></tr></thead><tbody>${matches.map(m => `<tr><td><strong>${escapeHtml(m.requirement)}</strong><small>${escapeHtml(m.evidence)}</small></td><td>${escapeHtml(m.capability)}</td><td><span class="status ${m.status.replace(' ', '-')}">${m.status}</span></td><td>${escapeHtml(m.action)}</td></tr>`).join('')}</tbody></table></div></div>
     <details class="card org-details"><summary>사용자 확정 회사 정보 ${state.companyFacts.length}건 보기</summary><div class="cap-grid">${state.companyFacts.length ? state.companyFacts.map(c => `<div><span>${escapeHtml(c.category)}</span><strong>${escapeHtml(c.title)}</strong><small>${escapeHtml(c.content)}</small></div>`).join('') : '<p class="muted">확정 저장된 회사 정보가 없습니다.</p>'}</div></details>${footer()}`;
 }
 
@@ -8005,7 +8008,6 @@ function bindApplicants() {
   }));
   // 제목 줄의 「모두 확인」은 묶음을 여닫지 않는다.
   document.querySelector('#confirm-all-performance-head')?.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); confirmAllPerformance(); });
-  document.querySelector('#open-all-details')?.addEventListener('click', () => setState({ openOrgGroups: [...BASIC_AREAS, ...DETAIL_GROUPS.map(group => group.key)], closedOrgGroups: [] }));
   document.querySelector('#close-all-details')?.addEventListener('click', () => setState({ openOrgGroups: [], closedOrgGroups: DETAIL_GROUPS.map(group => group.key) }));
   document.querySelector('#save-basic-info')?.addEventListener('click', () => void saveBasicInfo());
   document.querySelector('#basic-to-writing')?.addEventListener('click', () => void saveBasicInfo({ thenWrite: true }));
@@ -8013,7 +8015,6 @@ function bindApplicants() {
   // 신청기관 정보가 없어도 계획서 작성을 막지 않는다.
   document.querySelector('#skip-applicant')?.addEventListener('click', () => navigateToStep(3, { applicantSkipped: true, notice: '신청기관 없이 진행합니다. 확인되지 않은 기관 사실은 만들지 않고 [확인 필요]로 남깁니다.', error: '' }));
   document.querySelectorAll('[data-delete-applicant]').forEach(el => el.onclick = () => removeApplicant(el.dataset.deleteApplicant));
-  document.querySelector('#save-applicant')?.addEventListener('click', () => persistApplicant(focusedApplicantId(), true));
   document.querySelector('#applicant-name')?.addEventListener('input', event => { updateEditingApplicant(applicant => { applicant.name = event.target.value; }); });
   document.querySelector('#applicant-note')?.addEventListener('input', event => { updateEditingApplicant(applicant => { applicant.note = event.target.value; }); });
   document.querySelectorAll('[data-applicant-field]').forEach(el => el.oninput = () => {
@@ -8275,7 +8276,7 @@ function confirmAllPerformance() {
   state.applicants = upsertApplicant(state.applicants, updated);
   setState({
     applicants: state.applicants,
-    applicantConfirmUndo: { applicantId: applicant.id, items: changed },
+    applicantConfirmUndo: { applicantId: applicant.id, at: Date.now(), items: changed },
     notice: `실적 ${changed.length}건을 확인됨으로 바꿨습니다. 이제 계획서에 기관이 확인한 사실로 실립니다. 잘못 눌렀으면 같은 자리의 「되돌리기」로 한 번에 되돌릴 수 있습니다.`,
     error: ''
   });
