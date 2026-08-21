@@ -396,7 +396,7 @@ test('자료보관함 복구키로 새 브라우저에서도 동일한 D1 소유
 test('앱은 공고문 입력에서 시작하고 사용자 확정 회사 정보만 생성에 사용한다', () => {
   const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   assert.match(source, /step: 0,/);
-  assert.match(source, /return buildApplicantOrganization\(selectedApplicant\(\), state\.projectValues\)/);
+  assert.match(source, /return buildApplicantOrganization\(selectedApplicant\(\), state\.projectValues, \{ requirements: comparisonRequirements\(\), noticeTitle: state\.selectedNotice\?\.title \|\| state\.project\.title \|\| '' \}\)/);
   const applicantSource = fs.readFileSync(new URL('../src/applicants.js', import.meta.url), 'utf8');
   assert.match(applicantSource, /confirmedFacts: confirmedItems\(snapshot\)/);
   assert.doesNotMatch(source, /profileForPrompt|organizationProfile/);

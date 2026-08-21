@@ -22,7 +22,7 @@ const AREA_KEYS = APPLICANT_AREAS.map(area => area.key);
 const ELIGIBILITY_PATTERN = /(자격|법인|등록|인가|허가|신청 ?대상|결격|의무|증빙|서류)/;
 const PROJECT_DECISION_PATTERN = /(회기|횟수|일정|기간|예산|사업비|목표|지표|인원|모집|배치|산출|성과)/;
 
-export const ORGANIZATION_RULE = 'confirmedFacts에 있는 신청기관 정보만 확정된 기관 사실로 사용한다. needsVerification 항목은 값을 전달하지 않았으므로 사실처럼 쓰지 말고 필요하면 [확인 필요]로 표시한다. projectSpecificValues.thisProjectValue는 이번 사업에서만 사용하는 설계값이며 신청기관 원본(applicantOriginalValue)을 대체하거나 수정하지 않는다. pastProjectRecords는 지난 사업의 기록이므로 수행 실적과 역량의 근거로만 인용하고, 그 안의 인원·회기·기간·예산을 이번 사업의 값으로 옮겨 적지 않는다.';
+export const ORGANIZATION_RULE = 'confirmedFacts에 있는 신청기관 정보만 확정된 기관 사실로 사용한다. needsVerification 항목은 값을 전달하지 않았으므로 사실처럼 쓰지 말고 필요하면 [확인 필요]로 표시한다. projectSpecificValues.thisProjectValue는 이번 사업에서만 사용하는 설계값이며 신청기관 원본(applicantOriginalValue)을 대체하거나 수정하지 않는다. pastProjectRecords는 지난 사업의 기록이므로 수행 실적과 역량의 근거로만 인용하고, 그 안의 인원·회기·기간·예산을 이번 사업의 값으로 옮겨 적지 않는다. otherPastProjects는 이번 공고와 관련이 적어 펼치지 않은 실적의 건수다. 건수만 인용할 수 있고 그 안의 사업명·기관명을 지어내지 않는다.';
 export const NO_APPLICANT_RULE = '이번 사업의 신청기관이 선택되지 않았다. 기관 인력·실적·자격·예산·시설을 만들지 말고 필요한 위치에 [확인 필요]를 유지한다.';
 
 function text(value, max) { return String(value ?? '').trim().slice(0, max); }
@@ -78,10 +78,8 @@ export function makeApplicantItem(value = {}) {
 }
 
 // 기관의 현재 상태와 사업별 기록을 나눠서 본다.
-export function splitApplicantProfile(applicant) {
-  const items = (applicant?.items || []).map(item => ({ ...item, scope: classifyItemScope(item) }));
-  const profile = items.filter(item => item.scope === 'profile');
-  const historyItems = items.filter(item => item.scope === 'history');
+// 이력 항목을 사업 단위로 묶는다. 전체를 볼 때와 공고 관련만 볼 때가 같은 방식으로 묶여야 한다.
+export function groupProjects(historyItems = []) {
   const projects = new Map();
   for (const item of historyItems) {
     const key = projectKeyOf(item);
@@ -90,11 +88,14 @@ export function splitApplicantProfile(applicant) {
     if (!bucket.year && key.year) bucket.year = key.year;
     projects.set(key.key, bucket);
   }
-  return {
-    profile,
-    history: historyItems,
-    projects: [...projects.values()].sort((left, right) => String(right.year).localeCompare(String(left.year)))
-  };
+  return [...projects.values()].sort((left, right) => String(right.year).localeCompare(String(left.year)));
+}
+
+export function splitApplicantProfile(applicant) {
+  const items = (applicant?.items || []).map(item => ({ ...item, scope: classifyItemScope(item) }));
+  const profile = items.filter(item => item.scope === 'profile');
+  const historyItems = items.filter(item => item.scope === 'history');
+  return { profile, history: historyItems, projects: groupProjects(historyItems) };
 }
 
 export const SOURCE_KINDS = ['홈페이지', '블로그', '기관소개서·브로슈어', '과거 사업계획서', '결과보고서', '기타 기관자료'];
@@ -208,11 +209,26 @@ export function normalizeProjectValues(values, applicant) {
   });
 }
 
-export function buildApplicantOrganization(applicant, projectValues = []) {
+// requirements를 주면 공고와 낱말이 겹치는 실적만 펼친다. 나머지는 건수만 알린다.
+//
+// 왜. 실제 기관 연혁 한 건이 실적 96건이 되면서 호출마다 기관 자료가 508자에서 9,953자로 늘었다.
+// 계획서는 묶음마다 다시 부르므로 그만큼 매번 실린다. 실적을 버리는 것이 아니라, 이번 공고와
+// 상관없는 것을 펼치지 않고 「그 외 몇 건」으로만 알린다. 겹침 판정은 비교 화면과 같은 규칙이다.
+export function buildApplicantOrganization(applicant, projectValues = [], { requirements = [], noticeTitle = '' } = {}) {
   if (!applicant) return { applicantId: '', organization: '신청기관 미선택', confirmedFacts: [], needsVerification: [], projectSpecificValues: [], rule: NO_APPLICANT_RULE };
   const snapshot = structuredClone(applicant);
   const split = splitApplicantProfile(snapshot);
   const isProfile = item => split.profile.some(entry => entry.id === item.id);
+  // 공고명은 가장 강한 단서다. 요구사항과 함께 고르는 근거로 쓴다.
+  const criteria = [String(noticeTitle || '').trim(), ...requirements].filter(Boolean);
+  // 고르는 것은 실적이 많을 때만이다. 상한보다 적으면 이미 작아서 줄일 이유가 없고,
+  // 몇 건 없는 기관에서 골라 내면 있는 실적마저 안 보이게 된다.
+  const selecting = criteria.length > 0 && split.history.length > RELATED_LIMIT;
+  // 공고 정보가 아직 없으면(분석 전) 예전처럼 전부 싣는다. 임의로 줄이지 않는다.
+  const related = selecting ? relatedItems(split.history, criteria) : split.history;
+  const shownProjects = selecting ? groupProjects(related) : split.projects;
+  const omitted = split.history.filter(item => !related.some(entry => entry.id === item.id));
+  const omittedYears = [...new Set(omitted.map(item => String(item.asOf || '').match(/(19|20)\d{2}/)?.[0] || '연도 확인 필요'))].sort();
   return {
     applicantId: snapshot.id,
     organization: snapshot.name,
@@ -220,11 +236,15 @@ export function buildApplicantOrganization(applicant, projectValues = []) {
     confirmedFacts: confirmedItems(snapshot).filter(isProfile).map(item => ({ id: item.id, category: areaTitle(item.area), title: item.label, content: item.value, source: item.source, asOf: item.asOf || '', status: CONFIRMED_STATUS, confirmedByUser: true })),
     needsVerification: unverifiedItems(snapshot).filter(isProfile).map(item => ({ id: item.id, category: areaTitle(item.area), title: item.label, status: item.status })),
     // 지난 사업 기록은 실적·근거로만 제안하고 이번 사업 값으로 옮기지 않는다.
-    pastProjectRecords: split.projects.map(project => ({
+    pastProjectRecords: shownProjects.map(project => ({
       year: project.year || '연도 확인 필요',
       source: project.source,
       records: project.items.map(item => ({ category: areaTitle(item.area), title: item.label, content: item.status === CONFIRMED_STATUS ? item.value : '', status: item.status, asOf: item.asOf || '' }))
     })),
+    // 펼치지 않은 실적. 없다고 말하지 않고 몇 건이 더 있는지 밝힌다.
+    otherPastProjects: omitted.length
+      ? { count: omitted.length, years: omittedYears, note: '이번 공고 요구와 낱말이 겹치지 않아 건수만 알린다. 없는 실적이 아니라 펼치지 않은 실적이다.' }
+      : null,
     projectSpecificValues: normalizeProjectValues(projectValues, snapshot),
     rule: ORGANIZATION_RULE
   };
@@ -301,6 +321,44 @@ export function contractFixedRule(requirement, contract) {
   // 출처만 실행계약서인 경우. 공고가 정한 조건인 것은 맞지만 어느 규칙인지는 모른다.
   // 아무 규칙이나 붙이면 「신청 마감」에 「사업기간」 값이 달리는 사고가 난다.
   return fromContract ? { id: '', title: '', value: '', unit: '', ruleType: '', fromSourceOnly: true } : null;
+}
+
+// 공고 요구와 낱말이 겹치는 항목만 고른다. 겹침 판정은 비교 화면과 같은 낱말 나누기를 쓴다.
+// 버리는 것이 아니라 펼치지 않는 것이다 — 나머지는 건수를 세어 함께 보낸다.
+//
+// 그냥 「낱말 하나라도 겹치면」으로 하면 아무것도 걸러지지 않는다. 실제 공고문으로 재 보니
+// 실적 99건이 99건 그대로 남았다. 공고 요구 문장에는 「사업」·「프로그램」·「지원」처럼
+// 실적 대부분에 들어 있는 낱말이 늘 섞여 있기 때문이다.
+// 그래서 실적 셋 중 하나를 넘게 가리키는 낱말은 고르는 근거에서 뺀다. 그 낱말로는 가려낼 수 없다.
+const GENERIC_RATIO = 0.3;
+// 그래도 「상담」·「교육」처럼 어중간하게 흔한 낱말 하나로는 관계를 말할 수 없다.
+// 실적 열 건에 하나꼴로만 나오는 드문 낱말은 그 하나로 충분하고(2점),
+// 그보다 흔하면 두 낱말 이상 겹쳐야 관련으로 본다(1점씩, 2점부터 펼침).
+const RARE_RATIO = 0.1;
+const RELATED_SCORE = 2;
+// 한 번에 펼칠 실적의 최대 건수. 공고와 다 겹쳐도 호출 자료가 무한정 커지지 않게 한다.
+export const RELATED_LIMIT = 30;
+export function relatedItems(items = [], requirements = [], { limit = RELATED_LIMIT } = {}) {
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) return [];
+  const haystacks = new Map(list.map(item => [item.id, `${item.label} ${item.value} ${areaTitle(item.area)}`]));
+  const scores = new Map();
+  const used = new Set();
+  for (const requirement of Array.isArray(requirements) ? requirements : []) {
+    const label = typeof requirement === 'string' ? requirement : `${requirement?.requirement || ''} ${requirement?.category || ''}`;
+    for (const token of tokens(label)) {
+      if (used.has(token)) continue;
+      used.add(token);
+      const hits = list.filter(item => haystacks.get(item.id).includes(token));
+      if (!hits.length || hits.length > list.length * GENERIC_RATIO) continue;
+      const weight = hits.length <= list.length * RARE_RATIO ? RELATED_SCORE : 1;
+      for (const item of hits) scores.set(item.id, (scores.get(item.id) || 0) + weight);
+    }
+  }
+  // 겹치는 낱말이 많은 것부터, 같으면 최근 것부터 펼친다.
+  const ranked = list.filter(item => (scores.get(item.id) || 0) >= RELATED_SCORE)
+    .sort((left, right) => (scores.get(right.id) - scores.get(left.id)) || String(right.asOf || '').localeCompare(String(left.asOf || '')));
+  return limit > 0 ? ranked.slice(0, limit) : ranked;
 }
 
 export function compareNoticeWithApplicant(requirements, applicant, contract = null) {

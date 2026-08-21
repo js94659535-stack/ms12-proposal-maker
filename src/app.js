@@ -3371,7 +3371,8 @@ function isStepComplete(index) {
 }
 function selectedApplicant() { return findApplicant(state.applicants, state.selectedApplicantId); }
 function organizationForGeneration() {
-  return buildApplicantOrganization(selectedApplicant(), state.projectValues);
+  // 공고 요구를 함께 넘겨 관련 있는 실적만 펼친다. 요구가 아직 없으면 예전처럼 전부 실린다.
+  return buildApplicantOrganization(selectedApplicant(), state.projectValues, { requirements: comparisonRequirements(), noticeTitle: state.selectedNotice?.title || state.project.title || '' });
 }
 
 // ---------- 상단 드롭다운 ----------

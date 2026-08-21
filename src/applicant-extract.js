@@ -302,7 +302,11 @@ export function buildUpdateCandidates(applicant, extraction) {
     };
     if (CUMULATIVE_AREAS.includes(candidate.area)) {
       // 실적은 라벨이 겹칠 수 있으므로 같은 영역에서 내용이 같은 항목이 있으면 이미 있는 실적으로 본다.
-      const sameRecord = (applicant?.items || []).find(item => item.area === candidate.area && normalizeKey(item.value) === normalizeKey(candidate.value));
+      // 다만 기준시점이 다르면 다른 해에 다시 한 다른 실적이다. 값이 같다고 합치면 연도가 하나만 남는다 —
+      // 실제 연혁에서 2025년과 2026년에 각각 한 같은 사업 3건이 그렇게 한 줄로 접혔다.
+      const sameRecord = (applicant?.items || []).find(item => item.area === candidate.area
+        && normalizeKey(item.value) === normalizeKey(candidate.value)
+        && asOfYear(item.asOf) === asOfYear(candidate.asOf));
       if (sameRecord) return { ...base, existingItemId: sameRecord.id, existingValue: sameRecord.value, existingStatus: sameRecord.status, existingAsOf: sameRecord.asOf || '', kind: '동일', action: '이미 있는 실적이므로 값은 그대로 두고 이 문서를 근거로만 추가합니다.' };
       return { ...base, kind: '누적 추가', action: '사업실적은 누적 정보이므로 기존 기록을 두고 새 항목으로 추가합니다.' };
     }
