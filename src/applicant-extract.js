@@ -64,6 +64,14 @@ const LABEL_KEY_RULES = [
 const LABEL_KEY_MAP = new Map(LABEL_KEY_RULES.flatMap(rule => rule.keys.map(key => [key, rule])));
 const SEGMENT_SPLIT = /\t+| {2,}|(?=•)/;
 
+// 공공 서식은 「대 표 자 :」처럼 자간이 벌어지고 「법인명(단체명) :」처럼 괄호가 붙는다.
+// 콜론 앞에서만 공백·괄호를 지워 라벨 규칙에 걸리게 한다. 콜론 뒤의 값은 손대지 않는다.
+function labeledLine(line) {
+  const at = String(line).search(/[:：]/);
+  if (at < 1) return String(line);
+  return `${String(line).slice(0, at).replace(/\([^)]*\)/g, '').replace(/[\s.·]/g, '')}${String(line).slice(at)}`;
+}
+
 // 서식의 칸 제목이 값으로 들어오지 않게 거른다.
 const HEADER_VALUE_PATTERN = /^[([]?\s*(?:활동\s*내용|수행\s*방법|산출\s*목표|세부\s*내용|구분|내용|비고|합계|계$|비율|재원|금액|단위|사업자번호|사업자등록번호|고유번호|연번|번호|해당\s*없음|없음)/;
 function labelKey(value) { return String(value ?? '').replace(/[\s()·:：.]/g, ''); }
@@ -73,8 +81,9 @@ function usableValue(segment, rule = null) {
   if (value.length < 2 || value.length > 200 || !/[가-힣A-Za-z0-9]/.test(value)) return false;
   if (segmentRule(value) || HEADER_VALUE_PATTERN.test(value)) return false;
   // 빈 서식의 라벨 줄("법인등기번호 사업자등록번호 소재지 대표자")이나 한두 글자 칸은 값이 아니다.
+  // 다만 라벨과 짝지어진 칸은 짧아도 값이다. 「대표자   홍길동」의 세 글자 이름이 여기서 떨어졌다.
   const key = labelKey(value);
-  if (!/\d/.test(value) && key.length <= 3) return false;
+  if (!rule && !/\d/.test(value) && key.length <= 3) return false;
   if ([...LABEL_KEY_MAP.keys()].filter(label => label.length > 2 && key.includes(label)).length >= 2) return false;
   // 예산·번호 항목은 숫자가 있어야 실제 값으로 본다.
   if ((rule?.area === 'budget' || rule?.label === '고유번호') && !/\d/.test(value)) return false;
@@ -82,7 +91,22 @@ function usableValue(segment, rule = null) {
 }
 
 // 개인 신상정보는 기관 정보로 수집하지 않는다.
-const PERSONAL_INFO_PATTERN = /(\d{6}\s*[-–]\s*\d{7})|(01[016-9][-.\s]?\d{3,4}[-.\s]?\d{4})|(\d{2,4}[-.\s]\d{3,4}[-.\s]\d{4})|([\w.+-]+@[\w-]+\.[\w.]+)|(생년월일|주민등록번호|휴대(?:전화|폰)|연락처|이메일|e-?mail)/i;
+//
+// 예전에는 개인정보가 섞인 줄을 통째로 버렸다. 그런데 공공 서식은 「기관명 … 연락처 02-…」처럼
+// 한 줄에 같이 오는 일이 흔해서, 연락처 하나 때문에 그 줄의 기관명까지 사라졌다.
+// 이제 줄은 살리고 사람 정보만 잘라 낸다. 잘라 낸 뒤 남는 것이 없으면 그때 후보로 만들지 않는다.
+const PERSONAL_ID_PATTERN = /(\d{6}\s*[-–]\s*\d{7})|(01[016-9][-.\s]?\d{3,4}[-.\s]?\d{4})|(\d{2,4}[-.\s]\d{3,4}[-.\s]\d{4})|([\w.+-]+@[\w-]+\.[\w.]+)/g;
+// 이 말이 나오면 그 뒤는 사람 정보다. 값을 여기서 끊는다.
+const PERSONAL_LABEL_PATTERN = /(?:생년월일|주민등록번호|휴대(?:전화|폰)|연락처|전화번호|이메일|e-?mail)/i;
+export function stripPersonal(value) {
+  const body = String(value ?? '');
+  const at = body.search(PERSONAL_LABEL_PATTERN);
+  return (at >= 0 ? body.slice(0, at) : body)
+    .replace(PERSONAL_ID_PATTERN, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/[,·/|(\-]\s*$/, '')
+    .trim();
+}
 
 // 라벨이 없어도 실적 줄은 연도와 함께 누적 정보로 모은다.
 const PERFORMANCE_PATTERN = /^(20\d{2})\s*년?\s*[.\-·]?\s*(.{4,80}?(?:사업|프로그램|공모|위탁|용역))\s*$/;
@@ -107,17 +131,30 @@ export function documentAsOf(text) {
   return head ? asOfFrom(head) : '';
 }
 
-export function extractApplicantCandidates(text, { documentName = '', includeNarrative = false, sourceLabel = '' } = {}) {
+// includeNarrative는 서술 규칙과 표 칸 짝짓기를 켤지 정한다. 기본값은 켬이다.
+//
+// 처음 이 옵션을 만들 때는 끔이 기본이었다(83242ba). 검증·코칭 화면에 서술 규칙을 붙이면서
+// 「기존 문서 화면의 동작을 그대로 두려고」 붙인 기본값이었고, 오탐 때문이 아니었다.
+// 그 뒤 실제 배분신청서가 표 칸("기 관 명   수완아동센터")이라 아무것도 못 읽는 것을 고쳤는데(07af1ca),
+// 그 고침도 이 옵션 안에 들어갔다. 그래서 정작 사용자가 서류를 올리는 화면만 27개 규칙이 꺼진 채였다.
+// 이제 기본을 켬으로 두어 새 호출자가 모르고 꺼뜨리는 일이 없게 한다.
+//
+// 실제 문서 여섯 가지(고유번호증 두 형태·연혁·소개서·결산서·신청서 서식)로 재니
+// 후보가 2건에서 37건이 되었고 여섯 중 다섯이 0건이던 것이 모두 0건을 벗어났다.
+// 기관 사실이 없는 글(공고문·일반 서술·빈 서식 라벨 줄)에서는 전·후 모두 0건이라 오탐은 늘지 않았다.
+export function extractApplicantCandidates(text, { documentName = '', includeNarrative = true, sourceLabel = '' } = {}) {
   const body = String(text || '');
   const docAsOf = documentAsOf(body);
   const name = clean(documentName, 200);
   const source = name ? `${name}${sourceLabel ? `(${sourceLabel})` : ''}에서 추출` : `${sourceLabel || '업로드한 기관 문서'}에서 추출`;
   const seen = new Set();
   const candidates = [];
-  const add = (area, label, value, lineAsOf, excerpt) => {
-    if (!value || candidates.length >= 60) return;
-    // 개인 신상정보가 섞인 문장은 기관 정보 후보로 만들지 않는다.
-    if (PERSONAL_INFO_PATTERN.test(excerpt) || PERSONAL_INFO_PATTERN.test(value)) return;
+  const add = (area, label, rawValue, lineAsOf, rawExcerpt) => {
+    if (!rawValue || candidates.length >= 60) return;
+    // 값과 근거 문장에서 사람 정보만 잘라 낸다. 잘라 내고 남는 것이 없으면 후보로 만들지 않는다.
+    const value = stripPersonal(rawValue);
+    const excerpt = stripPersonal(rawExcerpt);
+    if (!value) return;
     const key = `${area}:${normalizeKey(label)}:${normalizeKey(value)}`;
     if (seen.has(key)) return;
     seen.add(key);
@@ -128,8 +165,9 @@ export function extractApplicantCandidates(text, { documentName = '', includeNar
     const lineAsOf = asOfFrom(line.match(ANY_DATE_PATTERN)) || docAsOf;
     const performance = line.match(PERFORMANCE_PATTERN);
     if (performance) { add('performance', `${performance[1]}년 사업실적`, clean(performance[2], 500), performance[1], line); continue; }
-    const rule = LABELED_RULES.find(item => item.pattern.test(line));
-    if (rule) { add(rule.area, rule.label, clean(line.match(rule.pattern)[1], 500), lineAsOf, line); continue; }
+    const labeled = labeledLine(line);
+    const rule = LABELED_RULES.find(item => item.pattern.test(labeled));
+    if (rule) { add(rule.area, rule.label, clean(labeled.match(rule.pattern)[1], 500), lineAsOf, line); continue; }
     if (!includeNarrative) continue;
     // 줄 전체에서 먼저 확인한다("참여 인력 수 : 5 명"처럼 칸이 나뉘면 놓치기 때문).
     for (const narrative of NARRATIVE_RULES) {
@@ -143,8 +181,9 @@ export function extractApplicantCandidates(text, { documentName = '', includeNar
       const segmentAsOf = asOfFrom(segment.match(ANY_DATE_PATTERN)) || lineAsOf;
       const performanceSegment = segment.match(PERFORMANCE_PATTERN);
       if (performanceSegment) { add('performance', `${performanceSegment[1]}년 사업실적`, clean(performanceSegment[2], 500), performanceSegment[1], segment); continue; }
-      const labeled = LABELED_RULES.find(item => item.pattern.test(segment));
-      if (labeled) { add(labeled.area, labeled.label, clean(segment.match(labeled.pattern)[1], 500), segmentAsOf, segment); continue; }
+      const labeledSegment = labeledLine(segment);
+      const labeledRule = LABELED_RULES.find(item => item.pattern.test(labeledSegment));
+      if (labeledRule) { add(labeledRule.area, labeledRule.label, clean(labeledSegment.match(labeledRule.pattern)[1], 500), segmentAsOf, segment); continue; }
       // 실적표는 "2024년 | ○○사업 | 규모"처럼 연도 칸이 따로 온다.
       const yearOnly = segment.match(/^(20\d{2})\s*년?$/);
       if (yearOnly && usableValue(segments[index + 1]) && /사업|프로그램|과정|교육|용역|위탁/.test(segments[index + 1])) {

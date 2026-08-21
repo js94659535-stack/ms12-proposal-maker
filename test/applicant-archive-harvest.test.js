@@ -160,8 +160,9 @@ test('표·서식형 신청서에서도 칸 단위로 기관 정보를 읽는다
   // 같은 값이 여러 번 나와도 후보는 한 번만 만든다.
   assert.equal(labels.filter(label => label === '기관명=QA 수완아동센터').length, 1);
 
-  // 서술형 옵션을 끄면 기존 라벨 규칙만 사용한다.
-  assert.equal(extractApplicantCandidates(FORM_TEXT, { documentName: 'QA 배분신청서' }).candidates.length, 0);
+  // 서술·표 규칙은 이제 기본으로 켜져 있다. 끄려면 명시해야 하고, 끄면 라벨 규칙만 남는다.
+  assert.ok(extractApplicantCandidates(FORM_TEXT, { documentName: 'QA 배분신청서' }).candidates.length > 0);
+  assert.equal(extractApplicantCandidates(FORM_TEXT, { documentName: 'QA 배분신청서', includeNarrative: false }).candidates.length, 0);
 });
 
 test('신청기관 화면에서 출처·연도·상태를 확인할 수 있다', () => {

@@ -55,10 +55,11 @@ test('검증한 계획서에서 작성에 쓰이는 기관 사실만 뽑고 개�
   assert.match(pick(review, '총사업비').source, /QA 계획서\(검증·코칭 계획서\)에서 추출/);
   assert.ok(pick(review, '총사업비').excerpt.includes('30,000,000원'));
 
-  // 서술형 규칙은 기관 문서 화면의 기존 동작을 바꾸지 않는다.
-  const labeledOnly = extractApplicantCandidates(PROPOSAL_TEXT, { documentName: 'QA 계획서' }).candidates.map(item => item.label);
+  // 서술 규칙을 명시로 끄면 라벨 규칙만 남는다. 기본값은 켬이라 기관 문서 화면도 같은 규칙을 쓴다.
+  const labeledOnly = extractApplicantCandidates(PROPOSAL_TEXT, { documentName: 'QA 계획서', includeNarrative: false }).candidates.map(item => item.label);
   assert.equal(labeledOnly.includes('총사업비'), false);
   assert.ok(labeledOnly.includes('기관명'));
+  assert.ok(extractApplicantCandidates(PROPOSAL_TEXT, { documentName: 'QA 계획서' }).candidates.map(item => item.label).includes('총사업비'));
 });
 
 test('과거 문서 값은 현재값을 덮어쓰지 않고 실적은 누적·중복은 근거만 추가한다', () => {

@@ -131,3 +131,114 @@ test('기준시점과 이력은 저장 형식과 화면 흐름에 연결된다',
   assert.match(appSource, /data-apply-candidate/);
   assert.match(appSource, /apply-safe-candidates/);
 });
+
+// ---------- 실제 문서 모양 여섯 가지 ----------
+//
+// 예전 시험 자료는 전부 「라벨: 값」 한 줄 형식이었다. 그래서 시험은 다 통과하는데 실제 문서는
+// 여섯 중 다섯이 0건이었다. 공공 서식은 라벨 글자 사이가 벌어지고(「대 표 자 :」), 괄호가 붙고
+// (「법인명(단체명) :」), PDF 표는 여러 칸이 공백 두 칸으로 붙어 한 줄로 나온다.
+// 아래 여섯은 그 모양 그대로다. 자간·괄호·표 칸·서술문이 모두 들어 있다.
+
+const REAL_DOCUMENTS = {
+  '고유번호증(전자발급)': `고 유 번 호 증
+고유번호 : 123-82-56789
+법인명(단체명) : 사단법인 햇살복지재단
+대 표 자 : 홍길동
+소 재 지 : 서울특별시 관악구 신림로 123, 2층
+단체유형 : 비영리법인
+발급일 : 2024-03-11`,
+  '고유번호증(표 칸)': `고유번호증
+고유번호   123-82-56789   법인명   사단법인 햇살복지재단
+대표자   홍길동   개업연월일   2011-04-02
+소재지   서울특별시 관악구 신림로 123, 2층`,
+  '기관 연혁': `햇살복지재단 연혁
+2011년 4월  사단법인 설립 인가(서울특별시)
+2014년  지역아동센터 위탁 운영 시작
+2023년  청소년 마음건강 지원사업 위탁 운영
+2024년  경계선 지능아동 사회적응 지원사업 수행
+현재 상근 직원 7명과 비상근 강사 4명이 근무하고 있으며, 사회복지사 5명을 두고 있다.
+상담실 2실과 집단상담실 1실을 갖추고 있고, 서울시립대학교와 업무협약을 체결하였다.`,
+  '기관소개서': `1. 기관 개요
+사단법인 햇살복지재단은 2011년 설립되어 관악구 일대 아동·청소년을 지원해 왔습니다.
+2. 인력 현황
+상근 인력 7명, 비상근 강사 4명이며 사회복지사 5명, 청소년지도사 2명이 있습니다.
+3. 시설
+상담실 2실, 교육실 1실을 운영합니다.
+4. 성과
+2024년 만족도 조사 결과 만족도 92.4% 였으며 사전·사후 검사를 실시하였습니다.`,
+  '결산서': `2025년도 세입세출 결산서
+총 사업비   182,400,000 원
+자부담   12,000,000 원`,
+  '신청서 서식': `사업계획서
+기 관 명   햇살지역아동센터   고유번호   123-82-56789
+대 표 자   홍길동   설립일   2011-04-02
+상근인력   7명   보유자격   사회복지사 5명
+주요실적   2024년 경계선 지능아동 사회적응 지원사업`
+};
+
+function labelsOf(text) {
+  return extractApplicantCandidates(text, { documentName: 'QA 실제문서' }).candidates.map(item => `${item.label}=${item.value}`);
+}
+
+test('실제 문서 여섯 가지에서 모두 기관 정보를 읽는다', () => {
+  for (const [name, text] of Object.entries(REAL_DOCUMENTS)) {
+    assert.ok(labelsOf(text).length > 0, `${name}에서 한 건도 뽑지 못했습니다`);
+  }
+});
+
+test('자간이 벌어지거나 괄호가 붙은 라벨도 읽는다', () => {
+  const labels = labelsOf(REAL_DOCUMENTS['고유번호증(전자발급)']);
+  // 「법인명(단체명) :」의 괄호와 「대 표 자 :」·「소 재 지 :」의 자간을 넘어야 한다.
+  assert.ok(labels.includes('기관명=사단법인 햇살복지재단'), labels.join(' / '));
+  assert.ok(labels.includes('대표자=홍길동'), labels.join(' / '));
+  assert.ok(labels.includes('소재지=서울특별시 관악구 신림로 123, 2층'), labels.join(' / '));
+  assert.ok(labels.includes('고유번호=123-82-56789'));
+});
+
+test('표 칸으로 나뉜 서식에서 세 글자 이름도 값으로 읽는다', () => {
+  for (const key of ['고유번호증(표 칸)', '신청서 서식']) {
+    const labels = labelsOf(REAL_DOCUMENTS[key]);
+    assert.ok(labels.includes('대표자=홍길동'), `${key}: ${labels.join(' / ')}`);
+  }
+  const form = labelsOf(REAL_DOCUMENTS['신청서 서식']);
+  assert.ok(form.includes('기관명=햇살지역아동센터'), form.join(' / '));
+  assert.ok(form.includes('상근 인력=7명'));
+  assert.ok(form.includes('보유 자격=사회복지사 5명'));
+});
+
+test('연혁·소개서 같은 서술문에서 인력·시설·협약·실적을 읽는다', () => {
+  const history = labelsOf(REAL_DOCUMENTS['기관 연혁']);
+  assert.ok(history.includes('상근 인력=7명'), history.join(' / '));
+  assert.ok(history.includes('보유 자격=사회복지사 5명'));
+  assert.ok(history.includes('협력기관=서울시립대학교'));
+  assert.ok(history.some(label => /^20\d{2}년 사업실적=/.test(label)), history.join(' / '));
+
+  const intro = labelsOf(REAL_DOCUMENTS['기관소개서']);
+  assert.ok(intro.includes('운영 시설=상담실 2실'), intro.join(' / '));
+  assert.ok(intro.some(label => label.startsWith('성과측정 경험=')), intro.join(' / '));
+
+  const budget = labelsOf(REAL_DOCUMENTS['결산서']);
+  assert.ok(budget.some(label => label.startsWith('총사업비=182,400,000')), budget.join(' / '));
+  assert.ok(budget.some(label => label.startsWith('자부담=12,000,000')));
+});
+
+test('연락처가 섞인 줄은 연락처만 지우고 나머지는 살린다', () => {
+  const result = extractApplicantCandidates('기관명: 햇살복지재단   연락처: 02-000-0000\n상근 직원 7명이며 문의는 010-1234-5678 입니다', { documentName: 'QA 섞인문서' });
+  const labels = result.candidates.map(item => `${item.label}=${item.value}`);
+  // 예전에는 이 줄이 통째로 버려져 기관명까지 사라졌다.
+  assert.ok(labels.includes('기관명=햇살복지재단'), labels.join(' / '));
+  assert.ok(labels.includes('상근 인력=7명'), labels.join(' / '));
+  // 그래도 연락처 자체는 값에도 근거 문장에도 남기지 않는다.
+  const serialized = JSON.stringify(result);
+  for (const personal of ['02-000-0000', '010-1234-5678', '연락처']) {
+    assert.equal(serialized.includes(personal), false, `${personal}이 수집되었습니다`);
+  }
+});
+
+test('사람 정보뿐인 값은 후보로 만들지 않는다', () => {
+  const result = extractApplicantCandidates('담당자 홍길동 010-1234-5678 (hong@example.com)\n대표자 : 010-1234-5678', { documentName: 'QA 개인정보' });
+  const serialized = JSON.stringify(result);
+  for (const personal of ['010-1234-5678', 'hong@example.com', '홍길동']) {
+    assert.equal(serialized.includes(personal), false, `${personal}이 수집되었습니다`);
+  }
+});
