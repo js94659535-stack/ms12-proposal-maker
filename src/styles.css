@@ -782,3 +782,16 @@ select{max-width:100%}
 .pipeline-step.now{color:#fff;background:var(--blue,#8c5a33)}
 .pipeline small{margin-left:auto;font-size:12px;color:var(--muted,#52453c)}
 @media(max-width:600px){.pipeline small{margin-left:0;width:100%}}
+
+/* 다음에 누를 곳 하나만 가리킨다. 화면 전체를 깜박이게 하지 않는다.
+   네 번만 맥박처럼 번지고 멈춘다 — 계속 움직이면 읽는 것을 방해한다. */
+.button.next-step{animation:nextStep 1.5s ease-out 4}
+@keyframes nextStep{
+  0%{box-shadow:0 0 0 0 rgba(140,90,51,.5)}
+  70%{box-shadow:0 0 0 12px rgba(140,90,51,0)}
+  100%{box-shadow:0 0 0 0 rgba(140,90,51,0)}
+}
+/* 움직임을 줄여 달라고 해 둔 사람에게는 테두리로만 알린다. */
+@media(prefers-reduced-motion:reduce){
+  .button.next-step{animation:none;outline:2px solid var(--blue);outline-offset:3px}
+}

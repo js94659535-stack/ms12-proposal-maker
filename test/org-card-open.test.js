@@ -50,7 +50,10 @@ test('전부 0건일 때만 문서 추출을 가리킨다', () => {
   const view = app.slice(app.indexOf('function applicantLoadedView'), app.indexOf('function applicantFitView'));
   assert.match(view, /const empty = summary\.every\(area => !area\.total\);/);
   assert.match(view, /\$\{empty \? `<div class="alert warning">/, '이미 채웠으면 뜨지 않는다');
-  assert.match(view, /기존 사업계획서나 결과보고서를 올리면 여러 칸을 한 번에 채울 수 있습니다/);
+  // 내부 용어가 아니라 올릴 서류 이름으로 말한다. 「기관 문서에서 정보 추출」은 아무도 못 알아봤다.
+  assert.match(view, /연혁·사업계획서·결산서를 올리면 자동으로 채워집니다/);
+  // 무엇을 올리면 무엇이 채워지는지 예를 함께 보여 준다.
+  assert.match(view, /기관 연혁을 올리면 연도별 사업실적이/);
   // 말만 하고 데려가지 않으면 지금과 다를 것이 없다.
   assert.match(view, /id="go-applicant-doc"/);
   assert.match(app, /<div class="card" id="applicant-doc" tabindex="-1">/);

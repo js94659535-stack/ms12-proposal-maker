@@ -43,7 +43,7 @@ import { MAX_QUESTIONS, UNKNOWN, checkNumbers, intakeState } from '../server/pro
 import { reportError, reportStep, resetActivityDedupe } from './activity.js';
 import { fetchNoticeDetail, fetchNoticeList, importNoticeUrl, noticeBodyText } from './notices.js';
 import { setArchiveWorkspace, claimMyArchive, deleteIdeaAsset, listIdeaAssets, saveIdeaAsset, deleteArchivedApplicant, getArchivedProposal, getArchiveRecoveryKey, listArchivedApplicants, listArchivedProposals, saveArchivedApplicant, saveArchivedProposal, searchArchivedNotices, syncArchivedNotices, useArchiveRecoveryKey } from './archive.js';
-import { ASOF_UNKNOWN, applySafeCandidates, applyUpdateCandidate, buildUpdateCandidates, extractApplicantCandidates } from './applicant-extract.js';
+import { ASOF_UNKNOWN, SAFE_KINDS, applySafeCandidates, applyUpdateCandidate, buildUpdateCandidates, extractApplicantCandidates } from './applicant-extract.js';
 import { REFERENCE_TYPES, assessReferences, makeReference, projectContext, referenceNotices, referencePayload } from './reference-materials.js';
 import { analyzeProposalStructure, buildStructuralRevision, reviewProposalStructure } from './proposal-structure.js';
 import { applyRepairPlans, buildRepairPlans, repairPlanSummary } from './repair-plan.js';
@@ -3681,7 +3681,7 @@ function noticeImportView() {
     ${archiveView()}
     <div class="card-title" style="margin:18px 0 4px"><div><h3>공고문 넣기 <span class="tag">둘 중 하나</span></h3>
       <span>파일을 올리든 붙여넣든 <b>같은 칸에 들어갑니다</b>. 둘 다 할 필요는 없습니다.</span></div></div>
-    <div class="source-grid"><div class="card" id="notice-upload" tabindex="-1"><div class="card-title"><h3>공고문·신청서 업로드</h3><span>PDF · DOCX · TXT · HWPX · HWP</span></div><label class="dropzone" for="source-files"><strong>파일 선택 또는 여기에 놓기</strong><small>스캔 PDF는 OCR이 필요할 수 있습니다.</small><input id="source-files" type="file" accept=".pdf,.docx,.txt,.hwpx,.hwp" multiple></label><div class="file-list">${state.files.length ? state.files.map(fileReportRow).join('') : '<p class="empty-inline">업로드한 파일이 없습니다.</p>'}</div></div>
+    <div class="source-grid"><div class="card" id="notice-upload" tabindex="-1"><div class="card-title"><h3>공고문·신청서 업로드</h3><span>PDF · DOCX · TXT · HWPX · HWP</span></div><label class="dropzone" id="notice-dropzone" for="source-files"><strong>파일 선택 또는 여기에 놓기</strong><small>스캔 PDF는 OCR이 필요할 수 있습니다.</small><input id="source-files" type="file" accept=".pdf,.docx,.txt,.hwpx,.hwp" multiple></label><div class="file-list">${state.files.length ? state.files.map(fileReportRow).join('') : '<p class="empty-inline">업로드한 파일이 없습니다.</p>'}</div></div>
     <div class="card"><div class="card-title"><h3>공고문 직접 붙여넣기</h3><span id="char-count">${state.sourceText.length.toLocaleString()}자</span></div><textarea id="source-text" class="source-text" placeholder="기관 공고문 또는 신청서 원문을 붙여넣으세요.">${escapeHtml(state.sourceText)}</textarea></div></div>
     <p class="muted" style="margin:6px 0 0">위 두 가지는 서로 대체가 아니라 <b>보완</b>입니다. 공고를 고르고 원문까지 넣으면 분석이 더 정확해집니다.</p>
     <div class="card-title" style="margin:18px 0 4px"><div><h3>자료 더하기 <span class="tag">선택</span></h3>
@@ -5208,7 +5208,7 @@ function applicantSourcesView(applicant) {
       <div class="field"><label for="source-name">자료명</label><input id="source-name" value="${escapeHtml(draft.name)}" placeholder="예: 2025 기관소개서"></div></div>
     <div class="two-col"><div class="field"><label for="source-url">주소(URL, 선택)</label><input id="source-url" type="url" value="${escapeHtml(draft.url)}" placeholder="https://"></div>
       <div class="field"><label for="source-asof">자료 기준일</label><input id="source-asof" value="${escapeHtml(draft.asOf)}" placeholder="예: 2026-03 또는 2025년 사업"></div></div>
-    <div class="actions" style="margin:0"><span class="muted">URL은 기록만 합니다. 페이지 내용은 아래 「기관 문서에서 정보 추출」에 붙여넣으면 이 자료를 출처로 저장합니다.</span><button class="button secondary" id="add-applicant-source">기관자료 등록</button></div>
+    <div class="actions" style="margin:0"><span class="muted">URL은 기록만 합니다. 페이지 내용은 아래 「연혁·사업계획서를 올리면 자동으로 채워집니다」 칸에 붙여넣으면 이 자료를 출처로 저장합니다.</span><button class="button secondary" id="add-applicant-source">기관자료 등록</button></div>
     ${sources.length ? `<div class="requirement-list">${sources.map(source => `<article class="requirement"><div><span class="tag">${escapeHtml(source.kind)}</span><div><strong>${escapeHtml(source.name || source.url || '이름 없는 자료')}</strong><small class="muted">${source.url ? `<a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(source.url.slice(0, 60))}</a> · ` : ''}기준일 ${escapeHtml(source.asOf || ASOF_UNKNOWN)}</small></div></div><button class="button secondary" data-remove-source="${escapeHtml(source.id)}">삭제</button></article>`).join('')}</div>` : '<p class="muted">등록한 기관자료가 없습니다.</p>'}</div>`;
 }
 function addApplicantSource() {
@@ -5233,8 +5233,8 @@ function removeApplicantSource(id) {
 // 기존 기관 문서에서 정보를 뽑아 ‘업데이트 후보’로만 만든다. 사용자가 반영을 눌러야 기관 정보가 바뀐다.
 function applicantDocumentView(applicant) {
   const review = state.applicantExtraction?.applicantId === applicant.id ? state.applicantExtraction : null;
-  return `<div class="card" id="applicant-doc" tabindex="-1"><div class="card-title"><div><h3>기관 문서에서 정보 추출</h3><span>사업계획서·결과보고서·기관소개서를 넣으면 기관정보 업데이트 후보를 만듭니다. 기존 정보는 자동으로 덮어쓰지 않습니다.</span></div></div>
-    <div class="field"><label for="applicant-doc-file">기관 문서 파일 (PDF·DOCX·TXT·HWPX·HWP)</label><input type="file" id="applicant-doc-file" accept=".pdf,.docx,.txt,.hwpx,.hwp"><small class="muted">한글 파일(HWPX·HWP)도 본문과 표를 읽습니다. 읽지 못하면 이유를 알려 드립니다.</small></div>
+  return `<div class="card" id="applicant-doc" tabindex="-1"><div class="card-title"><div><h3>연혁·사업계획서를 올리면 자동으로 채워집니다</h3><span>올린 문서에서 찾은 것만 후보로 만듭니다. 기존 정보를 자동으로 덮어쓰지 않습니다.</span></div></div><div class="cap-grid"><div><span>올리는 것</span><strong>기관 연혁 · 사업 실적표</strong><small>채워지는 것 — 연도별 사업실적 (예: 2017년 · 송원대학교, 조선대학교 취창업 청년 캠프)</small></div><div><span>올리는 것</span><strong>사업계획서 · 결과보고서</strong><small>채워지는 것 — 인력 · 시설 · 협력기관 · 예산 (예: 상근 인력 5명, 상담실 2실)</small></div><div><span>올리는 것</span><strong>고유번호증 · 결산서</strong><small>채워지는 것 — 기관명 · 대표자 · 고유번호 · 연간 예산</small></div></div>
+    <label class="dropzone" id="applicant-doc-drop" for="applicant-doc-file"><strong>파일을 고르거나 여기에 끌어다 놓으세요</strong><small>PDF · DOCX · HWP · HWPX · TXT · 파일당 20MB</small><input type="file" id="applicant-doc-file" accept=".pdf,.docx,.txt,.hwpx,.hwp"></label><p class="muted">한글 파일(HWP·HWPX)은 표를 행 그대로 읽습니다. 읽지 못하면 이유를 알려 드립니다. 그림으로만 된 문서는 아직 읽지 못합니다.</p>
     <div class="field"><label for="applicant-doc-text">또는 문서 내용 붙여넣기</label><textarea id="applicant-doc-text" style="min-height:110px" placeholder="예) 기관명: 사단법인 ○○센터 / 상근 인력: 5명 / 2025년 청소년 마음건강 지원사업">${escapeHtml(state.applicantDocDraft)}</textarea></div>
     <div class="actions" style="margin:0"><span class="muted">${escapeHtml(review ? `${review.documentName || '붙여넣은 문서'} · 문서 기준시점 ${review.documentAsOf || ASOF_UNKNOWN}` : '외부 AI 호출 없이 규칙 기반으로 추출합니다.')}</span><button class="button primary" id="extract-applicant-doc">업데이트 후보 만들기</button></div>
     <div class="actions" style="margin-top:14px"><span class="muted">계획서보관함에 저장된 과거 사업계획서는 다시 업로드하지 않고 바로 사용할 수 있습니다.</span><button class="button secondary" id="load-applicant-archive">계획서보관함 목록</button></div>
@@ -5245,14 +5245,21 @@ function applicantDocumentView(applicant) {
 // 두 화면(신청기관 정보·검증 결과)이 같은 후보 목록 UI를 쓴다.
 function candidateReviewView(review) {
   const kindTag = { 신규: 'status 확인-필요', '누적 추가': 'status 확인-필요', 동일: 'status 충족', '변경 가능성': 'status 부분-충족', 충돌: 'status 미충족', '이전 시점 정보': 'status 부분-충족' };
-  return `<div class="actions" style="margin-top:12px"><strong>업데이트 후보 ${review.candidates.length}건</strong><button class="button secondary" id="apply-safe-candidates">신규·누적·근거 추가만 일괄 반영</button></div>
+  // 기존 값을 바꾸지 않아 한 번에 넣을 수 있는 후보. 다음에 누를 곳이 어디인지 숫자로 말해 준다.
+  const safe = review.candidates.filter(item => SAFE_KINDS.includes(item.kind)).length;
+  const rest = review.candidates.length - safe;
+  return `<div id="applicant-candidates" tabindex="-1">
+    <div class="alert success"><strong>문서에서 ${review.candidates.length}건을 찾았습니다</strong>
+      <p>${safe ? `이 중 <b>${safe}건</b>은 기존 값을 바꾸지 않아 아래 버튼 한 번으로 들어갑니다.` : '기존 값과 견줘야 하는 항목이라 하나씩 보고 반영합니다.'}${rest ? ` 나머지 ${rest}건은 기존 값과 달라 항목마다 확인해 주세요.` : ''} 넣은 값은 모두 「확인 필요」로 들어가며, 확인해야 계획서에 사실로 쓰입니다.</p>
+      <div class="actions" style="margin:0"><span class="muted">문서에 있는 것만 후보로 만듭니다. 없는 내용은 만들지 않습니다.</span>
+        <button class="button primary next-step" id="apply-safe-candidates">신규·누적·근거 추가만 일괄 반영${safe ? ` ${safe}건` : ''}</button></div></div>
     ${review.candidates.length ? `<div class="requirement-list">${review.candidates.map(candidate => `<article class="requirement"><div><span class="${kindTag[candidate.kind] || 'tag'}">${escapeHtml(candidate.kind)}</span><div><strong>${escapeHtml(areaTitle(candidate.area))} · ${escapeHtml(candidate.label)}</strong>
       <small>새 정보: ${escapeHtml(candidate.value)}</small>
       <small>기존 정보: ${escapeHtml(candidate.existingItemId ? `${candidate.existingValue} (${candidate.existingStatus})` : '기관 정보에 없음')}</small>
       <small>기준시점: ${escapeHtml(candidate.asOf || ASOF_UNKNOWN)} · ${escapeHtml(candidate.action)}</small>
       ${candidate.excerpt ? `<small>문서 근거: ${escapeHtml(candidate.excerpt)}</small>` : ''}</div></div>
       <div class="actions" style="margin:0;gap:8px"><button class="button secondary" data-apply-candidate="${escapeHtml(candidate.id)}">${candidate.kind === '동일' ? '근거 추가' : '반영'}</button><button class="button secondary" data-ignore-candidate="${escapeHtml(candidate.id)}">무시</button></div></article>`).join('')}</div>`
-    : '<p class="muted">문서에서 기관 정보 후보를 찾지 못했습니다. 항목을 직접 등록하세요.</p>'}`;
+    : '<p class="muted">문서에서 기관 정보 후보를 찾지 못했습니다. 항목을 직접 등록하세요.</p>'}</div>`;
 }
 
 // 검증·코칭에 넣은 계획서를 신청기관 정보 보강에도 재사용한다. 추가 AI 호출은 하지 않는다.
@@ -5544,8 +5551,9 @@ function applicantLoadedView(applicant) {
   // 그 카드는 이 화면 맨 아래에 있어 위에서부터 손으로 채우는 사람은 끝까지 못 본다.
   const empty = summary.every(area => !area.total);
   return `<div class="card"><div class="card-title"><div><h3>불러온 신청기관 정보 · ${escapeHtml(applicant.name)}</h3><span>확인된 정보만 계획서 작성에 전달됩니다.</span></div></div>
-    ${empty ? `<div class="alert warning"><strong>기존 사업계획서나 결과보고서를 올리면 여러 칸을 한 번에 채울 수 있습니다</strong>
-      <p>열한 칸을 하나씩 적지 않아도 됩니다. <button class="button secondary" id="go-applicant-doc">기관 문서에서 정보 추출로 가기</button></p></div>` : ''}
+    ${empty ? `<div class="alert warning"><strong>연혁·사업계획서·결산서를 올리면 자동으로 채워집니다</strong>
+      <p>열한 칸을 하나씩 적지 않아도 됩니다. 기관 연혁을 올리면 연도별 사업실적이, 사업계획서를 올리면 인력·시설·협력기관·예산이, 고유번호증을 올리면 기관명·대표자·고유번호가 후보로 올라옵니다.</p>
+      <p><button class="button primary next-step" id="go-applicant-doc">연혁·사업계획서 올리러 가기</button></p></div>` : ''}
     <div class="summary-grid">${summary.map(area => `<button type="button" data-open-area="${escapeHtml(area.key)}" title="${escapeHtml(area.title)} 적으러 가기"><span>${escapeHtml(area.title)}</span><strong>${area.confirmed}건 확인됨</strong><small>확인 필요·오래된 정보 ${area.needsCheck}건</small></button>`).join('')}</div>
     <details open><summary>계획서 작성에 전달할 확인된 정보 ${confirmed.length}건</summary><div class="cap-grid">${confirmed.length ? confirmed.map(item => `<div><span>${escapeHtml(areaTitle(item.area))}</span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.value)}</small></div>`).join('') : '<p class="muted">확인됨으로 표시된 정보가 없습니다. 기관 사실은 [확인 필요]로만 처리됩니다.</p>'}</div></details>
     <details><summary>전달하지 않는 확인 필요·오래된 정보 ${applicant.items.length - confirmed.length}건</summary><p class="muted">아래 항목은 항목명만 표시하며 내용은 계획서 작성 요청에 포함하지 않습니다.</p><div class="cap-grid">${applicant.items.filter(item => item.status !== CONFIRMED_STATUS).map(item => `<div><span>${escapeHtml(areaTitle(item.area))}</span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.status)}</small></div>`).join('') || '<p class="muted">없음</p>'}</div></details></div>`;
@@ -5619,7 +5627,7 @@ function manualSourcesView() {
   // 고칠 자리는 한 번 더 눌러야 나온다. 읽었으면 굳이 펼쳐 자리를 차지하지 않는다.
   const formMissing = !currentFormSpec()?.items?.length;
   return `<details class="card org-details" id="manual-sources" ${count || formMissing ? 'open' : ''}><summary><b>직접 자료 추가</b>${count ? ` · ${count}건` : ''} <small>PDF · DOCX · TXT / HWPX·HWP 지원</small></summary>
-    <div class="two-col"><div class="field"><label for="manual-source-type">기본 자료 유형</label><select id="manual-source-type">${sourceTypeOptions(state.manualSourceType)}</select><label class="dropzone" for="manual-source-files"><strong>여러 파일 선택</strong><small>자료별 유형은 추가 후 변경할 수 있습니다.</small><input id="manual-source-files" type="file" accept=".pdf,.docx,.txt,.hwp,.hwpx" multiple></label></div>
+    <div class="two-col"><div class="field"><label for="manual-source-type">기본 자료 유형</label><select id="manual-source-type">${sourceTypeOptions(state.manualSourceType)}</select><label class="dropzone" id="manual-dropzone" for="manual-source-files"><strong>여러 파일 선택 또는 여기에 놓기</strong><small>자료별 유형은 추가 후 변경할 수 있습니다.</small><input id="manual-source-files" type="file" accept=".pdf,.docx,.txt,.hwp,.hwpx" multiple></label></div>
     <div><div class="field"><label for="manual-source-name">붙여넣기 자료명</label><input id="manual-source-name" value="${escapeHtml(state.manualSourceName)}" placeholder="예: 2027년 신청서 작성항목"><label for="manual-source-text">원문 직접 붙여넣기</label><textarea id="manual-source-text" class="source-text" placeholder="공문·신청서·예산기준·심사기준 원문을 붙여넣으세요.">${escapeHtml(state.manualSourceText)}</textarea></div><button class="button secondary" id="add-manual-text">붙여넣기 자료 추가</button></div></div>
     ${hasSource ? `<p class="muted" id="intake-summary">${escapeHtml(intakeSummary(markDuplicates(state.manualSources)).text)}${(() => { const spec = currentFormSpec(); return spec?.items?.length ? ` · 신청서 서식 규격표: 작성 항목 ${spec.items.length}개 · 요구 표 ${spec.tables.length}개 · 첨부 ${spec.attachments.length}건` : ''; })()}</p><div class="requirement-list">${state.manualSources.map((item, index) => `<article class="requirement"><div><span class="tag ${item.extractionStatus === 'success' ? '' : 'mandatory'}">${item.extractionStatus === 'success' ? '추출 성공' : '추출 불가'}</span><div><strong>${escapeHtml(item.fileName)}</strong><select data-manual-source-type="${index}">${sourceTypeOptions(item.sourceType)}</select><small>${Number(item.extractedText?.length || 0).toLocaleString()}자${item.extractionError ? ` · ${escapeHtml(item.extractionError)}` : ''}${item.autoKind ? ` · ${item.autoConfidence === 'high' ? '자동 판정' : '자동 판정(확인 권장)'}` : ''}</small><p class="muted">${escapeHtml((item.extractedText || '').slice(0, 180) || '텍스트 미리보기 없음')}</p></div></div><button class="button secondary" data-remove-manual-source="${index}">삭제</button></article>`).join('')}</div>` : '<p class="empty-inline">직접 추가한 자료가 없습니다.</p>'}</details>`;
 }
@@ -7175,10 +7183,12 @@ function bindDropzone(selector, onFiles) {
   zone.addEventListener('dragover', event => { stop(event); zone.classList.add('dragover'); });
   zone.addEventListener('dragleave', event => { stop(event); zone.classList.remove('dragover'); });
   zone.addEventListener('drop', event => {
-    stop(event);
-    zone.classList.remove('dragover');
     const files = [...(event.dataTransfer?.files || [])];
-    if (files.length) onFiles(files);
+    zone.classList.remove('dragover');
+    // 글자를 끌어다 놓은 것은 브라우저에 맡긴다. 파일일 때만 우리가 받아 읽는다.
+    if (!files.length) return;
+    stop(event);
+    onFiles(files);
   });
 }
 
@@ -7440,8 +7450,11 @@ function bind() {
   document.querySelector('#menu-toggle')?.addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
   const fileInput = document.querySelector('#source-files');
   if (fileInput) fileInput.onchange = e => void addNoticeFiles([...e.target.files]);
+  // 「여기에 놓기」라고 적어 두고 놓으면 파일이 그냥 열리던 자리다. 클릭과 같은 길로 보낸다.
+  bindDropzone('#notice-dropzone', files => void addNoticeFiles(files));
   const manualFiles = document.querySelector('#manual-source-files');
   if (manualFiles) manualFiles.onchange = addManualFiles;
+  bindDropzone('#manual-dropzone', files => addManualFiles({ target: { files } }));
   document.querySelector('#add-manual-text')?.addEventListener('click', addManualText);
   document.querySelectorAll('[data-manual-source-type]').forEach(el => el.onchange = () => { const item = state.manualSources[Number(el.dataset.manualSourceType)]; if (item) { item.sourceType = el.value; setState({ manualSources: [...state.manualSources] }); } });
   document.querySelectorAll('[data-remove-manual-source]').forEach(el => el.onclick = () => { state.manualSources.splice(Number(el.dataset.removeManualSource), 1); setState({ manualSources: [...state.manualSources], notice: '직접 자료를 삭제했습니다.' }); });
@@ -7943,6 +7956,9 @@ function bindApplicants() {
   document.querySelectorAll('[data-remove-source]').forEach(el => el.onclick = () => removeApplicantSource(el.dataset.removeSource));
   document.querySelector('#applicant-doc-text')?.addEventListener('input', event => { state.applicantDocDraft = event.target.value; });
   document.querySelector('#applicant-doc-file')?.addEventListener('change', loadApplicantDocument);
+  bindDropzone('#applicant-doc-drop', files => void loadApplicantDocumentFile(files[0]));
+  // 카드 안 아무 곳에 놓아도 파일로 받는다. 붙여넣기 칸에 놓으면 파일 이름만 글자로 붙던 자리다.
+  bindDropzone('#applicant-doc', files => void loadApplicantDocumentFile(files[0]));
   document.querySelector('#extract-applicant-doc')?.addEventListener('click', () => buildApplicantCandidates(state.applicantDocDraft, '붙여넣은 기관 문서'));
   document.querySelector('#apply-safe-candidates')?.addEventListener('click', applySafeApplicantCandidates);
   document.querySelectorAll('[data-apply-candidate]').forEach(el => el.onclick = () => applyApplicantCandidate(el.dataset.applyCandidate));
@@ -7993,7 +8009,11 @@ function addApplicantItem(areaKey) {
 }
 
 async function loadApplicantDocument(event) {
-  const file = event.target.files?.[0];
+  return loadApplicantDocumentFile(event.target.files?.[0]);
+}
+
+// 고르기와 끌어다 놓기가 같은 길을 쓴다. 끌어다 놓은 파일이 붙여넣기 칸에 글자로 붙지 않게 한다.
+async function loadApplicantDocumentFile(file) {
   if (!file) return;
   setState({ busy: '기관 문서를 읽는 중...', error: '', notice: '' });
   try {
@@ -8010,7 +8030,16 @@ function buildApplicantCandidates(text, documentName) {
   if (!applicant) return setState({ error: '정보를 추출할 신청기관을 먼저 선택해 주세요.' });
   if (String(text || '').trim().length < 20) return setState({ error: '추출할 문서 내용이 너무 짧습니다.' });
   const review = buildUpdateCandidates(applicant, extractApplicantCandidates(text, { documentName }));
-  setState({ applicantExtraction: review, notice: `업데이트 후보 ${review.candidates.length}건을 만들었습니다. 반영할 항목을 확인하세요.`, error: '' });
+  const safe = review.candidates.filter(item => SAFE_KINDS.includes(item.kind)).length;
+  // 후보는 화면 아래에 생긴다. 눌렀는데 아무 일도 없어 보이던 자리다 — 그 자리로 데려가고 잠깐 강조한다.
+  if (review.candidates.length) pendingAiMove = { anchor: '#applicant-candidates', sameView: true };
+  setState({
+    applicantExtraction: review,
+    notice: review.candidates.length
+      ? `${documentName || '올린 문서'}에서 ${review.candidates.length}건을 찾았습니다. 아래 「신규·누적·근거 추가만 일괄 반영」을 누르면 ${safe}건이 한 번에 들어갑니다.`
+      : '문서에서 기관 정보로 쓸 사실을 찾지 못했습니다. 표가 없는 그림 문서이거나 기관 정보가 없는 문서일 수 있습니다.',
+    error: ''
+  });
 }
 
 // 검증·코칭에 넣은 계획서에서 신청기관 정보 후보를 만든다. 코칭 결과·본문은 바꾸지 않는다.
@@ -8081,7 +8110,16 @@ function applySafeApplicantCandidates() {
   if (!applied) return setState({ notice: '일괄 반영할 신규·누적·근거 추가 후보가 없습니다. 변경·충돌 후보는 개별 확인이 필요합니다.' });
   state.applicants = upsertApplicant(state.applicants, updated);
   const remaining = review.candidates.filter(candidate => !['신규', '누적 추가'].includes(candidate.kind) && !(candidate.kind === '동일' && candidate.existingItemId));
-  setState({ applicants: state.applicants, applicantExtraction: { ...review, candidates: remaining }, notice: `후보 ${applied}건을 반영했습니다. 신규·누적은 ‘확인 필요’ 상태로 추가하고, 같은 정보는 근거만 추가했습니다.`, error: '' });
+  // 넣었으면 어디에 들어갔는지 보여 준다. 반영을 눌러도 화면이 그대로여서 무슨 일이 났는지 몰랐다.
+  const group = areaDestination(review.candidates.find(candidate => SAFE_KINDS.includes(candidate.kind))?.area || '');
+  if (group) pendingAiMove = { anchor: `[data-detail-group="${group}"]`, sameView: true };
+  setState({
+    applicants: state.applicants,
+    applicantExtraction: { ...review, candidates: remaining },
+    openOrgGroups: group ? [...new Set([...(state.openOrgGroups || []), group])] : state.openOrgGroups,
+    notice: `후보 ${applied}건을 ${group ? `상세정보 「${(DETAIL_GROUPS.find(item => item.key === group) || {}).title || group}」에 ` : ''}넣었습니다. 모두 ‘확인 필요’ 상태이며, 확인해야 계획서에 사실로 쓰입니다.${remaining.length ? ` 남은 ${remaining.length}건은 기존 값과 달라 항목마다 확인해 주세요.` : ''}`,
+    error: ''
+  });
   void persistApplicant(applicant.id, false);
 }
 

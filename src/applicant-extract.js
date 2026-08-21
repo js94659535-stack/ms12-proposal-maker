@@ -367,7 +367,7 @@ export function applyUpdateCandidate(applicant, candidate) {
 }
 
 // 신규·누적·근거 추가처럼 기존 값을 바꾸지 않는 후보만 한 번에 반영한다. 충돌·변경은 개별 확인이 필요하다.
-const SAFE_KINDS = ['신규', '누적 추가', '동일'];
+export const SAFE_KINDS = ['신규', '누적 추가', '동일'];
 export function applySafeCandidates(applicant, candidates) {
   let current = normalizeApplicant(applicant);
   let applied = 0;
