@@ -86,3 +86,40 @@ test('문서 추출 카드도 등록증을 말한다', () => {
   assert.match(view, /사업자등록증 · 고유번호증 · 결산서/);
   assert.match(view, /채워지는 것 — 기관명 · 대표자 · 주소 · 고유번호 · 연간 예산/);
 });
+
+// ---------- 값에 섞여 들어온 라벨 부스러기 ----------
+// 실제 사업자등록증에서 이렇게 들어왔다: 「( 대 표 유 형 ) 박종석」,
+// 「: 2021 년 08 월 26 일 법 인 등 록 번 호 :」, 「: 광주광역시 …」.
+const DIRTY_CERT = [
+  '사 업 자 등 록 증',
+  '등 록 번 호 : 409-86-01234',
+  '법 인 명 ( 단 체 명 ) : (주)마인드스토리',
+  '대 표 자 ( 대 표 유 형 ) 박종석',
+  '개 업 연 월 일 : 2021 년 08 월 26 일 법 인 등 록 번 호 : 110111-1234567',
+  '사 업 장 소 재 지 : 광주광역시 광산구 임방울대로 356, 3층'
+].join('\n');
+
+test('값 앞뒤 콜론과 라벨 부스러기를 떼어 낸다', () => {
+  const found = extractApplicantCandidates(DIRTY_CERT, { documentName: 'QA 등록증' }).candidates;
+  const map = new Map(found.map(item => [item.label, item.value]));
+  // 앞머리 괄호가 라벨이면 뗀다.
+  assert.equal(map.get('대표자'), '박종석');
+  // 앞뒤 콜론이 남지 않는다.
+  assert.equal(map.get('소재지'), '광주광역시 광산구 임방울대로 356, 3층');
+  // 자간이 벌어진 한글은 붙이고, 뒤에 붙어 온 다음 칸 라벨은 끊는다.
+  assert.equal(map.get('설립 시기'), '2021년 08월 26일');
+  // 이름의 일부인 괄호는 남긴다.
+  assert.equal(map.get('기관명'), '(주)마인드스토리');
+});
+
+test('멀쩡한 값은 건드리지 않는다', () => {
+  const found = extractApplicantCandidates([
+    '2017년\t1\t송원대학교, 조선대학교\t취창업 청년 캠프\t진로역량에 맞는 취창업 지원 프로그램',
+    '상근 인력: 5명',
+    '소재지: 서울특별시 관악구 신림로 123, 2층'
+  ].join('\n'), { documentName: 'QA 정상' }).candidates;
+  const values = found.map(item => item.value);
+  assert.ok(values.includes('송원대학교, 조선대학교 취창업 청년 캠프'), values.join(' / '));
+  assert.ok(values.includes('5명'), values.join(' / '));
+  assert.ok(values.includes('서울특별시 관악구 신림로 123, 2층'), values.join(' / '));
+});

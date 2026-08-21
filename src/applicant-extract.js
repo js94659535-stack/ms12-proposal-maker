@@ -200,6 +200,41 @@ const DOCUMENT_DATE_PATTERN = /(?:작성일|기준일|기준\s*시점|발행일|
 const ANY_DATE_PATTERN = /(20\d{2})\s*[.\-년]\s*(\d{1,2})?/;
 
 function clean(value, max) { return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max); }
+
+// 값에 섞여 들어온 라벨 부스러기를 떼어 낸다.
+//
+// 라벨 쪽은 이미 다듬고 있었지만(labeledLine) 값 쪽은 그대로여서, 실제 사업자등록증에서
+// 「: 2021 년 08 월 26 일 법 인 등 록 번 호 :」·「( 대 표 유 형 ) 박종석」처럼 들어왔다.
+// 네 가지를 지운다 — 앞뒤 콜론, 앞머리에 붙은 라벨 괄호, 자간이 벌어진 한글, 뒤에 붙어 온 다음 칸 라벨.
+const LABEL_TAIL = /(?:명|자|호|유형|번호|구분|일자|연월일|기간|금액)$/;
+const EDGE_MARKS = /^[\s:：·▪◦∙\-–—]+|[\s:：·▪◦∙\-–—]+$/g;
+// 값 뒤에 붙어 오는 다음 칸 라벨. 긴 것부터 본다.
+const TAIL_KEYS = [...LABEL_KEY_MAP.keys()].filter(key => key.length >= 3).sort((left, right) => right.length - left.length);
+
+// 「법 인 등 록 번 호」처럼 한 글자씩 떨어진 한글은 붙여 쓴 것이다. 두 글자 이상 이어질 때만 붙인다.
+function tightenSpaced(value) {
+  return String(value).replace(/(?:^|(?<=\s))(?:[가-힣]\s){1,}[가-힣](?=\s|$)/g, match => match.replace(/\s+/g, ''));
+}
+
+export function cleanValue(value) {
+  let text = String(value ?? '').replace(/\s+/g, ' ').replace(EDGE_MARKS, '');
+  // 앞머리 괄호가 라벨이면 떼어 낸다. 「(주)」처럼 이름의 일부는 남긴다.
+  text = text.replace(/^[（(]\s*([^)）]{1,12}?)\s*[)）]\s*/, (match, inner) => {
+    const key = labelKey(inner);
+    return LABEL_KEY_MAP.has(key) || (key.length >= 2 && LABEL_TAIL.test(key)) ? '' : match;
+  });
+  text = tightenSpaced(text);
+  // 뒤에 다음 칸의 라벨이 붙어 왔으면 거기서 끊는다. 한 줄에 두 항목이 찍힌 서식이 그렇다.
+  const tail = [...text.matchAll(/\s([가-힣]{2,10})\s*[:：]/g)].find(match => match.index > 0 && LABEL_KEY_MAP.has(labelKey(match[1])));
+  if (tail) text = text.slice(0, tail.index);
+  // 콜론까지 지워진 채로 라벨만 뒤에 남기도 한다. 「…26 일법인등록번호」가 그랬다.
+  for (const key of TAIL_KEYS) {
+    if (text.length > key.length && text.endsWith(key)) { text = text.slice(0, -key.length); break; }
+  }
+  // 숫자와 단위가 떨어져 있으면 붙인다. 「2021 년 08 월 26 일」은 한 날짜다.
+  text = text.replace(/(\d)\s+([년월일원건명])/g, '$1$2');
+  return text.replace(EDGE_MARKS, '').trim();
+}
 function normalizeKey(value) { return String(value ?? '').replace(/\s+/g, '').toLowerCase(); }
 function asOfFrom(match) {
   if (!match) return '';
@@ -238,7 +273,7 @@ export function extractApplicantCandidates(text, { documentName = '', includeNar
   const add = (area, label, rawValue, lineAsOf, rawExcerpt) => {
     if (!rawValue || candidates.length >= MAX_CANDIDATES) return;
     // 값과 근거 문장에서 사람 정보만 잘라 낸다. 잘라 내고 남는 것이 없으면 후보로 만들지 않는다.
-    const value = stripPersonal(rawValue);
+    const value = cleanValue(stripPersonal(rawValue));
     const excerpt = stripPersonal(rawExcerpt);
     if (!value) return;
     const key = `${area}:${normalizeKey(label)}:${normalizeKey(value)}`;
