@@ -407,7 +407,7 @@ export function relatedItems(items = [], requirements = [], options = {}) {
 
 export function compareNoticeWithApplicant(requirements, applicant, contract = null) {
   const items = applicant?.items || [];
-  const result = { applicantId: applicant?.id || '', applicantName: applicant?.name || '', confirmedStrengths: [], needsEvidence: [], missingFromApplicant: [], fixedByNotice: [], decideInThisProject: [] };
+  const result = { applicantId: applicant?.id || '', applicantName: applicant?.name || '', confirmedStrengths: [], needsEvidence: [], missingFromApplicant: [], fixedByNotice: [], decideInThisProject: [], answerInProposal: [] };
   for (const requirement of Array.isArray(requirements) ? requirements : []) {
     const label = String(requirement?.requirement || '');
     const matched = matchItems(`${label} ${requirement?.category || ''}`, items);
@@ -449,6 +449,18 @@ export function compareNoticeWithApplicant(requirements, applicant, contract = n
     // 「~선택한다」·「~정한다」는 공고가 고르라고 남겨 둔 것이다. 이번 사업이 정한다.
     if (form === '결정' || PROJECT_DECISION_PATTERN.test(label)) {
       result.decideInThisProject.push({ ...entry, action: '기관 원본이 아니라 이번 사업 설계에서 새로 결정한다.' });
+      continue;
+    }
+    // 「~해야 한다」는 기관 프로필에 적어 둘 값이 아니라 이번 계획서 본문에서 답할 일이다.
+    //
+    // 실제로 났던 일: 「금융취약군을 선제적으로 발굴해야 한다」·「생활안정 지원을 수행해야 한다」가
+    // 「기관정보에 없는 사항 · 등록하거나 담당자에게 확인한다」로 떨어졌다. 등록할 수 있는 값이
+    // 하나도 아니다. 마지막 칸이 쓰레기통이어서 갈 곳 없는 요구가 전부 거기로 모였다.
+    //
+    // 기관정보로 남기는 것은 「기관이 갖추고 있어야 하는 것」뿐이다 — 자격·법인·등록·인가·허가·
+    // 신청대상·결격·증빙·서류. 그 판정은 이미 있는 ELIGIBILITY_PATTERN이 한다. 낱말을 늘리지 않는다.
+    if (form === '요구' && !eligibility) {
+      result.answerInProposal.push({ ...entry, action: '기관정보가 아니라 계획서 본문에서 답할 내용입니다.' });
       continue;
     }
     result.missingFromApplicant.push({ ...entry, action: '신청기관 정보에 없는 항목이므로 등록하거나 담당자에게 확인한다.' });

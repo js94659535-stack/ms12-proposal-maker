@@ -5611,7 +5611,8 @@ function applicantFitView(applicant) {
     ['확인된 강점', comparison.confirmedStrengths, '충족'],
     ['신청자격 또는 근거 확인이 필요한 사항', comparison.needsEvidence, '부분-충족'],
     ['공고가 정한 조건 (기관에 등록할 것이 아님)', comparison.fixedByNotice, '충족'],
-    ['기관정보에 없는 사항', comparison.missingFromApplicant, '부족'],
+    ['계획서에 답해야 할 요구사항', comparison.answerInProposal, '확인-필요'],
+    ['기관정보에 없는 사항 (기관이 갖춰야 할 것)', comparison.missingFromApplicant, '부족'],
     ['이번 사업에서 새로 결정해야 할 사항', comparison.decideInThisProject, '확인-필요']
   ];
   return `<div class="card"><div class="card-title"><div><h3>공고 × 신청기관 비교</h3><span>AI 호출 없이 공고 원문과 등록 정보만으로 구분합니다.</span></div></div>
