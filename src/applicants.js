@@ -400,6 +400,16 @@ export function requiresConsortium(requirements = [], contract = null) {
 // 실적 99건이 99건 그대로 남았다. 공고 요구 문장에는 「사업」·「프로그램」·「지원」처럼
 // 실적 대부분에 들어 있는 낱말이 늘 섞여 있기 때문이다.
 // 그래서 실적 셋 중 하나를 넘게 가리키는 낱말은 고르는 근거에서 뺀다. 그 낱말로는 가려낼 수 없다.
+const WORD_CHAR = /[가-힣A-Za-z0-9]/;
+// 낱말이 더 긴 낱말 속에 묻혀 있지 않고 그대로 서 있는지 본다(「예방」 대 「예방교육」).
+function standsAlone(haystack, token) {
+  for (let at = haystack.indexOf(token); at >= 0; at = haystack.indexOf(token, at + 1)) {
+    const before = haystack[at - 1];
+    const after = haystack[at + token.length];
+    if (!(before && WORD_CHAR.test(before)) && !(after && WORD_CHAR.test(after))) return true;
+  }
+  return false;
+}
 const GENERIC_RATIO = 0.3;
 // 그래도 「상담」·「교육」처럼 어중간하게 흔한 낱말 하나로는 관계를 말할 수 없다.
 // 실적 열 건에 하나꼴로만 나오는 드문 낱말은 그 하나로 충분하고(2점),
@@ -411,6 +421,27 @@ export const RELATED_LIMIT = 30;
 export function relatedMatches(items = [], requirements = [], { limit = RELATED_LIMIT } = {}) {
   const list = Array.isArray(items) ? items : [];
   if (!list.length) return [];
+  // 공고 쪽에도 같은 잣대를 댄다.
+  //
+  // 실적에서 드문 낱말이라고 다 근거가 되지는 않는다. 금융 공고에서 「맞춤형」·「복지」 하나로
+  // 아동·진로 실적이 걸렸는데, 그 낱말은 그 공고에서도 한 번 스칠 뿐이다. 그 공고가 무엇에 관한
+  // 것인지는 되풀이되는 낱말이 말한다 — 금융 공고는 「금융」을, 장성 공고는 「장성」을 거듭 적는다.
+  //
+  // 그래서 공고에서 두 번 이상 나오는 낱말만 혼자서 근거가 된다. 한 번 스친 낱말은 반드시
+  // 다른 낱말과 함께여야 한다. 낱말 목록을 만들지 않고 횟수로만 가른다.
+  const lines = (Array.isArray(requirements) ? requirements : [])
+    .map(item => (typeof item === 'string' ? item : `${item?.requirement ?? ''} ${item?.category ?? ''} ${item?.evidence ?? ''}`))
+    .map(value => String(value).trim()).filter(Boolean);
+  const noticeCount = new Map();
+  for (const line of lines) for (const token of tokens(line)) noticeCount.set(token, (noticeCount.get(token) || 0) + 1);
+  // 제목은 그 공고가 무엇에 관한 것인지를 말한다. 「장성 방과후·돌봄」의 「장성」은 요구 문장에
+  // 다시 나오지 않아도 분야 낱말이다. 그래서 제목 낱말은 언제나 중심 낱말로 친다.
+  const heading = new Set();
+  const first = (Array.isArray(requirements) ? requirements : [])[0];
+  if (typeof first === 'string') for (const token of tokens(first)) heading.add(token);
+  // 공고가 몇 줄뿐이면(제목만 있는 경우) 횟수가 뜻을 잃는다. 그때는 이 잣대를 대지 않는다.
+  const useNoticeWeight = lines.length >= 3;
+  const central = token => !useNoticeWeight || heading.has(token) || (noticeCount.get(token) || 0) >= 2;
   // 실적은 항목명이 「2017년 사업실적」이라 아무것도 가려내지 못한다. 값과 내용만 본다.
   // 나머지 항목은 항목명이 뜻을 가지므로(기관명·상근 인력) 함께 본다.
   const haystacks = new Map(list.map(item => [item.id, item.area === 'performance'
@@ -429,8 +460,13 @@ export function relatedMatches(items = [], requirements = [], { limit = RELATED_
       // 「상근」 한 낱말이 33%가 되어 흔한 낱말로 걸러진다.
       if (!hits.length || hits.length > Math.max(2, list.length * GENERIC_RATIO)) continue;
       // 항목이 몇 개뿐인 기관에서는 비율이 뜻을 잃는다. 한 항목만 가리키는 낱말은 언제나 드문 낱말이다.
-      const weight = hits.length <= Math.max(1, list.length * RARE_RATIO) ? RELATED_SCORE : 1;
+      const rare = hits.length <= Math.max(1, list.length * RARE_RATIO);
+      // 낱말 하나로 근거가 되려면 실적 안에서 그 낱말이 그대로 서 있어야 한다. 「금융피해 예방」의
+      // 「예방」이 「학교폭력 예방교육」에 묻혀 걸리던 것이 이 자리다. 두 낱말 이상이 겹치면
+      // 묻힌 낱말이어도 함께 세어 준다 — 조이기만 하면 맞는 공고에서도 0건이 된다.
+      const strong = rare && central(token);
       for (const item of hits) {
+        const weight = strong && standsAlone(haystacks.get(item.id), token) ? RELATED_SCORE : 1;
         scores.set(item.id, (scores.get(item.id) || 0) + weight);
         words.set(item.id, [...(words.get(item.id) || []), token]);
       }
