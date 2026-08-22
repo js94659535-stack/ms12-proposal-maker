@@ -864,3 +864,29 @@ select{max-width:100%}
 
 /* 문장 안에서 누르는 링크. 빈 구역에서 문서 올리는 자리로 보낸다(22-44). */
 .link-button{background:none;border:0;padding:0;color:var(--brown,#7a4b1e);font:inherit;text-decoration:underline;cursor:pointer}
+
+/* 접기 세 층 (22-48).
+   접힌 줄이 전부 같은 흰 카드라 어느 것이 위층인지 보이지 않았다.
+   층이 깊어질수록 배경이 옅어지고 안으로 들어간다. 색만으로 알리지 않는다 —
+   들여쓰기와 왼쪽 선이 함께 층을 말하므로 색을 못 보아도 층이 보인다.
+   초록(다음 할 일)과 갈색(주 버튼)은 이미 뜻이 있어 층 구분에 쓰지 않는다. */
+:root{
+  --fold-1:#fff;
+  --fold-2:#faf7f3;
+  --fold-3:#f4efe8;
+  --fold-indent:16px;
+  --fold-edge:#e2d8cb;
+}
+/* 중단원 — 기본정보·상세정보·입력 후보처럼 화면에 바로 놓이는 접힌 카드 */
+.card.org-details{background:var(--fold-1)}
+/* 소단원 — 상세정보 안의 여덟 구역, 카드 안에서 접는 칸 */
+.card[data-detail-group],.add-fold{background:var(--fold-2)}
+.card[data-detail-group]{margin-left:var(--fold-indent);border-left:3px solid var(--fold-edge)}
+.add-fold{margin-left:var(--fold-indent);padding-left:10px;border-left:3px solid var(--fold-edge);border-radius:0 8px 8px 0}
+/* 소소단원 — 구역 안의 연도, 구역 안에 또 들어간 카드(아이디어·자산) */
+.year-fold,[data-detail-group] .card.org-details{background:var(--fold-3);margin-left:var(--fold-indent);border-left:3px solid var(--fold-edge)}
+/* 맨 아래 항목 줄. 배경은 더 두지 않고 들여쓰기로만 한 층 더 들어간다. */
+.year-fold .item-fold,.card[data-detail-group] .item-fold{padding-left:var(--fold-indent)}
+/* 보관함의 연도 묶음도 같은 규칙을 읽는다. */
+.archive-year{margin-left:var(--fold-indent);border-left:3px solid var(--fold-edge);padding-left:12px}
+@media(max-width:760px){:root{--fold-indent:9px}}
