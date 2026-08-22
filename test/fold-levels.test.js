@@ -43,3 +43,35 @@ test('층 구분에 초록·갈색을 쓰지 않는다', () => {
 test('보관함의 연도 묶음도 같은 변수를 읽는다', () => {
   assert.match(block, /\.archive-year\{margin-left:var\(--fold-indent\);border-left:3px solid var\(--fold-edge\)/);
 });
+
+// ---------- 22-50: 층마다 제목 글자 ----------
+const type = css.slice(css.indexOf('/* 층마다 제목 글자도 다르게 (22-50)'));
+
+test('제목 크기와 농도를 변수 한 곳에서 정한다', () => {
+  for (const name of ['--fold-title-1:16px', '--fold-title-2:15px', '--fold-title-3:14px', '--fold-ink-2:#4a3d33', '--fold-ink-3:#6a5b50']) {
+    assert.ok(type.includes(name), `${name}이 없다`);
+  }
+  // 값을 손으로 다시 적지 않는다. 층마다 변수를 읽는다.
+  const sizes = [...new Set([...type.matchAll(/font-size:([^;}]+)/g)].map(match => match[1]))];
+  assert.ok(sizes.every(size => size.startsWith('var(--fold-')), `변수가 아닌 크기가 있다: ${sizes.join(' ')}`);
+});
+
+test('굵기는 400과 500 둘뿐이다', () => {
+  assert.match(type, /--fold-weight:500;/);
+  assert.match(type, /--fold-weight-plain:400;/);
+  const weights = [...new Set([...type.matchAll(/font-weight:([^;}]+)/g)].map(match => match[1]))];
+  assert.ok(weights.every(weight => weight.startsWith('var(--fold-weight')), `600·700이 남아 있다: ${weights.join(' ')}`);
+});
+
+test('제목에 새 색을 쓰지 않는다', () => {
+  assert.ok(!type.includes('var(--go)') && !type.includes('var(--blue)') && !type.includes('var(--green)'));
+  // 농도는 기존 잉크색에서만 내려온다.
+  assert.match(type, /--fold-ink-1:var\(--ink\)/);
+});
+
+test('부제는 층과 상관없이 한 가지다', () => {
+  // 층은 제목·배경·들여쓰기 셋이 이미 말한다. 부제까지 층을 따라가면 잡음이 된다.
+  assert.match(type, /--fold-sub-size:12px;/);
+  const sub = type.slice(type.indexOf('.org-details>summary small'));
+  assert.match(sub, /font-size:var\(--fold-sub-size\);font-weight:var\(--fold-weight-plain\);color:var\(--muted\)/);
+});

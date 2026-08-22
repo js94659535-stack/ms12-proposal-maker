@@ -67,7 +67,9 @@ test('띠는 제목 바로 아래 하나뿐이고 판정은 한 곳에서 온다
   // 제목 줄 다음이 띠다.
   assert.match(view, /작성 흐름으로 돌아가기<\/button><\/div>\s*\$\{orgNextStepBar\(\)\}/);
   const bar = app.slice(app.indexOf('function orgNextStepBar()'), app.indexOf('// 기관정보 화면. 페이지를 새로'));
-  assert.match(bar, /const step = nextOrgStep\(\{/);
+  // 판정은 orgStepInfo() 한 곳에서 오고 띠는 그 결과만 그린다(22-49).
+  assert.match(bar, /const step = orgStepInfo\(\);/);
+  assert.match(app, /function orgStepInfo\(\) \{[\s\S]{0,900}?return nextOrgStep\(\{/);
   // 화면이 스스로 판정하지 않는다.
   assert.doesNotMatch(bar, /if \(.*applicantCount === 0\)/);
 });
@@ -156,4 +158,28 @@ test('기록할 자리 앞에 화살표가 네 번 깜박이고 멈춘다', () =
   assert.match(css, /\.go-target\{position:relative;border:2px solid var\(--go\)/);
   // 움직임을 줄여 달라고 해 둔 분에게는 화살표만 두고 깜박임을 없앤다.
   assert.match(css, /@media\(prefers-reduced-motion:reduce\)\{[\s\S]{0,240}\.go-target::before\{animation:none\}/);
+});
+
+test('확인 전이 실적 밖이면 실적을 펼치지 않고 어디인지 말한다', () => {
+  // 실제로 났던 일: 확인 전 8건이 기본정보 쪽인데 「확인 전」이라는 열쇠말만 보고
+  // 실적 96건이 통째로 펼쳐졌다(22-49).
+  const step = nextOrgStep({
+    applicantCount: 1, hasApplicant: true, basicMissing: [], itemCount: 104, candidateCount: 0,
+    performanceUnconfirmed: 0, otherUnconfirmed: 8,
+    otherUnconfirmedAreas: [{ key: 'basic', title: '기관 기본정보', count: 5 }, { key: 'legal', title: '법적 유형·신청자격', count: 3 }]
+  });
+  assert.equal(step.key, 'confirm');
+  assert.equal(step.area, 'other');
+  assert.deepEqual(step.areas, ['basic', 'legal']);
+  // 8건이 어디에 있는지 문장에 적는다. 「8건」만으로는 어디를 열어야 할지 알 수 없다.
+  assert.match(step.message, /기관 기본정보 5건 · 법적 유형·신청자격 3건/);
+});
+
+test('실적이 확인 전이면 실적을 가리킨다', () => {
+  const step = nextOrgStep({
+    applicantCount: 1, hasApplicant: true, basicMissing: [], itemCount: 104, candidateCount: 0,
+    performanceUnconfirmed: 96, otherUnconfirmed: 8
+  });
+  assert.equal(step.area, 'performance');
+  assert.match(step.actionLabel, /96건 모두 확인/);
 });

@@ -58,8 +58,8 @@ test('기본정보 중단원도 접히고 줄에 채운 칸 수가 남는다', (
 
 test('「다음 할 일」이 가리키면 그 중단원을 펴고 그 자리로 데려간다', () => {
   const fold = app.slice(app.indexOf('function orgFoldOpen(key)'), app.indexOf('function stepPointsAt('));
-  assert.match(fold, /if \(key === 'basic'\) return step === 'basic' \|\| step === 'upload';/);
-  assert.match(fold, /if \(key === 'detail'\) return step === 'confirm';/);
+  assert.match(fold, /if \(step\.key === 'basic' \|\| step\.key === 'upload'\) return true;/);
+  assert.match(fold, /if \(step\.key === 'confirm' && step\.area === 'performance'\) return true;/);
   // 접기를 늘리면 가리킨 자리가 화면 밖으로 나간다. 한 번만 데려간다.
   const scroll = app.slice(app.indexOf('function scrollToNextStep()'), app.indexOf('function scrollToNextStep()') + 500);
   assert.match(scroll, /document\.querySelector\('\.go-target, \.button\.go'\)/);

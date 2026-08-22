@@ -890,3 +890,31 @@ select{max-width:100%}
 /* 보관함의 연도 묶음도 같은 규칙을 읽는다. */
 .archive-year{margin-left:var(--fold-indent);border-left:3px solid var(--fold-edge);padding-left:12px}
 @media(max-width:760px){:root{--fold-indent:9px}}
+
+/* 층마다 제목 글자도 다르게 (22-50).
+   배경만 옅어지고 제목은 세 층이 다 같은 굵은 글자여서, 글자만 보면 층이 보이지 않았다.
+   색을 새로 만들지 않는다 — 크기와 농도만 쓰고, 굵기는 400·500 둘뿐이다.
+   부제(「등록 96건 · 확인됨 96건」)는 층과 상관없이 한 가지로 둔다. 부제가 하는 일은
+   어느 층에서나 「여기에 무엇이 얼마나 있나」로 같고, 층은 제목·배경·들여쓰기 셋이 이미 말한다. */
+:root{
+  --fold-title-1:16px;
+  --fold-title-2:15px;
+  --fold-title-3:14px;
+  --fold-title-4:13.5px;
+  --fold-ink-1:var(--ink);
+  --fold-ink-2:#4a3d33;
+  --fold-ink-3:#6a5b50;
+  --fold-weight:500;
+  --fold-weight-plain:400;
+  --fold-sub-size:12px;
+}
+.card.org-details>summary{font-size:var(--fold-title-1);font-weight:var(--fold-weight);color:var(--fold-ink-1)}
+.card[data-detail-group]>summary,.add-fold>summary{font-size:var(--fold-title-2);font-weight:var(--fold-weight);color:var(--fold-ink-2)}
+.year-fold>summary,[data-detail-group] .card.org-details>summary{font-size:var(--fold-title-3);font-weight:var(--fold-weight);color:var(--fold-ink-3)}
+.item-fold>summary{font-size:var(--fold-title-4);font-weight:var(--fold-weight-plain);color:var(--fold-ink-3)}
+/* 제목은 summary 안의 b가 든다. 굵기를 여기서 다시 정하지 않으면 브라우저 기본값(700)이 나온다. */
+.org-details>summary b,.year-fold>summary b,.item-fold>summary b{font-weight:var(--fold-weight)}
+.item-fold>summary b{font-weight:var(--fold-weight-plain)}
+/* 부제는 어느 층에서나 같다. 제목보다 한 단계 작고 옅다. */
+.org-details>summary small,.year-fold>summary small,.item-fold>summary small,.add-fold>summary small{
+  font-size:var(--fold-sub-size);font-weight:var(--fold-weight-plain);color:var(--muted)}

@@ -69,11 +69,11 @@ test('구역은 모두 접힌 채로 시작한다', () => {
 test('「다음 할 일」이 가리키는 구역은 접지 않는다', () => {
   // 초록·화살표를 붙여 놓고 그 자리를 감추면 찾을 수가 없다.
   const helper = app.slice(app.indexOf('function stepPointsAt(groupKey)'), app.indexOf('function goMark('));
-  assert.match(helper, /groupKey === 'performance' && orgStepKey\(\) === 'confirm'/);
+  // 실적을 가리킬 때만 실적을 편다. 확인 전이 기본정보 쪽인데 실적이 펼쳐지던 것을 고쳤다(22-49).
+  assert.match(helper, /if \(step\.area === 'performance'\) return groupKey === 'performance';/);
   const fold = app.slice(app.indexOf('function orgFoldOpen(key)'), app.indexOf('function stepPointsAt('));
-  assert.match(fold, /if \(key === 'detail'\) return step === 'confirm';/);
-  // 기본정보 중단원도 가리키면 펼친다(22-47).
-  assert.match(fold, /if \(key === 'basic'\) return step === 'basic' \|\| step === 'upload';/);
+  assert.match(fold, /if \(step\.key === 'confirm' && step\.area === 'performance'\) return true;/);
+  assert.match(fold, /if \(step\.key === 'basic' \|\| step\.key === 'upload'\) return true;/);
 });
 
 test('실적은 접힌 채로도 제목 줄에서 한 번에 확인할 수 있다', () => {

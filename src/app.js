@@ -5239,10 +5239,20 @@ const NEXT_STEP_ANCHORS = Object.freeze({
   apply: '#applicant-candidates', confirm: '#applicant-detail', write: ''
 });
 // 지금 「다음 할 일」이 무엇인지. 초록은 이 값이 가리키는 한 곳에만 붙는다.
-function orgStepKey() {
+//
+// 판정은 한 번만 하고 화면 여러 곳이 같은 결과를 읽는다. 열쇠말만 보던 때는
+// 「확인 전」이 실적이든 기본정보든 같은 confirm이라, 기본정보 8건 때문에 실적 96건이
+// 펼쳐졌다(22-49). 이제 무엇을 가리키는지(area)까지 함께 본다.
+function orgStepInfo() {
   const applicant = findApplicant(state.applicants, focusedApplicantId());
   const items = applicant?.items || [];
   const unconfirmed = area => items.filter(item => (area === 'performance' ? item.area === 'performance' : item.area !== 'performance') && item.status !== CONFIRMED_STATUS).length;
+  // 실적 밖에서 확인 전인 것이 어느 구역에 몇 건인지 세어 함께 넘긴다.
+  const others = new Map();
+  for (const item of items) {
+    if (item.area === 'performance' || item.status === CONFIRMED_STATUS) continue;
+    others.set(item.area, (others.get(item.area) || 0) + 1);
+  }
   return nextOrgStep({
     applicantCount: state.applicants.length,
     hasApplicant: Boolean(applicant),
@@ -5250,8 +5260,12 @@ function orgStepKey() {
     itemCount: items.length,
     candidateCount: applicant && state.applicantExtraction?.applicantId === applicant.id ? (state.applicantExtraction.candidates || []).length : 0,
     performanceUnconfirmed: unconfirmed('performance'),
-    otherUnconfirmed: unconfirmed('other')
-  }).key;
+    otherUnconfirmed: unconfirmed('other'),
+    otherUnconfirmedAreas: [...others.entries()].map(([key, count]) => ({ key, title: areaTitle(key), count }))
+  });
+}
+function orgStepKey() {
+  return orgStepInfo().key;
 }
 
 // 빈 입력칸을 접는 자리. 처음 온 사람에게 빈 칸부터 보이면 「이걸 다 적어야 하나」가 된다.
@@ -5265,16 +5279,26 @@ function addForm(key, label, body) {
 // 「다음 할 일」이 그 안을 가리키면 접혀 있으면 안 되므로 상태와 상관없이 펼친다.
 function orgFoldOpen(key) {
   if ((state.openOrgFolds || []).includes(key)) return true;
-  // 가리켜 놓고 감추면 눌러서 열고 또 찾아야 한다. 가리키는 자리는 그 중단원을 편다.
-  const step = orgStepKey();
-  if (key === 'basic') return step === 'basic' || step === 'upload';
-  if (key === 'detail') return step === 'confirm';
-  if (key === 'map') return false;
+  // 가리켜 놓고 감추면 눌러서 열고 또 찾아야 한다. 가리키는 자리만 편다.
+  const step = orgStepInfo();
+  if (key === 'basic') {
+    if (step.key === 'basic' || step.key === 'upload') return true;
+    // 확인 전인 것이 기본정보 쪽이면 그 중단원을 편다. 실적은 건드리지 않는다.
+    return step.key === 'confirm' && step.area === 'other' && (step.areas || []).some(area => BASIC_AREAS.includes(area));
+  }
+  if (key === 'detail') {
+    if (step.key === 'confirm' && step.area === 'performance') return true;
+    return step.key === 'confirm' && step.area === 'other' && (step.areas || []).some(area => !BASIC_AREAS.includes(area));
+  }
   return false;
 }
-// 「다음 할 일」이 이 구역을 가리키는가. 지금은 실적 확인 하나뿐이지만 자리를 하나로 둔다.
+// 「다음 할 일」이 이 구역을 가리키는가. 실적을 가리킬 때만 실적을 편다.
 function stepPointsAt(groupKey) {
-  return groupKey === 'performance' && orgStepKey() === 'confirm';
+  const step = orgStepInfo();
+  if (step.key !== 'confirm') return false;
+  if (step.area === 'performance') return groupKey === 'performance';
+  const group = DETAIL_GROUPS.find(entry => entry.key === groupKey);
+  return Boolean(group) && (step.areas || []).some(area => group.areas.includes(area));
 }
 
 // 초록을 붙이는 유일한 통로. 판정이 가리키는 자리가 아니면 아무것도 붙지 않는다.
@@ -5289,21 +5313,9 @@ function goNote(key, label) {
 }
 
 function orgNextStepBar() {
-  const applicant = findApplicant(state.applicants, focusedApplicantId());
-  const items = applicant?.items || [];
-  const unconfirmed = area => items.filter(item => (area === 'performance' ? item.area === 'performance' : item.area !== 'performance') && item.status !== CONFIRMED_STATUS).length;
-  const performanceUnconfirmed = unconfirmed('performance');
-  const step = nextOrgStep({
-    applicantCount: state.applicants.length,
-    hasApplicant: Boolean(applicant),
-    basicMissing: basicStatus(applicant, quickDraft()).missing,
-    itemCount: items.length,
-    candidateCount: applicant && state.applicantExtraction?.applicantId === applicant.id ? (state.applicantExtraction.candidates || []).length : 0,
-    performanceUnconfirmed,
-    otherUnconfirmed: unconfirmed('other')
-  });
+  const step = orgStepInfo();
   // 실적 확인은 그 자리로 데려가는 대신 여기서 바로 끝낸다.
-  const bulk = step.key === 'confirm' && performanceUnconfirmed > 0;
+  const bulk = step.key === 'confirm' && step.area === 'performance';
   return `<div class="next-step-bar${step.done ? ' done' : ''}" id="next-step-bar">
     <div><span>${step.done ? '다 됐습니다' : '다음 할 일'}</span><strong>${escapeHtml(step.message)}</strong></div>
     <button class="button primary next-step" id="next-step-action" data-next-key="${escapeHtml(step.key)}" data-next-bulk="${bulk ? '1' : ''}" data-next-anchor="${escapeHtml(NEXT_STEP_ANCHORS[step.key] || '')}">${escapeHtml(step.actionLabel)}</button></div>`;

@@ -18,7 +18,9 @@ export function nextOrgStep({
   itemCount = 0,
   candidateCount = 0,
   performanceUnconfirmed = 0,
-  otherUnconfirmed = 0
+  otherUnconfirmed = 0,
+  // 실적 밖에서 확인 전인 것이 어느 구역에 몇 건인지. [{ key, title, count }]
+  otherUnconfirmedAreas = []
 } = {}) {
   if (!hasApplicant || count(applicantCount) === 0) {
     return {
@@ -58,15 +60,25 @@ export function nextOrgStep({
   if (count(performanceUnconfirmed) > 0) {
     return {
       key: 'confirm',
+      // 실적을 가리키는 것인지 그 밖을 가리키는 것인지 함께 돌려준다.
+      // 열쇠말만 보고 화면이 실적을 펼치는 바람에, 확인 전 8건이 기본정보 쪽인데도
+      // 실적 96건이 펼쳐지는 일이 있었다(22-49).
+      area: 'performance',
       message: `실적 ${count(performanceUnconfirmed)}건이 확인 전입니다. 확인해야 계획서에 쓰입니다.`,
       actionLabel: `${count(performanceUnconfirmed)}건 모두 확인`,
       done: false
     };
   }
   if (count(otherUnconfirmed) > 0) {
+    // 어느 구역에 남았는지 이름과 건수로 말한다. 「8건」만 적으면 어디를 열어야 할지 알 수 없다.
+    const where = (Array.isArray(otherUnconfirmedAreas) ? otherUnconfirmedAreas : [])
+      .filter(entry => entry && entry.title && count(entry.count) > 0)
+      .map(entry => `${entry.title} ${count(entry.count)}건`);
     return {
       key: 'confirm',
-      message: `확인 전 정보가 ${count(otherUnconfirmed)}건 남아 있습니다. 확인한 정보만 계획서에 사실로 쓰입니다.`,
+      area: 'other',
+      areas: (Array.isArray(otherUnconfirmedAreas) ? otherUnconfirmedAreas : []).filter(entry => entry && count(entry.count) > 0).map(entry => entry.key),
+      message: `확인 전 정보가 ${count(otherUnconfirmed)}건 남아 있습니다${where.length ? ` — ${where.join(' · ')}` : ''}. 확인한 정보만 계획서에 사실로 쓰입니다.`,
       actionLabel: '확인하러 가기',
       done: false
     };
