@@ -135,7 +135,7 @@ const initial = {
   designJobs: {},
   // 이 계획서에 남아 있는 AI 작업 기록. 다시 만들기 전에 먼저 보여 준다.
   aiJobs: { list: [], loadedFor: '' },
-  applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openOrgYears: [], closedOrgGroups: [], openAddAreas: [], quickFilledFrom: {}, orgPickerOpen: false, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
+  applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openOrgYears: [], closedOrgGroups: [], openAddAreas: [], quickFilledFrom: {}, quickSavedAt: '', orgPickerOpen: false, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
   revisionPlan: null, draftReview: null, projectNarrative: '',
   // 서버가 붙여 준 근거 검증·평가자 검토. 화면은 판정하지 않고 그대로 보여 준다.
   serverGuard: null, serverEvidence: null, evaluatorReview: null, proposalVersions: [], proposalFlow: { status: '', baselineVersion: 0, reviewTarget: null, rounds: [], requests: [], requestOpen: false, requestText: '', requestScope: [], openVersion: 0, compareVersion: 0, approvedVersion: 0, approvedAt: '' }, coachingSelection: [], applicantSkipped: false, noticeLogic: null, redesignForContract: false,
@@ -5159,6 +5159,33 @@ const quickDraft = () => state.quickOrg || {};
 // 초안을 만든 뒤 공고가 실제로 요구하는 것만 묻는다.
 
 // 간단 입력을 신청기관 자료로 옮긴다. 옮긴 값은 확인 필요 상태로 들어간다.
+// 기본정보도 자동으로 저장한다.
+//
+// 화면 위에 「자동 저장 중」이라고 적어 두고 기본정보만 저장 버튼을 눌러야 남는 것은 거짓말이었다.
+// 자동 저장되는 줄 알고 그냥 나가면 넣어 둔 값이 기관정보에 들어가지 않았다.
+//
+// 타이핑 중간값이 이력에 쌓이지 않게 조금 기다렸다가 저장한다. 값이 그대로면 mergeApplicantItems가
+// 손대지 않으므로 같은 값을 두 번 저장해도 줄이 늘지 않는다.
+let quickSaveTimer = null;
+function queueQuickOrgSave(delay = 2500) {
+  if (quickSaveTimer) clearTimeout(quickSaveTimer);
+  quickSaveTimer = setTimeout(() => { quickSaveTimer = null; void autoSaveQuickOrg(); }, delay);
+}
+
+async function autoSaveQuickOrg() {
+  const applicant = findApplicant(state.applicants, focusedApplicantId());
+  // 아직 기관이 없으면 저장할 곳이 없다. 그때는 「신청기관 추가」가 먼저다.
+  if (!applicant) return;
+  const draft = { ...quickDraft(), orgName: String(quickDraft().orgName || applicant.name || '').trim() };
+  const items = quickToApplicantItems(draft).map(item => makeApplicantItem(item));
+  if (!items.length) return;
+  const next = normalizeApplicant({ ...applicant, name: draft.orgName || applicant.name, items: mergeApplicantItems(applicant.items, items) });
+  if (JSON.stringify(next.items) === JSON.stringify(applicant.items) && next.name === applicant.name) return;
+  state.applicants = upsertApplicant(state.applicants, next);
+  setState({ applicants: state.applicants, quickSavedAt: new Date().toISOString() });
+  await saveArchivedApplicant(next).catch(() => null);
+}
+
 async function saveQuickOrg() {
   // 기관정보 화면에서는 지금 열어 둔 기관에 저장한다. 작성 화면에서는 이번 사업 신청기관에 저장한다.
   const existing = findApplicant(state.applicants, state.activeTool === 'applicants' ? focusedApplicantId() : state.selectedApplicantId);
@@ -5615,9 +5642,8 @@ function applicantBasicView(applicant, who = '신청기관') {
       ${field.key === firstMissingQuickField ? goNote('basic', '여기를 채우세요') : ''}
     </div>`).join('')}</div>
     <p class="muted">적지 않은 인력·시설·실적·예산은 만들어 넣지 않고 <b>[확인 필요]</b>로 남깁니다.${reuse ? ` 지금 이 기관에서 다음 계획서에도 다시 쓰이는 확인된 정보는 ${reuse}건입니다.` : ''}</p>
-    <div class="actions"><span class="muted">${status.ready ? '이 상태로 계획서를 시작할 수 있습니다. 상세정보는 선택입니다.' : `아직 ${status.missing.join(' · ')}가 비어 있습니다.`}</span>
-      <div><button class="button secondary" id="save-basic-info" ${state.busy ? 'disabled' : ''}>기본정보 저장</button>
-        <button class="button secondary" id="basic-to-writing" ${state.busy ? 'disabled' : ''}>저장하고 계획서 작성으로</button></div></div>
+    <div class="actions"><span class="muted">${state.quickSavedAt ? '적는 대로 저장됩니다. 방금 저장했습니다.' : '적는 대로 저장됩니다. 따로 저장을 누르지 않아도 됩니다.'}${status.ready ? ' 이 상태로 계획서를 시작할 수 있습니다.' : ` 아직 ${status.missing.join(' · ')}이(가) 비어 있습니다.`}</span>
+      <div><button class="button secondary" id="basic-to-writing" ${state.busy ? 'disabled' : ''}>계획서 작성으로</button></div></div>
     ${BASIC_AREAS.map(key => APPLICANT_AREAS.find(area => area.key === key)).filter(Boolean).map(area => {
       const count = areaItems(applicant, area.key).length;
       return `<details class="card org-details" data-detail-group="${area.key}" ${(state.openOrgGroups || []).includes(area.key) ? 'open' : ''}>
@@ -8154,13 +8180,12 @@ function bindApplicants() {
   document.querySelector('#close-all-details')?.addEventListener('click', () => setState({ openOrgGroups: [], closedOrgGroups: DETAIL_GROUPS.map(group => group.key) }));
   // 다시 올리는 길은 그 자리에서. 또 찾아 헤매지 않게 한다.
   document.querySelector('#recheck-upload')?.addEventListener('click', () => focusAnchor('#applicant-cert-drop'));
-  document.querySelector('#save-basic-info')?.addEventListener('click', () => void saveBasicInfo());
   document.querySelector('#basic-to-writing')?.addEventListener('click', () => void saveBasicInfo({ thenWrite: true }));
   document.querySelectorAll('[data-select-applicant]').forEach(el => el.onclick = () => selectApplicantForProject(el.dataset.selectApplicant));
   // 신청기관 정보가 없어도 계획서 작성을 막지 않는다.
   document.querySelector('#skip-applicant')?.addEventListener('click', () => navigateToStep(3, { applicantSkipped: true, notice: '신청기관 없이 진행합니다. 확인되지 않은 기관 사실은 만들지 않고 [확인 필요]로 남깁니다.', error: '' }));
   document.querySelectorAll('[data-delete-applicant]').forEach(el => el.onclick = () => removeApplicant(el.dataset.deleteApplicant));
-  document.querySelector('#applicant-name')?.addEventListener('input', event => { updateEditingApplicant(applicant => { applicant.name = event.target.value; }); });
+  document.querySelector('#applicant-name')?.addEventListener('input', event => { updateEditingApplicant(applicant => { applicant.name = event.target.value; }); queueApplicantSave(); });
   document.querySelector('#applicant-note')?.addEventListener('input', event => { updateEditingApplicant(applicant => { applicant.note = event.target.value; }); });
   document.querySelectorAll('[data-applicant-field]').forEach(el => el.oninput = () => {
     const [itemId, field] = el.dataset.applicantField.split('|');
@@ -8192,6 +8217,7 @@ function bindApplicants() {
   // 간단 시작
   document.querySelectorAll('[data-quick-field]').forEach(el => el.oninput = () => {
     state.quickOrg = { ...quickDraft(), [el.dataset.quickField]: el.value };
+    queueQuickOrgSave();
     // 손으로 고쳤으면 더는 그 자료에서 온 값이 아니다. 출처 표시를 지운다.
     if ((state.quickFilledFrom || {})[el.dataset.quickField]) {
       const rest = { ...state.quickFilledFrom };
@@ -8199,7 +8225,7 @@ function bindApplicants() {
       state.quickFilledFrom = rest;
     }
   });
-  document.querySelectorAll('select[data-quick-field]').forEach(el => el.onchange = () => setState({ quickOrg: { ...quickDraft(), [el.dataset.quickField]: el.value } }));
+  document.querySelectorAll('select[data-quick-field]').forEach(el => el.onchange = () => { setState({ quickOrg: { ...quickDraft(), [el.dataset.quickField]: el.value } }); queueQuickOrgSave(300); });
   document.querySelector('#quick-idea')?.addEventListener('input', event => { state.quickOrg = { ...quickDraft(), idea: event.target.value }; });
   document.querySelector('#quick-pick')?.addEventListener('change', event => setState({ selectedApplicantId: event.target.value, applicantEditingId: event.target.value, quickOrg: { ...quickDraft(), ...draftFromApplicant(findApplicant(state.applicants, event.target.value)) }, notice: event.target.value ? '저장해 둔 기관정보를 씁니다.' : '' }));
   document.querySelector('#quick-save')?.addEventListener('click', () => void saveQuickOrg());
@@ -8298,6 +8324,7 @@ function fillQuickFromDocuments(applicant) {
     from[key] = suggestion.note;
     count += 1;
   }
+  if (count) queueQuickOrgSave(300);
   return count ? { quickOrg: filled, quickFilledFrom: from, count } : null;
 }
 

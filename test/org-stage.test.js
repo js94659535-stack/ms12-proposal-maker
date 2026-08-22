@@ -88,7 +88,10 @@ test('기관정보 페이지를 새로 만들지 않고 한 곳을 두 단계로
 });
 
 test('기본정보만 저장하고 바로 계획서 작성으로 갈 수 있다', () => {
-  assert.match(app, /id="save-basic-info"/);
+  // 기본정보는 적는 대로 저장된다(22-34). 「저장」 버튼은 없앴고 남은 것은 작성으로 가는 길뿐이다.
+  assert.doesNotMatch(app, /id="save-basic-info"/);
+  assert.match(app, /적는 대로 저장됩니다/);
+  assert.match(app, /function queueQuickOrgSave\(delay = 2500\)/);
   assert.match(app, /id="basic-to-writing"/);
   const fn = app.slice(app.indexOf('async function saveBasicInfo('), app.indexOf('// 기관정보 화면.'));
   // 상세정보가 비어 있다고 막지 않는다.
@@ -131,4 +134,18 @@ test('에이전트는 지금 고른 고객기관의 기관정보를 관리한다
   assert.match(app, /function focusedApplicantId\(\) \{/);
   assert.match(app, /const editing = findApplicant\(state\.applicants, state\.applicantEditingId\) \|\| findApplicant\(state\.applicants, state\.selectedApplicantId\);/);
   assert.match(app, /const who = clients \? '고객 기관' : '신청기관';/);
+});
+
+test('기본정보도 적는 대로 저장된다', () => {
+  // 화면 위에 「자동 저장 중」이라 적어 두고 기본정보만 버튼을 눌러야 남는 것은 거짓말이었다.
+  const save = app.slice(app.indexOf('async function autoSaveQuickOrg()'), app.indexOf('async function saveQuickOrg()'));
+  // 기관이 없으면 저장할 곳이 없다. 그때는 기관을 먼저 만든다.
+  assert.match(save, /if \(!applicant\) return;/);
+  // 값이 그대로면 저장하지 않는다. 같은 값으로 이력을 늘리지 않는다.
+  assert.match(save, /if \(JSON\.stringify\(next\.items\) === JSON\.stringify\(applicant\.items\) && next\.name === applicant\.name\) return;/);
+  // 서버 보관까지 간다. 브라우저에만 남기지 않는다.
+  assert.match(save, /await saveArchivedApplicant\(next\)/);
+  // 타이핑 중간값이 이력에 쌓이지 않게 조금 기다린다.
+  assert.match(app, /queueQuickOrgSave\(\);/);
+  assert.match(app, /quickSaveTimer = setTimeout\(\(\) => \{ quickSaveTimer = null; void autoSaveQuickOrg\(\); \}, delay\);/);
 });
