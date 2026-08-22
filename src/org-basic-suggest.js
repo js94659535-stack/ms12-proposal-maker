@@ -39,11 +39,11 @@ export function suggestContact(applicant, profile = {}) {
   const fromProfile = text(profile.name);
   const name = fromProfile || text(representative?.value);
   if (!name) return null;
-  const where = fromProfile ? '내 정보에 적어 두신 이름' : /등록증|고유번호증/.test(text(representative?.source)) ? '사업자등록증의 대표자 이름' : '기관 정보의 대표자 이름';
+  const where = fromProfile ? '내 정보' : /등록증|고유번호증/.test(text(representative?.source)) ? '사업자등록증의 대표자' : '기관 정보의 대표자';
   return {
     value: name,
     from: [where],
-    note: `${where}을 넣었습니다. 실제 담당자가 다르면 고쳐 주세요. 연락처는 서류에 없어 비워 둡니다.`
+    note: `${where}에서 가져왔습니다. 다르면 고쳐 주세요. 연락처는 서류에 없어 비워 둡니다.`
   };
 }
 
@@ -84,7 +84,7 @@ export function suggestServed(applicant) {
   return {
     value: ranked.map(entry => entry.word).join(' · '),
     from: [evidence],
-    note: `${evidence}를 세어 뽑았습니다. 발주기관 이름과 프로그램 내용을 함께 보았습니다. 다르면 고쳐 주세요.`
+    note: `연혁에서 가져왔습니다 — ${evidence}. 다르면 고쳐 주세요.`
   };
 }
 
@@ -98,7 +98,7 @@ export function suggestStrength(applicant) {
   return {
     value: `${ranked.map(entry => `${entry.word} 관련 ${entry.count}건`).join(', ')} (실적 ${performance.length}건 기준)`,
     from: [evidence],
-    note: `${evidence}를 세어 적었습니다. 잘한다는 판단이 아니라 건수입니다. 다르면 고쳐 주세요.`
+    note: `연혁에서 가져왔습니다 — ${evidence}. 잘한다는 판단이 아니라 건수입니다. 다르면 고쳐 주세요.`
   };
 }
 

@@ -26,8 +26,8 @@ test('담당자는 이름만 넣고 연락처는 비워 둔다', () => {
   assert.equal(contact.value, '박종석');
   // 전화번호를 만들어 붙이지 않는다.
   assert.doesNotMatch(contact.value, /\d/);
-  assert.match(contact.note, /사업자등록증의 대표자 이름을 넣었습니다/);
-  assert.match(contact.note, /실제 담당자가 다르면 고쳐 주세요/);
+  assert.match(contact.note, /사업자등록증의 대표자에서 가져왔습니다/);
+  assert.match(contact.note, /다르면 고쳐 주세요/);
   assert.match(contact.note, /연락처는 서류에 없어 비워 둡니다/);
 });
 
@@ -36,7 +36,7 @@ test('대상과 강점은 무엇을 세었는지 함께 말한다', () => {
   // 발주기관 이름이 대상을 그대로 말한다 — 가족센터 2곳, 지역아동센터 1곳.
   assert.equal(served.value, '가족 · 아동');
   assert.match(served.note, /실적·프로그램 3건에서 가족 2곳 · 아동 1곳/);
-  assert.match(served.note, /발주기관 이름과 프로그램 내용을 함께 보았습니다/);
+  assert.match(served.note, /연혁에서 가져왔습니다/);
   const strength = suggestStrength(applicant);
   assert.match(strength.value, /진로 관련 2건/);
   // 잘한다는 판단이 아니라 건수라고 밝힌다.
@@ -55,12 +55,17 @@ test('넣은 값은 확인 필요 상태로 저장된다', () => {
   assert.deepEqual([...new Set(items.map(item => item.status))], ['확인 필요']);
 });
 
-test('화면은 넣기 전에도 넣은 뒤에도 출처를 적는다', () => {
+test('찾은 값은 묻지 않고 넣고, 출처만 남긴다', () => {
   const view = app.slice(app.indexOf("function applicantBasicView(applicant, who = '신청기관')"), app.indexOf('function applicantCandidateView('));
-  // 비어 있는 칸에만 제안이 뜬다.
-  assert.match(view, /!String\(draft\[field\.key\] \|\| ''\)\.trim\(\) && suggestions\[field\.key\]/);
-  assert.match(view, /올린 자료에서 찾았습니다/);
-  assert.match(view, /data-fill-quick="\$\{field\.key\}"/);
+  // 「이 값 넣기」 버튼은 없앴다. 절차를 늘리지 않는다.
+  assert.doesNotMatch(view, /data-fill-quick/);
+  assert.doesNotMatch(view, /이 값 넣기/);
+  // 비어 있는 칸에만 넣는다. 이미 적어 둔 값은 건드리지 않는다.
+  const fill = app.slice(app.indexOf('function fillQuickFromDocuments(applicant)'), app.indexOf('// 기관정보 화면이 지금 다루는 기관.'));
+  assert.match(fill, /if \(!suggestion \|\| String\(draft\[key\] \|\| ''\)\.trim\(\)\) continue;/);
+  // 기관을 열 때와 후보를 반영한 뒤에 넣는다.
+  assert.match(app, /\.\.\.\(fillQuickFromDocuments\(findApplicant\(state\.applicants, el\.dataset\.editApplicant\)\) \|\| \{\}\)/);
+  assert.match(app, /const autofill = fillQuickFromDocuments\(findApplicant\(state\.applicants, applicant\.id\)\);/);
   // 넣은 뒤에는 어디서 온 값인지 칸 아래에 남는다.
   assert.match(view, /\(state\.quickFilledFrom \|\| \{\}\)\[field\.key\] && String\(draft\[field\.key\] \|\| ''\)\.trim\(\)/);
   // 손으로 고치면 그 표시를 지운다.

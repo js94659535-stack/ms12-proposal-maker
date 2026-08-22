@@ -5589,8 +5589,6 @@ async function pullProfileIntoApplicant() {
 function applicantBasicView(applicant, who = '신청기관') {
   const draft = quickDraft();
   const status = basicStatus(applicant, draft);
-  // 올린 자료에 이미 답이 있는 칸은 그 값을 제안한다. 누르면 칸에 들어가고 고쳐 쓸 수 있다.
-  const suggestions = suggestBasicFields(applicant, { ...(auth.memberProfile || {}), name: auth.user?.name || '', phone: auth.user?.phone || '' });
   const reuse = reusableCount(applicant);
   return `<div class="card" id="applicant-editor" tabindex="-1">
     <div class="card-title"><div><h3>1단계 기본정보 · ${escapeHtml(applicant.name)}</h3>
@@ -5613,7 +5611,6 @@ function applicantBasicView(applicant, who = '신청기관') {
       ${field.choices
         ? `<select id="quick-${field.key}" data-quick-field="${field.key}"><option value="">고르세요</option>${ORG_TYPES.map(type => `<option value="${escapeHtml(type)}" ${draft[field.key] === type ? 'selected' : ''}>${escapeHtml(type)}</option>`).join('')}</select>`
         : `<input id="quick-${field.key}" data-quick-field="${field.key}" value="${escapeHtml(draft[field.key] || '')}" placeholder="${escapeHtml(field.hint)}">`}
-      ${!String(draft[field.key] || '').trim() && suggestions[field.key] ? `<div class="suggest-line"><div><strong>${escapeHtml(suggestions[field.key].value)}</strong><small class="muted">올린 자료에서 찾았습니다 · ${escapeHtml(suggestions[field.key].from.join(' · '))}</small></div><button class="button secondary" data-fill-quick="${field.key}">이 값 넣기</button></div>` : ''}
       ${(state.quickFilledFrom || {})[field.key] && String(draft[field.key] || '').trim() ? `<small class="muted filled-from">${escapeHtml(state.quickFilledFrom[field.key])}</small>` : ''}
       ${field.key === firstMissingQuickField ? goNote('basic', '여기를 채우세요') : ''}
     </div>`).join('')}</div>
@@ -8116,6 +8113,7 @@ function bindApplicants() {
   document.querySelector('#open-org-picker')?.addEventListener('click', () => setState({ orgPickerOpen: true, notice: '기관을 더하거나 바꿀 수 있습니다.' }));
   // 기관을 열면 저장해 둔 기본정보를 입력칸에 다시 채운다. 같은 내용을 두 번 적지 않게 한다.
   document.querySelectorAll('[data-edit-applicant]').forEach(el => el.onclick = () => setState({
+    ...(fillQuickFromDocuments(findApplicant(state.applicants, el.dataset.editApplicant)) || {}),
     activeTool: 'applicants', applicantEditingId: el.dataset.editApplicant, openOrgGroups: [], closedOrgGroups: [],
     quickOrg: { ...quickDraft(), ...draftFromApplicant(findApplicant(state.applicants, el.dataset.editApplicant)) }, notice: '', error: ''
   }));
@@ -8156,19 +8154,6 @@ function bindApplicants() {
   document.querySelector('#close-all-details')?.addEventListener('click', () => setState({ openOrgGroups: [], closedOrgGroups: DETAIL_GROUPS.map(group => group.key) }));
   // 다시 올리는 길은 그 자리에서. 또 찾아 헤매지 않게 한다.
   document.querySelector('#recheck-upload')?.addEventListener('click', () => focusAnchor('#applicant-cert-drop'));
-  document.querySelectorAll('[data-fill-quick]').forEach(el => el.onclick = () => {
-    const key = el.dataset.fillQuick;
-    const suggestion = suggestBasicFields(findApplicant(state.applicants, focusedApplicantId()), { ...(auth.memberProfile || {}), name: auth.user?.name || '', phone: auth.user?.phone || '' })[key];
-    if (!suggestion) return;
-    // 칸에만 넣는다. 저장은 회원이 「기본정보 저장」을 눌러야 하고, 저장해도 상태는 「확인 필요」다.
-    // 어디서 온 값인지 칸 아래에 계속 적어 둔다 — 「내 이름이 왜 여기 있지」 하지 않도록.
-    setState({
-      quickOrg: { ...quickDraft(), [key]: suggestion.value },
-      quickFilledFrom: { ...(state.quickFilledFrom || {}), [key]: suggestion.note },
-      notice: '올린 자료에서 찾은 값을 넣었습니다. 확인 필요 상태로 저장되니 고쳐 쓰셔도 됩니다.',
-      error: ''
-    });
-  });
   document.querySelector('#save-basic-info')?.addEventListener('click', () => void saveBasicInfo());
   document.querySelector('#basic-to-writing')?.addEventListener('click', () => void saveBasicInfo({ thenWrite: true }));
   document.querySelectorAll('[data-select-applicant]').forEach(el => el.onclick = () => selectApplicantForProject(el.dataset.selectApplicant));
@@ -8293,6 +8278,27 @@ function focusAnchor(anchor) {
   if (!anchor) return;
   pendingAiMove = { anchor, sameView: true };
   setState({});
+}
+
+// 올린 자료에 답이 있는 기본정보 칸은 묻지 않고 그냥 넣는다.
+//
+// 예전에는 「이 값 넣기」 버튼을 눌러야 들어갔다. 절차만 늘고, 값이 이미 있는데 「여기를 채우세요」가
+// 함께 떠서 무엇을 하라는 말인지 흐려졌다. 넣고, 어디서 왔는지 적고, 끝이다.
+// 상태는 여전히 「확인 필요」이며 회원이 고칠 수 있다.
+function fillQuickFromDocuments(applicant) {
+  if (!applicant) return null;
+  const suggestions = suggestBasicFields(applicant, { ...(auth.memberProfile || {}), name: auth.user?.name || '', phone: auth.user?.phone || '' });
+  const draft = quickDraft();
+  const filled = { ...draft };
+  const from = { ...(state.quickFilledFrom || {}) };
+  let count = 0;
+  for (const [key, suggestion] of Object.entries(suggestions)) {
+    if (!suggestion || String(draft[key] || '').trim()) continue;
+    filled[key] = suggestion.value;
+    from[key] = suggestion.note;
+    count += 1;
+  }
+  return count ? { quickOrg: filled, quickFilledFrom: from, count } : null;
 }
 
 // 기관정보 화면이 지금 다루는 기관. 열어 둔 기관이 없으면 이번 사업 신청기관을 그대로 관리한다.
@@ -8421,6 +8427,8 @@ function applyApplicantCandidate(candidateId) {
   const applicant = findApplicant(state.applicants, review?.applicantId);
   if (!candidate || !applicant) return;
   state.applicants = upsertApplicant(state.applicants, applyUpdateCandidate(applicant, candidate));
+  const autofill = fillQuickFromDocuments(findApplicant(state.applicants, applicant.id));
+  if (autofill) { state.quickOrg = autofill.quickOrg; state.quickFilledFrom = autofill.quickFilledFrom; }
   dropApplicantCandidate(candidateId, candidate.kind === '동일'
     ? `${candidate.label}은 기존 값 그대로 두고 이 문서를 근거로 추가했습니다.`
     : `${candidate.label} 후보를 ‘확인 필요’ 상태로 반영했습니다. 확인 후 상태를 변경하고 저장하세요.`);
@@ -8438,7 +8446,9 @@ function applySafeApplicantCandidates() {
   // 넣었으면 어디에 들어갔는지 보여 준다. 반영을 눌러도 화면이 그대로여서 무슨 일이 났는지 몰랐다.
   const group = areaDestination(review.candidates.find(candidate => SAFE_KINDS.includes(candidate.kind))?.area || '');
   if (group) pendingAiMove = { anchor: `[data-detail-group="${group}"]`, sameView: true };
+  const autofill = fillQuickFromDocuments(findApplicant(state.applicants, applicant.id));
   setState({
+    ...(autofill || {}),
     applicants: state.applicants,
     applicantExtraction: { ...review, candidates: remaining },
     openOrgGroups: group ? [...new Set([...(state.openOrgGroups || []), group])] : state.openOrgGroups,
