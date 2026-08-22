@@ -71,7 +71,9 @@ test('「다음 할 일」이 가리키는 구역은 접지 않는다', () => {
   const helper = app.slice(app.indexOf('function stepPointsAt(groupKey)'), app.indexOf('function goMark('));
   assert.match(helper, /groupKey === 'performance' && orgStepKey\(\) === 'confirm'/);
   const fold = app.slice(app.indexOf('function orgFoldOpen(key)'), app.indexOf('function stepPointsAt('));
-  assert.match(fold, /key === 'detail' && orgStepKey\(\) === 'confirm'/);
+  assert.match(fold, /if \(key === 'detail'\) return step === 'confirm';/);
+  // 기본정보 중단원도 가리키면 펼친다(22-47).
+  assert.match(fold, /if \(key === 'basic'\) return step === 'basic' \|\| step === 'upload';/);
 });
 
 test('실적은 접힌 채로도 제목 줄에서 한 번에 확인할 수 있다', () => {

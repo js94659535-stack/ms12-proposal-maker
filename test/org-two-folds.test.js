@@ -47,3 +47,23 @@ test('접는 층은 셋을 넘지 않고 해는 모두 접힌다', () => {
   const fields = app.slice(app.indexOf('function applicantAreaFields(applicant, area, showTitle)'), app.indexOf('function applicantLoadedView'));
   assert.match(fields, /const yearOpen = year => \(state\.openOrgYears \|\| \[\]\)\.includes\(year\);/);
 });
+
+test('기본정보 중단원도 접히고 줄에 채운 칸 수가 남는다', () => {
+  const view = app.slice(app.indexOf('function applicantBasicView(applicant, who'), app.indexOf('function applicantCandidateView'));
+  assert.match(view, /<details class="card org-details" id="applicant-editor" tabindex="-1" data-org-fold="basic"/);
+  assert.match(view, /채운 것 \$\{status\.filled\}\/\$\{status\.total\}칸/);
+  // 모자란 것이 무엇인지도 접힌 줄에 남는다.
+  assert.match(view, /status\.missing\.join\(' · '\)/);
+});
+
+test('「다음 할 일」이 가리키면 그 중단원을 펴고 그 자리로 데려간다', () => {
+  const fold = app.slice(app.indexOf('function orgFoldOpen(key)'), app.indexOf('function stepPointsAt('));
+  assert.match(fold, /if \(key === 'basic'\) return step === 'basic' \|\| step === 'upload';/);
+  assert.match(fold, /if \(key === 'detail'\) return step === 'confirm';/);
+  // 접기를 늘리면 가리킨 자리가 화면 밖으로 나간다. 한 번만 데려간다.
+  const scroll = app.slice(app.indexOf('function scrollToNextStep()'), app.indexOf('function scrollToNextStep()') + 500);
+  assert.match(scroll, /document\.querySelector\('\.go-target, \.button\.go'\)/);
+  assert.match(scroll, /if \(!step \|\| step === lastGoStep\) return;/);
+  assert.match(scroll, /scrollIntoView\(\{ behavior: 'smooth', block: 'center' \}\)/);
+  assert.match(app, /runPendingAiMove\(\); scrollToNextStep\(\);/);
+});

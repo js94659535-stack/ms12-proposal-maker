@@ -5265,7 +5265,12 @@ function addForm(key, label, body) {
 // 「다음 할 일」이 그 안을 가리키면 접혀 있으면 안 되므로 상태와 상관없이 펼친다.
 function orgFoldOpen(key) {
   if ((state.openOrgFolds || []).includes(key)) return true;
-  return key === 'detail' && orgStepKey() === 'confirm';
+  // 가리켜 놓고 감추면 눌러서 열고 또 찾아야 한다. 가리키는 자리는 그 중단원을 편다.
+  const step = orgStepKey();
+  if (key === 'basic') return step === 'basic' || step === 'upload';
+  if (key === 'detail') return step === 'confirm';
+  if (key === 'map') return false;
+  return false;
 }
 // 「다음 할 일」이 이 구역을 가리키는가. 지금은 실적 확인 하나뿐이지만 자리를 하나로 둔다.
 function stepPointsAt(groupKey) {
@@ -5644,10 +5649,9 @@ function applicantBasicView(applicant, who = '신청기관') {
   const draft = quickDraft();
   const status = basicStatus(applicant, draft);
   const reuse = reusableCount(applicant);
-  return `<div class="card" id="applicant-editor" tabindex="-1">
-    <div class="card-title"><div><h3>기본정보 · ${escapeHtml(applicant.name)}</h3>
-      <span>계획서를 시작하는 데 필요한 것만 적습니다. 나머지는 나중에 적어도 됩니다.</span></div>
-      <span class="status ${status.ready ? '충족' : '확인-필요'}">${status.ready ? (status.saved ? '저장됨' : '저장하면 시작 가능') : `${status.missing.join(' · ')} 필요`}</span></div>
+  // 중단원도 접는다(22-47). 접힌 줄에 몇 칸을 채웠는지와 무엇이 모자란지 남긴다.
+  return `<details class="card org-details" id="applicant-editor" tabindex="-1" data-org-fold="basic" ${orgFoldOpen('basic') ? 'open' : ''}>
+    <summary><b>기본정보 · ${escapeHtml(applicant.name)}</b> <small>채운 것 ${status.filled}/${status.total}칸 · ${status.ready ? (status.saved ? '저장됨' : '저장하면 시작 가능') : `${escapeHtml(status.missing.join(' · '))} 필요`}</small></summary>
     ${(() => { const stale = staleSummary(applicant.items, new Date().getFullYear()); return stale ? `<div class="alert warning"><strong>다시 확인할 정보 ${stale.count}건</strong><p>${escapeHtml(stale.message)}</p><div class="actions" style="margin:0"><span class="muted">상태는 그대로 둡니다. 확인해 두신 값은 계획서에 계속 쓰입니다.</span><button class="button secondary" id="recheck-upload">새 문서 올리기</button></div></div>` : ''; })()}
     <label class="dropzone${goMark('upload', 'target')}" id="applicant-cert-drop" for="applicant-cert-file">
       <strong>사업자등록증·고유번호증을 올리면 자동으로 채워집니다</strong>
@@ -5677,7 +5681,7 @@ function applicantBasicView(applicant, who = '신청기관') {
         <summary><b>${escapeHtml(area.title)}</b> <small>등록 ${count}건 · 주소·대표자·신청자격처럼 더 적을 것이 있을 때만 펼치세요</small></summary>
         ${applicantAreaFields(applicant, area, false)}</details>`;
     }).join('')}
-  </div>`;
+  </details>`;
 }
 
 // 파일·내 정보에서 뽑은 값은 후보로만 제안한다. 회원이 확인해야 저장된다.
@@ -7042,7 +7046,22 @@ function render() {
   if (state.activeTool === 'premium' && !isPremium()) state.activeTool = 'home';
   if (state.activeTool === 'diagnosis' && !auth.membership?.canDiagnosis) state.activeTool = 'home';
   const tools = { home: homeView, coaching: coachingView, applicants: applicantsToolView, sample: sampleView, engagement: engagementView, account: accountView, admin: adminView, operator: operatorView, premium: premiumView, diagnosis: diagnosisView, verified: verifiedArchiveView };
-  app.innerHTML = shell((tools[state.activeTool] || views[state.step] || views[0])()); bind(); startBusyElapsedTimer(); fitAutoGrow(); runPendingAiMove();
+  app.innerHTML = shell((tools[state.activeTool] || views[state.step] || views[0])()); bind(); startBusyElapsedTimer(); fitAutoGrow(); runPendingAiMove(); scrollToNextStep();
+}
+
+// 「다음 할 일」이 가리키는 자리로 한 번 데려다 준다(22-47, 다사111 방식).
+//
+// 접기를 늘리면 가리킨 자리가 화면 밖에 있게 된다. 초록 화살표를 붙여 놓고 스크롤을 안 하면
+// 「어디를 누르라는 거지」가 된다. 다만 다시 그릴 때마다 끌고 다니면 글자를 못 적으므로,
+// 가리키는 자리가 바뀐 첫 번째 그리기에서만 움직인다.
+let lastGoStep = '';
+function scrollToNextStep() {
+  const step = orgStepKey();
+  if (!step || step === lastGoStep) return;
+  const target = document.querySelector('.go-target, .button.go');
+  if (!target) return;
+  lastGoStep = step;
+  setTimeout(() => target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 40);
 }
 // 소개 화면에는 폼이 없다. 로그인 화면으로 넘기는 버튼과 구역 이동만 연결하고 서버는 부르지 않는다.
 function bindLanding() {

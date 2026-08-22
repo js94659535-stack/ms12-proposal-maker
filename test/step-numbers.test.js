@@ -31,7 +31,7 @@ test('중단원에서는 「단계」라고 하지 않는다', () => {
   for (const stale of ['1단계 기본정보', '2단계 상세정보', '2단계 · ${escapeHtml(result.title']) {
     assert.ok(!app.includes(stale), `${stale}가 남아 있다`);
   }
-  assert.match(app, /<h3>기본정보 · \$\{escapeHtml\(applicant\.name\)\}<\/h3>/);
+  assert.match(app, /<b>기본정보 · \$\{escapeHtml\(applicant\.name\)\}<\/b>/);
   assert.match(app, /<b>상세정보 <span class="muted">\(선택\)<\/span><\/b>/);
 });
 
