@@ -151,6 +151,8 @@ let lastTrimNotes = [];
 // 이 화면을 연 시각. 「방금 한 일」은 이 시각 뒤에 한 것만이다.
 const pageOpenedAt = Date.now();
 let busyTimer = null;
+// 기본정보에서 비어 있는 첫 칸. 초록 테두리는 그 한 칸에만 붙는다.
+let firstMissingQuickField = '';
 let archiveLoaded = false;
 let homeArchiveLoaded = false;
 let coachingPollActive = false;
@@ -5192,6 +5194,33 @@ const NEXT_STEP_ANCHORS = Object.freeze({
   'add-org': '#applicant-name-draft', basic: '#applicant-editor', upload: '#applicant-doc',
   apply: '#applicant-candidates', confirm: '#applicant-detail', write: ''
 });
+// 지금 「다음 할 일」이 무엇인지. 초록은 이 값이 가리키는 한 곳에만 붙는다.
+function orgStepKey() {
+  const applicant = findApplicant(state.applicants, focusedApplicantId());
+  const items = applicant?.items || [];
+  const unconfirmed = area => items.filter(item => (area === 'performance' ? item.area === 'performance' : item.area !== 'performance') && item.status !== CONFIRMED_STATUS).length;
+  return nextOrgStep({
+    applicantCount: state.applicants.length,
+    hasApplicant: Boolean(applicant),
+    basicMissing: basicStatus(applicant, quickDraft()).missing,
+    itemCount: items.length,
+    candidateCount: applicant && state.applicantExtraction?.applicantId === applicant.id ? (state.applicantExtraction.candidates || []).length : 0,
+    performanceUnconfirmed: unconfirmed('performance'),
+    otherUnconfirmed: unconfirmed('other')
+  }).key;
+}
+
+// 초록을 붙이는 유일한 통로. 판정이 가리키는 자리가 아니면 아무것도 붙지 않는다.
+// 갈색이 아홉 자리로 늘어 뜻을 잃었던 길을 초록이 그대로 가지 않게, 여기 한 곳으로만 지나가게 한다.
+function goMark(key, kind = 'button') {
+  if (orgStepKey() !== key) return '';
+  return kind === 'button' ? ' go' : ' go-target';
+}
+// 색만으로 알리지 않는다. 무엇을 하라는 자리인지 글자로 함께 적는다.
+function goNote(key, label) {
+  return orgStepKey() === key ? `<small class="go-note">${escapeHtml(label)}</small>` : '';
+}
+
 function orgNextStepBar() {
   const applicant = findApplicant(state.applicants, focusedApplicantId());
   const items = applicant?.items || [];
@@ -5246,7 +5275,7 @@ function orgPickerView(who) {
       <button class="button secondary" id="open-org-picker">다른 기관 쓰기</button></div></div>`;
   }
   return `<div class="card"><div class="card-title"><div><h3>등록된 ${who} ${state.applicants.length}곳</h3><span>${consortium.required ? `이 공고는 기관 둘 이상을 요구합니다 — 「${escapeHtml(consortium.evidence)}」` : '우리 기관도 등록기관 중 하나로만 다룹니다.'}</span></div><div><button class="button secondary" id="load-applicants">계획서보관함에서 불러오기</button></div></div>
-    <div class="two-col"><div class="field"><label for="applicant-name-draft">새 ${who}명</label><input id="applicant-name-draft" value="${escapeHtml(state.applicantNameDraft)}" placeholder="예: 사단법인 ○○센터"></div><div class="field"><label>&nbsp;</label><button class="button secondary" id="add-applicant">신청기관 추가</button></div></div>
+    <div class="two-col"><div class="field${goMark('add-org', 'target')}"><label for="applicant-name-draft">새 ${who}명</label><input id="applicant-name-draft" value="${escapeHtml(state.applicantNameDraft)}" placeholder="예: 사단법인 ○○센터">${goNote('add-org', '여기에 기관명을 적으세요')}</div><div class="field"><label>&nbsp;</label><button class="button secondary" id="add-applicant">신청기관 추가</button></div></div>
     ${state.applicants.length ? `<div class="requirement-list">${state.applicants.map(applicant => {
       const confirmed = applicant.items.filter(item => item.status === CONFIRMED_STATUS).length;
       return `<article class="requirement"><div><span class="tag">${applicant.id === state.selectedApplicantId ? '이번 사업 신청기관' : '등록기관'}</span><div><strong>${escapeHtml(applicant.name)}</strong><small>확인됨 ${confirmed}건 · 확인 필요·오래된 정보 ${applicant.items.length - confirmed}건 · 최근 수정 ${escapeHtml(String(applicant.updatedAt).slice(0, 10))}</small></div></div><div class="actions" style="margin:0;gap:8px"><button class="button secondary" data-edit-applicant="${escapeHtml(applicant.id)}">${(state.applicantEditingId || state.selectedApplicantId) === applicant.id ? '관리 중' : '이 기관 관리'}</button><button class="button secondary" data-select-applicant="${escapeHtml(applicant.id)}">이번 사업 신청기관으로 선택</button><button class="button secondary" data-delete-applicant="${escapeHtml(applicant.id)}">삭제</button></div></article>`;
@@ -5306,7 +5335,7 @@ function candidateReviewView(review) {
     <div class="alert success"><strong>문서에서 ${review.candidates.length}건을 찾았습니다</strong>
       <p>${safe ? `이 중 <b>${safe}건</b>은 기존 값을 바꾸지 않아 아래 버튼 한 번으로 들어갑니다.` : '기존 값과 견줘야 하는 항목이라 하나씩 보고 반영합니다.'}${rest ? ` 나머지 ${rest}건은 기존 값과 달라 항목마다 확인해 주세요.` : ''} 넣은 값은 모두 「확인 필요」로 들어가며, 확인해야 계획서에 사실로 쓰입니다.</p>
       <div class="actions" style="margin:0"><span class="muted">문서에 있는 것만 후보로 만듭니다. 없는 내용은 만들지 않습니다.</span>
-        <button class="button ${safe ? 'go' : 'secondary'}" id="apply-safe-candidates">신규·누적·근거 추가만 일괄 반영${safe ? ` ${safe}건` : ''}</button></div></div>
+        <button class="button secondary${goMark('apply')}" id="apply-safe-candidates">신규·누적·근거 추가만 일괄 반영${safe ? ` ${safe}건` : ''}</button></div></div>
     ${review.candidates.length ? `<div class="requirement-list">${review.candidates.map(candidate => `<article class="requirement"><div><span class="${kindTag[candidate.kind] || 'tag'}">${escapeHtml(candidate.kind)}</span><div><strong>${escapeHtml(areaTitle(candidate.area))} · ${escapeHtml(candidate.label)}</strong>
       <small>새 정보: ${escapeHtml(candidate.value)}</small>
       <small>기존 정보: ${escapeHtml(candidate.existingItemId ? `${candidate.existingValue} (${candidate.existingStatus})` : '기관 정보에 없음')}</small>
@@ -5503,22 +5532,25 @@ function applicantBasicView(applicant, who = '신청기관') {
     <div class="card-title"><div><h3>1단계 기본정보 · ${escapeHtml(applicant.name)}</h3>
       <span>계획서를 시작하는 데 필요한 것만 적습니다. 나머지는 나중에 적어도 됩니다.</span></div>
       <span class="status ${status.ready ? '충족' : '확인-필요'}">${status.ready ? (status.saved ? '저장됨' : '저장하면 시작 가능') : `${status.missing.join(' · ')} 필요`}</span></div>
-    <label class="dropzone" id="applicant-cert-drop" for="applicant-cert-file">
+    <label class="dropzone${goMark('upload', 'target')}" id="applicant-cert-drop" for="applicant-cert-file">
       <strong>사업자등록증·고유번호증을 올리면 자동으로 채워집니다</strong>
       <small>기관명 · 기관 유형 · 주소 · 대표자 · 고유번호 · PDF · DOCX · HWP · HWPX · TXT</small>
+      ${goNote('upload', '여기에 올리세요')}
       <input type="file" id="applicant-cert-file" accept=".pdf,.docx,.txt,.hwpx,.hwp"></label>
     <p class="muted">파일을 고르거나 여기에 끌어다 놓으세요. 찾은 값은 아래 「입력 후보」에 올라오고, 반영해야 이 칸에 들어갑니다. 손으로 적어도 됩니다.</p>
     <div class="two-col">
       <div class="field"><label for="applicant-name">${escapeHtml(who)}명</label><input id="applicant-name" value="${escapeHtml(applicant.name)}"></div>
       <div class="field"><label for="applicant-note">기관 메모 <span class="muted">(선택)</span></label><input id="applicant-note" value="${escapeHtml(applicant.note)}" placeholder="예: 2026년 기준 정보"></div>
     </div>
-    <div class="two-col">${QUICK_FIELDS.filter(field => field.key !== 'orgName').map(field => `<div class="field">
+    ${(() => { firstMissingQuickField = QUICK_FIELDS.find(field => field.required && field.key !== 'orgName' && !String(draft[field.key] || '').trim())?.key || ''; return ''; })()}
+    <div class="two-col">${QUICK_FIELDS.filter(field => field.key !== 'orgName').map(field => `<div class="field${field.key === firstMissingQuickField ? goMark('basic', 'target') : ''}">
       <label for="quick-${field.key}">${escapeHtml(field.label)}${field.required ? '' : ' <span class="muted">(선택)</span>'}</label>
       ${field.choices
         ? `<select id="quick-${field.key}" data-quick-field="${field.key}"><option value="">고르세요</option>${ORG_TYPES.map(type => `<option value="${escapeHtml(type)}" ${draft[field.key] === type ? 'selected' : ''}>${escapeHtml(type)}</option>`).join('')}</select>`
         : `<input id="quick-${field.key}" data-quick-field="${field.key}" value="${escapeHtml(draft[field.key] || '')}" placeholder="${escapeHtml(field.hint)}">`}
       ${!String(draft[field.key] || '').trim() && suggestions[field.key] ? `<div class="suggest-line"><div><strong>${escapeHtml(suggestions[field.key].value)}</strong><small class="muted">올린 자료에서 찾았습니다 · ${escapeHtml(suggestions[field.key].from.join(' · '))}</small></div><button class="button secondary" data-fill-quick="${field.key}">이 값 넣기</button></div>` : ''}
       ${(state.quickFilledFrom || {})[field.key] && String(draft[field.key] || '').trim() ? `<small class="muted filled-from">${escapeHtml(state.quickFilledFrom[field.key])}</small>` : ''}
+      ${field.key === firstMissingQuickField ? goNote('basic', '여기를 채우세요') : ''}
     </div>`).join('')}</div>
     <p class="muted">적지 않은 인력·시설·실적·예산은 만들어 넣지 않고 <b>[확인 필요]</b>로 남깁니다.${reuse ? ` 지금 이 기관에서 다음 계획서에도 다시 쓰이는 확인된 정보는 ${reuse}건입니다.` : ''}</p>
     <div class="actions"><span class="muted">${status.ready ? '이 상태로 계획서를 시작할 수 있습니다. 상세정보는 선택입니다.' : `아직 ${status.missing.join(' · ')}가 비어 있습니다.`}</span>
@@ -5568,7 +5600,7 @@ function detailGroupPanel(applicant, group) {
   // 실적은 접힌 채로도 한 번에 확인할 수 있어야 한다. 제목 줄에서 바로 누른다.
   const pending = group.key === 'performance' ? group.total - group.confirmed : 0;
   return `<details class="card org-details" data-detail-group="${group.key}" ${open ? 'open' : ''}>
-    <summary><b>${escapeHtml(group.title)}</b> <small>등록 ${group.total}건 · 확인됨 ${group.confirmed}건</small>${pending ? `<button class="button secondary summary-action" id="confirm-all-performance-head">${pending}건 모두 확인</button>` : ''}</summary>
+    <summary><b>${escapeHtml(group.title)}</b> <small>등록 ${group.total}건 · 확인됨 ${group.confirmed}건</small>${pending ? `<button class="button secondary summary-action${goMark('confirm')}" id="confirm-all-performance-head">${pending}건 모두 확인</button>` : ''}</summary>
     <p class="muted">${escapeHtml(group.hint)}</p>
     ${group.key === 'performance' ? performanceConfirmBar(applicant) : ''}
     ${areas.map(area => applicantAreaFields(applicant, area, areas.length > 1)).join('')}

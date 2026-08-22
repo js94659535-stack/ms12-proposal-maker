@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import { NEXT_STEP_KEYS, nextOrgStep } from '../src/org-next-step.js';
 
 const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+const css = fs.readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
 const ready = { hasApplicant: true, applicantCount: 1, basicMissing: [], itemCount: 96 };
 
 test('다섯 상태에서 무엇을 할지 하나씩 정해진다', () => {
@@ -111,18 +112,37 @@ test('올려 둔 후보가 기다리면 그것부터 가리킨다', () => {
 });
 
 test('초록은 한 자리뿐이다', () => {
-  // 갈색이 아홉 개가 되어 뜻을 잃었던 일을 초록으로 되풀이하지 않는다.
-  const names = ['applicantsToolView', 'orgNextStepBar', 'applicantBasicView', 'profileBridgePanel', 'applicantScopeView', 'applicantSourceView',
+  // 갈색이 아홉 자리로 늘어 뜻을 잃었던 길을 초록이 그대로 가지 않게 한다.
+  // 초록은 goMark 한 통로로만 붙고, 그 통로는 「다음 할 일」 판정이 가리킬 때만 열린다.
+  const names = ['applicantsToolView', 'orgPickerView', 'orgNextStepBar', 'applicantBasicView', 'profileBridgePanel', 'applicantScopeView', 'applicantSourceView',
     'applicantDetailView', 'detailGroupPanel', 'performanceConfirmBar', 'applicantAreaFields', 'applicantSourcesView', 'applicantDocumentView', 'candidateReviewView', 'ideaAssetPanel'];
-  const found = [];
+  const marks = [];
   for (const name of names) {
     const start = app.indexOf(`function ${name}(`);
     if (start < 0) continue;
     const body = app.slice(start, app.indexOf('\n}\n', start));
-    for (const match of body.matchAll(/button [^"]*\bgo\b[^"]*"[^>]*id="([^"]*)"/g)) found.push(match[1]);
+    // 초록이 붙는 곳은 모두 goMark를 지나야 한다.
+    for (const match of body.matchAll(/go-target|class="[^"]*go/g)) {
+      assert.ok(/goMark\(/.test(body.slice(Math.max(0, match.index - 120), match.index + 120)), `${name}에서 goMark를 지나지 않은 초록이 있습니다`);
+    }
+    for (const match of body.matchAll(/goMark\('([^']+)'/g)) marks.push(match[1]);
   }
-  assert.deepEqual(found, ['apply-safe-candidates'], `초록 버튼: ${found.join(', ')}`);
-  // 초록은 후보가 있을 때만 켜진다.
-  const view = app.slice(app.indexOf('function candidateReviewView(review)'), app.indexOf('function coachingApplicantView()'));
-  assert.match(view, /\$\{safe \? 'go' : 'secondary'\}/);
+  // 한 판정에 한 자리다. 같은 열쇠가 두 곳에 붙으면 초록이 둘이 된다.
+  assert.deepEqual([...marks].sort(), [...new Set(marks)].sort(), `같은 판정에 초록이 둘 이상입니다: ${marks.join(', ')}`);
+  // 다섯 갈래에 각각 한 자리씩 있다.
+  assert.deepEqual(marks.sort(), ['add-org', 'apply', 'basic', 'confirm', 'upload']);
+});
+
+test('초록은 판정이 가리킬 때만 켜지고 글자를 함께 둔다', () => {
+  const gate = app.slice(app.indexOf('function goMark(key, kind'), app.indexOf('function orgNextStepBar()'));
+  assert.match(gate, /if \(orgStepKey\(\) !== key\) return '';/);
+  assert.match(gate, /kind === 'button' \? ' go' : ' go-target'/);
+  // 색만으로 알리지 않는다.
+  assert.match(app, /goNote\('upload', '여기에 올리세요'\)/);
+  assert.match(app, /goNote\('basic', '여기를 채우세요'\)/);
+  assert.match(app, /goNote\('add-org', '여기에 기관명을 적으세요'\)/);
+  // 초록은 한 값에서만 온다.
+  assert.match(css, /--go:#03C75A/);
+  assert.match(css, /\.button\.go\{background:var\(--go\)/);
+  assert.match(css, /\.go-target\{[^}]*border:2px solid var\(--go\)/);
 });

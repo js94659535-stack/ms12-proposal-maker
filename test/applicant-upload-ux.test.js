@@ -42,7 +42,7 @@ test('다음에 누를 곳 하나만 표시하고 화면 전체를 깜박이지 
   const view = app.slice(app.indexOf('function candidateReviewView(review)'), app.indexOf('function coachingApplicantView()'));
   // 다음 할 일은 화면 맨 위 띠 하나가 말한다(22-12). 목록 안 단추는 주 버튼이 아니다.
   // 후보가 있으면 초록으로 눈에 띄게 한다(22-19). 갈색은 맨 위 띠 하나뿐이라 자리가 겹치지 않는다.
-  assert.match(view, /class="button \$\{safe \? 'go' : 'secondary'\}" id="apply-safe-candidates"/);
+  assert.match(view, /class="button secondary\$\{goMark\('apply'\)\}" id="apply-safe-candidates"/);
   assert.match(app, /<button class="button primary next-step" id="next-step-action"/);
   // 맥박은 네 번만 뛰고 멈춘다. 계속 움직이면 읽는 것을 방해한다.
   assert.match(css, /\.button\.next-step\{animation:nextStep 1\.5s ease-out 4\}/);
