@@ -56,10 +56,10 @@ test('건수와 순서는 건드리지 않는다', () => {
 test('화면은 그 칸에서만 꼬리표를 달고 숫자는 그대로 센다', () => {
   const view = app.slice(app.indexOf('function applicantFitView(applicant)'), app.indexOf('function projectValuesView('));
   // 「계획서에 답해야 할 요구사항」 칸에만 표시한다.
-  assert.match(view, /\['계획서에 답해야 할 요구사항', comparison\.answerInProposal, '확인-필요', true\]/);
-  assert.match(view, /\$\{markRollup \? rollupNote\(item\.requirement\) : ''\}/);
+  assert.match(view, /key: 'answer', name: '계획서에 답해야 할 요구사항', items: comparison\.answerInProposal, status: '확인-필요', markRollup: true/);
+  assert.match(view, /\$\{group\.markRollup \? rollupNote\(item\.requirement\) : ''\}/);
   // 숫자는 목록 길이 그대로다. 묶음이라고 빼지 않는다.
-  assert.match(view, /\$\{escapeHtml\(name\)\} \$\{items\.length\}건/);
+  assert.match(view, /\$\{escapeHtml\(group\.name\)\} \$\{group\.items\.length\}건/);
   const note = app.slice(app.indexOf('function rollupNote(requirement)'), app.indexOf('// 이 공고에 맞는 실적이 몇 건인지'));
   assert.match(note, /앞 항목들을 묶은 문장으로 보입니다\. 따로 세지 않아도 됩니다\./);
   assert.match(note, /그렇게 본 까닭: \$\{mark\.reasons/);

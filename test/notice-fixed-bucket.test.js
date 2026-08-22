@@ -72,7 +72,7 @@ test('낱말 목록을 늘려 판정하지 않는다', () => {
 
 test('화면이 새 갈래를 그리고 계약서를 넘긴다', () => {
   assert.match(app, /compareNoticeWithApplicant\(requirements, applicant, currentNoticeContract\(\)\)/);
-  assert.match(app, /\['공고가 정한 조건 \(기관에 등록할 것이 아님\)', comparison\.fixedByNotice/);
+  assert.match(app, /key: 'fixed', name: '공고가 정한 조건 \(기관에 등록할 것이 아님\)', items: comparison\.fixedByNotice/);
   assert.match(app, /item\.noticeValue \? `<small><b>공고가 정한 값<\/b>/);
 });
 

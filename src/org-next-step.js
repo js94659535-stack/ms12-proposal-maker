@@ -90,3 +90,48 @@ export function nextOrgStep({
     done: true
   };
 }
+
+// 신청기관을 고르는 화면(작업 3단계)의 「지금 할 일」 하나.
+//
+// 왜 따로인가. 이 화면이 하는 일은 기관 정보를 채우는 것이 아니라 「이번 사업에 누구로 신청할지」를
+// 정하는 것이다. 그래서 위의 차례(문서 올리기·후보 반영·칸 채우기)가 여기서는 뜻이 없다.
+// 판정은 다르지만 규칙은 같다 — 한 화면에 다음 할 일은 하나이고, 판정은 여기서만 한다.
+//
+// 실제로 났던 일: 기관을 고르고 나면 「이 기관으로 신청」이 「다시 불러오기」로 바뀌어 사라지고,
+// 확인 전 정보가 10건 남아 있는데도 화면 어디에도 다음에 할 일이 없었다(22-56①).
+export const PICK_STEP_KEYS = Object.freeze(['add-org', 'pick', 'confirm', 'next']);
+
+export function nextApplicantPick({ applicantCount = 0, hasPick = false, pickName = '', unconfirmed = 0, confirmed = 0 } = {}) {
+  if (count(applicantCount) === 0) {
+    return {
+      key: 'add-org',
+      message: '등록된 신청기관이 없습니다. 등록하지 않아도 계획서는 만들어지지만, 확인된 기관 정보가 있어야 사실로 실립니다.',
+      actionLabel: '신청기관 등록하러 가기',
+      done: false
+    };
+  }
+  if (!hasPick) {
+    return {
+      key: 'pick',
+      message: `등록된 기관 ${count(applicantCount)}곳 중 이번 사업으로 신청할 기관을 아직 고르지 않았습니다.`,
+      actionLabel: '기관 고르기',
+      done: false
+    };
+  }
+  // 확인 전인 것은 이 화면에서 고칠 수 없다. 고치는 자리는 기관정보 화면이고, 거기에는 이미
+  // 「띠 → 그 자리 → 거기서 할 일」이 이어져 있다(22-53). 그리로 넘겨준다.
+  if (count(unconfirmed) > 0) {
+    return {
+      key: 'confirm',
+      message: `${pickName || '고른 기관'}의 확인 전 정보가 ${count(unconfirmed)}건입니다. 확인한 정보만 계획서에 사실로 실립니다.`,
+      actionLabel: `${count(unconfirmed)}건 확인하러 가기`,
+      done: false
+    };
+  }
+  return {
+    key: 'next',
+    message: `${pickName || '고른 기관'}의 확인된 정보 ${count(confirmed)}건을 이번 사업에 씁니다. 준비가 됐습니다.`,
+    actionLabel: '사업 선택으로',
+    done: true
+  };
+}
