@@ -101,3 +101,24 @@ test('직접 항목 추가 칸은 접어 두고 필요할 때만 편다', () => 
   // 접힌 줄은 눌러서 펴는 것으로 보인다.
   assert.match(css, /\.add-fold>summary\{[^}]*cursor:pointer/);
 });
+
+test('「전달할 확인된 정보」도 연도별로 접고 제목이 사실을 말한다', () => {
+  const view = app.slice(app.indexOf('function confirmedInfoView(applicant, confirmed)'), app.indexOf('function applicantFitView(applicant)'));
+  // 저장된 것과 이번 공고에 실리는 것은 다르다. 둘을 나눠 적는다.
+  assert.match(view, /저장된 확인 정보 \$\{confirmed\.length\}건/);
+  assert.match(view, /이번 공고에 실리는 것 \$\{sent\}건/);
+  assert.match(view, /나머지 \$\{organization\.otherPastProjects\.count\}건은 건수만 전달/);
+  // 실리는 건수는 실제로 보내는 자료에서 센다. 따로 세지 않는다.
+  assert.match(view, /const organization = organizationForGeneration\(\);/);
+  // 실적은 22-06에서 만든 연도 접기를 그대로 쓴다. 새로 만들지 않는다.
+  assert.match(view, /groupItemsByYear\(records\)\.map\(group => `<details class="year-fold"/);
+  // 기본은 접힘이다.
+  assert.match(view, /<details><summary>저장된 확인 정보/);
+});
+
+test('출처별 정보의 실적도 접는다', () => {
+  const view = app.slice(app.indexOf('function applicantSourceView(applicant)'), app.indexOf('function applicantBasicView('));
+  assert.match(view, /groupItemsByYear\(performance\)\.map\(group => `<details class="year-fold"/);
+  // 접기 기억은 다른 목록과 섞이지 않게 이름을 따로 쓴다.
+  assert.match(view, /data-org-year="출처-\$\{escapeHtml\(group\.year\)\}"/);
+});

@@ -5469,7 +5469,7 @@ function applicantSourceView(applicant) {
   return `<details class="card org-details"><summary>출처별 정보 ${groups.length}곳 · 사업실적 ${performance.length}건</summary>
     <p class="muted">확인됨은 계획서 작성에 그대로 사용하고, 확인 필요·오래된 정보는 값이 전달되지 않습니다.</p>
     <div class="requirement-list">${groups.map(group => `<article class="requirement"><div><span class="tag">확인됨 ${group.confirmed} · 확인 필요 ${group.outdated}</span><div><strong>${escapeHtml(group.source)}</strong><small>${escapeHtml(group.items.map(item => `${areaTitle(item.area)}·${item.label}${item.asOf ? `(${item.asOf})` : ''}`).join(' / '))}</small></div></div></article>`).join('')}</div>
-    ${performance.length ? `<h4>사업실적 연도순</h4><div class="cap-grid">${performance.map(item => `<div><span>${escapeHtml(item.asOf || (item.label.match(/(19|20)\d{2}/)?.[0] || ASOF_UNKNOWN))}</span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.status)}${(item.history || []).length ? ` · 이전 기록 ${item.history.length}건` : ''}</small></div>`).join('')}</div>` : ''}</details>`;
+    ${performance.length ? `<h4>사업실적 ${performance.length}건</h4>${groupItemsByYear(performance).map(group => `<details class="year-fold" data-org-year="출처-${escapeHtml(group.year)}" ${(state.openOrgYears || []).includes(`출처-${group.year}`) ? 'open' : ''}><summary><b>${escapeHtml(group.year)}</b> ${group.items.length}건</summary><div class="cap-grid">${group.items.map(item => `<div><span>${escapeHtml(item.asOf || ASOF_UNKNOWN)}</span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(String(item.value).slice(0, 40))} · ${escapeHtml(item.status)}</small></div>`).join('')}</div></details>`).join('')}` : ''}</details>`;
 }
 
 
@@ -5797,7 +5797,7 @@ function applicantLoadedView(applicant) {
       <p>열한 칸을 하나씩 적지 않아도 됩니다. 기관 연혁을 올리면 연도별 사업실적이, 사업계획서를 올리면 인력·시설·협력기관·예산이, 고유번호증을 올리면 기관명·대표자·고유번호가 후보로 올라옵니다.</p>
       <p><button class="button primary next-step" id="go-applicant-doc">연혁·사업계획서 올리러 가기</button></p></div>` : ''}
     <div class="summary-grid">${summary.map(area => `<button type="button" data-open-area="${escapeHtml(area.key)}" title="${escapeHtml(area.title)} 적으러 가기"><span>${escapeHtml(area.title)}</span><strong>${area.confirmed}건 확인됨</strong><small>확인 필요·오래된 정보 ${area.needsCheck}건</small></button>`).join('')}</div>
-    <details open><summary>계획서 작성에 전달할 확인된 정보 ${confirmed.length}건</summary><div class="cap-grid">${confirmed.length ? confirmed.map(item => `<div><span>${escapeHtml(areaTitle(item.area))}</span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.value)}</small></div>`).join('') : '<p class="muted">확인됨으로 표시된 정보가 없습니다. 기관 사실은 [확인 필요]로만 처리됩니다.</p>'}</div></details>
+    ${confirmedInfoView(applicant, confirmed)}
     <details><summary>전달하지 않는 확인 필요·오래된 정보 ${applicant.items.length - confirmed.length}건</summary><p class="muted">아래 항목은 항목명만 표시하며 내용은 계획서 작성 요청에 포함하지 않습니다.</p><div class="cap-grid">${applicant.items.filter(item => item.status !== CONFIRMED_STATUS).map(item => `<div><span>${escapeHtml(areaTitle(item.area))}</span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.status)}</small></div>`).join('') || '<p class="muted">없음</p>'}</div></details></div>`;
 }
 
@@ -5831,6 +5831,23 @@ function fitPerformanceView(applicant, requirements) {
     ${thin ? `<p>이 공고 분야의 실적이 확인되지 않았습니다. 관련 실적이 있으면 추가하시고, 없으면 수행 역량을 다른 방식(인력·프로그램·협력기관·유사 경험)으로 보여야 합니다.${matches.length ? ' 아래 항목은 분야가 아니라 낱말이 겹쳐 걸린 것일 수 있으니 그대로 실적 근거로 쓰지 마세요.' : ''}</p>` : ''}
     <p class="muted">계획서 작성 요청에는 겹치는 실적 ${sending}건을 내용까지 싣고, 나머지 ${Math.max(0, history.length - sending)}건은 건수만 알립니다. 실적이 사라지는 것이 아니라 이번 공고와 관련된 것만 펼치는 것입니다.</p>
     ${matches.length ? `<details><summary>겹친 실적 ${matches.length}건 보기</summary><div class="requirement-list">${matches.map(line).join('')}</div></details>` : ''}</div>`;
+}
+
+// 「전달할 확인된 정보」는 두 가지를 한 덩어리로 보여 주고 있었다 — 저장된 확인 정보와,
+// 이번 공고에 실제로 실리는 것. 둘은 다르다(다사113①에서 공고와 겹치는 실적만 싣게 했다).
+// 그래서 숫자를 나눠 적고, 실적은 22-06에서 만든 연도 접기를 그대로 쓴다.
+function confirmedInfoView(applicant, confirmed) {
+  const organization = organizationForGeneration();
+  const sentRecords = (organization.pastProjectRecords || []).reduce((count, project) => count + project.records.length, 0);
+  const sent = (organization.confirmedFacts || []).length + sentRecords;
+  const profile = confirmed.filter(item => item.area !== 'performance');
+  const records = confirmed.filter(item => item.area === 'performance');
+  const line = item => `<div><span>${escapeHtml(areaTitle(item.area))}</span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.value)}</small></div>`;
+  if (!confirmed.length) return '<details><summary>저장된 확인 정보 0건</summary><p class="muted">확인됨으로 표시된 정보가 없습니다. 기관 사실은 [확인 필요]로만 처리됩니다.</p></details>';
+  return `<details><summary>저장된 확인 정보 ${confirmed.length}건 <small class="muted">· 이번 공고에 실리는 것 ${sent}건${organization.otherPastProjects ? ` · 나머지 ${organization.otherPastProjects.count}건은 건수만 전달` : ''}</small></summary>
+    <p class="muted">확인된 정보만 계획서 작성에 사실로 전달합니다. 실적은 이번 공고와 겹치는 것만 내용까지 싣고 나머지는 건수만 알립니다.</p>
+    ${profile.length ? `<h4>현재 기관 정보 ${profile.length}건</h4><div class="cap-grid">${profile.map(line).join('')}</div>` : ''}
+    ${records.length ? `<h4>사업실적 ${records.length}건</h4>${groupItemsByYear(records).map(group => `<details class="year-fold" data-org-year="확인-${escapeHtml(group.year)}" ${(state.openOrgYears || []).includes(`확인-${group.year}`) ? 'open' : ''}><summary><b>${escapeHtml(group.year)}</b> ${group.items.length}건</summary><div class="cap-grid">${group.items.map(line).join('')}</div></details>`).join('')}` : ''}</details>`;
 }
 
 function applicantFitView(applicant) {
