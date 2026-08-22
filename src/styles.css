@@ -794,6 +794,8 @@ select{max-width:100%}
 /* 움직임을 줄여 달라고 해 둔 사람에게는 테두리로만 알린다. */
 @media(prefers-reduced-motion:reduce){
   .button.next-step{animation:none;outline:2px solid var(--blue);outline-offset:3px}
+  /* 화살표는 그대로 두고 깜박임만 없앤다. 자리는 여전히 보여야 한다. */
+  .go-target::before{animation:none}
 }
 
 /* 실적은 해마다 접어 둔다. 열 해가 한꺼번에 펼쳐지면 화면이 끝없이 이어진다. */
@@ -833,7 +835,11 @@ select{max-width:100%}
    버튼이면 초록 버튼, 버튼이 아니면 초록 테두리다. 색만으로 알리지 않고 글자를 함께 둔다. */
 .button.go{background:var(--go);color:#fff;border-color:var(--go)}
 .button.go:hover,.button.go:focus-visible{filter:brightness(1.06)}
-.go-target{position:relative;border:2px solid var(--go);border-radius:11px;padding:12px;background:#f2fcf6}
+.go-target{position:relative;border:2px solid var(--go);border-radius:11px;padding:12px 12px 12px 36px;background:#f2fcf6}
+/* 기록해야 할 자리 앞의 화살표. 네 번 맥박치고 멈춘다 — 계속 움직이면 읽는 것을 방해한다.
+   값이 들어가 초록이 사라지면 화살표도 함께 사라진다. */
+.go-target::before{content:'➜';position:absolute;left:10px;top:12px;color:var(--go);font-size:16px;font-weight:900;line-height:1.4;animation:goArrow 1.4s ease-out 4}
+@keyframes goArrow{0%{opacity:1;transform:translateX(0)}50%{opacity:.25;transform:translateX(-4px)}100%{opacity:1;transform:translateX(0)}}
 .go-target>label,.go-target>strong{color:#0b7a3b}
 .go-note{display:inline-block;margin-top:6px;padding:3px 9px;border-radius:999px;background:var(--go);color:#fff;font-size:11px;font-weight:800}
 .dropzone.go-target{border-style:dashed}

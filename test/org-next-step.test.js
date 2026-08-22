@@ -146,3 +146,14 @@ test('초록은 판정이 가리킬 때만 켜지고 글자를 함께 둔다', (
   assert.match(css, /\.button\.go\{background:var\(--go\)/);
   assert.match(css, /\.go-target\{[^}]*border:2px solid var\(--go\)/);
 });
+
+test('기록할 자리 앞에 화살표가 네 번 깜박이고 멈춘다', () => {
+  // 초록이 붙는 그 자리에만 붙는다. 판정이 옮겨 가면 화살표도 함께 옮겨 간다.
+  assert.match(css, /\.go-target::before\{content:'➜'/);
+  assert.match(css, /animation:goArrow 1\.4s ease-out 4\}/);
+  assert.match(css, /@keyframes goArrow\{/);
+  // 값이 들어가면 초록이 사라지고 화살표도 함께 사라진다 — 같은 클래스에 매여 있다.
+  assert.match(css, /\.go-target\{position:relative;border:2px solid var\(--go\)/);
+  // 움직임을 줄여 달라고 해 둔 분에게는 화살표만 두고 깜박임을 없앤다.
+  assert.match(css, /@media\(prefers-reduced-motion:reduce\)\{[\s\S]{0,240}\.go-target::before\{animation:none\}/);
+});
