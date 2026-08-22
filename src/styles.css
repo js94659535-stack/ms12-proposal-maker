@@ -838,10 +838,15 @@ select{max-width:100%}
 .go-target{position:relative;border:2px solid var(--go);border-radius:11px;padding:12px 12px 12px 36px;background:#f2fcf6}
 /* 기록해야 할 자리 앞의 화살표. 네 번 맥박치고 멈춘다 — 계속 움직이면 읽는 것을 방해한다.
    값이 들어가 초록이 사라지면 화살표도 함께 사라진다. */
-.go-target::before{content:'➜';position:absolute;left:10px;top:12px;color:var(--go);font-size:16px;font-weight:900;line-height:1.4;animation:goArrow 1.4s ease-out 4}
+/* 글꼴에 이 글자가 없으면 네모가 뜬다. 기호 글꼴을 뒤에 세워 어느 컴퓨터에서나 화살표가 나오게 한다. */
+.go-target::before{content:'➜';position:absolute;left:10px;top:12px;color:var(--go);font-size:16px;font-weight:900;line-height:1.4;font-family:"Segoe UI Symbol","Apple Symbols","Noto Sans Symbols 2",sans-serif;animation:goArrow 1.4s ease-out 4}
 @keyframes goArrow{0%{opacity:1;transform:translateX(0)}50%{opacity:.25;transform:translateX(-4px)}100%{opacity:1;transform:translateX(0)}}
 .go-target>label,.go-target>strong{color:#0b7a3b}
 .go-note{display:inline-block;margin-top:6px;padding:3px 9px;border-radius:999px;background:var(--go);color:#fff;font-size:11px;font-weight:800}
+/* ② 데려간 자리. 「여기까지 왔다」만 말한다 — 화살표는 붙이지 않는다(22-53⑤).
+   화살표가 자리와 할 일 두 곳에 있으면 어느 것을 누르라는 말인지 다시 흐려진다. */
+.go-place{border-color:var(--go);box-shadow:0 0 0 3px rgba(3,199,90,.14)}
+.go-place>summary{color:#0b7a3b}
 .dropzone.go-target{border-style:dashed}
 
 /* 올린 자료에서 찾은 값 제안. 칸 아래 한 줄로 두고, 누르면 칸에 들어간다. */
@@ -924,3 +929,31 @@ select{max-width:100%}
    둘 다 꽉 찬 초록이면 어느 것을 눌러야 하는지 다시 헷갈린다. */
 .button.go-target{background:#f2fcf6;color:#0b7a3b;border:2px solid var(--go);padding:10px 14px 10px 32px}
 .button.go-target::before{top:9px;left:9px}
+
+/* 접힌 줄인지 눈에 보이게 (22-53③).
+   실제로 났던 일: 「무엇을 채웠고 무엇이 비었나」·「기본정보」·「입력 후보」·「상세정보」가
+   모두 같은 흰 카드로 나와서, 누르면 펼쳐지는 줄인지 그냥 제목인지 알 수 없었다.
+   배경 농도(22-48)와 제목 크기(22-50)는 「몇 층인가」를 말할 뿐 「눌러서 펴는가」는 말하지 않는다.
+
+   까닭은 우리가 만들었다. summary 를 display:flex 로 두면 브라우저가 그리던 삼각형이 사라진다.
+   그래서 우리가 그린다. 글자(▸)가 아니라 테두리로 그린 세모다 — 글꼴에 그 글자가 없어
+   네모가 뜨는 일이 없다. 펼치면 아래를 가리킨다.
+
+   색은 새로 만들지 않는다. 제목과 같은 잉크를 옅게 쓴다 — 초록·갈색은 이미 뜻이 있다. */
+:root{--fold-mark:#a2968a;--fold-mark-size:5px}
+.org-details>summary,.year-fold>summary,.item-fold>summary,.add-fold>summary{list-style:none}
+.org-details>summary::-webkit-details-marker,.year-fold>summary::-webkit-details-marker,
+.item-fold>summary::-webkit-details-marker,.add-fold>summary::-webkit-details-marker{display:none}
+.org-details>summary::marker,.year-fold>summary::marker,
+.item-fold>summary::marker,.add-fold>summary::marker{content:''}
+.org-details>summary::before,.year-fold>summary::before,.item-fold>summary::before,.add-fold>summary::before{
+  content:'';flex:none;display:inline-block;vertical-align:middle;margin-right:8px;
+  width:0;height:0;border-left:calc(var(--fold-mark-size) * 1.6) solid var(--fold-mark);
+  border-top:var(--fold-mark-size) solid transparent;border-bottom:var(--fold-mark-size) solid transparent;
+  transition:transform .12s ease-out}
+/* summary 가 flex 인 층은 gap 이 이미 사이를 벌린다. 두 번 벌리지 않는다. */
+.org-details>summary::before,.item-fold>summary::before{margin-right:0}
+.org-details[open]>summary::before,.year-fold[open]>summary::before,
+.item-fold[open]>summary::before,.add-fold[open]>summary::before{transform:rotate(90deg)}
+/* 「다음 할 일」이 가리키는 줄에서는 세모도 초록이다. 자리를 함께 말한다. */
+.go-place>summary::before{border-left-color:var(--go)}

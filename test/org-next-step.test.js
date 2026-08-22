@@ -8,8 +8,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { NEXT_STEP_KEYS, nextOrgStep } from '../src/org-next-step.js';
 
-const app = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
-const css = fs.readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+// 줄바꿈을 한 가지로 맞춰 읽는다. 윈도우에서 받아 온 사본은 줄 끝이 CRLF여서
+// 함수 하나를 잘라 내는 자(줄바꿈 + 닫는 중괄호)가 어긋났고, 그러면 시험이 파일 끝까지를
+// 한 함수로 보아 어느 함수에서 걸렸는지도 알 수 없게 된다.
+const read = name => fs.readFileSync(new URL(name, import.meta.url), 'utf8').split('\r\n').join('\n');
+const app = read('../src/app.js');
+const css = read('../src/styles.css');
 const ready = { hasApplicant: true, applicantCount: 1, basicMissing: [], itemCount: 96 };
 
 test('다섯 상태에서 무엇을 할지 하나씩 정해진다', () => {
@@ -75,7 +79,7 @@ test('띠는 제목 바로 아래 하나뿐이고 판정은 한 곳에서 온다
 });
 
 test('이 화면에서 초록 버튼은 띠 안의 하나뿐이고 갈색은 없다', () => {
-  const names = ['applicantsToolView', 'orgNextStepBar', 'applicantBasicView', 'profileBridgePanel', 'applicantScopeView', 'applicantSourceView',
+  const names = ['applicantsToolView', 'orgNextStepBar', 'applicantBasicView', 'applicantCandidateView', 'profileBridgePanel', 'applicantScopeView', 'applicantSourceView',
     'applicantDetailView', 'detailGroupPanel', 'performanceConfirmBar', 'applicantAreaFields', 'applicantSourcesView', 'applicantDocumentView', 'candidateReviewView', 'ideaAssetPanel'];
   const found = [];
   for (const name of names) {
@@ -93,7 +97,7 @@ test('이 화면에서 초록 버튼은 띠 안의 하나뿐이고 갈색은 없
 });
 
 test('「채우러 가기」는 그 자리로 데려간다', () => {
-  const handler = app.slice(app.indexOf("document.querySelector('#next-step-action')"), app.indexOf("document.querySelector('#undo-confirm-performance')"));
+  const handler = app.slice(app.indexOf("document.querySelector('#next-step-action')"), app.indexOf("document.querySelector('#undo-bulk-confirm')"));
   assert.match(handler, /focusAnchor\(button\.dataset\.nextAnchor/);
   // 실적 확인은 데려가지 않고 그 자리에서 끝낸다.
   assert.match(handler, /if \(button\.dataset\.nextBulk\) return confirmAllPerformance\(\);/);
@@ -116,33 +120,87 @@ test('올려 둔 후보가 기다리면 그것부터 가리킨다', () => {
   assert.equal(nextOrgStep({ hasApplicant: false, candidateCount: 5 }).key, 'add-org');
 });
 
-test('초록은 한 자리뿐이다', () => {
+test('초록은 goMark·goPlace 두 통로로만 붙는다', () => {
   // 갈색이 아홉 자리로 늘어 뜻을 잃었던 길을 초록이 그대로 가지 않게 한다.
-  // 초록은 goMark 한 통로로만 붙고, 그 통로는 「다음 할 일」 판정이 가리킬 때만 열린다.
-  const names = ['applicantsToolView', 'orgPickerView', 'orgNextStepBar', 'applicantBasicView', 'profileBridgePanel', 'applicantScopeView', 'applicantSourceView',
-    'applicantDetailView', 'detailGroupPanel', 'performanceConfirmBar', 'applicantAreaFields', 'applicantSourcesView', 'applicantDocumentView', 'candidateReviewView', 'ideaAssetPanel'];
+  // 초록이 붙는 곳은 모두 판정을 지나야 하고, 그 통로는 「다음 할 일」이 가리킬 때만 열린다.
+  // 띠(orgNextStepBar)는 빼 둔다. 띠의 초록은 판정 그 자체이고 — orgStepInfo()를 바로 부른다 —
+  // 어디에 붙일지 고를 일이 없다. 그 하나뿐이라는 것은 위 시험이 따로 지킨다.
+  const names = ['applicantsToolView', 'orgPickerView', 'applicantBasicView', 'applicantCandidateView', 'profileBridgePanel', 'applicantScopeView', 'applicantSourceView',
+    'applicantDetailView', 'confirmGroupButton', 'detailGroupPanel', 'performanceConfirmBar', 'applicantAreaFields', 'applicantSourcesView', 'applicantDocumentView', 'candidateReviewView', 'ideaAssetPanel'];
   const marks = [];
+  const places = [];
   for (const name of names) {
     const start = app.indexOf(`function ${name}(`);
     if (start < 0) continue;
     const body = app.slice(start, app.indexOf('\n}\n', start));
-    // 초록이 붙는 곳은 모두 goMark를 지나야 한다.
-    for (const match of body.matchAll(/go-target|class="[^"]*go/g)) {
-      assert.ok(/goMark\(/.test(body.slice(Math.max(0, match.index - 120), match.index + 120)), `${name}에서 goMark를 지나지 않은 초록이 있습니다`);
+    for (const match of body.matchAll(/go-target|go-place|class="[^"]*go/g)) {
+      assert.ok(/go(?:Mark|Place)\(/.test(body.slice(Math.max(0, match.index - 140), match.index + 140)), `${name}에서 판정을 지나지 않은 초록이 있습니다`);
     }
-    for (const match of body.matchAll(/goMark\('([^']+)'/g)) marks.push(match[1]);
+    for (const match of body.matchAll(/goMark\('([^']+)'(?:, ([^)]+))?\)/g)) marks.push([match[1], match[2] || ''].filter(Boolean).join(':'));
+    for (const match of body.matchAll(/goPlace\('([^']+)'(?:, ([^)]+))?\)/g)) places.push([match[1], match[2] || ''].filter(Boolean).join(':'));
   }
   // 한 판정에 한 자리다. 같은 열쇠가 두 곳에 붙으면 초록이 둘이 된다.
+  // confirm 은 구역까지 함께 적으므로 겹치지 않는다 — 그리는 자리는 구역마다 하나뿐이다.
   assert.deepEqual([...marks].sort(), [...new Set(marks)].sort(), `같은 판정에 초록이 둘 이상입니다: ${marks.join(', ')}`);
-  // 다섯 갈래에 각각 한 자리씩 있다.
-  assert.deepEqual(marks.sort(), ['add-org', 'apply', 'basic', 'confirm', 'upload']);
+  assert.deepEqual(marks.sort(), ['add-org', 'apply', 'basic', 'confirm:groupKey', 'upload']);
+  // 「그 자리」도 다섯 갈래 모두에 있다. 구역 카드는 기본정보 안과 상세정보 안 두 곳에서 그린다.
+  assert.deepEqual([...new Set(places)].sort(), ['add-org', 'apply', 'basic', 'confirm:area.key', 'confirm:group.key', 'upload']);
+});
+
+test('띠에서 시작해 자리로 가고 거기서 할 일까지 이어진다', () => {
+  // 22-53⑤. 「확인하러 가기」를 눌러 그 자리로 갔는데 거기서 무엇을 할지 초록이 없었다.
+  // 세 고리 중 하나라도 끊기면 「찾아 헤매지 않는다」가 완성되지 않는다.
+
+  // ① 띠 — 꽉 찬 초록 버튼은 기관정보 화면의 이 하나뿐이다.
+  const view = app.slice(app.indexOf('function applicantsToolView()'), app.indexOf('function applicantSourcesView('));
+  assert.equal([...view.matchAll(/class="button go(?![-\w])/g)].length, 0);
+  const bar = app.slice(app.indexOf('function orgNextStepBar()'), app.indexOf('// 올린 자료에 답이 있는 칸을 화면을 그릴 때마다 채운다.'));
+  assert.equal([...bar.matchAll(/class="button go(?![-\w])/g)].length, 1);
+
+  // ② 그 자리 — 띠가 데려가는 곳이 곧 초록 테두리가 붙는 구역 카드다. 같은 값을 읽는다.
+  const where = app.slice(app.indexOf('function stepGroupKey(step)'), app.indexOf('// 지금 「다음 할 일」이 무엇인지'));
+  assert.match(where, /if \(step\.area === 'performance'\) return 'performance';/);
+  assert.match(where, /return areaDestination\(\(step\.areas \|\| \[\]\)\[0\] \|\| ''\);/);
+  // 바깥 카드가 아니라 그 구역 카드로 데려간다. 바깥까지만 데려다 놓으면 거기서 또 찾아야 한다.
+  assert.match(where, /if \(group\) return `\[data-detail-group="\$\{group\}"\]`;/);
+
+  // ③ 거기서 할 일 — 확인 전이 남은 구역이면 어느 구역이든 「N건 모두 확인」이 있다.
+  const button = app.slice(app.indexOf('function confirmGroupButton(groupKey, pending)'), app.indexOf('function detailGroupPanel('));
+  assert.match(button, /goMark\('confirm', groupKey\)/);
+  assert.match(button, /data-confirm-group="/);
+  assert.match(button, /\$\{pending\}건 모두 확인/);
+  // 실적만이 아니다. 상세 여덟 구역이 같은 셈을 쓴다.
+  const panel = app.slice(app.indexOf('function detailGroupPanel(applicant, group)'), app.indexOf('// 실적을 한 번에 확인됨으로 올리는 줄'));
+  assert.match(panel, /const pending = group\.total - group\.confirmed;/);
+  assert.doesNotMatch(panel, /group\.key === 'performance' \? group\.total - group\.confirmed : 0/);
+  // 기본정보 안의 두 구역에도 같은 단추가 있다.
+  const basic = app.slice(app.indexOf("function applicantBasicView(applicant, who = '신청기관')"), app.indexOf('function applicantCandidateView('));
+  assert.match(basic, /\$\{confirmGroupButton\(area\.key, pending\)\}/);
+
+  // 누르면 그 구역을 통째로 올리고, 되돌리는 길이 같은 자리에 남는다.
+  assert.match(app, /function confirmAllInGroup\(groupKey\) \{/);
+  assert.match(app, /applicantConfirmUndo: \{ applicantId: applicant\.id, group: groupKey, at: Date\.now\(\), items: changed \}/);
+  assert.match(app, /confirmAllInGroup\(el\.dataset\.confirmGroup\)/);
+  assert.match(app, /function groupUndoBar\(applicant, groupKey\)/);
+});
+
+test('가리키는 자리가 접혀 있으면 그 구역만 편다', () => {
+  // 가리켜 놓고 감추면 눌러서 열고 또 찾아야 한다.
+  // 다만 실적을 가리키지 않을 때 실적을 펴면 96건이 그대로 쏟아진다(22-49).
+  const open = app.slice(app.indexOf('function orgFoldOpen(key)'), app.indexOf('// 초록을 붙이는 유일한 통로'));
+  assert.match(open, /const group = stepGroupKey\(step\);/);
+  assert.match(open, /return BASIC_AREAS\.includes\(group\);/);
+  assert.match(open, /if \(key === 'detail'\) return Boolean\(group\) && !BASIC_AREAS\.includes\(group\);/);
+  assert.match(open, /function stepPointsAt\(groupKey\) \{\s*\n\s*return Boolean\(groupKey\) && stepGroupKey\(orgStepInfo\(\)\) === groupKey;/);
 });
 
 test('초록은 판정이 가리킬 때만 켜지고 글자를 함께 둔다', () => {
-  const gate = app.slice(app.indexOf('function goMark(key)'), app.indexOf('function orgNextStepBar()'));
-
-  // 표시는 한 가지다 — 테두리와 화살표. 꽉 찬 초록은 맨 위 띠 버튼 하나뿐이다(22-52).
-  assert.match(gate, /return orgStepKey\(\) === key \? ' go-target' : '';/);
+  const gate = app.slice(app.indexOf("function goHere(key, area = '')"), app.indexOf('function orgNextStepBar()'));
+  // 열쇠말만 보지 않는다. 구역까지 말한 자리는 그 구역일 때만 켜진다.
+  assert.match(gate, /return area \? stepGroupKey\(step\) === area : true;/);
+  // ③ 할 일은 테두리와 화살표, ② 자리는 테두리만. 꽉 찬 초록은 맨 위 띠 버튼 하나뿐이다(22-52).
+  assert.match(gate, /return goHere\(key, area\) \? ' go-target' : '';/);
+  assert.match(gate, /return goHere\(key, area\) \? ' go-place' : '';/);
   // 색만으로 알리지 않는다.
   assert.match(app, /goNote\('upload', '여기에 올리세요'\)/);
   assert.match(app, /goNote\('basic', '여기를 채우세요'\)/);
@@ -151,6 +209,9 @@ test('초록은 판정이 가리킬 때만 켜지고 글자를 함께 둔다', (
   assert.match(css, /--go:#03C75A/);
   assert.match(css, /\.button\.go\{background:var\(--go\)/);
   assert.match(css, /\.go-target\{[^}]*border:2px solid var\(--go\)/);
+  // 자리에는 화살표를 붙이지 않는다. 화살표가 둘이면 어디를 누르라는 말인지 다시 흐려진다.
+  assert.match(css, /\.go-place\{border-color:var\(--go\)/);
+  assert.ok(!css.includes('.go-place::before'));
 });
 
 test('기록할 자리 앞에 화살표가 네 번 깜박이고 멈춘다', () => {
@@ -158,6 +219,10 @@ test('기록할 자리 앞에 화살표가 네 번 깜박이고 멈춘다', () =
   assert.match(css, /\.go-target::before\{content:'➜'/);
   assert.match(css, /animation:goArrow 1\.4s ease-out 4\}/);
   assert.match(css, /@keyframes goArrow\{/);
+  // 글꼴에 이 글자가 없으면 네모가 뜬다. 기호 글꼴을 뒤에 세워 어디서나 화살표가 나오게 한다(22-53④).
+  assert.match(css, /\.go-target::before\{[^}]*font-family:"Segoe UI Symbol"/);
+  // 버튼에도 붙는다. 버튼은 자리가 좁으므로 위치를 다시 정해 둔다.
+  assert.match(css, /\.button\.go-target::before\{top:9px;left:9px\}/);
   // 값이 들어가면 초록이 사라지고 화살표도 함께 사라진다 — 같은 클래스에 매여 있다.
   assert.match(css, /\.go-target\{position:relative;border:2px solid var\(--go\)/);
   // 움직임을 줄여 달라고 해 둔 분에게는 화살표만 두고 깜박임을 없앤다.

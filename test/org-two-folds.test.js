@@ -50,7 +50,8 @@ test('접는 층은 셋을 넘지 않고 해는 모두 접힌다', () => {
 
 test('기본정보 중단원도 접히고 줄에 채운 칸 수가 남는다', () => {
   const view = app.slice(app.indexOf('function applicantBasicView(applicant, who'), app.indexOf('function applicantCandidateView'));
-  assert.match(view, /<details class="card org-details" id="applicant-editor" tabindex="-1" data-org-fold="basic"/);
+  // 「다음 할 일」이 이 카드를 가리키면 초록 테두리가 함께 붙는다(22-53⑤). 접기 자체는 그대로다.
+  assert.match(view, /<details class="card org-details\$\{goPlace\('basic'\)\}\$\{goPlace\('upload'\)\}" id="applicant-editor" tabindex="-1" data-org-fold="basic"/);
   assert.match(view, /채운 것 \$\{status\.filled\}\/\$\{status\.total\}칸/);
   // 모자란 것이 무엇인지도 접힌 줄에 남는다.
   assert.match(view, /status\.missing\.join\(' · '\)/);
@@ -59,11 +60,15 @@ test('기본정보 중단원도 접히고 줄에 채운 칸 수가 남는다', (
 test('「다음 할 일」이 가리키면 그 중단원을 펴고 그 자리로 데려간다', () => {
   const fold = app.slice(app.indexOf('function orgFoldOpen(key)'), app.indexOf('function stepPointsAt('));
   assert.match(fold, /if \(step\.key === 'basic' \|\| step\.key === 'upload'\) return true;/);
-  assert.match(fold, /if \(step\.key === 'confirm' && step\.area === 'performance'\) return true;/);
+  // 실적이든 이용자든 상세정보 안을 가리키면 바깥 층을 편다. 어느 구역인지는 stepGroupKey 가 정한다.
+  assert.match(fold, /if \(key === 'detail'\) return Boolean\(group\) && !BASIC_AREAS\.includes\(group\);/);
   // 접기를 늘리면 가리킨 자리가 화면 밖으로 나간다. 한 번만 데려간다.
-  const scroll = app.slice(app.indexOf('function scrollToNextStep()'), app.indexOf('function scrollToNextStep()') + 500);
-  assert.match(scroll, /document\.querySelector\('\.go-target, \.button\.go'\)/);
-  assert.match(scroll, /if \(!step \|\| step === lastGoStep\) return;/);
+  const scroll = app.slice(app.indexOf('function scrollToNextStep()'), app.indexOf('function scrollToNextStep()') + 700);
+  // 띠가 아니라 「거기서 할 일」로 데려간다. 띠는 이미 맨 위라 데려가 봐야 제자리다.
+  assert.match(scroll, /document\.querySelector\('\.go-target'\) \|\| document\.querySelector\('\.go-place'\) \|\| document\.querySelector\('\.button\.go'\)/);
+  // 열쇠말이 같아도 가리키는 구역이 바뀌면 다시 데려간다.
+  assert.match(scroll, /const mark = `\$\{step\.key\}:\$\{stepGroupKey\(step\)\}`;/);
+  assert.match(scroll, /if \(!step\.key \|\| mark === lastGoStep\) return;/);
   assert.match(scroll, /scrollIntoView\(\{ behavior: 'smooth', block: 'center' \}\)/);
   assert.match(app, /runPendingAiMove\(\); scrollToNextStep\(\);/);
 });

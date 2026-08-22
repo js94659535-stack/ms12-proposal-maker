@@ -65,14 +65,14 @@ test('무엇을 보증하는 것인지 누르기 전에 말한다', () => {
   // 한 번에 확인하는 단추는 묶음 제목 줄 하나뿐이다(22-11). 상자 안에 같은 단추를 두지 않는다.
   assert.doesNotMatch(bar, /id="confirm-all-performance"/);
   assert.match(bar, /위 「실적」 제목 줄의 단추를 쓰세요/);
-  assert.match(app, /id="confirm-all-performance-head">\$\{pending\}건 모두 확인<\/button>/);
+  // 제목 줄 단추는 이제 구역마다 같은 함수가 그린다(22-53⑤). 실적도 그 하나를 쓴다.
+  assert.match(app, /data-confirm-group="\$\{escapeHtml\(groupKey\)\}">\$\{pending\}건 모두 확인<\/button>/);
   // 되돌리는 길은 같은 자리에 있다.
-  assert.match(bar, /id="undo-confirm-performance"/);
+  assert.match(bar, /id="undo-bulk-confirm"/);
   assert.match(bar, /방금 확인한 \$\{undo\.items\.length\}건 되돌리기/);
-  // 실적 묶음에만 붙는다.
-  assert.match(app, /\$\{group\.key === 'performance' \? performanceConfirmBar\(applicant\) : ''\}/);
+  // 실적 묶음에는 이 상자가, 다른 구역에는 되돌리기 줄만 붙는다.
+  assert.match(app, /\$\{group\.key === 'performance' \? performanceConfirmBar\(applicant\) : groupUndoBar\(applicant, group\.key\)\}/);
 });
-
 test('한 건이라도 손으로 바꾸면 일괄 되돌리기 기록을 지운다', () => {
   const handler = app.slice(app.indexOf("document.querySelectorAll('[data-applicant-status]')"), app.indexOf("document.querySelector('#confirm-all-performance')"));
   assert.match(handler, /applicantConfirmUndo: null/);
@@ -82,16 +82,17 @@ test('한 건이라도 손으로 바꾸면 일괄 되돌리기 기록을 지운�
 });
 
 test('「방금」은 이번 화면에서만 방금이다', () => {
-  const bar = app.slice(app.indexOf('function performanceConfirmBar(applicant)'), app.indexOf('// 실적이 이만큼을 넘으면'));
   // 새로고침 뒤에는 되돌리기를 감춘다. 어제 한 일을 「방금」이라고 하지 않는다.
-  assert.match(bar, /Number\(record\.at \|\| 0\) >= pageOpenedAt/);
+  const undo = app.slice(app.indexOf('function groupConfirmUndo(applicant, groupKey)'), app.indexOf('function performanceConfirmBar('));
+  assert.match(undo, /Number\(record\.at \|\| 0\) >= pageOpenedAt/);
+  // 구역까지 본다. 이용자를 올려 두고 실적 자리에 「방금 바꿨습니다」가 뜨면 거짓말이 된다(22-53⑤).
+  assert.match(undo, /if \(\(record\.group \|\| 'performance'\) !== groupKey\) return null;/);
   assert.match(app, /const pageOpenedAt = Date\.now\(\);/);
-  assert.match(app, /applicantConfirmUndo: \{ applicantId: applicant\.id, at: Date\.now\(\), items: changed \}/);
+  assert.match(app, /applicantConfirmUndo: \{ applicantId: applicant\.id, group: groupKey, at: Date\.now\(\), items: changed \}/);
   // 알림 문구도 그때 한 번 보여 주는 말이다. 저장하지도 되살리지도 않는다.
   const save = app.slice(app.indexOf('function saveState()'), app.indexOf('function loadNavigationHistory()'));
   assert.match(save, /error: '', notice: ''/);
 });
-
 test('확인할 것이 없으면 없는 단추를 가리키지 않는다', () => {
   const bar = app.slice(app.indexOf('function performanceConfirmBar(applicant)'), app.indexOf('// 실적이 이만큼을 넘으면'));
   // 제목 줄 단추는 확인 필요가 있을 때만 뜬다. 안내도 그때만 한다.

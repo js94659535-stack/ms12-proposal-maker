@@ -15,10 +15,53 @@ export const QUICK_FIELDS = Object.freeze([
   { key: 'strength', label: '강점이나 관련 경험', required: false, hint: '없거나 모르겠으면 건너뛰어도 됩니다' }
 ]);
 
+// 고를 수 있는 기관 유형.
+//
+// 아홉 가지에 영리법인이 없었다. 등록증에서 「(주)마인드스토리」를 읽어 놓고도 고를 칸이 없어
+// 「기타」로 떨어졌다(22-53①). 두 줄만 더한다 — 사업자등록증에 찍히는 형태는 사실상 이 둘이다.
+// 목록을 넓히지 않는 까닭: 고를 것이 열다섯이 넘으면 고르는 일 자체가 일이 된다.
 export const ORG_TYPES = Object.freeze([
   '지역아동센터', '사회복지관', '가족센터', '학교', '유치원·어린이집',
-  '비영리단체(NPO)', '사회적협동조합', '사단·재단법인', '기타'
+  '비영리단체(NPO)', '사회적협동조합', '사단·재단법인', '주식회사', '개인사업자', '기타'
 ]);
+
+// 등록증에서 읽은 값으로 기관 유형을 고른다.
+//
+// 왜 목록 바로 옆인가. 목록과 고르는 규칙이 떨어져 있으면 목록에 한 줄을 더할 때 규칙 고치는 것을
+// 잊는다. 이 파일 한 곳만 보면 「무엇을 고를 수 있고 무엇으로 고르는지」가 다 보인다.
+//
+// 짐작하지 않는다. 기관 이름이나 법인 유형 칸에 형태가 글자로 찍혀 있을 때만 고른다.
+// 「(주)마인드스토리」의 「(주)」가 그것이다. 고른 값도 확정이 아니다 — 상태는 「확인 필요」로 남고
+// 화면에 어디서 골랐는지 적어 회원이 바꿀 수 있다.
+//
+// 순서가 뜻을 갖는다. 시설 이름이 먼저다 — 「사회복지법인 ○○사회복지관」은 법인 형태보다
+// 「사회복지관」이 계획서에 쓸모 있는 답이다. 형태만 찍힌 이름은 아래로 내려가 걸린다.
+const ORG_TYPE_MARKS = Object.freeze([
+  [/지역아동센터/, '지역아동센터'],
+  [/사회복지관|종합복지관|노인복지관|장애인복지관/, '사회복지관'],
+  [/가족센터|건강가정지원센터|다문화가족지원센터/, '가족센터'],
+  [/어린이집|유치원/, '유치원·어린이집'],
+  [/초등학교|중학교|고등학교|대학교|학교/, '학교'],
+  [/사회적협동조합|협동조합/, '사회적협동조합'],
+  [/주식회사|유한회사|유한책임회사|합자회사|합명회사|(?:^|[\s(（[])(?:주|㈜)[)）\]]|^㈜/, '주식회사'],
+  [/개인\s*사업자/, '개인사업자'],
+  [/사단법인|재단법인|사회복지법인|학교법인|의료법인|(?:^|[\s(（[])[사재][)）\]]/, '사단·재단법인'],
+  [/비영리\s*민간단체|비영리\s*단체|NPO/i, '비영리단체(NPO)']
+]);
+
+export function orgTypeFromRegistration({ orgName = '', legalType = '' } = {}) {
+  const name = String(orgName ?? '').replace(/\s+/g, ' ').trim();
+  const legal = String(legalType ?? '').replace(/\s+/g, ' ').trim();
+  if (!name && !legal) return null;
+  for (const [pattern, type] of ORG_TYPE_MARKS) {
+    // 법인 유형 칸을 먼저 본다. 관청이 직접 적어 둔 값이라 이름보다 확실하다.
+    const where = pattern.test(legal) ? '법인 유형' : pattern.test(name) ? '기관명' : '';
+    if (!where) continue;
+    const source = where === '법인 유형' ? legal : name;
+    return { value: type, from: where, matched: (source.match(pattern) || [source])[0].trim() };
+  }
+  return null;
+}
 
 // 초안을 시작할 수 있는지. 이름·유형·담당자만 있으면 시작한다.
 export function readyToDraft(value = {}) {
@@ -46,15 +89,22 @@ export function quickFacts(value = {}) {
 }
 
 // 간단 입력을 신청기관 항목으로 옮긴다. 적은 것만 옮기고, 상태는 회원이 확인해야 확정된다.
-export function quickToApplicantItems(value = {}) {
+//
+// filledFrom은 그 칸을 자동으로 채웠을 때 어디서 가져왔는지다(src/org-basic-suggest.js의 note).
+// 자동으로 넣은 값에 「간단 입력(회원 작성)」이라고 적으면 나중에 그 값을 되짚을 수 없고,
+// 확인해 달라는 부탁도 근거 없는 말이 된다. 출처를 그대로 옮겨 적는다(22-53②).
+export function quickToApplicantItems(value = {}, filledFrom = {}) {
   const map = [
     ['orgName', 'basic', '기관명'], ['orgType', 'basic', '기관 유형'], ['contact', 'basic', '담당자'],
     ['served', 'basic', '주로 돕는 대상'], ['strength', 'programs', '강점·관련 경험']
   ];
   return map
-    .map(([key, area, label]) => ({ area, label, value: String(value[key] ?? '').trim() }))
+    .map(([key, area, label]) => ({ key, area, label, value: String(value[key] ?? '').trim() }))
     .filter(item => item.value)
-    .map(item => ({ ...item, status: '확인 필요', source: '간단 입력(회원 작성)', origin: '고객 입력' }));
+    .map(({ key, ...item }) => {
+      const from = String(filledFrom?.[key] ?? '').trim();
+      return { ...item, status: '확인 필요', source: from || '간단 입력(회원 작성)', origin: from ? '파일 추출' : '고객 입력' };
+    });
 }
 
 // 초안을 만든 뒤 정말 필요한 것만 묻는다. 공고가 요구하는 것 위주로 고른다.

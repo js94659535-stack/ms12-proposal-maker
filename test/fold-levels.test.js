@@ -77,3 +77,41 @@ test('부제는 층과 상관없이 한 가지다', () => {
   const sub = type.slice(type.indexOf('.org-details>summary small'));
   assert.match(sub, /font-size:var\(--fold-sub-size\);font-weight:var\(--fold-weight-plain\);color:var\(--muted\)/);
 });
+
+// ---------- 22-53③: 접히는 줄인지 눈에 보이게 ----------
+//
+// 실제로 났던 일: 「무엇을 채웠고 무엇이 비었나」·「기본정보 · 마인드스토리」·「입력 후보」·
+// 「상세정보 (선택)」가 모두 같은 흰 카드로 나와서, 어느 것이 눌러서 펼치는 줄인지 알 수 없었다.
+// 배경 농도(22-48)와 제목 글자(22-50)는 「몇 층인가」를 말할 뿐 「눌러서 펴는가」는 말하지 않는다.
+const mark = section('/* 접힌 줄인지 눈에 보이게 (22-53③)');
+
+test('접히는 줄에는 모두 세모가 붙는다', () => {
+  // 네 층 어디서나 같은 표시다. 층은 배경·들여쓰기·글자가 이미 말한다.
+  assert.match(mark, /\.org-details>summary::before,\.year-fold>summary::before,\.item-fold>summary::before,\.add-fold>summary::before\{/);
+  // 펼치면 아래를 가리킨다.
+  assert.match(mark, /\.org-details\[open\]>summary::before,[\s\S]{0,160}\{transform:rotate\(90deg\)\}/);
+});
+
+test('세모는 글자가 아니라 테두리로 그린다', () => {
+  // 「▸」는 글꼴에 없으면 네모로 뜬다. 테두리로 그리면 어느 컴퓨터에서나 같은 모양이 나온다.
+  assert.match(mark, /content:'';/);
+  assert.match(mark, /border-left:calc\(var\(--fold-mark-size\) \* 1\.6\) solid var\(--fold-mark\)/);
+  assert.match(mark, /border-top:var\(--fold-mark-size\) solid transparent;border-bottom:var\(--fold-mark-size\) solid transparent/);
+  assert.match(mark, /--fold-mark:#a2968a;--fold-mark-size:5px/);
+});
+
+test('브라우저가 그리던 표시는 지우고 우리 것 하나만 남긴다', () => {
+  // summary 를 display:flex 로 두면 브라우저 삼각형이 사라진다. 그것이 22-53③의 뿌리였다.
+  // 다시 살릴 수는 없으므로 우리가 그리고, 남아 있을지 모를 기본 표시는 지워 둘이 되지 않게 한다.
+  assert.match(css, /\.org-details>summary\{display:flex/);
+  assert.match(mark, /\.org-details>summary,\.year-fold>summary,\.item-fold>summary,\.add-fold>summary\{list-style:none\}/);
+  assert.match(mark, /::-webkit-details-marker\{display:none\}/);
+  assert.match(mark, /::marker\{content:''\}/);
+});
+
+test('세모 색은 새로 만들지 않는다', () => {
+  // 초록(다음 할 일)과 갈색(주 버튼)은 이미 뜻이 있다. 세모는 옅은 잉크 하나만 쓴다.
+  assert.ok(!mark.includes('var(--blue)') && !mark.includes('var(--green)'));
+  // 다만 「다음 할 일」이 가리키는 줄에서는 세모도 초록이다. 자리를 함께 말한다.
+  assert.match(mark, /\.go-place>summary::before\{border-left-color:var\(--go\)\}/);
+});

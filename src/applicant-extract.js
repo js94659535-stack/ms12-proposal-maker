@@ -20,6 +20,10 @@ const LABELED_RULES = [
   { area: 'staff', label: '비상근 인력', pattern: /^(?:비상근|시간제)\s*(?:직원|인력|강사)\s*(?:수)?\s*[:：]\s*(.+)$/ },
   { area: 'staff', label: '보유 자격', pattern: /^(?:보유\s*)?(?:자격증|자격)\s*(?:현황)?\s*[:：]\s*(.+)$/ },
   { area: 'programs', label: '보유 프로그램', pattern: /^(?:보유\s*)?프로그램\s*(?:명|현황)?\s*[:：]\s*(.+)$/ },
+  // 사업자등록증의 업태·종목은 「이 기관이 무엇을 하는가」를 관청이 적어 둔 값이다.
+  // 강점·주요 대상을 제안할 때 실적 낱말보다 앞선 근거가 된다(22-53②).
+  { area: 'programs', label: '업태', pattern: /^업\s*태\s*[:：]\s*(.+)$/ },
+  { area: 'programs', label: '종목', pattern: /^(?:종\s*목|주\s*업\s*종)\s*[:：]\s*(.+)$/ },
   { area: 'facilities', label: '운영 시설', pattern: /^(?:시설|공간|운영\s*시설)\s*(?:현황)?\s*[:：]\s*(.+)$/ },
   { area: 'partners', label: '협력기관', pattern: /^(?:협력\s*기관|협약\s*기관|MOU)\s*(?:현황)?\s*[:：]\s*(.+)$/i },
   { area: 'budget', label: '연간 예산', pattern: /^(?:연간\s*예산|기관\s*예산|총\s*예산)\s*(?:규모)?\s*[:：]\s*(.+)$/ },
@@ -57,6 +61,8 @@ const LABEL_KEY_RULES = [
   { area: 'staff', label: '상근 인력', keys: ['상근인력', '상근직원', '전담인력', '종사자수', '직원수', '인력현황'] },
   { area: 'staff', label: '보유 자격', keys: ['보유자격', '자격증', '자격현황', '보유자격증'] },
   { area: 'programs', label: '보유 프로그램', keys: ['프로그램명', '보유프로그램', '주요프로그램', '세부사업명'] },
+  { area: 'programs', label: '업태', keys: ['업태', '업태종목'] },
+  { area: 'programs', label: '종목', keys: ['종목', '주업종', '업종', '사업의종류'] },
   { area: 'facilities', label: '운영 시설', keys: ['시설현황', '보유시설', '운영시설', '시설규모'] },
   { area: 'partners', label: '협력기관', keys: ['협력기관', '협약기관', '컨소시엄', '수행기관'] },
   { area: 'budget', label: '총사업비', keys: ['총사업비', '총계', '사업비총액'] },

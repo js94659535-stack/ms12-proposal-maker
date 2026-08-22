@@ -10,6 +10,8 @@
 // 연락처는 문서에서 찾지 않는다. 자료에서 전화번호·이메일을 걷어 내는 것이 이 도구의 약속이고
 // (stripPersonal), 담당자 연락처는 회원이 「내 정보」에 적어 둔 것에서만 가져온다.
 
+import { orgTypeFromRegistration } from '../server/quick-org.js';
+
 const CONFIRMED = '확인됨';
 const text = value => String(value ?? '').replace(/\s+/g, ' ').trim();
 
@@ -47,6 +49,35 @@ export function suggestContact(applicant, profile = {}) {
   };
 }
 
+// 기관 유형. 등록증에서 읽은 이름·법인 유형에 형태가 찍혀 있으면 그것으로 고른다.
+//
+// 실제로 났던 일: 등록증에서 「(주)마인드스토리」를 읽어 놓고도 기관 유형은 비어 있어서,
+// 「다음 할 일」이 계속 「채우러 가기」를 가리켰다(22-53①). 답이 이미 자료 안에 있었다.
+// 고를 목록과 고르는 규칙은 server/quick-org.js 한 곳에 있다 — 목록이 늘면 규칙도 거기서 는다.
+export function suggestOrgType(applicant) {
+  const basic = itemsOf(applicant, 'basic');
+  const nameItem = basic.find(item => item.label === '기관명' && text(item.value));
+  const legalItem = itemsOf(applicant, 'legal').find(item => item.label === '법인 유형' && text(item.value));
+  const orgName = text(nameItem?.value) || text(applicant?.name);
+  const picked = orgTypeFromRegistration({ orgName, legalType: text(legalItem?.value) });
+  if (!picked) return null;
+  const carrier = picked.from === '법인 유형' ? legalItem : nameItem;
+  const where = /등록증|고유번호증|등기/.test(text(carrier?.source)) ? `등록증의 ${picked.from}` : `기관 정보의 ${picked.from}`;
+  return {
+    value: picked.value,
+    from: [`${where} 「${picked.matched}」`],
+    note: `${where}에 적힌 「${picked.matched}」로 골랐습니다. 다르면 고쳐 주세요.`
+  };
+}
+
+// 사업자등록증의 업태·종목. 관청이 「이 기관이 무엇을 하는가」를 적어 둔 값이라
+// 실적에서 센 낱말보다 앞선 근거다. 없으면 없는 대로 두고 만들어 내지 않는다.
+function tradeItems(applicant) {
+  return itemsOf(applicant, 'programs')
+    .filter(item => ['업태', '종목'].includes(text(item.label)) && text(item.value))
+    .map(item => ({ label: text(item.label), value: text(item.value) }));
+}
+
 // 발주기관 이름은 대상을 그대로 말한다. 「○○초등학교」는 「학생」이고 「가족센터」는 「가족」이다.
 // 낱말을 세는 것보다 강한 근거다. 실제 연혁(99건)에 나온 기관만 적는다 — 목록을 넓히지 않는다.
 const ORG_AUDIENCE = [
@@ -63,9 +94,11 @@ const ORG_AUDIENCE = [
 // 주로 돕는 대상. 발주기관 이름으로 먼저 세고, 사업명·프로그램 내용의 대상 낱말로 보탠다.
 export function suggestServed(applicant) {
   const items = [...itemsOf(applicant, 'performance'), ...itemsOf(applicant, 'programs'), ...itemsOf(applicant, 'clients')];
-  if (!items.length) return null;
+  const trade = tradeItems(applicant);
+  if (!items.length && !trade.length) return null;
   // 값에는 기관·사업명이, detail에는 실적표의 「프로그램 내용」 칸이 들어 있다. 둘 다 본다.
-  const values = items.map(item => `${text(item.value)} ${text(item.detail)}`.trim());
+  // 등록증의 업태·종목도 같은 자리에서 센다 — 「교육서비스업」의 「교육」이 대상을 말하기도 한다.
+  const values = [...items.map(item => `${text(item.value)} ${text(item.detail)}`.trim()), ...trade.map(entry => entry.value)];
   const places = new Map();
   for (const item of items) {
     for (const [pattern, audience] of ORG_AUDIENCE) {
@@ -80,7 +113,8 @@ export function suggestServed(applicant) {
     .map(entry => ({ ...entry, unit: '회' }));
   const ranked = [...byPlace, ...byWord].sort((left, right) => right.count - left.count).slice(0, 3);
   if (!ranked.length) return null;
-  const evidence = `실적·프로그램 ${items.length}건에서 ${ranked.map(entry => `${entry.word} ${entry.count}${entry.unit}`).join(' · ')}`;
+  const tradeNote = trade.length ? ` · 등록증 ${trade.map(entry => `${entry.label} ${entry.value}`).join(' · ')}` : '';
+  const evidence = `실적·프로그램 ${items.length}건에서 ${ranked.map(entry => `${entry.word} ${entry.count}${entry.unit}`).join(' · ')}${tradeNote}`;
   return {
     value: ranked.map(entry => entry.word).join(' · '),
     from: [evidence],
@@ -91,17 +125,29 @@ export function suggestServed(applicant) {
 // 강점·관련 경험. 반복해서 나오는 사업 낱말과 그 건수만 적는다. 잘한다는 말은 쓰지 않는다.
 export function suggestStrength(applicant) {
   const performance = itemsOf(applicant, 'performance').map(item => `${text(item.value)} ${text(item.detail)}`.trim());
-  if (!performance.length) return null;
+  // 등록증의 업태·종목이 먼저다. 세어 고른 낱말이 아니라 관청이 적어 둔 값이라 근거가 더 단단하다.
+  const trade = tradeItems(applicant);
+  if (!performance.length && !trade.length) return null;
   const ranked = countWords(performance, STRENGTH_WORDS).slice(0, 3);
-  if (!ranked.length) return null;
-  const evidence = `실적 ${performance.length}건에서 ${ranked.map(entry => `${entry.word} ${entry.count}건`).join(' · ')}`;
+  if (!ranked.length && !trade.length) return null;
+  const tradeText = trade.map(entry => `${entry.label} ${entry.value}`).join(' · ');
+  const countText = ranked.map(entry => `${entry.word} 관련 ${entry.count}건`).join(', ');
+  const evidence = [
+    trade.length ? `등록증 ${tradeText}` : '',
+    ranked.length ? `실적 ${performance.length}건에서 ${ranked.map(entry => `${entry.word} ${entry.count}건`).join(' · ')}` : ''
+  ].filter(Boolean).join(' · ');
   return {
-    value: `${ranked.map(entry => `${entry.word} 관련 ${entry.count}건`).join(', ')} (실적 ${performance.length}건 기준)`,
+    value: [tradeText, countText && `${countText} (실적 ${performance.length}건 기준)`].filter(Boolean).join(' / '),
     from: [evidence],
-    note: `연혁에서 가져왔습니다 — ${evidence}. 잘한다는 판단이 아니라 건수입니다. 다르면 고쳐 주세요.`
+    note: `${trade.length ? '등록증과 연혁에서' : '연혁에서'} 가져왔습니다 — ${evidence}. 잘한다는 판단이 아니라 등록된 값과 건수입니다. 다르면 고쳐 주세요.`
   };
 }
 
 export function suggestBasicFields(applicant, profile = {}) {
-  return { contact: suggestContact(applicant, profile), served: suggestServed(applicant), strength: suggestStrength(applicant) };
+  return {
+    orgType: suggestOrgType(applicant),
+    contact: suggestContact(applicant, profile),
+    served: suggestServed(applicant),
+    strength: suggestStrength(applicant)
+  };
 }

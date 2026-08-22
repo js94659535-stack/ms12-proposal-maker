@@ -68,6 +68,9 @@ test('기관 유형은 두 화면 모두 같은 목록에서 고른다', () => {
   assert.match(app, /kind === 'choices'\n\s+\? `<select id="member-\$\{key\}" data-member-field="\$\{key\}">/);
   // 목록에 없는 예전 값은 지우지 않고 그대로 남긴다. 저장해 둔 값을 화면이 삼키면 안 된다.
   assert.match(app, /\(이전에 적은 값\)/);
-  // 값 목록을 새로 만들지 않았다. 이미 있던 아홉 개 그대로다.
-  assert.equal(ORG_TYPES.length, 9);
+  // 목록은 크게 늘리지 않는다. 아홉에서 열하나 — 영리법인 두 줄만 더했다(22-53①).
+  // 고를 것이 늘수록 고르는 일 자체가 일이 되므로 이 수를 시험으로 묶어 둔다.
+  assert.equal(ORG_TYPES.length, 11);
+  assert.ok(ORG_TYPES.includes('주식회사'));
+  assert.ok(ORG_TYPES.includes('개인사업자'));
 });

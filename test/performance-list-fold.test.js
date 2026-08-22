@@ -61,27 +61,35 @@ test('구역은 모두 접힌 채로 시작한다', () => {
   // 접혀 있어도 무엇이 얼마나 있는지는 제목 줄에 남는다.
   assert.match(panel, /등록 \$\{group\.total\}건 · 확인됨 \$\{group\.confirmed\}건/);
   // 기본이 접힘이므로 「연 것」만 기억한다.
-  const toggle = app.slice(app.indexOf("document.querySelectorAll('[data-detail-group]')"), app.indexOf("document.querySelector('#confirm-all-performance-head')"));
+  const toggle = app.slice(app.indexOf("document.querySelectorAll('[data-detail-group]')"), app.indexOf("document.querySelectorAll('[data-confirm-group]')"));
   assert.match(toggle, /if \(el\.open\) open\.add\(key\); else open\.delete\(key\);/);
   assert.doesNotMatch(toggle, /closed/);
 });
 
 test('「다음 할 일」이 가리키는 구역은 접지 않는다', () => {
   // 초록·화살표를 붙여 놓고 그 자리를 감추면 찾을 수가 없다.
-  const helper = app.slice(app.indexOf('function stepPointsAt(groupKey)'), app.indexOf('function goMark('));
-  // 실적을 가리킬 때만 실적을 편다. 확인 전이 기본정보 쪽인데 실적이 펼쳐지던 것을 고쳤다(22-49).
-  assert.match(helper, /if \(step\.area === 'performance'\) return groupKey === 'performance';/);
+  // 가리키는 구역이 무엇인지는 판정 한 곳(stepGroupKey)이 정한다. 확인 전이 기본정보 쪽인데
+  // 실적 96건이 펼쳐지던 것을 그렇게 고쳤다(22-49).
+  const helper = app.slice(app.indexOf('function stepPointsAt(groupKey)'), app.indexOf('function goHere('));
+  assert.match(helper, /return Boolean\(groupKey\) && stepGroupKey\(orgStepInfo\(\)\) === groupKey;/);
+  const where = app.slice(app.indexOf('function stepGroupKey(step)'), app.indexOf('function nextStepAnchor('));
+  assert.match(where, /if \(step\.area === 'performance'\) return 'performance';/);
   const fold = app.slice(app.indexOf('function orgFoldOpen(key)'), app.indexOf('function stepPointsAt('));
-  assert.match(fold, /if \(step\.key === 'confirm' && step\.area === 'performance'\) return true;/);
+  assert.match(fold, /if \(key === 'detail'\) return Boolean\(group\) && !BASIC_AREAS\.includes\(group\);/);
   assert.match(fold, /if \(step\.key === 'basic' \|\| step\.key === 'upload'\) return true;/);
 });
 
-test('실적은 접힌 채로도 제목 줄에서 한 번에 확인할 수 있다', () => {
+test('접힌 채로도 제목 줄에서 한 번에 확인할 수 있다', () => {
+  // 실적만이 아니다. 확인 전이 남은 구역이면 어느 구역이든 같은 단추가 붙는다(22-53⑤).
   const panel = app.slice(app.indexOf('function detailGroupPanel(applicant, group)'), app.indexOf('// 실적을 한 번에 확인됨으로 올리는 줄'));
-  assert.match(panel, /id="confirm-all-performance-head">\$\{pending\}건 모두 확인<\/button>/);
+  assert.match(panel, /\$\{confirmGroupButton\(group\.key, pending\)\}/);
+  assert.match(panel, /const pending = group\.total - group\.confirmed;/);
+  const button = app.slice(app.indexOf('function confirmGroupButton(groupKey, pending)'), app.indexOf('function detailGroupPanel('));
+  assert.match(button, /if \(!pending\) return '';/);
+  assert.match(button, /data-confirm-group="\$\{escapeHtml\(groupKey\)\}">\$\{pending\}건 모두 확인<\/button>/);
   // 제목 줄의 단추는 묶음을 여닫지 않는다.
-  const handler = app.slice(app.indexOf("document.querySelector('#confirm-all-performance-head')"), app.indexOf("document.querySelector('#open-all-details')"));
-  assert.match(handler, /event\.stopPropagation\(\); confirmAllPerformance\(\)/);
+  const handler = app.slice(app.indexOf("document.querySelectorAll('[data-confirm-group]')"), app.indexOf("document.querySelector('#close-all-details')"));
+  assert.match(handler, /event\.stopPropagation\(\);\s*\n?\s*confirmAllInGroup\(el\.dataset\.confirmGroup\)/);
 });
 
 test('한 건은 한 줄로 접히고 눌러야 편집칸이 펴진다', () => {

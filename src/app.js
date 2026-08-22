@@ -5189,7 +5189,7 @@ async function autoSaveQuickOrg() {
   // 아직 기관이 없으면 저장할 곳이 없다. 그때는 「신청기관 추가」가 먼저다.
   if (!applicant) return;
   const draft = { ...quickDraft(), orgName: String(quickDraft().orgName || applicant.name || '').trim() };
-  const items = quickToApplicantItems(draft).map(item => makeApplicantItem(item));
+  const items = quickToApplicantItems(draft, state.quickFilledFrom).map(item => makeApplicantItem(item));
   if (!items.length) return;
   const next = normalizeApplicant({ ...applicant, name: draft.orgName || applicant.name, items: mergeApplicantItems(applicant.items, items) });
   if (JSON.stringify(next.items) === JSON.stringify(applicant.items) && next.name === applicant.name) return;
@@ -5205,7 +5205,7 @@ async function saveQuickOrg() {
   const draft = { ...quickDraft(), orgName: String(quickDraft().orgName || existing?.name || '').trim() };
   const check = readyToDraft(draft);
   if (!check.ready) { setState({ notice: `${check.missing.join(' · ')}를 먼저 적어 주세요.` }); return false; }
-  const items = quickToApplicantItems(draft).map(item => makeApplicantItem(item));
+  const items = quickToApplicantItems(draft, state.quickFilledFrom).map(item => makeApplicantItem(item));
   // 새 신청기관은 normalizeApplicant로 만든다. buildApplicantOrganization은 계획서에 넘길
   // 자료를 만드는 함수라 여기에 쓰면 항목이 사라진 빈 기관이 만들어진다.
   const applicant = existing
@@ -5240,11 +5240,22 @@ const NEXT_STEP_ANCHORS = Object.freeze({
   'add-org': '#applicant-name-draft', basic: '#applicant-editor', upload: '#applicant-doc',
   apply: '#applicant-candidates', confirm: '#applicant-detail', write: ''
 });
+// 「다음 할 일」이 가리키는 구역 하나. 띠·자리·거기서 누를 것 셋이 모두 이 값을 읽는다.
+//
+// 왜 구역까지 내려가야 하는가. 열쇠말(confirm)만으로는 실적인지 기본정보인지 알 수 없어서,
+// 띠는 「확인하러 가기」라고 말하는데 데려간 자리에는 아무 표시도 없었다(22-53⑤).
+// 판정 한 번이 구역 하나를 정하고, 그 구역의 카드가 「자리」가 되고 그 안의 단추가 「할 일」이 된다.
+// 값은 화면의 data-detail-group 그대로다 — 기본정보 둘(basic·legal)과 상세 여덟 묶음이 같은 이름을 쓴다.
+function stepGroupKey(step) {
+  if (!step || step.key !== 'confirm') return '';
+  if (step.area === 'performance') return 'performance';
+  return areaDestination((step.areas || [])[0] || '');
+}
 // 「확인하러 가기」가 데려갈 자리. 확인 전인 것이 기본정보 쪽이면 상세정보로 보내면 안 된다.
+// 바깥 카드가 아니라 그 구역 카드로 데려간다 — 바깥까지만 데려다 놓으면 거기서 또 찾아야 한다.
 function nextStepAnchor(step) {
-  if (step.key === 'confirm' && step.area === 'other') {
-    return (step.areas || []).some(area => BASIC_AREAS.includes(area)) ? '#applicant-editor' : '#applicant-detail';
-  }
+  const group = stepGroupKey(step);
+  if (group) return `[data-detail-group="${group}"]`;
   return NEXT_STEP_ANCHORS[step.key] || '';
 }
 // 지금 「다음 할 일」이 무엇인지. 초록은 이 값이 가리키는 한 곳에만 붙는다.
@@ -5270,13 +5281,13 @@ function orgStepInfo() {
     candidateCount: applicant && state.applicantExtraction?.applicantId === applicant.id ? (state.applicantExtraction.candidates || []).length : 0,
     performanceUnconfirmed: unconfirmed('performance'),
     otherUnconfirmed: unconfirmed('other'),
-    otherUnconfirmedAreas: [...others.entries()].map(([key, count]) => ({ key, title: areaTitle(key), count }))
+    // 순서를 정해 둔다. Map이 들어온 차례대로 돌려주면 자료가 조금만 달라져도 가리키는 구역이 바뀐다.
+    // 열한 칸 지도와 같은 차례(APPLICANT_AREAS)로 세워, 앞 칸부터 확인하게 한다.
+    otherUnconfirmedAreas: [...others.entries()]
+      .map(([key, count]) => ({ key, title: areaTitle(key), count }))
+      .sort((left, right) => APPLICANT_AREAS.findIndex(area => area.key === left.key) - APPLICANT_AREAS.findIndex(area => area.key === right.key))
   });
 }
-function orgStepKey() {
-  return orgStepInfo().key;
-}
-
 // 빈 입력칸을 접는 자리. 처음 온 사람에게 빈 칸부터 보이면 「이걸 다 적어야 하나」가 된다.
 // 보통은 문서를 올려 채우므로 손으로 넣는 칸은 눌러서 펼친다(22-19와 같은 규칙).
 function addForm(key, label, body) {
@@ -5290,24 +5301,18 @@ function orgFoldOpen(key) {
   if ((state.openOrgFolds || []).includes(key)) return true;
   // 가리켜 놓고 감추면 눌러서 열고 또 찾아야 한다. 가리키는 자리만 편다.
   const step = orgStepInfo();
+  const group = stepGroupKey(step);
   if (key === 'basic') {
     if (step.key === 'basic' || step.key === 'upload') return true;
     // 확인 전인 것이 기본정보 쪽이면 그 중단원을 편다. 실적은 건드리지 않는다.
-    return step.key === 'confirm' && step.area === 'other' && (step.areas || []).some(area => BASIC_AREAS.includes(area));
+    return BASIC_AREAS.includes(group);
   }
-  if (key === 'detail') {
-    if (step.key === 'confirm' && step.area === 'performance') return true;
-    return step.key === 'confirm' && step.area === 'other' && (step.areas || []).some(area => !BASIC_AREAS.includes(area));
-  }
+  if (key === 'detail') return Boolean(group) && !BASIC_AREAS.includes(group);
   return false;
 }
-// 「다음 할 일」이 이 구역을 가리키는가. 실적을 가리킬 때만 실적을 편다.
+// 「다음 할 일」이 이 구역을 가리키는가. 가리키는 구역 하나만 편다.
 function stepPointsAt(groupKey) {
-  const step = orgStepInfo();
-  if (step.key !== 'confirm') return false;
-  if (step.area === 'performance') return groupKey === 'performance';
-  const group = DETAIL_GROUPS.find(entry => entry.key === groupKey);
-  return Boolean(group) && (step.areas || []).some(area => group.areas.includes(area));
+  return Boolean(groupKey) && stepGroupKey(orgStepInfo()) === groupKey;
 }
 
 // 초록을 붙이는 유일한 통로. 판정이 가리키는 자리가 아니면 아무것도 붙지 않는다.
@@ -5315,12 +5320,29 @@ function stepPointsAt(groupKey) {
 //
 // 초록 버튼은 맨 위 띠 하나뿐이고, 그 버튼이 가리키는 자리는 테두리와 화살표로 알린다(22-52).
 // 둘 다 꽉 찬 초록이면 어느 것을 눌러야 하는지 다시 헷갈린다.
-function goMark(key) {
-  return orgStepKey() === key ? ' go-target' : '';
+//
+// 초록은 세 자리가 한 줄로 이어진다(22-53⑤). 띠에서 시작해 자리로 가고, 거기서 할 일로 끝난다.
+//   ① 띠 — 꽉 찬 초록 버튼 하나(.button.go). 화면 맨 위에만 있다.
+//   ② 그 자리 — 데려간 구역의 카드에 초록 테두리(.go-place). 화살표는 없다. 「여기까지 왔다」만 말한다.
+//   ③ 거기서 할 일 — 그 안의 칸이나 단추에 초록 테두리와 화살표(.go-target).
+// 예전에는 ③이 실적일 때만 있어서, 확인 전인 것이 기본정보 쪽이면 데려다 놓고 끝이었다.
+// 꽉 찬 초록은 여전히 ① 하나뿐이다. ②·③은 테두리라 「어느 것을 누르나」가 흐려지지 않는다.
+function goHere(key, area = '') {
+  const step = orgStepInfo();
+  if (step.key !== key) return false;
+  // 구역까지 말한 자리는 그 구역일 때만 켠다. 열쇠말만 보면 엉뚱한 구역이 초록이 된다(22-49와 같은 뿌리).
+  return area ? stepGroupKey(step) === area : true;
+}
+function goMark(key, area) {
+  return goHere(key, area) ? ' go-target' : '';
+}
+// ② 그 자리. 테두리만 두르고 화살표는 붙이지 않는다 — 화살표가 둘이면 어디를 누르라는 말인지 흐려진다.
+function goPlace(key, area) {
+  return goHere(key, area) ? ' go-place' : '';
 }
 // 색만으로 알리지 않는다. 무엇을 하라는 자리인지 글자로 함께 적는다.
-function goNote(key, label) {
-  return orgStepKey() === key ? `<small class="go-note">${escapeHtml(label)}</small>` : '';
+function goNote(key, label, area) {
+  return goHere(key, area) ? `<small class="go-note">${escapeHtml(label)}</small>` : '';
 }
 
 function orgNextStepBar() {
@@ -5332,8 +5354,24 @@ function orgNextStepBar() {
     <button class="button go next-step" id="next-step-action" data-next-key="${escapeHtml(step.key)}" data-next-bulk="${bulk ? '1' : ''}" data-next-anchor="${escapeHtml(nextStepAnchor(step))}">${escapeHtml(step.actionLabel)}</button></div>`;
 }
 
+// 올린 자료에 답이 있는 칸을 화면을 그릴 때마다 채운다.
+//
+// 22-33에서 넣기로 했는데 화면에는 비어 있었다(22-53②). 까닭은 넣는 자리가 세 사건에만
+// 매여 있어서다 — 기관을 열 때, 후보 한 건을 반영할 때, 후보를 일괄 반영할 때.
+// 새로고침하거나 다른 길로 이 화면에 오면 한 번도 지나지 않는다. 그래서 그리는 순간으로 옮겼다.
+// 값이 이미 있는 칸은 건드리지 않으므로 몇 번을 그려도 결과가 같다.
+function autofillQuickOnRender() {
+  const filled = fillQuickFromDocuments(findApplicant(state.applicants, focusedApplicantId()));
+  if (!filled) return;
+  state.quickOrg = filled.quickOrg;
+  state.quickFilledFrom = filled.quickFilledFrom;
+  saveState();
+}
+
 // 기관정보 화면. 페이지를 새로 만들지 않고 이 한 곳을 기본정보 → 상세정보 두 단계로 나눈다.
 function applicantsToolView() {
+  // 그리기 전에 채운다. 「다음 할 일」 판정이 이 값을 읽으므로 채운 뒤라야 띠가 맞는 말을 한다.
+  autofillQuickOnRender();
   // 지금 관리하는 기관은 열어 둔 기관이고, 열어 둔 것이 없으면 이번 사업 신청기관이다.
   // 에이전트는 고른 고객기관의 정보를 그대로 관리하게 된다.
   const editing = findApplicant(state.applicants, state.applicantEditingId) || findApplicant(state.applicants, state.selectedApplicantId);
@@ -5365,7 +5403,7 @@ function orgPickerView(who) {
       <span>확인됨 ${confirmed}건 · 확인 필요 ${only.items.length - confirmed}건 · 이번 사업 신청기관</span></div>
       <button class="button secondary" id="open-org-picker">다른 기관 쓰기</button></div></div>`;
   }
-  return `<div class="card"><div class="card-title"><div><h3>등록된 ${who} ${state.applicants.length}곳</h3><span>${consortium.required ? `이 공고는 기관 둘 이상을 요구합니다 — 「${escapeHtml(consortium.evidence)}」` : '우리 기관도 등록기관 중 하나로만 다룹니다.'}</span></div><div><button class="button secondary" id="load-applicants">${loadFrom('org')}</button></div></div>
+  return `<div class="card${goPlace('add-org')}"><div class="card-title"><div><h3>등록된 ${who} ${state.applicants.length}곳</h3><span>${consortium.required ? `이 공고는 기관 둘 이상을 요구합니다 — 「${escapeHtml(consortium.evidence)}」` : '우리 기관도 등록기관 중 하나로만 다룹니다.'}</span></div><div><button class="button secondary" id="load-applicants">${loadFrom('org')}</button></div></div>
     <div class="two-col"><div class="field${goMark('add-org')}"><label for="applicant-name-draft">새 ${who}명</label><input id="applicant-name-draft" value="${escapeHtml(state.applicantNameDraft)}" placeholder="예: 사단법인 ○○센터">${goNote('add-org', '여기에 기관명을 적으세요')}</div><div class="field"><label>&nbsp;</label><button class="button secondary" id="add-applicant">신청기관 추가</button></div></div>
     ${state.applicants.length ? `<div class="requirement-list">${state.applicants.map(applicant => {
       const confirmed = countConfirmed(applicant.items);
@@ -5673,7 +5711,9 @@ function applicantBasicView(applicant, who = '신청기관') {
   const status = basicStatus(applicant, draft);
   const reuse = reusableCount(applicant);
   // 중단원도 접는다(22-47). 접힌 줄에 몇 칸을 채웠는지와 무엇이 모자란지 남긴다.
-  return `<details class="card org-details" id="applicant-editor" tabindex="-1" data-org-fold="basic" ${orgFoldOpen('basic') ? 'open' : ''}>
+  // 두 갈래가 이 카드를 가리킨다 — 빈 칸을 채우는 길(basic)과 문서를 올리는 길(upload).
+  // 한 번에 하나만 참이므로 테두리는 하나다.
+  return `<details class="card org-details${goPlace('basic')}${goPlace('upload')}" id="applicant-editor" tabindex="-1" data-org-fold="basic" ${orgFoldOpen('basic') ? 'open' : ''}>
     <summary><b>기본정보 · ${escapeHtml(applicant.name)}</b> <small>채운 것 ${status.filled}/${status.total}칸 · ${status.ready ? (status.saved ? '저장됨' : '저장하면 시작 가능') : `${escapeHtml(status.missing.join(' · '))} 필요`}</small></summary>
     ${(() => { const stale = staleSummary(applicant.items, new Date().getFullYear()); return stale ? `<div class="alert warning"><strong>다시 확인할 정보 ${stale.count}건</strong><p>${escapeHtml(stale.message)}</p><div class="actions" style="margin:0"><span class="muted">상태는 그대로 둡니다. 확인해 두신 값은 계획서에 계속 쓰입니다.</span><button class="button secondary" id="recheck-upload">새 문서 올리기</button></div></div>` : ''; })()}
     <label class="dropzone${goMark('upload')}" id="applicant-cert-drop" for="applicant-cert-file">
@@ -5688,7 +5728,7 @@ function applicantBasicView(applicant, who = '신청기관') {
       <div class="field"><label for="applicant-note">기관 메모 <span class="muted">(선택)</span></label><input id="applicant-note" value="${escapeHtml(applicant.note)}" placeholder="예: 2026년 기준 정보"></div>
     </div>
     ${(() => { firstMissingQuickField = QUICK_FIELDS.find(field => field.required && field.key !== 'orgName' && !String(draft[field.key] || '').trim())?.key || ''; return ''; })()}
-    <div class="two-col">${QUICK_FIELDS.filter(field => field.key !== 'orgName').map(field => `<div class="field${field.key === firstMissingQuickField ? goMark('basic', 'target') : ''}">
+    <div class="two-col">${QUICK_FIELDS.filter(field => field.key !== 'orgName').map(field => `<div class="field${field.key === firstMissingQuickField ? goMark('basic') : ''}">
       <label for="quick-${field.key}">${escapeHtml(field.label)}${field.required ? '' : ' <span class="muted">(선택)</span>'}</label>
       ${field.choices
         ? `<select id="quick-${field.key}" data-quick-field="${field.key}"><option value="">고르세요</option>${ORG_TYPES.map(type => `<option value="${escapeHtml(type)}" ${draft[field.key] === type ? 'selected' : ''}>${escapeHtml(type)}</option>`).join('')}</select>`
@@ -5700,17 +5740,18 @@ function applicantBasicView(applicant, who = '신청기관') {
     <div class="actions"><span class="muted">${state.quickSavedAt ? '적는 대로 저장됩니다. 방금 저장했습니다.' : '적는 대로 저장됩니다. 따로 저장을 누르지 않아도 됩니다.'}${status.ready ? ' 이 상태로 계획서를 시작할 수 있습니다.' : ` 아직 ${status.missing.join(' · ')}이(가) 비어 있습니다.`}</span>
       <div><button class="button secondary" id="basic-to-writing" ${state.busy ? 'disabled' : ''}>계획서 작성으로</button></div></div>
     ${BASIC_AREAS.map(key => APPLICANT_AREAS.find(area => area.key === key)).filter(Boolean).map(area => {
-      const count = areaItems(applicant, area.key).length;
-      return `<details class="card org-details" data-detail-group="${area.key}" ${(state.openOrgGroups || []).includes(area.key) ? 'open' : ''}>
-        <summary><b>${escapeHtml(area.title)}</b> <small>등록 ${count}건 · 주소·대표자·신청자격처럼 더 적을 것이 있을 때만 펼치세요</small></summary>
-        ${applicantAreaFields(applicant, area, false)}</details>`;
+      const list = areaItems(applicant, area.key);
+      const pending = list.filter(item => item.status !== CONFIRMED_STATUS).length;
+      return `<details class="card org-details${goPlace('confirm', area.key)}" data-detail-group="${area.key}" ${(state.openOrgGroups || []).includes(area.key) || stepPointsAt(area.key) ? 'open' : ''}>
+        <summary><b>${escapeHtml(area.title)}</b> <small>등록 ${list.length}건${pending ? ` · 확인 전 ${pending}건` : ''} · 주소·대표자·신청자격처럼 더 적을 것이 있을 때만 펼치세요</small>${confirmGroupButton(area.key, pending)}</summary>
+        ${groupUndoBar(applicant, area.key)}${applicantAreaFields(applicant, area, false)}</details>`;
     }).join('')}
   </details>`;
 }
 
 // 파일·내 정보에서 뽑은 값은 후보로만 제안한다. 회원이 확인해야 저장된다.
 function applicantCandidateView(applicant) {
-  return `<div class="card"><div class="card-title"><div><h3>입력 후보</h3>
+  return `<div class="card${goPlace('apply')}"><div class="card-title"><div><h3>입력 후보</h3>
     <span>내 정보와 올린 문서에서 찾은 값입니다. 출처와 함께 보여 주고, 확인해야 기관정보가 됩니다.</span></div></div>
     ${profileBridgePanel(applicant)}
     ${applicantScopeView(applicant)}
@@ -5732,20 +5773,48 @@ function applicantDetailView(applicant) {
   </details>`;
 }
 
+// 구역 제목 줄의 「N건 모두 확인」. 열한 칸 어디서나 같은 모양·같은 자리에 둔다.
+//
+// 확인됨은 「기관이 사실이라고 보증한다」는 뜻이라 누르는 순간부터 계획서에 그대로 실린다.
+// 그래서 어느 구역에서 누르든 되돌리는 길이 같아야 한다 — 되돌리기는 confirmAllInGroup이 남긴다.
+// 「다음 할 일」이 이 구역을 가리킬 때만 초록이 켜진다.
+function confirmGroupButton(groupKey, pending) {
+  if (!pending) return '';
+  return `<button class="button secondary summary-action${goMark('confirm', groupKey)}" data-confirm-group="${escapeHtml(groupKey)}">${pending}건 모두 확인</button>`;
+}
+
 function detailGroupPanel(applicant, group) {
   // 구역은 모두 접은 채로 시작한다. 자료가 있는 구역을 펼쳐 두었더니 실적 96건이 그대로 쏟아져
   // 화면을 감당할 수 없었다(22-42). 접힌 줄에 건수가 있으므로 열지 않아도 무엇이 얼마나 있는지 보인다.
   // 다만 「다음 할 일」이 가리키는 구역은 접지 않는다 — 가리켜 놓고 감추면 찾을 수가 없다.
   const open = (state.openOrgGroups || []).includes(group.key) || stepPointsAt(group.key);
   const areas = group.areas.map(key => APPLICANT_AREAS.find(area => area.key === key)).filter(Boolean);
-  // 실적은 접힌 채로도 한 번에 확인할 수 있어야 한다. 제목 줄에서 바로 누른다.
-  const pending = group.key === 'performance' ? group.total - group.confirmed : 0;
-  return `<details class="card org-details" data-detail-group="${group.key}" ${open ? 'open' : ''}>
-    <summary><b>${escapeHtml(group.title)}</b> <small>등록 ${group.total}건 · 확인됨 ${group.confirmed}건</small>${pending ? `<button class="button secondary summary-action${goMark('confirm')}" id="confirm-all-performance-head">${pending}건 모두 확인</button>` : ''}</summary>
+  // 접힌 채로도 한 번에 확인할 수 있어야 한다. 제목 줄에서 바로 누른다.
+  // 예전에는 실적에만 있었다. 그래서 확인 전인 것이 이용자·인력 쪽이면 「확인하러 가기」로 데려다 놓고도
+  // 거기서 누를 것이 없었다(22-53⑤). 확인 전이 남은 구역이면 어느 구역이든 같은 단추를 둔다.
+  const pending = group.total - group.confirmed;
+  return `<details class="card org-details${goPlace('confirm', group.key)}" data-detail-group="${group.key}" ${open ? 'open' : ''}>
+    <summary><b>${escapeHtml(group.title)}</b> <small>등록 ${group.total}건 · 확인됨 ${group.confirmed}건</small>${confirmGroupButton(group.key, pending)}</summary>
     <p class="muted">${escapeHtml(group.hint)}</p>
-    ${group.key === 'performance' ? performanceConfirmBar(applicant) : ''}
+    ${group.key === 'performance' ? performanceConfirmBar(applicant) : groupUndoBar(applicant, group.key)}
     ${areas.map(area => applicantAreaFields(applicant, area, areas.length > 1)).join('')}
     ${group.key === 'programs' ? ideaAssetPanel() : ''}</details>`;
+}
+
+// 방금 이 구역을 통째로 올렸는가. 새로고침하면 「방금」이 아니므로 그때는 되돌리기를 감춘다.
+// 구역까지 본다 — 이용자를 올려 두고 실적 자리에 「방금 바꿨습니다」가 뜨면 거짓말이 된다.
+function groupConfirmUndo(applicant, groupKey) {
+  const record = state.applicantConfirmUndo;
+  if (!record || record.applicantId !== applicant?.id) return null;
+  if ((record.group || 'performance') !== groupKey) return null;
+  return Number(record.at || 0) >= pageOpenedAt ? record : null;
+}
+// 실적 밖의 구역에도 되돌리는 길을 둔다. 되돌릴 수 없는 일괄 확인은 두지 않는다.
+function groupUndoBar(applicant, groupKey) {
+  const undo = groupConfirmUndo(applicant, groupKey);
+  if (!undo) return '';
+  return `<div class="alert success"><div class="actions" style="margin:0"><span class="muted">방금 ${groupTitle(groupKey)} ${undo.items.length}건을 확인됨으로 바꿨습니다. 되돌리면 이전 상태로 돌아갑니다.</span>
+    <button class="button secondary" id="undo-bulk-confirm">방금 확인한 ${undo.items.length}건 되돌리기</button></div></div>`;
 }
 
 // 실적을 한 번에 확인됨으로 올리는 줄.
@@ -5756,9 +5825,7 @@ function performanceConfirmBar(applicant) {
   const items = areaItems(applicant, 'performance');
   if (!items.length) return '';
   const pending = items.filter(item => item.status !== CONFIRMED_STATUS).length;
-  // 새로고침하면 「방금」이 아니다. 그때는 되돌리기를 감춘다.
-  const record = state.applicantConfirmUndo;
-  const undo = record?.applicantId === applicant.id && Number(record.at || 0) >= pageOpenedAt ? record : null;
+  const undo = groupConfirmUndo(applicant, 'performance');
   // 목록을 보기 전에 규모부터 말한다. 「몇 건인지·몇 해치인지·몇 건이 쓰이는지」.
   const years = groupItemsByYear(items).map(group => group.year).filter(year => /^(19|20)/.test(year)).sort();
   const span = years.length ? `${years[0]}~${years[years.length - 1]}년 · ` : '';
@@ -5766,7 +5833,7 @@ function performanceConfirmBar(applicant) {
     <strong>사업실적 ${items.length}건 · ${span}확인됨 ${items.length - pending}건</strong>
     <p>확인됨으로 바꾸면 그 값이 계획서에 <b>기관이 확인한 사실</b>로 실립니다. 여기 값은 올린 문서에서 읽은 <b>원문 그대로</b>라 오탈자·옛 기관명·빠진 칸이 남아 있을 수 있습니다. 훑어보고 누르세요.</p>
     <div class="actions" style="margin:0"><span class="muted">${undo ? `방금 ${undo.items.length}건을 확인됨으로 바꿨습니다. 되돌리면 이전 상태로 돌아갑니다.` : pending ? '한 번에 확인하려면 위 「실적」 제목 줄의 단추를 쓰세요. 한 건씩은 아래 항목의 상태 칸에서 바꿉니다.' : '모두 확인했습니다. 한 건씩 바꾸려면 아래 항목의 상태 칸을 쓰세요.'}</span>
-      <span>${undo ? `<button class="button secondary" id="undo-confirm-performance">방금 확인한 ${undo.items.length}건 되돌리기</button>` : ''}</span></div></div>`;
+      <span>${undo ? `<button class="button secondary" id="undo-bulk-confirm">방금 확인한 ${undo.items.length}건 되돌리기</button>` : ''}</span></div></div>`;
 }
 
 // 실적이 이만큼을 넘으면 해마다 접는다. 열 해가 한꺼번에 펼쳐지면 화면이 끝없이 이어진다.
@@ -7080,11 +7147,15 @@ function render() {
 // 가리키는 자리가 바뀐 첫 번째 그리기에서만 움직인다.
 let lastGoStep = '';
 function scrollToNextStep() {
-  const step = orgStepKey();
-  if (!step || step === lastGoStep) return;
-  const target = document.querySelector('.go-target, .button.go');
+  const step = orgStepInfo();
+  // 가리키는 구역까지 함께 본다. 기본정보를 확인하고 나면 열쇠말은 그대로 confirm 인데
+  // 가리키는 자리는 다음 구역으로 옮겨 간다 — 열쇠말만 보면 그때 데려가지 않는다(22-53⑤).
+  const mark = `${step.key}:${stepGroupKey(step)}`;
+  if (!step.key || mark === lastGoStep) return;
+  // 「거기서 할 일」이 먼저다. 띠는 이미 화면 맨 위에 있어서, 띠로 데려가면 제자리걸음이 된다.
+  const target = document.querySelector('.go-target') || document.querySelector('.go-place') || document.querySelector('.button.go');
   if (!target) return;
-  lastGoStep = step;
+  lastGoStep = mark;
   setTimeout(() => target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 40);
 }
 // 소개 화면에는 폼이 없다. 로그인 화면으로 넘기는 버튼과 구역 이동만 연결하고 서버는 부르지 않는다.
@@ -8310,7 +8381,10 @@ function bindApplicants() {
     saveState();
   }));
   // 제목 줄의 「모두 확인」은 묶음을 여닫지 않는다.
-  document.querySelector('#confirm-all-performance-head')?.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); confirmAllPerformance(); });
+  document.querySelectorAll('[data-confirm-group]').forEach(el => el.addEventListener('click', event => {
+    event.preventDefault(); event.stopPropagation();
+    confirmAllInGroup(el.dataset.confirmGroup);
+  }));
   document.querySelector('#close-all-details')?.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); setState({ openOrgGroups: [] }); });
   // 다시 올리는 길은 그 자리에서. 또 찾아 헤매지 않게 한다.
   document.querySelector('#recheck-upload')?.addEventListener('click', () => focusAnchor('#applicant-cert-drop'));
@@ -8340,7 +8414,7 @@ function bindApplicants() {
     // 나머지는 그 자리로 데려가고 잠깐 강조한다. 눌렀는데 또 찾게 하지 않는다.
     focusAnchor(button.dataset.nextAnchor || '#applicant-editor');
   });
-  document.querySelector('#undo-confirm-performance')?.addEventListener('click', undoConfirmPerformance);
+  document.querySelector('#undo-bulk-confirm')?.addEventListener('click', undoBulkConfirm);
   document.querySelectorAll('[data-remove-applicant-item]').forEach(el => el.onclick = () => {
     updateEditingApplicant(applicant => { applicant.items = applicant.items.filter(item => item.id !== el.dataset.removeApplicantItem); });
     queueApplicantSave();
@@ -8650,24 +8724,51 @@ function applySafeApplicantCandidates() {
   void persistApplicant(applicant.id, false);
 }
 
-// 실적을 한 번에 확인됨으로 올린다. 무엇이 바뀌었는지 남겨 한 번에 되돌릴 수 있게 한다.
-function confirmAllPerformance() {
+// 한 구역을 통째로 확인됨으로 올린다. 무엇이 바뀌었는지 남겨 한 번에 되돌릴 수 있게 한다.
+//
+// 예전에는 실적만 이 길이 있었다. 나머지 열 칸은 항목을 하나씩 펼쳐 상태 칸을 골라야 했고,
+// 그래서 「확인하러 가기」로 데려다 놓고도 거기서 할 수 있는 일이 없었다(22-53⑤).
+// 한 구역이 여러 저장 영역을 묶기도 한다(성과자료 = 성과측정 경험 + 근거자료) — 묶음을 통째로 올린다.
+function groupAreaKeys(groupKey) {
+  if (BASIC_AREAS.includes(groupKey)) return [groupKey];
+  return (DETAIL_GROUPS.find(group => group.key === groupKey) || {}).areas || [];
+}
+function groupTitle(groupKey) {
+  return (DETAIL_GROUPS.find(group => group.key === groupKey) || {}).title
+    || (APPLICANT_AREAS.find(area => area.key === groupKey) || {}).title
+    || groupKey;
+}
+function confirmAllInGroup(groupKey) {
   const applicant = findApplicant(state.applicants, focusedApplicantId());
   if (!applicant) return setState({ error: '기관을 먼저 선택해 주세요.' });
-  const { applicant: updated, changed } = confirmAreaItems(applicant, 'performance');
-  if (!changed.length) return setState({ notice: '실적이 이미 모두 확인됨입니다.' });
-  state.applicants = upsertApplicant(state.applicants, updated);
+  const areas = groupAreaKeys(groupKey);
+  if (!areas.length) return setState({ error: '확인할 구역을 찾지 못했습니다.' });
+  let current = applicant;
+  const changed = [];
+  for (const area of areas) {
+    const result = confirmAreaItems(current, area);
+    current = result.applicant;
+    changed.push(...result.changed);
+  }
+  const title = groupTitle(groupKey);
+  if (!changed.length) return setState({ notice: `${title}은(는) 이미 모두 확인됨입니다.` });
+  state.applicants = upsertApplicant(state.applicants, current);
   setState({
     applicants: state.applicants,
-    applicantConfirmUndo: { applicantId: applicant.id, at: Date.now(), items: changed },
-    notice: `실적 ${changed.length}건을 확인됨으로 바꿨습니다. 이제 계획서에 기관이 확인한 사실로 실립니다. 잘못 눌렀으면 같은 자리의 「되돌리기」로 한 번에 되돌릴 수 있습니다.`,
+    applicantConfirmUndo: { applicantId: applicant.id, group: groupKey, at: Date.now(), items: changed },
+    notice: `${title} ${changed.length}건을 확인됨으로 바꿨습니다. 이제 계획서에 기관이 확인한 사실로 실립니다. 잘못 눌렀으면 같은 자리의 「되돌리기」로 한 번에 되돌릴 수 있습니다.`,
     error: ''
   });
   void persistApplicant(applicant.id, false);
 }
+// 실적은 맨 위 띠에서도 바로 누른다. 부르는 이름을 남겨 둔다.
+function confirmAllPerformance() {
+  return confirmAllInGroup('performance');
+}
 
-// 방금 올린 것만 되돌린다. 그 뒤에 손으로 바꾼 항목은 그대로 둔다.
-function undoConfirmPerformance() {
+// 방금 한 번에 올린 것만 되돌린다. 그 뒤에 손으로 바꾼 항목은 그대로 둔다.
+// 어느 구역에서 올렸든 되돌리는 길은 이 하나다 — 무엇을 바꿨는지 기록에 다 들어 있다.
+function undoBulkConfirm() {
   const undo = state.applicantConfirmUndo;
   const applicant = findApplicant(state.applicants, undo?.applicantId);
   if (!undo || !applicant) return setState({ applicantConfirmUndo: null, error: '되돌릴 기록이 없습니다.' });
@@ -8677,7 +8778,7 @@ function undoConfirmPerformance() {
     applicants: state.applicants,
     applicantConfirmUndo: null,
     notice: restored
-      ? `실적 ${restored}건을 이전 상태로 되돌렸습니다. 되돌린 값은 계획서에 사실로 실리지 않습니다.`
+      ? `${groupTitle(undo.group || 'performance')} ${restored}건을 이전 상태로 되돌렸습니다. 되돌린 값은 계획서에 사실로 실리지 않습니다.`
       : '되돌릴 항목이 없습니다. 그 사이에 상태가 다시 바뀐 것 같습니다.',
     error: ''
   });
