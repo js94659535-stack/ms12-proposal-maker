@@ -87,11 +87,13 @@ const TYPES = [
   ['foundation', '민간재단·공익법인', '민간 배분사업'],
   ['general', '일반 창업·아이디어', '일반 사업']
 ];
-// 업무 흐름 6단계. 라벨만 정리하고 단계 번호·연결 로직은 그대로 둔다.
+// 업무 흐름. 라벨만 정리하고 연결 로직은 그대로 둔다.
 const STEPS = ['공고 준비', '공고 분석', '신청기관 준비', '사업 설계', '계획서 작성', '검토·제출'];
 // 「검토·제출」 자리. 숫자를 손으로 적으면 단계가 늘 때 엉뚱한 곳으로 보낸다.
 const REVIEW_STEP = STEPS.length - 1;
-// 홈 화면에 보여 주는 업무 흐름 6단계 요약(단계 번호는 작업 화면과 같다).
+// 홈 화면에 보여 주는 업무 흐름. 번호는 붙이지 않는다 —
+// 홈은 「공고 준비」와 「공고 분석」을 한 장에 묶고 작업 화면은 나누므로, 번호를 붙이면
+// 같은 일이 홈에서 02, 상단 띠에서 3이 된다(22-46). 순서는 카드가 놓인 자리로 보인다.
 const ARCHIVE_WORK_STEPS = [
   { step: 0, label: '공고 준비' },
   { step: 1, label: '공고 분석' },
@@ -102,12 +104,12 @@ const ARCHIVE_WORK_STEPS = [
   { step: 5, label: '제출본 확인' }
 ];
 const HOME_FLOW = [
-  { no: '01', title: '공고 준비', desc: '공고 업로드 · 요구사항 확인', step: 0, covers: [0, 1], items: ['공고 조회·업로드', '선정 논리 구조화', '첨부 자료묶음 분석'] },
-  { no: '02', title: '신청기관 준비', desc: '기관정보 · 실적 · 적합성', step: 2, covers: [2], items: ['확인된 기관정보 관리', '과거 실적 정리', '공고 적합성 매칭'] },
-  { no: '03', title: '사업 설계', desc: '대상 · 프로그램 · 예산 · 성과', step: 3, covers: [3], items: ['신청유형 선택', '설계도 한 장 확정', '확인 필요 항목 입력'] },
-  { no: '04', title: '계획서 작성', desc: '근거 기반 V1 작성', step: 4, covers: [4], items: ['마스터 설계', '항목별 초안 생성', '근거·인용 연결'] },
-  { no: '05', title: '검토·수정', desc: 'AI 코칭 · V2 · 사용자 결정', step: 5, covers: [5], items: ['평가기준 검증', '수정계획 분류', '사용자 확정 반영'] },
-  { no: '06', title: '제출·보관', desc: '최종본 · DOCX/PDF · 계획서보관함', step: 5, covers: [], items: ['제출 전 확인 목록', 'DOCX·PDF 출력', '계획서보관함 저장'] }
+  { title: '공고 준비', desc: '공고 업로드 · 요구사항 확인', step: 0, covers: [0, 1], items: ['공고 조회·업로드', '선정 논리 구조화', '첨부 자료묶음 분석'] },
+  { title: '신청기관 준비', desc: '기관정보 · 실적 · 적합성', step: 2, covers: [2], items: ['확인된 기관정보 관리', '과거 실적 정리', '공고 적합성 매칭'] },
+  { title: '사업 설계', desc: '대상 · 프로그램 · 예산 · 성과', step: 3, covers: [3], items: ['신청유형 선택', '설계도 한 장 확정', '확인 필요 항목 입력'] },
+  { title: '계획서 작성', desc: '근거 기반 V1 작성', step: 4, covers: [4], items: ['마스터 설계', '항목별 초안 생성', '근거·인용 연결'] },
+  { title: '검토·수정', desc: 'AI 코칭 · V2 · 사용자 결정', step: 5, covers: [5], items: ['평가기준 검증', '수정계획 분류', '사용자 확정 반영'] },
+  { title: '제출·보관', desc: '최종본 · DOCX/PDF · 계획서보관함', step: 5, covers: [], items: ['제출 전 확인 목록', 'DOCX·PDF 출력', '계획서보관함 저장'] }
 ];
 const STEP_GUIDE = [
   { title: '공고 준비', icon: '①', desc: '공고를 가져오거나 공고문·양식을 올립니다.', items: ['기관 공고 조회', '공고문·신청서 업로드', '공고보관함 불러오기'] },
@@ -2386,15 +2388,15 @@ function introSections({ forAdmin = false } = {}) {
     </div>
 
     <div class="landing-section" id="landing-flow">
-      <div class="landing-head"><h2>이용 흐름</h2><p>공고문 분석부터 사업계획서 완성까지 여섯 단계로 이어집니다.</p></div>
-      <div class="landing-grid three">${HOME_FLOW.map(step => {
+      <div class="landing-head"><h2>이용 흐름</h2><p>공고문 분석부터 사업계획서 완성까지 차례로 이어집니다.</p></div>
+      <div class="landing-grid three">${HOME_FLOW.map((step, index) => {
         // 관리자 화면에서는 첫 단계 카드가 실제 작업 화면으로 가는 문이다. 새 화면을 만들지 않고
         // 회원이 쓰는 「공고 조회·업로드」 화면(단계 0)을 그대로 연다. 카드 전체가 누르는 자리다.
-        const opens = forAdmin && step.no === '01';
+        const opens = forAdmin && index === 0;
         const attrs = opens
-          ? ` class="landing-card is-open" data-flow-open="${step.step}" role="button" tabindex="0" aria-label="${escapeHtml(step.no + ' ' + step.title)} 화면 열기"`
+          ? ` class="landing-card is-open" data-flow-open="${step.step}" role="button" tabindex="0" aria-label="${escapeHtml(step.title)} 화면 열기"`
           : ' class="landing-card"';
-        return `<article${attrs}><header><span class="landing-step">${escapeHtml(step.no)}</span><h3>${escapeHtml(step.title)}</h3></header><p>${escapeHtml(step.desc)}</p><ul>${step.items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>${opens ? '<span class="landing-open-hint">눌러서 공고 준비 화면 열기</span>' : ''}</article>`;
+        return `<article${attrs}><header><h3>${escapeHtml(step.title)}</h3></header><p>${escapeHtml(step.desc)}</p><ul>${step.items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>${opens ? '<span class="landing-open-hint">눌러서 공고 준비 화면 열기</span>' : ''}</article>`;
       }).join('')}</div>
     </div>
 
@@ -2992,11 +2994,11 @@ function coreProposalView() {
   </div></main></div>`;
 }
 
-// 2단계 · 만들어진 제안서. 쪽별로 나눠 보여 주고 그대로 내려받게 한다.
+// 만들어진 제안서. 쪽별로 나눠 보여 주고 그대로 내려받게 한다.
 function coreResultView(result) {
   const pages = corePagesOf(result);
   return `<div class="landing-section" id="core-result">
-    <div class="landing-head"><h2>2단계 · ${escapeHtml(result.title || '핵심제안서')}</h2>${result.subtitle ? `<p class="muted" style="margin:2px 0 6px">${escapeHtml(result.subtitle)}</p>` : ''}<p>${escapeHtml(result.audience || '')} 제출용 · 목표 ${result.targetPages}쪽 · 실제 구성 ${pages.length}쪽. 확인되지 않은 값은 [확인 필요]로 남깁니다.</p></div>
+    <div class="landing-head"><h2>${escapeHtml(result.title || '핵심제안서')}</h2>${result.subtitle ? `<p class="muted" style="margin:2px 0 6px">${escapeHtml(result.subtitle)}</p>` : ''}<p>${escapeHtml(result.audience || '')} 제출용 · 목표 ${result.targetPages}쪽 · 실제 구성 ${pages.length}쪽. 확인되지 않은 값은 [확인 필요]로 남깁니다.</p></div>
     ${result.summary ? `<div class="alert"><strong>한 줄 요약</strong><p>${escapeHtml(result.summary)}</p></div>` : ''}
     ${guardPanel(result.guard)}
     ${evidencePanel(result.evidence)}
@@ -3507,7 +3509,7 @@ function homeView() {
           <p class="home-lead">공고를 분석해 선정 논리를 세우고, 기관 정보와 연결해 설계·작성·검증·제출까지 한 흐름으로 진행합니다.</p>
           <div class="home-actions"><button class="button primary" data-home-start="1">새 사업계획서 시작</button><button class="button secondary" data-home-continue="1" ${writing ? '' : 'disabled'}>작성 중인 계획서 계속하기</button><button class="button ghost" data-open-sample="notice">[샘플] 예시 먼저 보기</button></div>
           <div class="home-hero-stats">
-            <div><b>6단계</b><span>공고 준비 → 제출·보관</span></div>
+            <div><b>공고 준비 → 제출·보관</b><span>한 곳에서 이어서 씁니다</span></div>
             <div><b>11항목</b><span>공고 선정 논리 구조화</span></div>
             <div><b>V1·V2·V3</b><span>버전을 덮어쓰지 않고 보존</span></div>
           </div>
@@ -3521,9 +3523,9 @@ function homeView() {
       </section>
 
       <section class="home-section home-deck-section" id="home-flow">
-        <div class="home-head"><h2>업무 흐름 6단계</h2><p>좌우로 넘겨 단계별로 무엇을 만드는지 확인하고, 바로 그 화면으로 들어갈 수 있습니다.</p></div>
+        <div class="home-head"><h2>업무 흐름</h2><p>좌우로 넘겨 단계별로 무엇을 만드는지 확인하고, 바로 그 화면으로 들어갈 수 있습니다.</p></div>
         <div class="home-deck" data-deck>
-          <div class="home-deck-track" data-deck-track>${HOME_FLOW.map(step => { const active = writing && step.covers.includes(state.step); return `<article class="home-step ${active ? 'current' : ''}"><span class="home-step-no">${step.no}</span><h3>${escapeHtml(step.title)}</h3><p>${escapeHtml(step.desc)}</p><ul>${step.items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>${active ? '<span class="home-step-state">진행 중</span>' : ''}<button class="button ghost" data-home-step="${step.step}">이 단계 열기</button></article>`; }).join('')}</div>
+          <div class="home-deck-track" data-deck-track>${HOME_FLOW.map(step => { const active = writing && step.covers.includes(state.step); return `<article class="home-step ${active ? 'current' : ''}"><h3>${escapeHtml(step.title)}</h3><p>${escapeHtml(step.desc)}</p><ul>${step.items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>${active ? '<span class="home-step-state">진행 중</span>' : ''}<button class="button ghost" data-home-step="${step.step}">이 단계 열기</button></article>`; }).join('')}</div>
           <div class="home-deck-nav"><button class="home-deck-arrow" data-deck-prev aria-label="이전 단계">←</button><div class="home-deck-dots">${HOME_FLOW.map((step, index) => `<button class="home-deck-dot ${index === 0 ? 'active' : ''}" data-deck-go="${index}" aria-label="${escapeHtml(step.title)}"></button>`).join('')}</div><button class="home-deck-arrow" data-deck-next aria-label="다음 단계">→</button></div>
         </div>
       </section>
@@ -5314,7 +5316,7 @@ function applicantsToolView() {
     ${orgNextStepBar()}
     ${orgPickerView(who)}
     ${editing ? orgAreaMapView(editing) : ''}
-    ${editing ? applicantBasicView(editing, who) : `<div class="card"><h3>1단계 기본정보</h3><p class="muted">위에서 ${who}을(를) 추가하거나 고르면 기본정보부터 입력할 수 있습니다.</p></div>`}
+    ${editing ? applicantBasicView(editing, who) : `<div class="card"><h3>기본정보</h3><p class="muted">위에서 ${who}을(를) 추가하거나 고르면 기본정보부터 입력할 수 있습니다.</p></div>`}
     ${editing ? applicantCandidateView(editing) : ''}
     ${editing ? applicantDetailView(editing) : ''}
     ${editing ? applicantSourcesView(editing) : ''}
@@ -5636,14 +5638,14 @@ async function pullProfileIntoApplicant() {
   await saveArchivedApplicant(next).catch(() => null);
 }
 
-// ---------- 1단계 기본정보 ----------
+// ---------- 기본정보 ----------
 // 계획서를 시작하는 데 필요한 최소한만 받는다. 여기까지만 적고 바로 작성으로 갈 수 있다.
 function applicantBasicView(applicant, who = '신청기관') {
   const draft = quickDraft();
   const status = basicStatus(applicant, draft);
   const reuse = reusableCount(applicant);
   return `<div class="card" id="applicant-editor" tabindex="-1">
-    <div class="card-title"><div><h3>1단계 기본정보 · ${escapeHtml(applicant.name)}</h3>
+    <div class="card-title"><div><h3>기본정보 · ${escapeHtml(applicant.name)}</h3>
       <span>계획서를 시작하는 데 필요한 것만 적습니다. 나머지는 나중에 적어도 됩니다.</span></div>
       <span class="status ${status.ready ? '충족' : '확인-필요'}">${status.ready ? (status.saved ? '저장됨' : '저장하면 시작 가능') : `${status.missing.join(' · ')} 필요`}</span></div>
     ${(() => { const stale = staleSummary(applicant.items, new Date().getFullYear()); return stale ? `<div class="alert warning"><strong>다시 확인할 정보 ${stale.count}건</strong><p>${escapeHtml(stale.message)}</p><div class="actions" style="margin:0"><span class="muted">상태는 그대로 둡니다. 확인해 두신 값은 계획서에 계속 쓰입니다.</span><button class="button secondary" id="recheck-upload">새 문서 올리기</button></div></div>` : ''; })()}
@@ -5687,14 +5689,14 @@ function applicantCandidateView(applicant) {
     ${applicantSourceView(applicant)}</div>`;
 }
 
-// ---------- 2단계 상세정보(선택) ----------
+// ---------- 상세정보(선택) ----------
 // 구역을 한 번에 펼치지 않는다. 필요한 구역만 열어서 적는다. 비어 있어도 계획서를 막지 않는다.
 function applicantDetailView(applicant) {
   const groups = detailProgress(applicant);
   const filled = groups.filter(group => group.total).length;
   const total = groups.reduce((sum, group) => sum + group.total, 0);
   return `<details class="card org-details" id="applicant-detail" data-org-fold="detail" ${orgFoldOpen('detail') ? 'open' : ''}>
-    <summary><b>2단계 상세정보 <span class="muted">(선택)</span></b> <small>여덟 구역 중 ${filled}구역에 자료 ${total}건 · 지금 적지 않아도 계획서는 만들어집니다</small>
+    <summary><b>상세정보 <span class="muted">(선택)</span></b> <small>여덟 구역 중 ${filled}구역에 자료 ${total}건 · 지금 적지 않아도 계획서는 만들어집니다</small>
       ${orgFoldOpen('detail') ? '<button class="button secondary summary-action" id="close-all-details">구역 모두 접기</button>' : ''}</summary>
     <div class="alert"><strong>상세정보를 등록하면 계획서가 달라집니다</strong><p>${DETAIL_INTRO}</p></div>
     <div class="stat-badges">${groups.map(group => `<span class="stat-badge" title="${escapeHtml(group.hint)}"><strong>${group.confirmed}/${group.total}</strong><span>${escapeHtml(group.title)}</span></span>`).join('')}</div>

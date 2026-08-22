@@ -93,7 +93,8 @@ test('카드를 크게 늘어놓지 않고 화면 크기에 맞춰 접는다', (
 
 test('이용 흐름 첫 카드는 실제 공고 준비 화면으로 연결한다', () => {
   // 새 화면을 만들지 않는다. 회원이 쓰는 단계 0(공고 조회·업로드) 화면을 그대로 연다.
-  assert.match(app, /const opens = forAdmin && step\.no === '01';/);
+  // 홈 카드에서 번호를 뺐다(22-46). 첫 카드인지는 자리로 판단한다.
+  assert.match(app, /const opens = forAdmin && index === 0;/);
   assert.match(app, /data-flow-open="\$\{step\.step\}" role="button" tabindex="0"/);
   assert.match(app, /function openFlowStep\(step\) \{\s*state\.activeTool = 'workflow';\s*navigateToStep\(step, \{ notice: '', error: '' \}\);/);
   // 카드 안 목록은 따로 연결하지 않는다. 카드 하나가 문 하나다.
