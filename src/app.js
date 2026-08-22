@@ -5847,7 +5847,7 @@ function applicantLoadedView(applicant) {
     <summary><b>불러온 신청기관 정보 · ${escapeHtml(applicant.name)}</b> <small>확인됨 ${confirmed.length}건 · 확인 필요 ${needsCheck}건 · 확인된 것만 계획서에 전달됩니다</small></summary>
     ${empty ? `<div class="alert warning"><strong>연혁·사업계획서·결산서를 올리면 자동으로 채워집니다</strong>
       <p>열한 칸을 하나씩 적지 않아도 됩니다. 기관 연혁을 올리면 연도별 사업실적이, 사업계획서를 올리면 인력·시설·협력기관·예산이, 고유번호증을 올리면 기관명·대표자·고유번호가 후보로 올라옵니다.</p>
-      <p><button class="button primary next-step" id="go-applicant-doc">연혁·사업계획서 올리러 가기</button></p></div>` : ''}
+      <p><button class="button go next-step" id="go-applicant-doc">연혁·사업계획서 올리러 가기</button></p></div>` : ''}
     ${areaGroupsView(applicant, summary)}
     ${confirmedInfoView(applicant, confirmed)}
     <details><summary>전달하지 않는 확인 필요·오래된 정보 ${applicant.items.length - confirmed.length}건</summary><p class="muted">아래 항목은 항목명만 표시하며 내용은 계획서 작성 요청에 포함하지 않습니다.</p><div class="cap-grid">${applicant.items.filter(item => item.status !== CONFIRMED_STATUS).map(item => `<div><span>${escapeHtml(areaTitle(item.area))}</span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.status)}</small></div>`).join('') || '<p class="muted">없음</p>'}</div></details></details>`;

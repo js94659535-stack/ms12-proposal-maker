@@ -88,6 +88,8 @@ test('이 화면에서 초록 버튼은 띠 안의 하나뿐이고 갈색은 없
     for (const match of body.matchAll(/button go[^-][^>]*id="([^"]*)"/g)) found.push(match[1]);
   }
   assert.deepEqual(found, ['next-step-action'], `버튼: ${found.join(', ')}`);
+  // 갈색이 「다음 할 일」을 말하는 자리는 앱 어디에도 없다(22-52).
+  assert.ok(!app.includes('button primary next-step'), '갈색으로 다음 할 일을 말하는 버튼이 남아 있다');
 });
 
 test('「채우러 가기」는 그 자리로 데려간다', () => {
