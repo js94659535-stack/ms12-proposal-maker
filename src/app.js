@@ -5238,6 +5238,13 @@ const NEXT_STEP_ANCHORS = Object.freeze({
   'add-org': '#applicant-name-draft', basic: '#applicant-editor', upload: '#applicant-doc',
   apply: '#applicant-candidates', confirm: '#applicant-detail', write: ''
 });
+// 「확인하러 가기」가 데려갈 자리. 확인 전인 것이 기본정보 쪽이면 상세정보로 보내면 안 된다.
+function nextStepAnchor(step) {
+  if (step.key === 'confirm' && step.area === 'other') {
+    return (step.areas || []).some(area => BASIC_AREAS.includes(area)) ? '#applicant-editor' : '#applicant-detail';
+  }
+  return NEXT_STEP_ANCHORS[step.key] || '';
+}
 // 지금 「다음 할 일」이 무엇인지. 초록은 이 값이 가리키는 한 곳에만 붙는다.
 //
 // 판정은 한 번만 하고 화면 여러 곳이 같은 결과를 읽는다. 열쇠말만 보던 때는
@@ -5318,7 +5325,7 @@ function orgNextStepBar() {
   const bulk = step.key === 'confirm' && step.area === 'performance';
   return `<div class="next-step-bar${step.done ? ' done' : ''}" id="next-step-bar">
     <div><span>${step.done ? '다 됐습니다' : '다음 할 일'}</span><strong>${escapeHtml(step.message)}</strong></div>
-    <button class="button primary next-step" id="next-step-action" data-next-key="${escapeHtml(step.key)}" data-next-bulk="${bulk ? '1' : ''}" data-next-anchor="${escapeHtml(NEXT_STEP_ANCHORS[step.key] || '')}">${escapeHtml(step.actionLabel)}</button></div>`;
+    <button class="button primary next-step" id="next-step-action" data-next-key="${escapeHtml(step.key)}" data-next-bulk="${bulk ? '1' : ''}" data-next-anchor="${escapeHtml(nextStepAnchor(step))}">${escapeHtml(step.actionLabel)}</button></div>`;
 }
 
 // 기관정보 화면. 페이지를 새로 만들지 않고 이 한 곳을 기본정보 → 상세정보 두 단계로 나눈다.
