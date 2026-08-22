@@ -851,3 +851,7 @@ select{max-width:100%}
 .suggest-line strong{font-size:13px;font-weight:700}
 .suggest-line .button{white-space:nowrap;padding:8px 12px;font-size:12px}
 .filled-from{display:block;margin-top:6px;color:var(--amber)}
+
+/* 다시 확인할 때가 된 정보. 상태는 그대로 두고 표시만 한다. */
+.status.recheck{background:#fff2d9;color:#8a5a12}
+.recheck-note{margin:6px 0 10px;color:var(--amber)}

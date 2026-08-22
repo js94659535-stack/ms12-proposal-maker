@@ -71,6 +71,7 @@ import { SAMPLE_REAL_COACHING } from './sample-coaching-run.js';
 import { RELATED_LIMIT, confirmAreaItems, relatedMatches, requiresConsortium, restoreItemStatuses, SOURCE_KINDS, makeApplicantSource, APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, mergeApplicantItems, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
 import { nextOrgStep } from './org-next-step.js';
 import { suggestBasicFields } from './org-basic-suggest.js';
+import { staleReason, staleSummary } from './org-staleness.js';
 import { rollupMark } from './requirement-rollup.js';
 import { BASIC_AREAS, areaDestination, DETAIL_GROUPS, DETAIL_INTRO, basicStatus, detailProgress, draftFromApplicant, reusableCount } from './org-stage.js';
 import { KOREAN_LABELS, toKoreanLabel } from '../server/label-leak.js';
@@ -5532,6 +5533,7 @@ function applicantBasicView(applicant, who = '신청기관') {
     <div class="card-title"><div><h3>1단계 기본정보 · ${escapeHtml(applicant.name)}</h3>
       <span>계획서를 시작하는 데 필요한 것만 적습니다. 나머지는 나중에 적어도 됩니다.</span></div>
       <span class="status ${status.ready ? '충족' : '확인-필요'}">${status.ready ? (status.saved ? '저장됨' : '저장하면 시작 가능') : `${status.missing.join(' · ')} 필요`}</span></div>
+    ${(() => { const stale = staleSummary(applicant.items, new Date().getFullYear()); return stale ? `<div class="alert warning"><strong>다시 확인할 정보 ${stale.count}건</strong><p>${escapeHtml(stale.message)}</p><div class="actions" style="margin:0"><span class="muted">상태는 그대로 둡니다. 확인해 두신 값은 계획서에 계속 쓰입니다.</span><button class="button secondary" id="recheck-upload">새 문서 올리기</button></div></div>` : ''; })()}
     <label class="dropzone${goMark('upload', 'target')}" id="applicant-cert-drop" for="applicant-cert-file">
       <strong>사업자등록증·고유번호증을 올리면 자동으로 채워집니다</strong>
       <small>기관명 · 기관 유형 · 주소 · 대표자 · 고유번호 · PDF · DOCX · HWP · HWPX · TXT</small>
@@ -5647,10 +5649,12 @@ function applicantAreaFields(applicant, area, showTitle) {
   // 96건이 편집칸 다섯 개씩 펼쳐져 있으면 화면이 96장이 된다.
   const fromDocument = item => /에서 추출/.test(String(item.source || ''));
   const summaryLine = item => `<summary><span class="tag">${escapeHtml(itemYear(item))}</span><b>${escapeHtml(String(item.value || item.label || '내용 없음').slice(0, 70))}</b>`
-    + `${applicantStatusTag(item.status)}<small class="muted">${fromDocument(item) ? '문서에서' : '직접 입력'}</small></summary>`;
+    + `${applicantStatusTag(item.status)}${staleReason(item, new Date().getFullYear()) ? '<span class="status 확인-필요 recheck">다시 확인</span>' : ''}`
+    + `<small class="muted">${fromDocument(item) ? '문서에서' : '직접 입력'}</small></summary>`;
   const editor = item => `<details class="item-fold">${summaryLine(item)}<article class="requirement"><div><span class="tag">${escapeHtml(item.label || '항목명 없음')}</span>${applicantStatusTag(item.status)}</div>
           <div class="two-col"><div class="field"><label for="label-${escapeHtml(item.id)}">항목명</label><input id="label-${escapeHtml(item.id)}" data-applicant-field="${escapeHtml(item.id)}|label" value="${escapeHtml(item.label)}"></div><div class="field"><label for="status-${escapeHtml(item.id)}">상태</label><select id="status-${escapeHtml(item.id)}" data-applicant-status="${escapeHtml(item.id)}">${statusOptions(item.status)}</select></div></div>
           <div class="field"><label for="value-${escapeHtml(item.id)}">내용</label><textarea id="value-${escapeHtml(item.id)}" data-applicant-field="${escapeHtml(item.id)}|value" style="min-height:70px">${escapeHtml(item.value)}</textarea></div>
+          ${staleReason(item, new Date().getFullYear()) ? `<p class="muted recheck-note">${escapeHtml(staleReason(item, new Date().getFullYear()).note)}</p>` : ''}
           <div class="two-col"><div class="field"><label for="source-${escapeHtml(item.id)}">근거자료·출처</label><input id="source-${escapeHtml(item.id)}" data-applicant-field="${escapeHtml(item.id)}|source" value="${escapeHtml(item.source)}" placeholder="예: 2025 법인등기부등본"></div>
           <div class="field"><label for="asof-${escapeHtml(item.id)}">정보 기준시점</label><input id="asof-${escapeHtml(item.id)}" data-applicant-field="${escapeHtml(item.id)}|asOf" value="${escapeHtml(item.asOf || '')}" placeholder="${escapeHtml(ASOF_UNKNOWN)} (예: 2026 또는 2026-03)"></div></div>
           ${(item.history || []).length ? `<details><summary>이전 기록 ${item.history.length}건</summary><div class="cap-grid">${item.history.map(entry => `<div><span>${escapeHtml(entry.asOf || ASOF_UNKNOWN)}</span><strong>${escapeHtml(entry.value)}</strong><small>${escapeHtml(entry.source || '출처 없음')}</small></div>`).join('')}</div></details>` : ''}
@@ -8087,6 +8091,8 @@ function bindApplicants() {
   // 제목 줄의 「모두 확인」은 묶음을 여닫지 않는다.
   document.querySelector('#confirm-all-performance-head')?.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); confirmAllPerformance(); });
   document.querySelector('#close-all-details')?.addEventListener('click', () => setState({ openOrgGroups: [], closedOrgGroups: DETAIL_GROUPS.map(group => group.key) }));
+  // 다시 올리는 길은 그 자리에서. 또 찾아 헤매지 않게 한다.
+  document.querySelector('#recheck-upload')?.addEventListener('click', () => focusAnchor('#applicant-cert-drop'));
   document.querySelectorAll('[data-fill-quick]').forEach(el => el.onclick = () => {
     const key = el.dataset.fillQuick;
     const suggestion = suggestBasicFields(findApplicant(state.applicants, focusedApplicantId()), { ...(auth.memberProfile || {}), name: auth.user?.name || '', phone: auth.user?.phone || '' })[key];
