@@ -27,7 +27,7 @@ test('상세정보도 접혀 있고 줄에 구역 수와 건수가 남는다', (
 
 test('펼침은 이번 화면에서만 기억한다', () => {
   const save = app.slice(app.indexOf('function saveState()'), app.indexOf('function loadNavigationHistory()'));
-  for (const key of ['openAddForms', 'closedOrgYears', 'openOrgFolds', 'openOrgGroups', 'openOrgYears']) {
+  for (const key of ['openAddForms', 'openOrgFolds', 'openOrgGroups', 'openOrgYears']) {
     assert.ok(save.includes(key + ": []"), key + "를 저장하고 있다");
   }
 });
@@ -41,9 +41,9 @@ test('빈 입력칸은 눌러서 펼친다', () => {
   assert.match(helper, /class="add-fold" data-add-form=/);
 });
 
-test('접는 층은 셋을 넘지 않는다', () => {
-  // 상세정보 → 구역 → 연도. 그 아래는 항목이므로 세 번 누르면 내용이 나온다.
-  // 맨 위 해를 열어 두어 실제로는 두 번이면 보인다.
+test('접는 층은 셋을 넘지 않고 해는 모두 접힌다', () => {
+  // 상세정보 → 구역 → 연도. 그 아래는 항목이다.
+  // 22-42에서 맨 위 해를 열어 두었다가 22-44에서 되돌렸다 — 실적 28건이 펼쳐진 채로 나왔다.
   const fields = app.slice(app.indexOf('function applicantAreaFields(applicant, area, showTitle)'), app.indexOf('function applicantLoadedView'));
-  assert.match(fields, /index === 0 && !\(state\.openOrgYears \|\| \[\]\)\.length/);
+  assert.match(fields, /const yearOpen = year => \(state\.openOrgYears \|\| \[\]\)\.includes\(year\);/);
 });

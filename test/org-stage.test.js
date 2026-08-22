@@ -114,9 +114,10 @@ test('상세정보 안내 문구를 그대로 띄우고 구역을 한 번에 펼
 test('상세정보를 고치면 보관자료에도 저장한다', () => {
   // 이 브라우저에만 남으면 다음 계획서에서 다시 쓰지 못한다.
   assert.match(app, /function queueApplicantSave\(delay = 1500\) \{/);
-  assert.match(app, /void persistApplicant\(focusedApplicantId\(\), false\);/);
-  const add = app.slice(app.indexOf('function addApplicantItem('), app.indexOf('async function loadApplicantDocument('));
-  assert.match(add, /persistApplicant\(focusedApplicantId\(\), false\)/);
+  // 고친 값은 잠깐 기다렸다가 저장한다. 한 글자마다 서버를 부르지 않는다.
+  assert.match(app, /applicantSaveTimer = setTimeout\(\(\) => \{ applicantSaveTimer = null; void persistApplicant\(id, false\); \}, delay\);/);
+  // 손으로 넣는 길은 22-44에서 없앴다. 문서에서 들어온 값만 남는다.
+  assert.ok(!app.includes('function addApplicantItem('));
   // 「이 기관 정보 저장」은 뺐다(22-13). 고칠 때마다 이미 저장하고 있어 같은 일을 두 번 시키지 않는다.
   assert.doesNotMatch(app, /id="save-applicant"/);
 });

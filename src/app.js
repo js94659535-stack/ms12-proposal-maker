@@ -69,11 +69,11 @@ import { BOX, loadFrom, openBox, saveTo } from './archive-names.js';
 import { ARCHIVE_PAGE_SIZES, ARCHIVE_PAGE_SIZE_LABEL, ARCHIVE_STATUSES, DEFAULT_WATCH, archiveTableRows, shortDate, watchHits } from './archive-table.js';
 import { SAMPLE_MARK, SAMPLE_NOTE, SAMPLE_NOTICE, SAMPLE_NOTICE_KEY, SAMPLE_STAGES, SAMPLE_STAGE_BY_STEP, buildSampleProject } from './sample-project.js';
 import { SAMPLE_REAL_COACHING } from './sample-coaching-run.js';
-import { RELATED_LIMIT, countConfirmed, confirmAreaItems, relatedMatches, requiresConsortium, restoreItemStatuses, SOURCE_KINDS, makeApplicantSource, APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, mergeApplicantItems, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
+import { RELATED_LIMIT, countConfirmed, isConfirmed, confirmAreaItems, relatedMatches, requiresConsortium, restoreItemStatuses, SOURCE_KINDS, makeApplicantSource, APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, mergeApplicantItems, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
 import { groupAreas } from './org-area-order.js';
 import { nextOrgStep } from './org-next-step.js';
 import { suggestBasicFields } from './org-basic-suggest.js';
-import { staleReason, staleSummary } from './org-staleness.js';
+import { staleItems, staleReason, staleSummary } from './org-staleness.js';
 import { rollupMark } from './requirement-rollup.js';
 import { BASIC_AREAS, areaDestination, DETAIL_GROUPS, DETAIL_INTRO, basicStatus, detailProgress, draftFromApplicant, reusableCount } from './org-stage.js';
 import { KOREAN_LABELS, toKoreanLabel } from '../server/label-leak.js';
@@ -143,7 +143,7 @@ const initial = {
   designJobs: {},
   // 이 계획서에 남아 있는 AI 작업 기록. 다시 만들기 전에 먼저 보여 준다.
   aiJobs: { list: [], loadedFor: '' },
-  applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', applicantItemDrafts: {}, projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openOrgYears: [], closedOrgGroups: [], openAddAreas: [], quickFilledFrom: {}, quickSavedAt: '', orgPickerOpen: false, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
+  applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openOrgYears: [], closedOrgGroups: [], quickFilledFrom: {}, quickSavedAt: '', orgPickerOpen: false, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
   revisionPlan: null, draftReview: null, projectNarrative: '',
   // 서버가 붙여 준 근거 검증·평가자 검토. 화면은 판정하지 않고 그대로 보여 준다.
   serverGuard: null, serverEvidence: null, evaluatorReview: null, proposalVersions: [], proposalFlow: { status: '', baselineVersion: 0, reviewTarget: null, rounds: [], requests: [], requestOpen: false, requestText: '', requestScope: [], openVersion: 0, compareVersion: 0, approvedVersion: 0, approvedAt: '' }, coachingSelection: [], applicantSkipped: false, noticeLogic: null, redesignForContract: false,
@@ -3102,7 +3102,7 @@ function loadState() {
     const stagedGeneration = saved.stagedGeneration && typeof saved.stagedGeneration === 'object'
       ? { ...structuredClone(initial.stagedGeneration), ...saved.stagedGeneration, parts: Array.isArray(saved.stagedGeneration.parts) ? saved.stagedGeneration.parts : [], completedGroupIds: Array.isArray(saved.stagedGeneration.completedGroupIds) ? saved.stagedGeneration.completedGroupIds : [] }
       : structuredClone(initial.stagedGeneration);
-    const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', notice: '', applicantItemDrafts: {}, applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openAddAreas: [], openAddForms: [], closedOrgYears: [], openOrgFolds: [], openOrgGroups: [], closedOrgGroups: [], openOrgYears: [], quickFilledFrom: {}, coachingSelection: [], attachmentLinks: {}, submissionZip: null, lastDownload: null, sheet: null };
+    const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', notice: '', applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openAddForms: [], openOrgFolds: [], openOrgGroups: [], closedOrgGroups: [], openOrgYears: [], quickFilledFrom: {}, coachingSelection: [], attachmentLinks: {}, submissionZip: null, lastDownload: null, sheet: null };
     // 알 수 없는 포털 값이 남아 있으면 다시 고르게 한다.
     restored.portal = ['admin', 'proposal'].includes(saved.portal) ? saved.portal : '';
     // 예전에 저장한 상태에는 의뢰 건 정보가 없다. 빈 값으로 채우기만 하고 기존 데이터는 건드리지 않는다.
@@ -3140,7 +3140,7 @@ function saveState() {
   // 다만 브라우저 저장 한도가 있으므로 앞쪽 얼마간만 남긴다. 나머지는 다시 불러올 때 채워진다.
   const CACHED_NOTICES = 120;
   const safe = { ...state, reviewDetail: false, reviewPanels: [], reviewFocus: false, companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [],
-    archiveNotices: (state.archiveNotices || []).slice(0, CACHED_NOTICES), archiveProposals: (state.archiveProposals || []).slice(0, CACHED_NOTICES), noticeUrlDraft: '', busy: '', error: '', notice: '', applicantItemDrafts: {}, applicantNameDraft: '', applicantComparison: null, applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openAddAreas: [], openAddForms: [], closedOrgYears: [], openOrgFolds: [], openOrgGroups: [], closedOrgGroups: [], openOrgYears: [], quickFilledFrom: {}, files: state.files.map(({ text, ...meta }) => meta),
+    archiveNotices: (state.archiveNotices || []).slice(0, CACHED_NOTICES), archiveProposals: (state.archiveProposals || []).slice(0, CACHED_NOTICES), noticeUrlDraft: '', busy: '', error: '', notice: '', applicantNameDraft: '', applicantComparison: null, applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openAddForms: [], openOrgFolds: [], openOrgGroups: [], closedOrgGroups: [], openOrgYears: [], quickFilledFrom: {}, files: state.files.map(({ text, ...meta }) => meta),
     // 이 첨부 원본은 브라우저 메모리에만 있다. 새로고침 뒤에 파일이 있다고 잘못 말하지 않도록 연결 기록도 저장하지 않는다.
     // 기관이 준 서류는 R2에 보관하며 그것은 이 목록이 아니라 기관자료 줄에 남는다.
     attachmentLinks: {}, submissionZip: null, lastDownload: null, sheet: null };
@@ -5313,6 +5313,7 @@ function applicantsToolView() {
   return `<div class="page-heading"><div><h2>${who} 정보</h2><p>${clients ? '대신 계획서를 쓸 고객 기관을 등록·수정합니다' : '이번 사업을 신청하는 기관의 정보를 등록·수정합니다'}. 공고 분석 정보와는 분리해 보관하며, 확인된 정보만 계획서 작성에 전달합니다.</p><div class="actions">${sampleButton('applicant', '[샘플] 기관 보기')}</div></div><button class="button secondary" id="close-applicants">작성 흐름으로 돌아가기</button></div>
     ${orgNextStepBar()}
     ${orgPickerView(who)}
+    ${editing ? orgAreaMapView(editing) : ''}
     ${editing ? applicantBasicView(editing, who) : `<div class="card"><h3>1단계 기본정보</h3><p class="muted">위에서 ${who}을(를) 추가하거나 고르면 기본정보부터 입력할 수 있습니다.</p></div>`}
     ${editing ? applicantCandidateView(editing) : ''}
     ${editing ? applicantDetailView(editing) : ''}
@@ -5752,7 +5753,6 @@ function groupItemsByYear(items) {
 // 한 영역의 등록 항목과 새 항목 입력칸. 저장 구조를 바꾸지 않아 기존 자료가 그대로 보인다.
 function applicantAreaFields(applicant, area, showTitle) {
   const items = areaItems(applicant, area.key);
-  const draft = state.applicantItemDrafts[area.key] || { label: '', value: '', status: '확인 필요', source: '' };
   // 문서에서 온 값은 고칠 일이 거의 없다. 한 줄로 접어 두고 누르면 그때 편집칸을 편다.
   // 96건이 편집칸 다섯 개씩 펼쳐져 있으면 화면이 96장이 된다.
   const fromDocument = item => /에서 추출/.test(String(item.source || ''));
@@ -5769,23 +5769,18 @@ function applicantAreaFields(applicant, area, showTitle) {
           <div class="actions" style="margin:0"><span></span><button class="button secondary" data-remove-applicant-item="${escapeHtml(item.id)}">항목 삭제</button></div></article></details>`;
   const list = entries => `<div class="item-list">${entries.map(editor).join('')}</div>`;
   // 실적은 해마다 접어 둔다. 어느 해를 펼쳐 두었는지는 기억한다 — 한 건 고칠 때마다 닫히면 못 쓴다.
-  // 다만 가장 최근 해는 열어 둔다. 상세정보 → 실적 → 연도까지 세 번을 눌러야 한 줄이 보이면 너무 깊다.
-  const yearOpen = (year, index) => (state.openOrgYears || []).includes(year)
-    || (index === 0 && !(state.openOrgYears || []).length && !(state.closedOrgYears || []).includes(year));
+  // 해는 모두 접는다. 22-42에서 「맨 위 해는 열어 두자」고 했다가 되돌렸다 — 실적 28건이 펼쳐진 채로
+  // 나오는 것이 22-06에서 접기로 한 까닭 그대로였다. 깊이는 건수로 푼다(제목 줄에 몇 건인지 적혀 있다).
+  const yearOpen = year => (state.openOrgYears || []).includes(year);
   const folded = area.key === 'performance' && items.length > YEAR_FOLD_MIN;
   const years = folded ? groupItemsByYear(items) : [];
   return `${showTitle ? `<h4>${escapeHtml(area.title)} · ${items.length}건</h4>` : ''}
         ${items.length
           ? (folded
-            ? years.map((group, index) => `<details class="year-fold" data-org-year="${escapeHtml(group.year)}" ${yearOpen(group.year, index) ? 'open' : ''}><summary><b>${escapeHtml(group.year)}</b> ${group.items.length}건 <small class="muted">확인됨 ${countConfirmed(group.items)}건</small></summary>${list(group.items)}</details>`).join('')
+            ? years.map(group => `<details class="year-fold" data-org-year="${escapeHtml(group.year)}" ${yearOpen(group.year) ? 'open' : ''}><summary><b>${escapeHtml(group.year)}</b> ${group.items.length}건 <small class="muted">확인됨 ${countConfirmed(group.items)}건</small></summary>${list(group.items)}</details>`).join('')
             : list(items))
-          : '<p class="muted">등록한 항목이 없습니다.</p>'}
-        <details class="add-fold" data-add-area="${escapeHtml(area.key)}" ${(state.openAddAreas || []).includes(area.key) ? 'open' : ''}><summary>문서에 없는 것을 손으로 넣기</summary>
-        <p class="muted">보통은 문서를 올리면 채워집니다. 문서에 없는 값만 여기서 넣으세요.</p>
-        <div class="two-col"><div class="field"><label for="draft-label-${area.key}">새 항목명</label><input id="draft-label-${area.key}" data-applicant-draft="${area.key}|label" value="${escapeHtml(draft.label)}"></div><div class="field"><label for="draft-status-${area.key}">상태</label><select id="draft-status-${area.key}" data-applicant-draft="${area.key}|status">${statusOptions(draft.status)}</select></div></div>
-        <div class="field"><label for="draft-value-${area.key}">새 항목 내용</label><textarea id="draft-value-${area.key}" data-applicant-draft="${area.key}|value" style="min-height:70px">${escapeHtml(draft.value)}</textarea></div>
-        <div class="field"><label for="draft-source-${area.key}">근거자료·출처</label><input id="draft-source-${area.key}" data-applicant-draft="${area.key}|source" value="${escapeHtml(draft.source)}"></div>
-        <div class="actions" style="margin:0"><span></span><button class="button secondary" data-add-applicant-item="${area.key}">${escapeHtml(area.title)} 항목 추가</button></div></details>`;
+          : ''}
+        ${items.length ? '' : `<p class="muted">문서를 올리면 채워집니다. <button type="button" class="link-button" id="go-upload-${escapeHtml(area.key)}" data-go-upload="1">연혁·사업계획서 올리러 가기</button></p>`}`;
 }
 
 function comparisonRequirements() {
@@ -5826,6 +5821,20 @@ function applicantLoadedView(applicant) {
     ${areaGroupsView(applicant, summary)}
     ${confirmedInfoView(applicant, confirmed)}
     <details><summary>전달하지 않는 확인 필요·오래된 정보 ${applicant.items.length - confirmed.length}건</summary><p class="muted">아래 항목은 항목명만 표시하며 내용은 계획서 작성 요청에 포함하지 않습니다.</p><div class="cap-grid">${applicant.items.filter(item => item.status !== CONFIRMED_STATUS).map(item => `<div><span>${escapeHtml(areaTitle(item.area))}</span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.status)}</small></div>`).join('') || '<p class="muted">없음</p>'}</div></details></details>`;
+}
+
+// 기관정보 화면에도 같은 지도를 놓는다. 열한 칸 지도는 3단계 「신청기관 준비」 화면에만 있어서,
+// 정작 값을 채우는 이 화면에서는 무엇을 채워야 하는지 보이지 않았다(22-44).
+function orgAreaMapView(applicant) {
+  const summary = applicantAreaSummary(applicant);
+  const confirmed = countConfirmed(applicant.items);
+  const needsCheck = applicant.items.length - confirmed;
+  const stale = staleItems(applicant.items, new Date().getFullYear());
+  const staleUnconfirmed = stale.filter(entry => !isConfirmed(entry.item)).length;
+  return `<details class="card org-details" data-org-fold="map" ${orgFoldOpen('map') ? 'open' : ''}>
+    <summary><b>무엇을 채웠고 무엇이 비었나</b> <small>확인됨 ${confirmed}건 · 확인 필요 ${needsCheck}건${stale.length ? ` · 다시 확인 ${stale.length}건` : ''}</small></summary>
+    ${stale.length ? `<p class="muted">「다시 확인 ${stale.length}건」은 확인 필요와 따로 셉니다. ${staleUnconfirmed}건은 확인 필요에도 들어 있고, ${stale.length - staleUnconfirmed}건은 확인됨이지만 기준시점이 오래되었거나 적혀 있지 않습니다.</p>` : ''}
+    ${areaGroupsView(applicant, summary)}</details>`;
 }
 
 // 열한 칸을 공고 기준으로 세운다(22-43). 빈 칸이 96건짜리 칸과 같은 자리를 차지하지 않게 한다.
@@ -8224,21 +8233,13 @@ function bindApplicants() {
     if (target) openApplicantEditor({ group: target });
   }));
   document.querySelector('#go-applicant-doc')?.addEventListener('click', () => openApplicantEditor({ anchor: '#applicant-doc' }));
-  document.querySelectorAll('[data-add-area]').forEach(el => el.addEventListener('toggle', () => {
-    const key = el.dataset.addArea;
-    const open = new Set(state.openAddAreas || []);
-    if (el.open) open.add(key); else open.delete(key);
-    state.openAddAreas = [...open];
-    saveState();
-  }));
+  // 비어 있는 구역에서 문서 올리는 자리로 가는 한 줄. 손으로 넣는 칸을 없앤 자리를 대신한다(22-44).
+  document.querySelectorAll('[data-go-upload]').forEach(el => el.onclick = () => focusAnchor('#applicant-doc'));
   document.querySelectorAll('[data-org-year]').forEach(el => el.addEventListener('toggle', () => {
     const year = el.dataset.orgYear;
     const open = new Set(state.openOrgYears || []);
-    const closed = new Set(state.closedOrgYears || []);
-    // 맨 위 해는 기본으로 열려 있으므로, 닫은 것도 적어 두어야 다시 열리지 않는다.
-    if (el.open) { open.add(year); closed.delete(year); } else { open.delete(year); closed.add(year); }
+    if (el.open) open.add(year); else open.delete(year);
     state.openOrgYears = [...open];
-    state.closedOrgYears = [...closed];
     saveState();
   }));
   document.querySelectorAll('[data-add-form]').forEach(el => el.addEventListener('toggle', () => {
@@ -8342,14 +8343,6 @@ function bindApplicants() {
     state.intakeAnswers = { ...(state.intakeAnswers || {}), [el.dataset.intakeField]: el.value };
   });
   document.querySelector('#intake-save')?.addEventListener('click', () => setState({ intakeAnswers: { ...(state.intakeAnswers || {}) }, notice: '작성정보를 저장했습니다. 남은 질문만 다시 보여 드립니다.' }));
-  document.querySelectorAll('[data-applicant-draft]').forEach(el => {
-    const handler = () => {
-      const [areaKey, field] = el.dataset.applicantDraft.split('|');
-      state.applicantItemDrafts[areaKey] = { label: '', value: '', status: '확인 필요', source: '', ...state.applicantItemDrafts[areaKey], [field]: el.value };
-    };
-    el.oninput = handler; el.onchange = handler;
-  });
-  document.querySelectorAll('[data-add-applicant-item]').forEach(el => el.onclick = () => addApplicantItem(el.dataset.addApplicantItem));
   document.querySelector('#load-applicant-archive')?.addEventListener('click', loadApplicantArchiveProposals);
   document.querySelectorAll('[data-applicant-archive]').forEach(el => el.onclick = () => harvestApplicantFromArchive(el.dataset.applicantArchive));
   // 기관자료 등록·삭제. 자료 등록만으로 기관 정보가 바뀌지 않는다.
@@ -8442,16 +8435,6 @@ function addApplicant() {
   void persistApplicant(applicant.id, false);
 }
 
-function addApplicantItem(areaKey) {
-  const draft = state.applicantItemDrafts[areaKey] || {};
-  if (!String(draft.label || '').trim()) return setState({ error: '추가할 항목명을 입력해 주세요.' });
-  const item = makeApplicantItem({ area: areaKey, label: draft.label, value: draft.value, status: draft.status, source: draft.source });
-  updateEditingApplicant(applicant => { applicant.items = [...applicant.items, item]; });
-  state.applicantItemDrafts[areaKey] = { label: '', value: '', status: '확인 필요', source: '' };
-  // 보관자료에도 바로 저장한다. 다음 계획서에서 다시 쓰려면 이 브라우저 밖에도 남아야 한다.
-  void persistApplicant(focusedApplicantId(), false);
-  setState({ applicants: state.applicants, applicantItemDrafts: state.applicantItemDrafts, notice: `${areaTitle(areaKey)} 항목을 추가했습니다. 기관정보에 함께 저장했습니다.`, error: '' });
-}
 
 async function loadApplicantDocument(event) {
   return loadApplicantDocumentFile(event.target.files?.[0]);

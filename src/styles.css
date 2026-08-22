@@ -861,3 +861,6 @@ select{max-width:100%}
 .match-field{color:#1f7a4d}
 .match-buried{color:var(--amber)}
 .match-method{color:#8a5a12}
+
+/* 문장 안에서 누르는 링크. 빈 구역에서 문서 올리는 자리로 보낸다(22-44). */
+.link-button{background:none;border:0;padding:0;color:var(--brown,#7a4b1e);font:inherit;text-decoration:underline;cursor:pointer}

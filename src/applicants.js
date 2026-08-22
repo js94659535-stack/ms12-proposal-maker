@@ -198,11 +198,28 @@ export function areaItems(applicant, areaKey) {
   return [...items].sort((left, right) => itemYear(right) - itemYear(left));
 }
 
+// 출처에서 문서 이름만 남긴다. 「(기준시점 2017)」·「(기준시점 미상)」 꼬리를 뗀다.
+// 한 문서를 여러 번 올려 출처가 「A / A」로 이어 붙은 경우도 앞의 것으로 묶는다.
+// 이 문서에서 들어온 정보의 기준시점 범위. 「2017~2026년」처럼 한 줄로 적는다.
+function asOfRange(items) {
+  const years = items.map(item => Number(String(item.asOf || '').match(/(19|20)\d{2}/)?.[0] || 0)).filter(Boolean);
+  if (!years.length) return '';
+  const low = Math.min(...years); const high = Math.max(...years);
+  return low === high ? `${low}년` : `${low}~${high}년`;
+}
+
+export function documentOf(source) {
+  return String(source || '').split(' / ')[0].replace(/\s*\(기준시점[^)]*\)\s*$/, '').trim();
+}
+
 // 어떤 문서에서 어떤 정보가 들어왔는지 출처별로 묶어 본다. source·asOf·history 구조를 그대로 사용한다.
 export function itemsBySource(applicant) {
   const groups = new Map();
   for (const item of applicant?.items || []) {
-    const source = item.source.trim() || '출처 미기록';
+    // 출처 문자열에는 기준시점이 붙어 있다 — 「연혁.hwp에서 추출 (기준시점 2017)」.
+    // 그대로 묶으면 파일 하나가 연도 수만큼 쪼개져 「출처 14곳」이 된다. 실제 문서는 하나다.
+    // 기준시점은 항목마다 이미 들어 있으므로 여기서는 문서 이름으로만 묶는다.
+    const source = documentOf(item.source) || '출처 미기록';
     if (!groups.has(source)) groups.set(source, []);
     groups.get(source).push(item);
   }
@@ -211,7 +228,9 @@ export function itemsBySource(applicant) {
     .map(([source, list]) => ({
       source,
       items: list.map(item => ({ id: item.id, area: item.area, label: item.label, status: item.status, asOf: item.asOf || '', historyCount: (item.history || []).length })),
-      confirmed: countConfirmed(list), outdated: countUnconfirmed(list)
+      confirmed: countConfirmed(list), outdated: countUnconfirmed(list),
+      // 몇 해치가 이 문서에서 들어왔는지. 연도로 쪼개 보여 주던 것을 한 줄로 대신한다.
+      asOfRange: asOfRange(list)
     }))
     .sort((left, right) => right.items.length - left.items.length);
 }

@@ -17,9 +17,9 @@ test('실적이 여덟 건을 넘으면 해마다 접는다', () => {
   assert.match(fields, /const folded = area\.key === 'performance' && items\.length > YEAR_FOLD_MIN;/);
   assert.match(app, /const YEAR_FOLD_MIN = 8;/);
   // 접는 자리는 details다. 기본은 접힘이고, 펼친 해만 open이 붙는다.
-  assert.match(fields, /<details class="year-fold" data-org-year="\$\{escapeHtml\(group\.year\)\}" \$\{yearOpen\(group\.year, index\) \? 'open' : ''\}>/);
-  // 맨 위 해는 열어 둔다. 상세정보 → 실적 → 연도까지 세 번 눌러야 한 줄이 보이면 너무 깊다(22-42).
-  assert.match(fields, /index === 0 && !\(state\.openOrgYears \|\| \[\]\)\.length/);
+  assert.match(fields, /<details class="year-fold" data-org-year="\$\{escapeHtml\(group\.year\)\}" \$\{yearOpen\(group\.year\) \? 'open' : ''\}>/);
+  // 해는 모두 접는다. 열어 둔 해만 기억한다(22-44).
+  assert.match(fields, /const yearOpen = year => \(state\.openOrgYears \|\| \[\]\)\.includes\(year\);/);
   // 해마다 몇 건인지·그중 확인됨이 몇인지 summary에 적는다.
   assert.match(fields, /\$\{group\.items\.length\}건 <small class="muted">확인됨/);
   // 실적이 아닌 영역은 예전처럼 그대로 편다.
@@ -99,23 +99,20 @@ test('반영 뒤 열어 주는 자리는 닫힘 기록을 지운다', () => {
   assert.match(apply, /closedOrgGroups: group \? \(state\.closedOrgGroups \|\| \[\]\)\.filter\(key => key !== group\) : state\.closedOrgGroups/);
 });
 
-test('직접 항목 추가 칸은 접어 두고 필요할 때만 편다', () => {
-  const fields = app.slice(app.indexOf('function applicantAreaFields(applicant, area, showTitle)'), app.indexOf('function comparisonRequirements()'));
-  // 아홉 구역 모두 같은 규칙이다. 구역마다 따로 정하지 않는다.
-  assert.match(fields, /<details class="add-fold" data-add-area="\$\{escapeHtml\(area\.key\)\}" \$\{\(state\.openAddAreas \|\| \[\]\)\.includes\(area\.key\) \? 'open' : ''\}><summary>문서에 없는 것을 손으로 넣기<\/summary>/);
-  // 무엇을 넣는 자리인지 그 아래 한 줄로 말한다.
-  assert.match(fields, /보통은 문서를 올리면 채워집니다\. 문서에 없는 값만 여기서 넣으세요\./);
-  // 등록 0건인 구역도 접는다 — 문서를 올려 채우는 것이 먼저다.
-  assert.doesNotMatch(fields, /items\.length \? '' : 'open'/);
-  // 한 글자 칠 때마다 접히면 못 쓴다. 펼쳐 둔 구역을 기억한다.
-  assert.match(app, /openAddAreas: \[\]/);
-  const toggle = app.slice(app.indexOf("document.querySelectorAll('[data-add-area]')"), app.indexOf("document.querySelectorAll('[data-org-year]')"));
-  assert.match(toggle, /state\.openAddAreas = \[\.\.\.open\];/);
-  assert.match(toggle, /saveState\(\);/);
-  // 접힌 줄은 눌러서 펴는 것으로 보인다.
-  assert.match(css, /\.add-fold>summary\{[^}]*cursor:pointer/);
+test('손으로 넣는 칸은 아예 없다', () => {
+  // 22-44에서 지웠다. 세 번 요청받았고, 값은 문서에서 들어오는 것이 원칙이다.
+  // 이미 그 칸으로 넣어 둔 값은 그대로 두고 넣는 길만 없앴다.
+  const fields = app.slice(app.indexOf('function applicantAreaFields(applicant, area, showTitle)'), app.indexOf('function applicantLoadedView'));
+  assert.doesNotMatch(fields, /data-add-area=/);
+  assert.doesNotMatch(fields, /문서에 없는 것을 손으로 넣기/);
+  assert.doesNotMatch(fields, /새 항목명|새 항목 내용/);
+  assert.ok(!app.includes('data-add-applicant-item'), '항목 추가 버튼이 남아 있다');
+  assert.ok(!app.includes('function addApplicantItem('), '넣는 함수가 남아 있다');
+  assert.ok(!app.includes('applicantItemDrafts'), '넣던 임시값이 남아 있다');
+  // 대신 비어 있는 구역에는 한 줄과 올리러 가는 길만 둔다.
+  assert.match(fields, /문서를 올리면 채워집니다/);
+  assert.match(fields, /data-go-upload="1"/);
 });
-
 test('「전달할 확인된 정보」도 연도별로 접고 제목이 사실을 말한다', () => {
   const view = app.slice(app.indexOf('function confirmedInfoView(applicant, confirmed)'), app.indexOf('function applicantFitView(applicant)'));
   // 저장된 것과 이번 공고에 실리는 것은 다르다. 둘을 나눠 적는다.
