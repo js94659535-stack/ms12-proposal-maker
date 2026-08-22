@@ -74,7 +74,7 @@ test('띠는 제목 바로 아래 하나뿐이고 판정은 한 곳에서 온다
   assert.doesNotMatch(bar, /if \(.*applicantCount === 0\)/);
 });
 
-test('이 화면의 주 버튼은 띠 안의 하나뿐이다', () => {
+test('이 화면에서 초록 버튼은 띠 안의 하나뿐이고 갈색은 없다', () => {
   const names = ['applicantsToolView', 'orgNextStepBar', 'applicantBasicView', 'profileBridgePanel', 'applicantScopeView', 'applicantSourceView',
     'applicantDetailView', 'detailGroupPanel', 'performanceConfirmBar', 'applicantAreaFields', 'applicantSourcesView', 'applicantDocumentView', 'candidateReviewView', 'ideaAssetPanel'];
   const found = [];
@@ -82,11 +82,12 @@ test('이 화면의 주 버튼은 띠 안의 하나뿐이다', () => {
     const start = app.indexOf(`function ${name}(`);
     if (start < 0) continue;
     const body = app.slice(start, app.indexOf('\n}\n', start));
-    for (const match of body.matchAll(/button primary[^>]*id="([^"]*)"/g)) found.push(match[1]);
-    // id가 없는 주 버튼도 세어야 한다.
-    for (const match of body.matchAll(/button primary(?![^>]*id=)/g)) found.push(`${name}:이름없음`);
+    // 22-52에서 「다음 할 일」의 색을 초록 하나로 모았다. 이 화면에는 갈색 주 버튼이 없다.
+    for (const match of body.matchAll(/button primary[^>]*id="([^"]*)"/g)) found.push(`갈색:${match[1]}`);
+    for (const match of body.matchAll(/button primary(?![^>]*id=)/g)) found.push(`갈색:${name}:이름없음`);
+    for (const match of body.matchAll(/button go[^-][^>]*id="([^"]*)"/g)) found.push(match[1]);
   }
-  assert.deepEqual(found, ['next-step-action'], `주 버튼: ${found.join(', ')}`);
+  assert.deepEqual(found, ['next-step-action'], `버튼: ${found.join(', ')}`);
 });
 
 test('「채우러 가기」는 그 자리로 데려간다', () => {
@@ -136,9 +137,10 @@ test('초록은 한 자리뿐이다', () => {
 });
 
 test('초록은 판정이 가리킬 때만 켜지고 글자를 함께 둔다', () => {
-  const gate = app.slice(app.indexOf('function goMark(key, kind'), app.indexOf('function orgNextStepBar()'));
-  assert.match(gate, /if \(orgStepKey\(\) !== key\) return '';/);
-  assert.match(gate, /kind === 'button' \? ' go' : ' go-target'/);
+  const gate = app.slice(app.indexOf('function goMark(key)'), app.indexOf('function orgNextStepBar()'));
+
+  // 표시는 한 가지다 — 테두리와 화살표. 꽉 찬 초록은 맨 위 띠 버튼 하나뿐이다(22-52).
+  assert.match(gate, /return orgStepKey\(\) === key \? ' go-target' : '';/);
   // 색만으로 알리지 않는다.
   assert.match(app, /goNote\('upload', '여기에 올리세요'\)/);
   assert.match(app, /goNote\('basic', '여기를 채우세요'\)/);

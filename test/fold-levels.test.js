@@ -12,7 +12,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const css = fs.readFileSync('src/styles.css', 'utf8');
-const block = css.slice(css.indexOf('/* 접기 세 층 (22-48)'));
+// 층 규칙만 잘라 본다. 뒤에 붙는 다른 규칙까지 함께 보면 엉뚱한 것을 잡는다.
+const section = (from, to) => css.slice(css.indexOf(from), to ? css.indexOf(to) : undefined);
+const block = section('/* 접기 세 층 (22-48)', '/* 층마다 제목 글자도 다르게 (22-50)');
 
 test('세 층의 색을 변수 한 곳에서 정한다', () => {
   assert.match(block, /--fold-1:#fff;/);
@@ -45,7 +47,7 @@ test('보관함의 연도 묶음도 같은 변수를 읽는다', () => {
 });
 
 // ---------- 22-50: 층마다 제목 글자 ----------
-const type = css.slice(css.indexOf('/* 층마다 제목 글자도 다르게 (22-50)'));
+const type = section('/* 층마다 제목 글자도 다르게 (22-50)', '/* 초록 버튼은 맨 위 띠 하나뿐이다(22-52)');
 
 test('제목 크기와 농도를 변수 한 곳에서 정한다', () => {
   for (const name of ['--fold-title-1:16px', '--fold-title-2:15px', '--fold-title-3:14px', '--fold-ink-2:#4a3d33', '--fold-ink-3:#6a5b50']) {

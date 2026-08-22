@@ -5312,9 +5312,11 @@ function stepPointsAt(groupKey) {
 
 // 초록을 붙이는 유일한 통로. 판정이 가리키는 자리가 아니면 아무것도 붙지 않는다.
 // 갈색이 아홉 자리로 늘어 뜻을 잃었던 길을 초록이 그대로 가지 않게, 여기 한 곳으로만 지나가게 한다.
-function goMark(key, kind = 'button') {
-  if (orgStepKey() !== key) return '';
-  return kind === 'button' ? ' go' : ' go-target';
+//
+// 초록 버튼은 맨 위 띠 하나뿐이고, 그 버튼이 가리키는 자리는 테두리와 화살표로 알린다(22-52).
+// 둘 다 꽉 찬 초록이면 어느 것을 눌러야 하는지 다시 헷갈린다.
+function goMark(key) {
+  return orgStepKey() === key ? ' go-target' : '';
 }
 // 색만으로 알리지 않는다. 무엇을 하라는 자리인지 글자로 함께 적는다.
 function goNote(key, label) {
@@ -5327,7 +5329,7 @@ function orgNextStepBar() {
   const bulk = step.key === 'confirm' && step.area === 'performance';
   return `<div class="next-step-bar${step.done ? ' done' : ''}" id="next-step-bar">
     <div><span>${step.done ? '다 됐습니다' : '다음 할 일'}</span><strong>${escapeHtml(step.message)}</strong></div>
-    <button class="button primary next-step" id="next-step-action" data-next-key="${escapeHtml(step.key)}" data-next-bulk="${bulk ? '1' : ''}" data-next-anchor="${escapeHtml(nextStepAnchor(step))}">${escapeHtml(step.actionLabel)}</button></div>`;
+    <button class="button go next-step" id="next-step-action" data-next-key="${escapeHtml(step.key)}" data-next-bulk="${bulk ? '1' : ''}" data-next-anchor="${escapeHtml(nextStepAnchor(step))}">${escapeHtml(step.actionLabel)}</button></div>`;
 }
 
 // 기관정보 화면. 페이지를 새로 만들지 않고 이 한 곳을 기본정보 → 상세정보 두 단계로 나눈다.
@@ -5364,7 +5366,7 @@ function orgPickerView(who) {
       <button class="button secondary" id="open-org-picker">다른 기관 쓰기</button></div></div>`;
   }
   return `<div class="card"><div class="card-title"><div><h3>등록된 ${who} ${state.applicants.length}곳</h3><span>${consortium.required ? `이 공고는 기관 둘 이상을 요구합니다 — 「${escapeHtml(consortium.evidence)}」` : '우리 기관도 등록기관 중 하나로만 다룹니다.'}</span></div><div><button class="button secondary" id="load-applicants">${loadFrom('org')}</button></div></div>
-    <div class="two-col"><div class="field${goMark('add-org', 'target')}"><label for="applicant-name-draft">새 ${who}명</label><input id="applicant-name-draft" value="${escapeHtml(state.applicantNameDraft)}" placeholder="예: 사단법인 ○○센터">${goNote('add-org', '여기에 기관명을 적으세요')}</div><div class="field"><label>&nbsp;</label><button class="button secondary" id="add-applicant">신청기관 추가</button></div></div>
+    <div class="two-col"><div class="field${goMark('add-org')}"><label for="applicant-name-draft">새 ${who}명</label><input id="applicant-name-draft" value="${escapeHtml(state.applicantNameDraft)}" placeholder="예: 사단법인 ○○센터">${goNote('add-org', '여기에 기관명을 적으세요')}</div><div class="field"><label>&nbsp;</label><button class="button secondary" id="add-applicant">신청기관 추가</button></div></div>
     ${state.applicants.length ? `<div class="requirement-list">${state.applicants.map(applicant => {
       const confirmed = countConfirmed(applicant.items);
       return `<article class="requirement"><div><span class="tag">${applicant.id === state.selectedApplicantId ? '이번 사업 신청기관' : '등록기관'}</span><div><strong>${escapeHtml(applicant.name)}</strong><small>확인됨 ${confirmed}건 · 확인 필요·오래된 정보 ${applicant.items.length - confirmed}건 · 최근 수정 ${escapeHtml(String(applicant.updatedAt).slice(0, 10))}</small></div></div><div class="actions" style="margin:0;gap:8px"><button class="button secondary" data-edit-applicant="${escapeHtml(applicant.id)}">${(state.applicantEditingId || state.selectedApplicantId) === applicant.id ? '관리 중' : '이 기관 관리'}</button><button class="button secondary" data-select-applicant="${escapeHtml(applicant.id)}">이번 사업 신청기관으로 선택</button><button class="button secondary" data-delete-applicant="${escapeHtml(applicant.id)}">삭제</button></div></article>`;
@@ -5674,7 +5676,7 @@ function applicantBasicView(applicant, who = '신청기관') {
   return `<details class="card org-details" id="applicant-editor" tabindex="-1" data-org-fold="basic" ${orgFoldOpen('basic') ? 'open' : ''}>
     <summary><b>기본정보 · ${escapeHtml(applicant.name)}</b> <small>채운 것 ${status.filled}/${status.total}칸 · ${status.ready ? (status.saved ? '저장됨' : '저장하면 시작 가능') : `${escapeHtml(status.missing.join(' · '))} 필요`}</small></summary>
     ${(() => { const stale = staleSummary(applicant.items, new Date().getFullYear()); return stale ? `<div class="alert warning"><strong>다시 확인할 정보 ${stale.count}건</strong><p>${escapeHtml(stale.message)}</p><div class="actions" style="margin:0"><span class="muted">상태는 그대로 둡니다. 확인해 두신 값은 계획서에 계속 쓰입니다.</span><button class="button secondary" id="recheck-upload">새 문서 올리기</button></div></div>` : ''; })()}
-    <label class="dropzone${goMark('upload', 'target')}" id="applicant-cert-drop" for="applicant-cert-file">
+    <label class="dropzone${goMark('upload')}" id="applicant-cert-drop" for="applicant-cert-file">
       <strong>사업자등록증·고유번호증을 올리면 자동으로 채워집니다</strong>
       <small>기관명 · 기관 유형 · 주소 · 대표자 · 고유번호 · PDF · DOCX · HWP · HWPX · TXT · 사진(JPG·PNG)</small>
       ${goNote('upload', '여기에 올리세요')}

@@ -918,3 +918,9 @@ select{max-width:100%}
 /* 부제는 어느 층에서나 같다. 제목보다 한 단계 작고 옅다. */
 .org-details>summary small,.year-fold>summary small,.item-fold>summary small,.add-fold>summary small{
   font-size:var(--fold-sub-size);font-weight:var(--fold-weight-plain);color:var(--muted)}
+
+/* 초록 버튼은 맨 위 띠 하나뿐이다(22-52).
+   가리키는 자리가 버튼이어도 꽉 채우지 않고 테두리와 화살표로 알린다 —
+   둘 다 꽉 찬 초록이면 어느 것을 눌러야 하는지 다시 헷갈린다. */
+.button.go-target{background:#f2fcf6;color:#0b7a3b;border:2px solid var(--go);padding:10px 14px 10px 32px}
+.button.go-target::before{top:9px;left:9px}
