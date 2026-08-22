@@ -35,7 +35,7 @@ test('판정 세 가지 중 「제출 검토 완료」만 담는 기준이다', 
 });
 
 test('검증보관함은 별도 메뉴와 화면으로 열린다', () => {
-  assert.ok(app.includes("['open-verified-box', '계획서 검증보관함', 'verified']"), '작업 메뉴에 항목이 없다');
+  assert.ok(app.includes("['open-verified-box', BOX.verified, 'verified']"), '작업 메뉴에 항목이 없다');
   assert.match(app, /verified: verifiedArchiveView/);
   assert.match(app, /function verifiedArchiveView\(\)/);
   assert.match(app, /function verifiedProposals\(\)\s*\{\s*\n\s*return \(state\.archiveProposals \|\| \[\]\)\.filter\(item => isVerifiedStage\(item\.stage\)\)/);

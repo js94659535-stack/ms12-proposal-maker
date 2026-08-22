@@ -1,8 +1,11 @@
 // 「신청기관 정보」 도메인 규칙. DOM에 의존하지 않으므로 브라우저와 node --test에서 동일하게 사용한다.
+import { CONFIRMED_STATUS, countConfirmed, countUnconfirmed, isConfirmed } from '../server/applicant-count.js';
+
 export const APPLICANT_STATUSES = ['확인됨', '확인 필요', '오래된 정보'];
 // 기관자료가 어디서 왔는지. 값과 함께 남기고 출처만으로 확인 상태를 올리지 않는다.
 export const ITEM_ORIGINS = ['고객 입력', '파일 추출', '운영자 수정', '기관 확인'];
-export const CONFIRMED_STATUS = '확인됨';
+// 확인됨을 세는 잣대는 서버와 함께 쓴다. 화면과 저장이 다른 답을 내지 않게 한다.
+export { CONFIRMED_STATUS, countConfirmed, countUnconfirmed, isConfirmed };
 
 export const APPLICANT_AREAS = [
   { key: 'basic', title: '기관 기본정보', hint: '기관명·설립연도·소재지·대표자·연락처' },
@@ -171,15 +174,15 @@ export function findApplicant(applicants, id) {
 }
 
 export function confirmedItems(applicant) {
-  return (applicant?.items || []).filter(item => item.status === CONFIRMED_STATUS && item.value.trim());
+  return (applicant?.items || []).filter(isConfirmed);
 }
 export function unverifiedItems(applicant) {
-  return (applicant?.items || []).filter(item => item.status !== CONFIRMED_STATUS);
+  return (applicant?.items || []).filter(item => !isConfirmed(item));
 }
 export function applicantAreaSummary(applicant) {
   return APPLICANT_AREAS.map(area => {
     const items = (applicant?.items || []).filter(item => item.area === area.key);
-    return { ...area, total: items.length, confirmed: items.filter(item => item.status === CONFIRMED_STATUS).length, needsCheck: items.filter(item => item.status !== CONFIRMED_STATUS).length };
+    return { ...area, total: items.length, confirmed: countConfirmed(items), needsCheck: countUnconfirmed(items) };
   });
 }
 
@@ -201,10 +204,15 @@ export function itemsBySource(applicant) {
   for (const item of applicant?.items || []) {
     const source = item.source.trim() || '출처 미기록';
     if (!groups.has(source)) groups.set(source, []);
-    groups.get(source).push({ id: item.id, area: item.area, label: item.label, status: item.status, asOf: item.asOf || '', historyCount: (item.history || []).length });
+    groups.get(source).push(item);
   }
+  // 세는 것은 원본 항목으로 한다. 값이 있는지도 잣대에 들어가므로 값을 지운 뒤에 세면 답이 달라진다.
   return [...groups.entries()]
-    .map(([source, items]) => ({ source, items, confirmed: items.filter(item => item.status === CONFIRMED_STATUS).length, outdated: items.filter(item => item.status !== CONFIRMED_STATUS).length }))
+    .map(([source, list]) => ({
+      source,
+      items: list.map(item => ({ id: item.id, area: item.area, label: item.label, status: item.status, asOf: item.asOf || '', historyCount: (item.history || []).length })),
+      confirmed: countConfirmed(list), outdated: countUnconfirmed(list)
+    }))
     .sort((left, right) => right.items.length - left.items.length);
 }
 

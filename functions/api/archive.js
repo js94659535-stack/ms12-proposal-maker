@@ -1,3 +1,4 @@
+import { countConfirmed, countUnconfirmed } from '../../server/applicant-count.js';
 import { withDerived } from '../../server/notice-search.js';
 import { NEED_FULL, hasFullAccess } from '../../server/plan.js';
 import { LOCKED_NOTICE, MEMBER_READ_ONLY, membershipOf } from '../../server/membership.js';
@@ -216,8 +217,9 @@ export function normalizeApplicantRecord(value) {
     id, name, note: clean(value.note, 500), items, sources,
     // 서류 보관에 동의한 시각. 비어 있으면 아직 동의하지 않았다는 뜻이다.
     filesConsentAt: clean(value.filesConsentAt, 40),
-    confirmedCount: items.filter(item => item.status === '확인됨').length,
-    unverifiedCount: items.filter(item => item.status !== '확인됨').length,
+    // 화면과 같은 잣대로 센다(server/applicant-count.js). 두 곳이 다른 답을 내면 사용자가 먼저 안다.
+    confirmedCount: countConfirmed(items),
+    unverifiedCount: countUnconfirmed(items),
     createdAt: clean(value.createdAt, 40), updatedAt: clean(value.updatedAt, 40)
   };
 }

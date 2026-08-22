@@ -5,6 +5,7 @@ import { buildBlueprint } from '../src/project-blueprint.js';
 import { matchApplicantToNotice } from '../src/fit-matching.js';
 import { analyzeNoticeStructure } from '../src/notice-logic.js';
 import { CONFIRMED_STATUS, buildApplicantOrganization, normalizeApplicant } from '../src/applicants.js';
+import { BOX } from '../src/archive-names.js';
 
 const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
 
@@ -175,7 +176,7 @@ test('첫 화면과 상단 표시가 서비스용 한국어로 정리되어 있�
   // 홈 워크플로 6단계는 요구된 이름·설명을 그대로 쓴다.
   for (const label of ['공고 업로드 · 요구사항 확인', '기관정보 · 실적 · 적합성', '대상 · 프로그램 · 예산 · 성과', '근거 기반 V1 작성', 'AI 코칭 · V2 · 사용자 결정', '최종본 · DOCX/PDF · 계획서보관함']) assert.ok(app.includes(label), label);
   // 홈 진입점이 기존 흐름으로 연결된다.
-  for (const key of ['data-home-start', 'data-home-continue', 'data-home-archive', 'data-home-step']) assert.ok(app.includes(key), key);
+  for (const key of ['data-home-start', 'data-home-continue', 'data-open-archive', 'data-home-step']) assert.ok(app.includes(key), key);
   // 6개 대분류가 랜딩과 상단 내비게이션에서 같은 이름을 쓴다.
   for (const label of ['공고 준비', '공고 분석', '신청기관 준비', '사업 설계', '계획서 작성', '검토·제출']) assert.ok(app.includes(label), label);
   assert.match(app, /querySelector\('#open-coaching-home'\)\?\.addEventListener/);
@@ -218,8 +219,9 @@ test('모든 화면에서 홈·뒤로·앞으로 이동과 자료보관함 바�
   assert.match(app, /⌂ 홈 화면/);
   assert.match(app, /querySelector\('#workflow-home'\)\?\.addEventListener\('click', \(\) => setState\(\{ activeTool: 'home'/);
   // 자료보관함은 홈과 작업 화면 상단에서 바로 열 수 있고, 해당 카드로 이동한다.
-  assert.ok(app.includes("['open-archive-box', '공고보관함'"), '작업 메뉴에 공고보관함 항목이 있다');
-  assert.ok(app.includes("['open-proposal-box', '계획서보관함'"), '작업 메뉴에 계획서보관함 항목이 있다');
+  // 이름은 src/archive-names.js 한 곳에서만 나온다.
+  assert.ok(app.includes("['open-archive-box', BOX.notice"), '작업 메뉴에 공고보관함 항목이 있다');
+  assert.ok(app.includes("['open-proposal-box', BOX.proposal"), '작업 메뉴에 계획서보관함 항목이 있다');
   assert.ok(app.includes("querySelector('#open-archive-box')"), '자료보관함 처리기가 그대로 있다');
   assert.match(app, /id="archive-box"/);
   assert.match(app, /querySelector\('#archive-box'\)\?\.scrollIntoView/);

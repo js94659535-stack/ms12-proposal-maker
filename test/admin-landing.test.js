@@ -115,16 +115,18 @@ test('이용 흐름 첫 카드는 실제 공고 준비 화면으로 연결한다
 test('관리자 포털에서도 공고보관함으로 바로 간다', () => {
   // 지금까지는 계획서 포털로 건너간 뒤에야 닿았다. 머리띠에 같은 단추를 둔다.
   // 두 보관함을 갈랐다. 공고와 계획서는 찾는 목적이 다르다.
-  assert.match(app, /data-open-archive="notices">공고보관함<\/button>/);
-  assert.match(app, /data-open-archive="proposals">계획서보관함<\/button>/);
+  // 이름 자체는 src/archive-names.js에 있다. 화면에는 그 상수만 놓인다.
+  assert.ok(app.includes('data-open-archive="notices">${BOX.notice}</button>'));
+  assert.ok(app.includes('data-open-archive="proposals">${BOX.proposal}</button>'));
   assert.match(app, /querySelectorAll\('\[data-open-archive\]'\)\.forEach\(el => el\.onclick = \(\) => openArchiveBox\(el\.dataset\.openArchive\)\)/);
   // 포털을 옮긴 뒤 같은 자리를 연다. 새 화면을 만들지 않는다.
   assert.match(app, /function openArchiveBox\(which = 'notices'\) \{/);
   // 어느 보관함으로 갈지 골라 연다.
   assert.match(app, /document\.querySelector\(proposals \? '#proposal-box' : '#archive-box'\)/);
   assert.match(app, /#archive-box'\)\?\.scrollIntoView/);
-  // 홈 단추도 같은 길을 쓴다.
-  assert.match(app, /\[data-home-archive\]'\)\.forEach\(el => el\.onclick = \(\) => openArchiveBox\(el\.dataset\.homeArchive\)\)/);
+  // 홈 단추도 같은 길을 쓴다. 속성 이름도 같다 — 전에는 data-home-archive 라는 두 번째 이름이 있었다.
+  assert.match(app, /\[data-open-archive\]'\)\.forEach\(el => el\.onclick = \(\) => openArchiveBox\(el\.dataset\.openArchive\)\)/);
+  assert.ok(!app.includes('data-home-archive'), '보관함 여는 속성이 두 이름으로 갈려 있다');
 });
 
 test('주요 기능 카드는 각각 그 기능 화면으로 간다', () => {

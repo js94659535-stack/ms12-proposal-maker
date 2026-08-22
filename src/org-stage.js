@@ -5,6 +5,7 @@
 // 상세정보가 비어 있어도 계획서 생성을 막지 않는다. 대신 모르는 자리는 [확인 필요]로 남는다.
 //
 // 화면 구분만 바뀐다. 저장 구조(applicant.items의 area)는 그대로여서 기존 자료가 그대로 보인다.
+import { countConfirmed } from '../server/applicant-count.js';
 
 // 기본정보에 해당하는 영역. 나머지 영역은 모두 상세정보다.
 export const BASIC_AREAS = Object.freeze(['basic', 'legal']);
@@ -84,12 +85,12 @@ export function detailProgress(applicant) {
     return {
       ...group,
       total: list.length,
-      confirmed: list.filter(item => item.status === '확인됨').length
+      confirmed: countConfirmed(list)
     };
   });
 }
 
 // 다음 계획서에서 그대로 다시 쓰이는 정보의 수. 상세정보를 왜 적는지 숫자로 보여 준다.
 export function reusableCount(applicant) {
-  return itemsOf(applicant).filter(item => item.status === '확인됨' && text(item.value)).length;
+  return countConfirmed(itemsOf(applicant));
 }
