@@ -66,7 +66,9 @@ test('처음 한 번 동의를 받고, 지우는 길을 함께 알린다', () =>
   assert.match(view, /applicant\.filesConsentAt \? '' :/);
   assert.match(view, /기관이 준 서류 원본을 보관할 수 있습니다/);
   assert.match(view, /언제든 지울 수 있습니다/);
-  assert.match(view, /기관을 지우면 30일 뒤 함께 지워집니다/);
+  // 즉시 삭제로 정했다(22-32). 유예를 두면 「지웠는데 남아 있다」가 되어 더 위험하다.
+  assert.match(view, /지운 파일은 되돌릴 수 없습니다/);
+  assert.match(app, /이 서류를 지웁니다\. 되돌릴 수 없습니다\./);
   assert.match(view, /id="consent-org-files"/);
   // 동의 전에는 올리지 않는다.
   assert.match(app, /if \(!applicant\.filesConsentAt\) return setState\(\{ error: '서류 보관을 먼저 켜 주세요/);

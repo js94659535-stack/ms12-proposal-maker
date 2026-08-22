@@ -5303,7 +5303,7 @@ function applicantSourcesView(applicant) {
     ${applicant.filesConsentAt ? '' : `<div class="alert"><strong>기관이 준 서류 원본을 보관할 수 있습니다</strong>
       <p>등록증·연혁 같은 파일을 이 기관에 매달아 보관합니다. 나중에 「그 서류 다시 주세요」에 답할 수 있고,
       새 등록증과 견줘 무엇이 바뀌었는지도 볼 수 있습니다. 보관한 서류는 <b>이 기관을 볼 수 있는 사람만</b> 열 수 있고,
-      <b>언제든 지울 수 있습니다</b>. 기관을 지우면 30일 뒤 함께 지워집니다.</p>
+      <b>언제든 지울 수 있습니다</b>. 자료 줄이나 기관을 지우면 파일도 함께 지워지며, 지운 파일은 되돌릴 수 없습니다.</p>
       <div class="actions" style="margin:0"><span class="muted">한 번만 여쭙니다.</span><button class="button secondary" id="consent-org-files">동의하고 서류 보관 쓰기</button></div></div>`}
     <div class="actions" style="margin:0"><span class="muted">URL은 기록만 합니다. 페이지 내용은 아래 「연혁·사업계획서를 올리면 자동으로 채워집니다」 칸에 붙여넣으면 이 자료를 출처로 저장합니다.</span><button class="button secondary" id="add-applicant-source">기관자료 등록</button></div>
     ${sources.length ? `<div class="requirement-list">${sources.map(source => `<article class="requirement"><div><span class="tag">${escapeHtml(source.kind)}</span><div><strong>${escapeHtml(source.name || source.url || '이름 없는 자료')}</strong><small class="muted">${source.url ? `<a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(source.url.slice(0, 60))}</a> · ` : ''}기준일 ${escapeHtml(source.asOf || ASOF_UNKNOWN)}</small>
@@ -5353,7 +5353,11 @@ async function dropSourceFile(sourceId) {
   if (!applicant) return;
   const source = (applicant.sources || []).find(item => item.id === sourceId);
   if (!source?.file) return;
-  if (!confirm(`보관한 서류 「${source.file.name}」을 지웁니다. 받은 기록은 남고 파일만 사라집니다.`)) return;
+  // 즉시 지운다. 유예를 두지 않는 것은 「지웠는데 서버에 남아 있다」가 더 위험하기 때문이다.
+  // 그래서 되돌릴 수 없다는 것을 누르기 전에 분명히 말한다.
+  if (!confirm(`이 서류를 지웁니다. 되돌릴 수 없습니다.
+
+「${source.file.name}」 · 받은 기록은 남고 파일만 사라집니다.`)) return;
   try {
     await deleteOrgFile(applicant.id, sourceId);
     const next = { ...applicant, sources: applicant.sources.map(item => (item.id === sourceId ? { ...item, file: null } : item)) };
