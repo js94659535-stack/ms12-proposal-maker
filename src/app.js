@@ -8279,7 +8279,8 @@ function buildApplicantCandidates(text, documentName) {
   const applicant = findApplicant(state.applicants, state.applicantEditingId);
   if (!applicant) return setState({ error: '정보를 추출할 신청기관을 먼저 선택해 주세요.' });
   if (String(text || '').trim().length < 20) return setState({ error: '추출할 문서 내용이 너무 짧습니다.' });
-  const review = buildUpdateCandidates(applicant, extractApplicantCandidates(text, { documentName }));
+  // 문서가 스스로 날짜를 말하지 않으면 올린 날짜가 그 문서의 기준시점이다.
+  const review = buildUpdateCandidates(applicant, extractApplicantCandidates(text, { documentName, receivedOn: new Date().toISOString().slice(0, 10) }));
   const safe = review.candidates.filter(item => SAFE_KINDS.includes(item.kind)).length;
   // 후보는 화면 아래에 생긴다. 눌렀는데 아무 일도 없어 보이던 자리다 — 그 자리로 데려가고 잠깐 강조한다.
   if (review.candidates.length) pendingAiMove = { anchor: '#applicant-candidates', sameView: true };

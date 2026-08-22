@@ -196,7 +196,20 @@ export function performanceRow(segments, carried = null) {
 
 // 라벨이 없어도 실적 줄은 연도와 함께 누적 정보로 모은다.
 const PERFORMANCE_PATTERN = /^(20\d{2})\s*년?\s*[.\-·]?\s*(.{4,80}?(?:사업|프로그램|공모|위탁|용역))\s*$/;
-const DOCUMENT_DATE_PATTERN = /(?:작성일|기준일|기준\s*시점|발행일|보고일)\s*[:：]?\s*(20\d{2})[.\-년\s]*(\d{1,2})?/;
+// 문서 기준시점은 「이 문서가 언제 것인가」다. 안에 적힌 날짜가 아니다.
+//
+// 실제로 났던 일: 사업자등록증의 개업연월일(2021-08)을 문서 날짜로 삼아, 2026년에 발급받은
+// 등록증을 올려도 기준시점이 2021년이 됐다. 그러면 「다시 확인」이 영영 사라지지 않는다.
+// 실제 증명원에서도 발급일(2024-03)이 아니라 개업일(2022-04)이 잡혔다.
+//
+// 그래서 세 가지만 본다. ① 「발급일·출력일·작성일·기준일」처럼 이름이 붙은 날짜.
+// ② 공문서 끝머리의 「2026 년 08 월 22 일 / ○○세무서장」 꼴. ③ 그것도 없으면 올린 날짜다.
+// 개업연월일은 「설립 시기」 값으로만 쓰고 문서 날짜로는 쓰지 않는다.
+const DOCUMENT_DATE_PATTERN = /(?:작성|기준|발행|발급|출력|인쇄|보고)\s*(?:일자|일시|일|시점)\s*[:：]?\s*(20\d{2})[.\-년\s]*(\d{1,2})?/;
+// 공문서는 끝에 날짜를 찍고 그 아래 발행 주체를 적는다. 그 짝을 문서 날짜로 본다.
+// 그 줄만 따로 서 있기도 한다 — 실제 증명원이 「2024 년 3 월 4 일」 한 줄로 찍혀 있었다.
+const DATE_ONLY_LINE = /^(20\d{2})\s*[.년]\s*(\d{1,2})\s*[.월]\s*\d{1,2}\s*일?\s*[.]?$/;
+const ISSUED_TAIL_PATTERN = /(20\d{2})\s*[.\-년]\s*(\d{1,2})?[\s\d월일.\-]*\s*(?:[가-힣]{2,12}(?:서장|청장|원장|시장|군수|구청장|장관|대표|이사장|회장|위원장))/;
 const ANY_DATE_PATTERN = /(20\d{2})\s*[.\-년]\s*(\d{1,2})?/;
 
 function clean(value, max) { return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max); }
@@ -244,12 +257,20 @@ function asOfFrom(match) {
 function asOfYear(value) { const match = String(value || '').match(/20\d{2}/); return match ? Number(match[0]) : 0; }
 
 // 문서 전체에서 기준시점을 찾는다. 업로드 날짜는 문서 정보의 기준시점이 아니므로 사용하지 않는다.
-export function documentAsOf(text) {
+export function documentAsOf(text, receivedOn = '') {
   const body = String(text || '');
   const labeled = body.match(DOCUMENT_DATE_PATTERN);
   if (labeled) return asOfFrom(labeled);
-  const head = body.split(/\n/).slice(0, 40).join('\n').match(ANY_DATE_PATTERN);
-  return head ? asOfFrom(head) : '';
+  // 끝머리 열다섯 줄에서 「날짜 + 발행 주체」를 찾는다. 본문 속 개업일·행사일에 걸리지 않게 뒤에서만 본다.
+  const lines = body.split(/\n/).map(line => line.trim()).filter(Boolean);
+  // 공문서는 「광 주 세 무 서 장」처럼 자간을 벌려 찍는다. 붙여 놓고 견준다.
+  const tail = tightenSpaced(lines.slice(-15).join(' ')).match(ISSUED_TAIL_PATTERN);
+  if (tail) return asOfFrom(tail);
+  // 날짜만 따로 선 줄. 여러 개면 마지막 것이 그 문서를 찍어 낸 날이다.
+  const alone = lines.map(line => line.replace(/\s+/g, ' ').match(DATE_ONLY_LINE)).filter(Boolean).pop();
+  if (alone) return asOfFrom(alone);
+  // 문서가 스스로 날짜를 말하지 않으면 올린 날짜다. 없는 날짜를 본문에서 주워 오지 않는다.
+  return asOfFrom(String(receivedOn || '').match(/(20\d{2})[.\-년\s]*(\d{1,2})?/)) || '';
 }
 
 // includeNarrative는 서술 규칙과 표 칸 짝짓기를 켤지 정한다. 기본값은 켬이다.
@@ -263,9 +284,9 @@ export function documentAsOf(text) {
 // 실제 문서 여섯 가지(고유번호증 두 형태·연혁·소개서·결산서·신청서 서식)로 재니
 // 후보가 2건에서 37건이 되었고 여섯 중 다섯이 0건이던 것이 모두 0건을 벗어났다.
 // 기관 사실이 없는 글(공고문·일반 서술·빈 서식 라벨 줄)에서는 전·후 모두 0건이라 오탐은 늘지 않았다.
-export function extractApplicantCandidates(text, { documentName = '', includeNarrative = true, sourceLabel = '' } = {}) {
+export function extractApplicantCandidates(text, { documentName = '', includeNarrative = true, sourceLabel = '', receivedOn = '' } = {}) {
   const body = String(text || '');
-  const docAsOf = documentAsOf(body);
+  const docAsOf = documentAsOf(body, receivedOn);
   const name = clean(documentName, 200);
   const source = name ? `${name}${sourceLabel ? `(${sourceLabel})` : ''}에서 추출` : `${sourceLabel || '업로드한 기관 문서'}에서 추출`;
   const seen = new Set();
