@@ -1,16 +1,17 @@
-// 접힌 줄이 몇 층인지 눈에 보이게 한다(22-48에서 셋, 22-54에서 넷).
+// 접힌 줄이 몇 층인지 눈에 보이게 한다(22-48에서 셋, 22-54에서 넷, 22-55에서 색으로).
 //
 // 실제로 났던 일: 중단원·소단원·소소단원이 전부 같은 흰 카드로 나와서 어느 것이 어느 층인지
-// 알 수 없었다. 「무엇을 채웠고 무엇이 비었나」와 「2026 28건」이 같은 무게로 보였다.
-// 22-54에서 한 겹 더 드러났다 — 바탕이 연한 베이지(#faf6f0)고 카드가 흰색이라 둘이 4/255밖에
-// 차이 나지 않아, 카드 자체가 바탕에서 떠오르지 않았다.
+// 알 수 없었다. 22-54에서 바탕을 흰색으로 바꾸고 층을 네 겹 회색으로 세웠지만, 네 겹이 모두
+// 옅은 회색이라 층간 대비가 1.09·1.09·1.07밖에 되지 않아 여전히 눈으로 갈리지 않았다.
+// 농도는 「조금 더 진하다」까지만 말할 수 있다.
 //
-// 규칙은 넷이다.
-//   ① 바탕은 흰색이다. 그래야 위에 얹는 회색이 보인다.
-//   ② 네 층은 모두 회색이고 내려갈수록 옅어진다 — 변수 --fold-0·1·2·3 한 곳에서 정한다.
-//      어느 층에도 흰색을 쓰지 않는다. 흰색은 바탕의 것이라 층이 바탕에 묻힌다.
-//   ③ 색만으로 알리지 않는다 — 들여쓰기(--fold-indent)와 왼쪽 선(--fold-edge)과 세모가 함께 말한다.
-//   ④ 초록(다음 할 일)과 갈색(주 버튼)은 뜻이 있으므로 층 구분에 쓰지 않는다.
+// 규칙은 다섯이다.
+//   ① 바탕은 흰색이다.
+//   ② 층은 농도가 아니라 색으로 가른다 — 맨 위는 어두운 바탕에 흰 글자, 내려갈수록 옅어져
+//      맨 아래가 흰색이다. 흰색은 맨 아래 한 층에만 쓴다(세 겹 안이라 바탕과 맞닿지 않는다).
+//   ③ 색을 새로 만들지 않는다 — 상단 브랜드 띠가 쓰는 --navy 하나와 그것을 흰색에 섞은 톤뿐이다.
+//   ④ 색만으로 알리지 않는다 — 들여쓰기(--fold-indent)와 왼쪽 선(--fold-edge)과 세모가 함께 말한다.
+//   ⑤ 초록(지금 여기부터 하세요)과 갈색(이 화면에서 할 수 있는 일)은 뜻이 있으므로 층에 쓰지 않는다.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -20,36 +21,71 @@ const css = fs.readFileSync('src/styles.css', 'utf8');
 const section = (from, to) => css.slice(css.indexOf(from), to ? css.indexOf(to) : undefined);
 const block = section('/* 접기 네 층 (22-48에서 셋', '/* 층마다 제목 글자도 다르게 (22-50)');
 
+// 밝기와 대비. 층이 정말로 갈리는지는 눈이 아니라 이 숫자로 지킨다.
+const rgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+const lum = hex => {
+  const lin = c => (c / 255 <= 0.04045 ? c / 255 / 12.92 : Math.pow((c / 255 + 0.055) / 1.055, 2.4));
+  const [r, g, b] = rgb(hex);
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+};
+const contrast = (a, b) => {
+  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+};
+const NAVY = (css.match(/--navy:(#[0-9a-f]{6})/) || [])[1];
+
 test('바탕은 흰색이다', () => {
-  // 예전 바탕(#faf6f0)은 흰 카드와 4/255밖에 차이 나지 않아 카드가 눈에 띄지 않았다.
   assert.match(css, /^:root\{[^}]*background:#fff;/);
-  // 어디에서도 그 베이지를 다시 칠하지 않는다(까닭을 적은 주석에는 남는다).
-  assert.ok(!/background:s*#faf6f0/.test(css), '예전 베이지 바탕이 남아 있다');
+  // 어디에서도 예전 베이지를 다시 칠하지 않는다(까닭을 적은 주석에는 남는다).
+  assert.ok(!/background:\s*#faf6f0/.test(css), '예전 베이지 바탕이 남아 있다');
 });
 
-test('네 층의 색을 변수 한 곳에서 정하고 내려갈수록 옅어진다', () => {
-  const tones = ['--fold-0', '--fold-1', '--fold-2', '--fold-3']
-    .map(name => (block.match(new RegExp(`${name}:(#[0-9a-f]{6});`)) || [])[1]);
-  assert.ok(tones.every(Boolean), `층 색이 빠졌다: ${tones.join(' ')}`);
-  // 어느 층도 흰색이 아니다. 흰색이면 바탕과 같아져 층이 사라진다.
-  assert.ok(!tones.includes('#ffffff') && !tones.includes('#fff'), '층에 흰색을 썼다');
-  // 내려갈수록 밝아지고, 마지막 층도 흰색까지 가지는 않는다.
-  const lightness = tones.map(tone => parseInt(tone.slice(1, 3), 16) + parseInt(tone.slice(3, 5), 16) + parseInt(tone.slice(5, 7), 16));
-  for (let i = 1; i < lightness.length; i += 1) {
-    assert.ok(lightness[i] > lightness[i - 1], `${i}층이 위층보다 밝지 않다: ${tones.join(' → ')}`);
+test('맨 위 층은 어두운 바탕에 흰 글자다', () => {
+  // 22-54는 회색 위에 검은 글자여서 화면 제목이 묻혔다. 이제 화면을 열면 그것이 가장 먼저 읽힌다.
+  assert.match(block, /--fold-0:var\(--navy\);/);
+  assert.match(block, /--fold-0-ink:#fff;/);
+  assert.match(block, /\.page-heading,\.document-toolbar\{background:var\(--fold-0\);color:var\(--fold-0-ink\)/);
+  // 제목 줄 안의 설명글도 어두운 바탕에서 읽혀야 한다.
+  assert.match(block, /\.page-heading p,\.document-toolbar p,[\s\S]{0,160}color:var\(--fold-0-dim\)\}/);
+  const dim = (block.match(/--fold-0-dim:(#[0-9a-f]{6});/) || [])[1];
+  assert.ok(contrast('#ffffff', NAVY) >= 7, '흰 글자가 어두운 층에서 읽히지 않는다');
+  assert.ok(contrast(dim, NAVY) >= 4.5, `옅은 글자(${dim})가 어두운 층에서 읽히지 않는다`);
+});
+
+test('가운데 두 층은 그 색을 흰색에 섞은 톤이다 — 새 색을 만들지 않는다', () => {
+  const mid = ['--fold-1', '--fold-2'].map(name => (block.match(new RegExp(`${name}:(#[0-9a-f]{6});`)) || [])[1]);
+  assert.ok(mid.every(Boolean), `가운데 층 색이 빠졌다: ${mid.join(' ')}`);
+  const navy = rgb(NAVY);
+  for (const tone of mid) {
+    // 흰색과 --navy를 잇는 선 위에 있으면 섞은 톤이다. 벗어나면 새로 만든 색이다.
+    const ratios = rgb(tone).map((c, i) => (255 - c) / (255 - navy[i]));
+    const spread = Math.max(...ratios) - Math.min(...ratios);
+    assert.ok(spread < 0.02, `${tone}이 --navy와 흰색을 잇는 선 위에 있지 않다`);
   }
-  assert.ok(lightness[3] < 255 * 3, '마지막 층이 흰색이다');
+  // 맨 아래 한 층만 흰색이다. 세 겹 안이라 바탕과 맞닿지 않는다.
+  assert.match(block, /--fold-3:#fff;/);
+});
+
+test('층이 내려갈수록 밝아지고 이웃한 층이 눈으로 갈린다', () => {
+  const tones = [NAVY, ...['--fold-1', '--fold-2'].map(n => (block.match(new RegExp(`${n}:(#[0-9a-f]{6});`)) || [])[1]), '#ffffff'];
+  for (let i = 1; i < tones.length; i += 1) {
+    assert.ok(lum(tones[i]) > lum(tones[i - 1]), `${i}층이 위층보다 밝지 않다: ${tones.join(' → ')}`);
+  }
+  // 22-54는 층간이 1.09·1.09·1.07이라 갈리지 않았다. 맨 위 한 칸이 그때 전체보다 커야 한다.
+  assert.ok(contrast(tones[0], tones[1]) >= 4, `대단원과 중단원이 갈리지 않는다 (${contrast(tones[0], tones[1]).toFixed(2)})`);
+  assert.ok(contrast(tones[1], tones[2]) >= 1.2, `중단원과 소단원이 갈리지 않는다 (${contrast(tones[1], tones[2]).toFixed(2)})`);
+  // 중단원 카드는 흰 바탕에서도 떠올라야 한다.
+  assert.ok(contrast(tones[1], '#ffffff') >= 1.3, '중단원 카드가 바탕에서 떠오르지 않는다');
 });
 
 test('층마다 그 변수를 읽고 값을 손으로 다시 적지 않는다', () => {
-  assert.match(block, /\.page-heading,\.document-toolbar\{background:var\(--fold-0\)/);
   assert.match(block, /\.card,[^{]*\{background:var\(--fold-1\)\}/);
   assert.match(block, /\.card \.card,\.card\[data-detail-group\],\.add-fold\{background:var\(--fold-2\)\}/);
   assert.match(block, /\.card \.card \.card,\.year-fold,\[data-detail-group\] \.card\.org-details\{background:var\(--fold-3\)\}/);
-  // 카드·연도·홈 카드가 저마다 흰색을 다시 적던 자리가 없어야 한다.
-  for (const selector of ['.card{', '.year-fold{', '.landing-card{', '.home-step{', '.home-card{', '.home-empty{', '.home-shot{']) {
-    const rule = css.slice(css.indexOf(selector), css.indexOf(selector) + 200).split('}')[0];
-    assert.ok(!/background:#fff/.test(rule), `${selector} 이 흰색을 다시 적는다`);
+  // 카드·연도·홈 카드·화면 띠가 저마다 색을 다시 적던 자리가 없어야 한다.
+  for (const selector of ['.card{', '.year-fold{', '.landing-card{', '.home-step{', '.home-card{', '.home-empty{', '.home-shot{', '.doc-toolbelt{', '.pipeline{']) {
+    const rule = css.slice(css.indexOf(selector), css.indexOf(selector) + 260).split('}')[0];
+    assert.ok(!/background:(#|var\(--fold)/.test(rule), `${selector} 이 배경을 다시 적는다`);
   }
 });
 
@@ -64,6 +100,7 @@ test('색만으로 알리지 않는다', () => {
 });
 
 test('층 구분에 초록·갈색을 쓰지 않는다', () => {
+  // 초록 = 지금 여기부터 하세요, 갈색 = 이 화면에서 할 수 있는 일, 이 색 = 몇 층인가.
   assert.ok(!block.includes('var(--go)'), '다음 할 일 초록을 층 구분에 썼다');
   assert.ok(!block.includes('var(--blue)'), '주 버튼 갈색을 층 구분에 썼다');
   assert.ok(!block.includes('var(--green)'));

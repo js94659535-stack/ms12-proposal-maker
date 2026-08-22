@@ -42,7 +42,8 @@ globalThis.fetch = async (path, options = {}) => {
 // 세션 확인과 뒤따르는 조회가 끝날 때까지 기다린다. 정해진 횟수만 돌리면 기계가 바쁠 때
 // 로그인 화면을 찍고 지나가 시험이 들쭉날쭉해진다. 기다리는 것이 무엇인지를 보고 멈춘다.
 const settle = async (el, until) => {
-  for (let i = 0; i < 200; i += 1) {
+  // 기계가 바쁘면 세션 확인이 늦다. 횟수를 넉넉히 두어 덜 그려진 화면을 찍고 지나가지 않게 한다.
+  for (let i = 0; i < 800; i += 1) {
     await new Promise(resolve => setTimeout(resolve, 0));
     if (until(String(el.innerHTML))) return;
   }
