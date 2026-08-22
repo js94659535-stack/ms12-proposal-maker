@@ -12,7 +12,7 @@ import { stateFor, touchActivity } from '../../server/agency-store.js';
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 const MAX_NOTICE_BATCH = 100;
 const MAX_PROPOSAL_BYTES = 700_000;
-const MAX_APPLICANT_BYTES = 300_000;
+const MAX_APPLICANT_BYTES = 400_000;
 const APPLICANT_STATUSES = ['확인됨', '확인 필요', '오래된 정보'];
 const ITEM_ORIGINS = ['고객 입력', '파일 추출', '운영자 수정', '기관 확인'];
 
@@ -184,14 +184,38 @@ export function normalizeApplicantRecord(value) {
     // 현재 기관 프로필(profile)과 사업·실적 이력(history) 구분. 같은 항목 구조 안에서만 쓴다.
     scope: ['profile', 'history'].includes(item?.scope) ? item.scope : '',
     asOf: clean(item?.asOf, 40),
+    // 실적표의 「프로그램 내용」 칸. 값에는 기관·사업명만 넣고 내용은 여기 남긴다.
+    detail: clean(item?.detail, 300),
     history: (Array.isArray(item?.history) ? item.history : []).slice(-20).map(entry => ({
       value: clean(entry?.value, 2000), status: APPLICANT_STATUSES.includes(entry?.status) ? entry.status : '확인 필요',
       source: clean(entry?.source, 300), origin: ITEM_ORIGINS.includes(entry?.origin) ? entry.origin : '', asOf: clean(entry?.asOf, 40), recordedAt: clean(entry?.recordedAt, 40)
     })),
     updatedAt: clean(item?.updatedAt, 40)
   }));
+  // 기관자료 목록. 지금까지 브라우저에만 있어 다른 기기에서는 「받은 서류」가 보이지 않았다.
+  // 파일을 보관하려면 그 파일이 어느 자료의 것인지 서버가 알고 있어야 한다.
+  const sources = (Array.isArray(value.sources) ? value.sources : []).slice(0, 40).map((source, index) => ({
+    id: clean(source?.id, 80) || `source-${index + 1}`,
+    kind: clean(source?.kind, 40),
+    name: clean(source?.name, 200),
+    url: /^https?:\/\//i.test(String(source?.url || '')) ? clean(source.url, 500) : '',
+    asOf: clean(source?.asOf, 40),
+    note: clean(source?.note, 300),
+    addedAt: clean(source?.addedAt, 40),
+    // 보관한 파일. 원본은 R2에 있고 여기에는 무엇을·언제·누가 받았는지만 남는다.
+    file: source?.file && clean(source.file.key, 200) ? {
+      key: clean(source.file.key, 200),
+      name: clean(source.file.name, 200),
+      size: Math.max(0, Math.min(20 * 1024 * 1024, Number(source.file.size) || 0)),
+      type: clean(source.file.type, 100),
+      uploadedAt: clean(source.file.uploadedAt, 40),
+      uploadedBy: clean(source.file.uploadedBy, 120)
+    } : null
+  }));
   return {
-    id, name, note: clean(value.note, 500), items,
+    id, name, note: clean(value.note, 500), items, sources,
+    // 서류 보관에 동의한 시각. 비어 있으면 아직 동의하지 않았다는 뜻이다.
+    filesConsentAt: clean(value.filesConsentAt, 40),
     confirmedCount: items.filter(item => item.status === '확인됨').length,
     unverifiedCount: items.filter(item => item.status !== '확인됨').length,
     createdAt: clean(value.createdAt, 40), updatedAt: clean(value.updatedAt, 40)

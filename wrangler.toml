@@ -24,3 +24,12 @@ binding = "ARCHIVE_DB"
 database_name = "ms12-proposal-archive"
 database_id = "6bf8da36-9690-4577-8f55-ef316e875ef8"
 migrations_dir = "migrations"
+
+# 기관이 준 서류 원본을 보관한다.
+#
+# 예전에는 첨부 원본을 브라우저 메모리에만 두고 저장하지 않았다. 개인정보를 서버에 남기지 않으려는
+# 뜻이었다. 그런데 거래처 기록은 대행업의 신뢰다 — 받은 서류를 돌려줄 수 없으면 고객관리를 못 하는
+# 것으로 보인다. 그래서 보관하되, 지우는 길과 누가 볼 수 있는지를 함께 정했다(docs/file-storage-r2.md).
+[[r2_buckets]]
+binding = "ORG_FILES"
+bucket_name = "ms12-org-files"

@@ -43,3 +43,43 @@ export const claimMyArchive = () => request('claimMine');
 // 이 계획서에 한해 운영지원 열람을 허락하거나 거둔다.
 export const setProposalSupportConsent = (id, consent) => request('setSupportConsent', { id, consent });
 export const countProposalExport = id => request('countExport', { id });
+
+// ---------- 기관이 준 서류 원본 ----------
+// 파일은 기관에 매달린다. 여는 권한은 기관정보와 같은 규칙이라 여기서 따로 정하지 않는다.
+const fileEndpoint = (applicantId, sourceId) =>
+  `/api/org-files?applicantId=${encodeURIComponent(applicantId)}&sourceId=${encodeURIComponent(sourceId)}`;
+
+export function orgFileUrl(applicantId, sourceId) {
+  return fileEndpoint(applicantId, sourceId);
+}
+
+export async function uploadOrgFile(applicantId, sourceId, file) {
+  const response = await fetch(`${fileEndpoint(applicantId, sourceId)}&name=${encodeURIComponent(file.name)}`, {
+    method: 'PUT',
+    headers: { 'X-Archive-Key': getArchiveRecoveryKey(), 'X-File-Type': file.type || 'application/octet-stream' },
+    body: file
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `서류를 보관하지 못했습니다 (${response.status})`);
+  return data.file;
+}
+
+export async function deleteOrgFile(applicantId, sourceId) {
+  const response = await fetch(fileEndpoint(applicantId, sourceId), { method: 'DELETE', headers: { 'X-Archive-Key': getArchiveRecoveryKey() } });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `서류를 지우지 못했습니다 (${response.status})`);
+  return data;
+}
+
+// 파일을 열려면 보관키가 필요하다. 새 창으로 바로 열 수 없으므로 받아서 잠시 연다.
+export async function openOrgFile(applicantId, sourceId) {
+  const response = await fetch(fileEndpoint(applicantId, sourceId), { headers: { 'X-Archive-Key': getArchiveRecoveryKey() } });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || `서류를 열지 못했습니다 (${response.status})`);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank', 'noopener');
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}

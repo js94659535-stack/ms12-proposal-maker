@@ -42,7 +42,7 @@ import { ASSET_KINDS, ASSET_STATUS, STATUS_LABELS as ASSET_STATUS_LABELS, assetS
 import { MAX_QUESTIONS, UNKNOWN, checkNumbers, intakeState } from '../server/proposal-intake.js';
 import { reportError, reportStep, resetActivityDedupe } from './activity.js';
 import { fetchNoticeDetail, fetchNoticeList, importNoticeUrl, noticeBodyText } from './notices.js';
-import { setArchiveWorkspace, claimMyArchive, deleteIdeaAsset, listIdeaAssets, saveIdeaAsset, deleteArchivedApplicant, getArchivedProposal, getArchiveRecoveryKey, listArchivedApplicants, listArchivedProposals, saveArchivedApplicant, saveArchivedProposal, searchArchivedNotices, syncArchivedNotices, useArchiveRecoveryKey } from './archive.js';
+import { deleteOrgFile, openOrgFile, uploadOrgFile, setArchiveWorkspace, claimMyArchive, deleteIdeaAsset, listIdeaAssets, saveIdeaAsset, deleteArchivedApplicant, getArchivedProposal, getArchiveRecoveryKey, listArchivedApplicants, listArchivedProposals, saveArchivedApplicant, saveArchivedProposal, searchArchivedNotices, syncArchivedNotices, useArchiveRecoveryKey } from './archive.js';
 import { ASOF_UNKNOWN, SAFE_KINDS, applySafeCandidates, applyUpdateCandidate, buildUpdateCandidates, extractApplicantCandidates } from './applicant-extract.js';
 import { REFERENCE_TYPES, assessReferences, makeReference, projectContext, referenceNotices, referencePayload } from './reference-materials.js';
 import { analyzeProposalStructure, buildStructuralRevision, reviewProposalStructure } from './proposal-structure.js';
@@ -159,7 +159,12 @@ let homeArchiveLoaded = false;
 let coachingPollActive = false;
 // 길게 누르기로 연 메뉴가 같은 동작의 click 때문에 바로 닫히지 않게 한다.
 let archiveMenuOpenedAt = 0;
-// 연결한 첨부 원본. 브라우저 메모리에만 두고 localStorage에 base64로 저장하지 않는다.
+// 계획서에 연결한 첨부 원본. 브라우저 메모리에만 두고 localStorage에 base64로 저장하지 않는다.
+//
+// 기관이 준 서류(등록증·연혁 등)는 이제 다르다 — R2에 보관한다. 거래처 기록은 대행업의 신뢰이고,
+// 받은 서류를 돌려줄 수 없으면 고객관리를 못 하는 것으로 보이기 때문이다. 대신 지우는 길을 함께 두고
+// 기관을 볼 수 있는 사람만 열 수 있게 했다(docs/file-storage-r2.md).
+// 여기 이 Map은 그 보관과 무관한, 이번 화면에서만 쓰는 첨부다.
 const attachmentFiles = new Map();
 // 로그인 상태. 세션 쿠키가 진짜 근거이고 이 값은 화면 표시용이다. localStorage에 저장하지 않는다.
 let auth = {
@@ -3127,7 +3132,8 @@ function saveState() {
   const CACHED_NOTICES = 120;
   const safe = { ...state, reviewDetail: false, reviewPanels: [], reviewFocus: false, companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [],
     archiveNotices: (state.archiveNotices || []).slice(0, CACHED_NOTICES), archiveProposals: (state.archiveProposals || []).slice(0, CACHED_NOTICES), noticeUrlDraft: '', busy: '', error: '', notice: '', applicantItemDrafts: {}, applicantNameDraft: '', applicantComparison: null, applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openAddAreas: [], quickFilledFrom: {}, files: state.files.map(({ text, ...meta }) => meta),
-    // 첨부 원본은 브라우저 메모리에만 있다. 새로고침 뒤에 파일이 있다고 잘못 말하지 않도록 연결 기록도 저장하지 않는다.
+    // 이 첨부 원본은 브라우저 메모리에만 있다. 새로고침 뒤에 파일이 있다고 잘못 말하지 않도록 연결 기록도 저장하지 않는다.
+    // 기관이 준 서류는 R2에 보관하며 그것은 이 목록이 아니라 기관자료 줄에 남는다.
     attachmentLinks: {}, submissionZip: null, lastDownload: null, sheet: null };
   // 참고자료처럼 큰 원문이 들어오면 브라우저 저장 한도를 넘을 수 있다. 저장 실패가 화면을 멈추지 않게 한다.
   try { localStorage.setItem('ms12_project_v3', JSON.stringify(safe)); }
@@ -5283,6 +5289,8 @@ function orgPickerView(who) {
     }).join('')}</div>` : '<p class="muted">등록된 신청기관이 없습니다. 기관명을 입력하고 추가하세요.</p>'}</div>`;
 }
 
+const fileSizeLabel = bytes => (Number(bytes) >= 1024 * 1024 ? `${(Number(bytes) / 1024 / 1024).toFixed(1)}MB` : `${Math.max(1, Math.round(Number(bytes || 0) / 1024))}KB`);
+
 // 1) 기관자료 목록. 자료의 종류·이름·주소·기준일만 기록하고, 내용은 기존 추출 경로로 넣는다.
 function applicantSourcesView(applicant) {
   const draft = state.applicantSourceDraft || initial.applicantSourceDraft;
@@ -5292,8 +5300,18 @@ function applicantSourcesView(applicant) {
       <div class="field"><label for="source-name">자료명</label><input id="source-name" value="${escapeHtml(draft.name)}" placeholder="예: 2025 기관소개서"></div></div>
     <div class="two-col"><div class="field"><label for="source-url">주소(URL, 선택)</label><input id="source-url" type="url" value="${escapeHtml(draft.url)}" placeholder="https://"></div>
       <div class="field"><label for="source-asof">자료 기준일</label><input id="source-asof" value="${escapeHtml(draft.asOf)}" placeholder="예: 2026-03 또는 2025년 사업"></div></div>
+    ${applicant.filesConsentAt ? '' : `<div class="alert"><strong>기관이 준 서류 원본을 보관할 수 있습니다</strong>
+      <p>등록증·연혁 같은 파일을 이 기관에 매달아 보관합니다. 나중에 「그 서류 다시 주세요」에 답할 수 있고,
+      새 등록증과 견줘 무엇이 바뀌었는지도 볼 수 있습니다. 보관한 서류는 <b>이 기관을 볼 수 있는 사람만</b> 열 수 있고,
+      <b>언제든 지울 수 있습니다</b>. 기관을 지우면 30일 뒤 함께 지워집니다.</p>
+      <div class="actions" style="margin:0"><span class="muted">한 번만 여쭙니다.</span><button class="button secondary" id="consent-org-files">동의하고 서류 보관 쓰기</button></div></div>`}
     <div class="actions" style="margin:0"><span class="muted">URL은 기록만 합니다. 페이지 내용은 아래 「연혁·사업계획서를 올리면 자동으로 채워집니다」 칸에 붙여넣으면 이 자료를 출처로 저장합니다.</span><button class="button secondary" id="add-applicant-source">기관자료 등록</button></div>
-    ${sources.length ? `<div class="requirement-list">${sources.map(source => `<article class="requirement"><div><span class="tag">${escapeHtml(source.kind)}</span><div><strong>${escapeHtml(source.name || source.url || '이름 없는 자료')}</strong><small class="muted">${source.url ? `<a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(source.url.slice(0, 60))}</a> · ` : ''}기준일 ${escapeHtml(source.asOf || ASOF_UNKNOWN)}</small></div></div><button class="button secondary" data-remove-source="${escapeHtml(source.id)}">삭제</button></article>`).join('')}</div>` : '<p class="muted">등록한 기관자료가 없습니다.</p>'}</div>`;
+    ${sources.length ? `<div class="requirement-list">${sources.map(source => `<article class="requirement"><div><span class="tag">${escapeHtml(source.kind)}</span><div><strong>${escapeHtml(source.name || source.url || '이름 없는 자료')}</strong><small class="muted">${source.url ? `<a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(source.url.slice(0, 60))}</a> · ` : ''}기준일 ${escapeHtml(source.asOf || ASOF_UNKNOWN)}</small>
+      ${source.file ? `<small class="muted">보관한 서류 · ${escapeHtml(source.file.name)} · ${fileSizeLabel(source.file.size)} · ${escapeHtml(String(source.file.uploadedAt).slice(0, 10))} 받음${source.file.uploadedBy ? ` · ${escapeHtml(source.file.uploadedBy)}` : ''}</small>` : '<small class="muted">보관한 서류 없음</small>'}</div></div>
+      <div class="actions" style="margin:0;gap:8px">${source.file
+        ? `<button class="button secondary" data-open-source-file="${escapeHtml(source.id)}">서류 열기</button><button class="button secondary" data-drop-source-file="${escapeHtml(source.id)}">서류 지우기</button>`
+        : `<label class="button secondary" for="source-file-${escapeHtml(source.id)}">서류 파일 붙이기<input type="file" id="source-file-${escapeHtml(source.id)}" data-source-file="${escapeHtml(source.id)}" style="display:none"></label>`}
+      <button class="button secondary" data-remove-source="${escapeHtml(source.id)}">자료 삭제</button></div></article>`).join('')}</div>` : '<p class="muted">등록한 기관자료가 없습니다.</p>'}</div>`;
 }
 function addApplicantSource() {
   const applicant = findApplicant(state.applicants, state.applicantEditingId);
@@ -5306,9 +5324,50 @@ function addApplicantSource() {
   setState({ applicants: state.applicants, applicantSourceDraft: structuredClone(initial.applicantSourceDraft), notice: '기관자료를 등록했습니다. 내용은 아래에서 추출해 확인 후 반영하세요.', error: '' });
   void persistApplicant(next.id, false);
 }
+// 기관이 준 서류 원본을 보관한다. 파일은 R2에, 무엇을·언제·누가 받았는지는 이 자료 줄에 남는다.
+async function attachSourceFile(sourceId, file) {
+  const applicant = findApplicant(state.applicants, focusedApplicantId());
+  if (!applicant || !file) return;
+  if (!applicant.filesConsentAt) return setState({ error: '서류 보관을 먼저 켜 주세요. 위의 「동의하고 서류 보관 쓰기」를 누르시면 됩니다.' });
+  if (file.size > 20 * 1024 * 1024) return setState({ error: '파일은 20MB 이하여야 합니다.' });
+  setState({ busy: `${file.name}을 보관하는 중...`, error: '', notice: '' });
+  try {
+    const stored = await uploadOrgFile(applicant.id, sourceId, file);
+    const next = { ...applicant, sources: (applicant.sources || []).map(source => (source.id === sourceId ? { ...source, file: stored } : source)) };
+    state.applicants = upsertApplicant(state.applicants, next);
+    setState({ busy: '', applicants: state.applicants, notice: `${file.name}을 보관했습니다. 이 기관을 볼 수 있는 사람만 열 수 있고 언제든 지울 수 있습니다.` });
+    void persistApplicant(next.id, false);
+  } catch (error) { setState({ busy: '', error: error.message }); }
+}
+
+async function openSourceFile(sourceId) {
+  const applicant = findApplicant(state.applicants, focusedApplicantId());
+  if (!applicant) return;
+  try { await openOrgFile(applicant.id, sourceId); }
+  catch (error) { setState({ error: error.message }); }
+}
+
+// 지우는 길은 늘 열려 있어야 한다. 「무기한 보관」의 전제다.
+async function dropSourceFile(sourceId) {
+  const applicant = findApplicant(state.applicants, focusedApplicantId());
+  if (!applicant) return;
+  const source = (applicant.sources || []).find(item => item.id === sourceId);
+  if (!source?.file) return;
+  if (!confirm(`보관한 서류 「${source.file.name}」을 지웁니다. 받은 기록은 남고 파일만 사라집니다.`)) return;
+  try {
+    await deleteOrgFile(applicant.id, sourceId);
+    const next = { ...applicant, sources: applicant.sources.map(item => (item.id === sourceId ? { ...item, file: null } : item)) };
+    state.applicants = upsertApplicant(state.applicants, next);
+    setState({ applicants: state.applicants, notice: '보관한 서류를 지웠습니다. 무엇을 언제 받았는지는 자료 줄에 남습니다.', error: '' });
+    void persistApplicant(next.id, false);
+  } catch (error) { setState({ error: error.message }); }
+}
+
 function removeApplicantSource(id) {
   const applicant = findApplicant(state.applicants, state.applicantEditingId);
   if (!applicant) return;
+  // 자료 줄을 지우면 거기 매달린 파일도 함께 지운다. 남겨 두면 주인 없는 파일이 된다.
+  if ((applicant.sources || []).find(item => item.id === id)?.file) void deleteOrgFile(applicant.id, id).catch(() => null);
   const next = { ...applicant, sources: (applicant.sources || []).filter(item => item.id !== id) };
   state.applicants = upsertApplicant(state.applicants, next);
   setState({ applicants: state.applicants, notice: '기관자료를 삭제했습니다. 이미 확인한 기관 정보는 그대로 남습니다.' });
@@ -8195,6 +8254,17 @@ function bindApplicants() {
   document.querySelector('#source-kind')?.addEventListener('change', event => { state.applicantSourceDraft = { ...(state.applicantSourceDraft || initial.applicantSourceDraft), kind: event.target.value }; saveState(); });
   document.querySelector('#add-applicant-source')?.addEventListener('click', addApplicantSource);
   document.querySelectorAll('[data-remove-source]').forEach(el => el.onclick = () => removeApplicantSource(el.dataset.removeSource));
+  document.querySelector('#consent-org-files')?.addEventListener('click', () => {
+    const applicant = findApplicant(state.applicants, focusedApplicantId());
+    if (!applicant) return;
+    const next = { ...applicant, filesConsentAt: new Date().toISOString() };
+    state.applicants = upsertApplicant(state.applicants, next);
+    setState({ applicants: state.applicants, notice: '서류 보관을 켰습니다. 자료 줄의 「서류 파일 붙이기」로 원본을 보관하고, 언제든 지울 수 있습니다.', error: '' });
+    void persistApplicant(next.id, false);
+  });
+  document.querySelectorAll('[data-source-file]').forEach(el => el.onchange = () => void attachSourceFile(el.dataset.sourceFile, el.files?.[0]));
+  document.querySelectorAll('[data-open-source-file]').forEach(el => el.onclick = () => void openSourceFile(el.dataset.openSourceFile));
+  document.querySelectorAll('[data-drop-source-file]').forEach(el => el.onclick = () => void dropSourceFile(el.dataset.dropSourceFile));
   document.querySelector('#applicant-doc-text')?.addEventListener('input', event => { state.applicantDocDraft = event.target.value; });
   document.querySelector('#applicant-doc-file')?.addEventListener('change', loadApplicantDocument);
   document.querySelector('#applicant-cert-file')?.addEventListener('change', loadApplicantDocument);

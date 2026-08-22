@@ -111,7 +111,16 @@ export function makeApplicantSource(value = {}) {
     url: /^https?:\/\//i.test(String(value.url || '')) ? text(value.url, 500) : '',
     asOf: text(value.asOf, 40),
     note: text(value.note, 300),
-    addedAt: text(value.addedAt, 40) || new Date().toISOString()
+    addedAt: text(value.addedAt, 40) || new Date().toISOString(),
+    // 보관한 서류 원본. 무엇을·언제·누가 받았는지는 파일을 지운 뒤에도 이 자료 줄에 남는다.
+    file: value.file && text(value.file.key, 200) ? {
+      key: text(value.file.key, 200),
+      name: text(value.file.name, 200),
+      size: Math.max(0, Number(value.file.size) || 0),
+      type: text(value.file.type, 100),
+      uploadedAt: text(value.file.uploadedAt, 40),
+      uploadedBy: text(value.file.uploadedBy, 120)
+    } : null
   };
 }
 export function normalizeApplicant(value = {}) {
@@ -121,6 +130,8 @@ export function normalizeApplicant(value = {}) {
     name: text(value.name, 120) || '이름 없는 신청기관',
     note: text(value.note, 500),
     sources: (Array.isArray(value.sources) ? value.sources : []).slice(0, 40).map(makeApplicantSource),
+    // 서류 보관에 동의한 시각. 처음 한 번만 묻고 그 뒤로는 묻지 않는다.
+    filesConsentAt: text(value.filesConsentAt, 40),
     items: (Array.isArray(value.items) ? value.items : []).slice(0, 300).map(makeApplicantItem),
     createdAt: text(value.createdAt, 40) || now,
     updatedAt: text(value.updatedAt, 40) || now
