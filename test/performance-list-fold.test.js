@@ -55,7 +55,7 @@ test('접힌 줄은 눌러서 펼치는 것으로 보인다', () => {
 
 test('구역은 한 번에 하나만 열린다', () => {
   // 전에는 자료가 있는 구역을 펼쳐 두었다. 실적 96건이 그대로 쏟아져 화면을 감당할 수 없었고(22-42),
-  // 여럿을 열어 둘 수 있게 두었더니 화면이 다시 길어졌다. 이제 하나뿐이다(22-56⑤).
+  // 여럿을 열어 둘 수 있게 두었더니 화면이 다시 길어졌다. 이제 하나뿐이다(22-01⑤).
   const panel = app.slice(app.indexOf('function detailGroupPanel(applicant, group)'), app.indexOf('// 실적을 한 번에 확인됨으로 올리는 줄'));
   assert.doesNotMatch(panel, /group\.total > 0/);
   // 접혀 있어도 무엇이 얼마나 있는지는 제목 줄에 남는다.

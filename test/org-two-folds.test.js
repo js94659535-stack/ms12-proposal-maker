@@ -1,4 +1,4 @@
-// 중분류는 아코디언이다 — 한 화면에 한 번에 하나만 열린다 (22-42에서 접기, 22-56에서 아코디언).
+// 중분류는 아코디언이다 — 한 화면에 한 번에 하나만 열린다 (22-42에서 접기, 22-01에서 아코디언).
 //
 // 실제로 났던 일: 기관을 고르면 열한 칸 요약이 통째로 펼쳐지고, 그 아래 상세정보 여덟 구역 중
 // 자료가 있는 구역이 또 펼쳐졌다. 실적 96건이 들어온 기관에서는 한 화면에 감당할 수 없는 양이 쏟아졌다.
@@ -79,7 +79,7 @@ test('연도는 하나만 열리게 하지 않는다', () => {
 });
 
 test('세모 대신 탭 모양으로 열림을 말한다', () => {
-  const tab = css.slice(css.indexOf('/* 중분류 아코디언 (22-56).'));
+  const tab = css.slice(css.indexOf('/* 중분류 아코디언 (22-01).'));
   // 열린 줄은 한 단계 진해지고, 왼쪽 막대가 두꺼워지고, 아이보리 내용이 딸려 나온다.
   assert.match(tab, /\.card\.section\{background:var\(--fold-body\)/);
   assert.match(tab, /\.card\.section>summary\{background:var\(--fold-1\);[^}]*box-shadow:inset 3px 0 0 var\(--fold-edge\)\}/);
@@ -92,7 +92,7 @@ test('세모 대신 탭 모양으로 열림을 말한다', () => {
 });
 
 test('소분류도 같은 형식이되 한 겹 옅다', () => {
-  const tab = css.slice(css.indexOf('/* 중분류 아코디언 (22-56).'));
+  const tab = css.slice(css.indexOf('/* 중분류 아코디언 (22-01).'));
   assert.match(tab, /\.card\.section\.sub\{background:var\(--fold-3\)/);
   assert.match(tab, /\.card\.section\.sub>summary\{background:var\(--fold-2\)\}/);
   assert.match(tab, /\.card\.section\.sub\[open\]>summary\{background:var\(--fold-1\)\}/);

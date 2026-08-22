@@ -135,7 +135,7 @@ const initial = {
   viewMode: '', expertDetail: false, workspace: 'personal', markDraft: {}, markOpen: false,
   // 검증 결과 화면. 총론을 먼저 보고 각론은 눌렀을 때만 편다.
   reviewDetail: false, reviewPanels: [], reviewFocus: false, reviseOpen: false, reviseDraft: null, revisions: [], revisionBackup: null,
-  // 화면마다 지금 열어 둔 중분류 하나. 한 번에 하나만 열린다(22-56).
+  // 화면마다 지금 열어 둔 중분류 하나. 한 번에 하나만 열린다(22-01).
   // { applicants: '기본정보', pick: '공고 비교' }처럼 화면 이름을 열쇠로 쓴다.
   // 값이 없으면 아직 사람이 고르지 않은 것이고, 빈 문자열이면 사람이 닫아 둔 것이다.
   // 저장하지 않는다 — 다음에 들어오면 「다음 할 일」이 가리키는 것이 다시 열린다(22-22 방식).
@@ -5300,7 +5300,7 @@ function addForm(key, label, body) {
   return `<details class="add-fold" data-add-form="${escapeHtml(key)}" ${open ? 'open' : ''}><summary>${escapeHtml(label)}</summary>${body}</details>`;
 }
 
-// 중분류 아코디언. 한 화면의 중분류는 한 번에 하나만 열린다(22-56).
+// 중분류 아코디언. 한 화면의 중분류는 한 번에 하나만 열린다(22-01).
 //
 // 왜. 다섯이 모두 펼쳐지면 화면이 끝없이 이어지고 무엇을 보고 있었는지 잃는다.
 // 가로 탭으로 세우지 못한 까닭은 제목이 길어서다 — 「불러온 신청기관 정보 · (주)마인드스토리」는
@@ -5866,7 +5866,7 @@ function confirmGroupButton(groupKey, pending) {
 }
 
 function detailGroupPanel(applicant, group) {
-  // 구역도 한 번에 하나만 열린다(22-56⑤). 자료가 있는 구역을 펼쳐 두었더니 실적 96건이 그대로
+  // 구역도 한 번에 하나만 열린다(22-01⑤). 자료가 있는 구역을 펼쳐 두었더니 실적 96건이 그대로
   // 쏟아져 화면을 감당할 수 없었고(22-42), 여럿을 열어 두어도 마찬가지였다.
   // 접힌 줄에 건수가 있으므로 열지 않아도 무엇이 얼마나 있는지 보인다.
   // 처음 열리는 것은 「다음 할 일」이 가리키는 구역이다 — 가리켜 놓고 감추면 찾을 수가 없다.
@@ -8525,7 +8525,7 @@ function bindApplicants() {
     state.openSections = chosen;
     setState({});
   }));
-  // 소분류도 한 번에 하나다(22-56⑤).
+  // 소분류도 한 번에 하나다(22-01⑤).
   document.querySelectorAll('[data-detail-group]').forEach(el => el.addEventListener('toggle', () => {
     const key = el.dataset.detailGroup;
     if (el.open) state.openOrgGroup = key;
@@ -8572,7 +8572,7 @@ function bindApplicants() {
     if (button.dataset.nextKey === 'write') return void saveBasicInfo({ thenWrite: true });
     // 실적 확인은 데려가지 않고 여기서 끝낸다.
     if (button.dataset.nextBulk) return confirmAllPerformance();
-    // 중분류가 한 번에 하나만 열리므로, 데려가기 전에 그 중분류부터 연다(22-56).
+    // 중분류가 한 번에 하나만 열리므로, 데려가기 전에 그 중분류부터 연다(22-01).
     // 사람이 다른 것을 열어 두었어도 띠를 눌렀으면 가리키는 자리로 가겠다는 뜻이다.
     openStepSection('applicants');
     // 그 자리로 데려가고 잠깐 강조한다. 눌렀는데 또 찾게 하지 않는다.

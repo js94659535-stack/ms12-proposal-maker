@@ -67,7 +67,7 @@ test('띠는 제목 줄 바로 아래 하나뿐이고 판정은 한 곳에서 �
 test('갈래마다 데려가는 곳이 다르다', () => {
   const handler = app.slice(app.indexOf("document.querySelector('#pick-step-action')"), app.indexOf("document.querySelector('#skip-applicant')"));
   assert.match(handler, /if \(key === 'add-org'\) return setState\(\{ activeTool: 'applicants'/);
-  // 중분류가 한 번에 하나만 열리므로, 데려가기 전에 그 중분류부터 연다(22-56).
+  // 중분류가 한 번에 하나만 열리므로, 데려가기 전에 그 중분류부터 연다(22-01).
   assert.match(handler, /if \(key === 'pick'\) \{ openStepSection\('pick'\); return focusAnchor\('#applicant-picker'\); \}/);
   // 확인하는 자리는 이 화면이 아니라 기관정보 화면이다. 거기 띠로 넘겨준다(22-53).
   assert.match(handler, /if \(key === 'confirm'\) return openApplicantEditor\(\{ anchor: '#next-step-bar' \}\);/);

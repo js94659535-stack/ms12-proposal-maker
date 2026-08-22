@@ -186,7 +186,7 @@ test('띠에서 시작해 자리로 가고 거기서 할 일까지 이어진다'
 
 test('가리키는 자리가 접혀 있으면 그 자리가 열린 채로 시작한다', () => {
   // 가리켜 놓고 감추면 눌러서 열고 또 찾아야 한다.
-  // 중분류는 한 번에 하나만 열리므로(22-56), 처음 열리는 하나가 판정이 가리키는 것이어야 한다.
+  // 중분류는 한 번에 하나만 열리므로(22-01), 처음 열리는 하나가 판정이 가리키는 것이어야 한다.
   const where = app.slice(app.indexOf('function orgStepSection()'), app.indexOf('function openStepSection(screen)'));
   assert.match(where, /if \(group\) return BASIC_AREAS\.includes\(group\) \? 'basic' : 'detail';/);
   assert.match(where, /'add-org': 'picker', basic: 'basic', upload: 'basic', apply: 'candidates'/);
