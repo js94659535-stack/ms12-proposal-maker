@@ -456,6 +456,7 @@ export function relatedMatches(items = [], requirements = [], { limit = RELATED_
     ? `${item.value} ${item.detail || ''}`
     : `${item.label} ${item.value} ${item.detail || ''} ${areaTitle(item.area)}`]));
   const scores = new Map();
+  // 겹친 낱말을 성격과 함께 담는다. 거르지는 않고, 무엇으로 걸렸는지 화면이 말할 수 있게 한다.
   const words = new Map();
   const used = new Set();
   for (const requirement of Array.isArray(requirements) ? requirements : []) {
@@ -474,9 +475,14 @@ export function relatedMatches(items = [], requirements = [], { limit = RELATED_
       // 묻힌 낱말이어도 함께 세어 준다 — 조이기만 하면 맞는 공고에서도 0건이 된다.
       const strong = rare && central(token);
       for (const item of hits) {
-        const weight = strong && standsAlone(haystacks.get(item.id), token) ? RELATED_SCORE : 1;
-        scores.set(item.id, (scores.get(item.id) || 0) + weight);
-        words.set(item.id, [...(words.get(item.id) || []), token]);
+        // 세 조건 중 무엇에 걸렸는지가 그 낱말의 성격을 말한다.
+        //   셋 다 넘김            → 분야 낱말. 이 실적이 이 공고 분야라는 근거다.
+        //   드물고 중심인데 묻힘   → 「지역아동센터」 속 「아동」. 분야 낱말일 가능성이 크지만 확실하지 않다.
+        //   드물지 않거나 안 중심  → 「지원」·「운영」·「맞춤형」. 어느 공고에나 있는 방법 낱말이다.
+        const alone = standsAlone(haystacks.get(item.id), token);
+        const kind = strong ? (alone ? 'field' : 'buried') : 'method';
+        scores.set(item.id, (scores.get(item.id) || 0) + (kind === 'field' ? RELATED_SCORE : 1));
+        words.set(item.id, [...(words.get(item.id) || []), { token, kind }]);
       }
     }
   }
@@ -485,7 +491,29 @@ export function relatedMatches(items = [], requirements = [], { limit = RELATED_
     .sort((left, right) => (scores.get(right.id) - scores.get(left.id)) || String(right.asOf || '').localeCompare(String(left.asOf || '')));
   const chosen = limit > 0 ? ranked.slice(0, limit) : ranked;
   // 무엇 때문에 걸렸는지 함께 돌려준다. 「예방」 하나로 걸린 것을 분야가 맞는 실적으로 읽지 않게 한다.
-  return chosen.map(item => ({ item, words: [...new Set(words.get(item.id) || [])], score: scores.get(item.id) || 0 }));
+  //
+  // fieldWords가 비어 있으면 「지원」·「교육」처럼 어느 공고에나 있는 낱말 둘이 겹쳐 올라온 것이다.
+  // 그런 것도 버리지 않는다. 버리면 맞는 공고에서도 목록이 무너지는 것을 22-39에서 쟀다.
+  // 대신 무엇으로 걸렸는지 그대로 내보내 사람이 보고 판단하게 한다.
+  return chosen.map(item => {
+    const seen = new Map();
+    for (const entry of words.get(item.id) || []) {
+      // 같은 낱말이 여러 요구 문장에서 걸리면 가장 센 성격을 남긴다.
+      const rank = { field: 3, buried: 2, method: 1 };
+      if (!seen.has(entry.token) || rank[entry.kind] > rank[seen.get(entry.token)]) seen.set(entry.token, entry.kind);
+    }
+    const marks = [...seen.entries()].map(([token, kind]) => ({ token, kind }));
+    return {
+      item,
+      words: marks.map(mark => mark.token),
+      wordMarks: marks,
+      fieldWords: marks.filter(mark => mark.kind === 'field').map(mark => mark.token),
+      buriedWords: marks.filter(mark => mark.kind === 'buried').map(mark => mark.token),
+      // 겹친 낱말이 전부 방법 낱말이면 분야가 겹친 것이 아니다. 그래도 버리지 않고 그렇게 적는다.
+      methodOnly: marks.every(mark => mark.kind === 'method'),
+      score: scores.get(item.id) || 0
+    };
+  });
 }
 
 export function relatedItems(items = [], requirements = [], options = {}) {

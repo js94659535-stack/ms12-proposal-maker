@@ -855,3 +855,9 @@ select{max-width:100%}
 /* 다시 확인할 때가 된 정보. 상태는 그대로 두고 표시만 한다. */
 .status.recheck{background:#fff2d9;color:#8a5a12}
 .recheck-note{margin:6px 0 10px;color:var(--amber)}
+
+/* 겹친 낱말이 분야인지 방법인지. 거르지 않고 표시만 한다(22-41). */
+.match-field,.match-buried,.match-method{display:block;margin-top:4px;font-size:12px}
+.match-field{color:#1f7a4d}
+.match-buried{color:var(--amber)}
+.match-method{color:#8a5a12}

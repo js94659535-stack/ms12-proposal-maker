@@ -5810,6 +5810,18 @@ function rollupNote(requirement) {
   return `<small class="muted">앞 항목들을 묶은 문장으로 보입니다. 따로 세지 않아도 됩니다. · 그렇게 본 까닭: ${mark.reasons.map(word => `「${escapeHtml(word)}」`).join('·')}</small>`;
 }
 
+// 무엇 때문에 걸렸는지 한 줄로 말한다. 거르지는 않는다 — 걸러내면 맞는 공고에서도 목록이 무너지는 것을
+// 22-39에서 쟀다. 대신 겹친 낱말이 분야인지 방법인지 사람이 보고 판단하게 한다.
+//
+// 판정은 22-39의 세 조건을 그대로 쓴다. 셋을 다 넘긴 낱말이 있으면 분야가 겹친 것이고,
+// 「지역아동센터」 속 「아동」처럼 더 긴 말에 묻힌 낱말뿐이면 분야일 수는 있으나 확실하지 않으며,
+// 그것마저 없으면 「지원」·「운영」처럼 어느 공고에나 있는 낱말이 겹친 것이다.
+function matchNote(entry) {
+  if (entry.fieldWords?.length) return `<small class="match-field">분야가 겹쳤습니다 — ${escapeHtml(entry.fieldWords.join(' · '))}</small>`;
+  if (entry.buriedWords?.length) return `<small class="match-buried">분야 낱말이 더 긴 말 속에 있습니다 — ${escapeHtml(entry.buriedWords.join(' · '))}. 실적을 눈으로 확인하세요.</small>`;
+  return '<small class="match-method">분야가 아니라 방법이 겹쳤습니다.</small>';
+}
+
 // 이 공고에 맞는 실적이 몇 건인지 보여 준다.
 //
 // 계획서 호출에는 공고와 겹치는 실적만 펼쳐 싣고 나머지는 건수만 보낸다(다사113①).
@@ -5827,11 +5839,13 @@ function fitPerformanceView(applicant, requirements) {
   // 실적이 상한보다 적으면 고르지 않고 전부 보낸다. 화면도 그대로 말한다.
   const sending = history.length > RELATED_LIMIT ? Math.min(matches.length, RELATED_LIMIT) : history.length;
   const thin = matches.length === 0 || (matches.length < 5 && history.length >= 20);
-  const line = entry => `<article class="requirement"><div><span class="tag">${escapeHtml(entry.item.asOf || ASOF_UNKNOWN)}</span><div><strong>${escapeHtml(entry.item.value)}</strong><small class="muted">겹친 낱말: ${escapeHtml(entry.words.join(' · '))} · ${escapeHtml(entry.item.status)}</small></div></div></article>`;
+  const line = entry => `<article class="requirement"><div><span class="tag">${escapeHtml(entry.item.asOf || ASOF_UNKNOWN)}</span><div><strong>${escapeHtml(entry.item.value)}</strong><small class="muted">겹친 낱말: ${escapeHtml(entry.words.join(' · '))} · ${escapeHtml(entry.item.status)}</small>${matchNote(entry)}</div></div></article>`;
+  const methodOnly = matches.filter(entry => entry.methodOnly).length;
   return `<div class="${thin ? 'alert warning' : 'alert success'}"><strong>이 공고와 겹치는 실적 ${matches.length}건 / 전체 ${history.length}건</strong>
+    ${methodOnly ? `<p class="muted">그중 ${methodOnly}건은 분야가 아니라 「지원」·「운영」처럼 어느 공고에나 있는 낱말이 겹친 것입니다. 목록에 그렇게 적어 두었습니다.</p>` : ''}
     ${thin ? `<p>이 공고 분야의 실적이 확인되지 않았습니다. 관련 실적이 있으면 추가하시고, 없으면 수행 역량을 다른 방식(인력·프로그램·협력기관·유사 경험)으로 보여야 합니다.${matches.length ? ' 아래 항목은 분야가 아니라 낱말이 겹쳐 걸린 것일 수 있으니 그대로 실적 근거로 쓰지 마세요.' : ''}</p>` : ''}
     <p class="muted">계획서 작성 요청에는 겹치는 실적 ${sending}건을 내용까지 싣고, 나머지 ${Math.max(0, history.length - sending)}건은 건수만 알립니다. 실적이 사라지는 것이 아니라 이번 공고와 관련된 것만 펼치는 것입니다.</p>
-    ${matches.length ? `<details><summary>겹친 실적 ${matches.length}건 보기</summary><div class="requirement-list">${matches.map(line).join('')}</div></details>` : ''}</div>`;
+    ${matches.length ? `<details><summary>겹친 실적 ${matches.length}건 보기${methodOnly ? ` · 방법만 겹친 것 ${methodOnly}건` : ''}</summary><div class="requirement-list">${matches.map(line).join('')}</div></details>` : ''}</div>`;
 }
 
 // 「전달할 확인된 정보」는 두 가지를 한 덩어리로 보여 주고 있었다 — 저장된 확인 정보와,

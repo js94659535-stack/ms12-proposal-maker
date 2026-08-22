@@ -84,7 +84,7 @@ test('공고 × 신청기관 비교에 이 공고와 겹치는 실적 수를 보
   // 무엇이 왜 걸렸는지 함께 보여 준다. 「예방」 하나로 걸린 것을 분야가 맞는 실적으로 읽지 않게 한다.
   assert.match(view, /겹친 낱말: \$\{escapeHtml\(entry\.words\.join\(' · '\)\)\}/);
   // 목록은 접어 둔다. 99건이 그대로 펼쳐지지 않는다.
-  assert.match(view, /<details><summary>겹친 실적 \$\{matches\.length\}건 보기<\/summary>/);
+  assert.match(view, /<details><summary>겹친 실적 \$\{matches\.length\}건 보기/);
   // 계획서에 몇 건이 실리고 몇 건이 건수로만 가는지 그 자리에서 말한다.
   assert.match(view, /계획서 작성 요청에는 겹치는 실적 \$\{sending\}건을 내용까지 싣고/);
   // 비교 화면이 실제로 부른다.
