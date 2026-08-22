@@ -17,7 +17,9 @@ test('실적이 여덟 건을 넘으면 해마다 접는다', () => {
   assert.match(fields, /const folded = area\.key === 'performance' && items\.length > YEAR_FOLD_MIN;/);
   assert.match(app, /const YEAR_FOLD_MIN = 8;/);
   // 접는 자리는 details다. 기본은 접힘이고, 펼친 해만 open이 붙는다.
-  assert.match(fields, /<details class="year-fold" data-org-year="\$\{escapeHtml\(group\.year\)\}" \$\{\(state\.openOrgYears \|\| \[\]\)\.includes\(group\.year\) \? 'open' : ''\}>/);
+  assert.match(fields, /<details class="year-fold" data-org-year="\$\{escapeHtml\(group\.year\)\}" \$\{yearOpen\(group\.year, index\) \? 'open' : ''\}>/);
+  // 맨 위 해는 열어 둔다. 상세정보 → 실적 → 연도까지 세 번 눌러야 한 줄이 보이면 너무 깊다(22-42).
+  assert.match(fields, /index === 0 && !\(state\.openOrgYears \|\| \[\]\)\.length/);
   // 해마다 몇 건인지·그중 확인됨이 몇인지 summary에 적는다.
   assert.match(fields, /\$\{group\.items\.length\}건 <small class="muted">확인됨/);
   // 실적이 아닌 영역은 예전처럼 그대로 편다.
@@ -51,13 +53,25 @@ test('접힌 줄은 눌러서 펼치는 것으로 보인다', () => {
   assert.match(css, /\.year-fold>summary\{[^}]*cursor:pointer/);
 });
 
-test('자료가 있는 묶음은 펼치고 빈 묶음은 접는다', () => {
+test('구역은 모두 접힌 채로 시작한다', () => {
+  // 전에는 자료가 있는 구역을 펼쳐 두었다. 실적 96건이 그대로 쏟아져 화면을 감당할 수 없었다(22-42).
   const panel = app.slice(app.indexOf('function detailGroupPanel(applicant, group)'), app.indexOf('// 실적을 한 번에 확인됨으로 올리는 줄'));
-  assert.match(panel, /group\.total > 0/);
-  // 사람이 닫은 묶음은 자료가 있어도 닫힌 채로 둔다.
-  assert.match(panel, /const open = \(state\.closedOrgGroups \|\| \[\]\)\.includes\(group\.key\)\s*\?\s*false/);
+  assert.match(panel, /const open = \(state\.openOrgGroups \|\| \[\]\)\.includes\(group\.key\) \|\| stepPointsAt\(group\.key\);/);
+  assert.doesNotMatch(panel, /group\.total > 0/);
+  // 접혀 있어도 무엇이 얼마나 있는지는 제목 줄에 남는다.
+  assert.match(panel, /등록 \$\{group\.total\}건 · 확인됨 \$\{group\.confirmed\}건/);
+  // 기본이 접힘이므로 「연 것」만 기억한다.
   const toggle = app.slice(app.indexOf("document.querySelectorAll('[data-detail-group]')"), app.indexOf("document.querySelector('#confirm-all-performance-head')"));
-  assert.match(toggle, /if \(el\.open\) \{ open\.add\(key\); closed\.delete\(key\); \} else \{ open\.delete\(key\); closed\.add\(key\); \}/);
+  assert.match(toggle, /if \(el\.open\) open\.add\(key\); else open\.delete\(key\);/);
+  assert.doesNotMatch(toggle, /closed/);
+});
+
+test('「다음 할 일」이 가리키는 구역은 접지 않는다', () => {
+  // 초록·화살표를 붙여 놓고 그 자리를 감추면 찾을 수가 없다.
+  const helper = app.slice(app.indexOf('function stepPointsAt(groupKey)'), app.indexOf('function goMark('));
+  assert.match(helper, /groupKey === 'performance' && orgStepKey\(\) === 'confirm'/);
+  const fold = app.slice(app.indexOf('function orgFoldOpen(key)'), app.indexOf('function stepPointsAt('));
+  assert.match(fold, /key === 'detail' && orgStepKey\(\) === 'confirm'/);
 });
 
 test('실적은 접힌 채로도 제목 줄에서 한 번에 확인할 수 있다', () => {

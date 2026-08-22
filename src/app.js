@@ -132,6 +132,12 @@ const initial = {
   reviewDetail: false, reviewPanels: [], reviewFocus: false, reviseOpen: false, reviseDraft: null, revisions: [], revisionBackup: null,
   // 상세정보에서 지금 펼쳐 둔 구역. 모든 구역을 한 번에 열지 않는다.
   openOrgGroups: [],
+  // 바깥 두 층(불러온 기관 정보 · 상세정보)의 펼침. 저장하지 않는다 — 다음에 들어오면 다시 접힌다.
+  openOrgFolds: [],
+  // 손으로 넣는 칸을 펼쳤는지. 이것도 저장하지 않는다.
+  openAddForms: [],
+  // 사람이 직접 닫은 연도. 맨 위 해가 기본으로 열리므로 닫은 뜻을 따로 적어 둔다.
+  closedOrgYears: [],
   // 배경으로 돌린 설계 작업번호. 새로고침·시간초과 뒤에도 같은 결과를 받아 다시 과금하지 않는다.
   designJobs: {},
   // 이 계획서에 남아 있는 AI 작업 기록. 다시 만들기 전에 먼저 보여 준다.
@@ -3095,7 +3101,7 @@ function loadState() {
     const stagedGeneration = saved.stagedGeneration && typeof saved.stagedGeneration === 'object'
       ? { ...structuredClone(initial.stagedGeneration), ...saved.stagedGeneration, parts: Array.isArray(saved.stagedGeneration.parts) ? saved.stagedGeneration.parts : [], completedGroupIds: Array.isArray(saved.stagedGeneration.completedGroupIds) ? saved.stagedGeneration.completedGroupIds : [] }
       : structuredClone(initial.stagedGeneration);
-    const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', notice: '', applicantItemDrafts: {}, applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openAddAreas: [], quickFilledFrom: {}, coachingSelection: [], attachmentLinks: {}, submissionZip: null, lastDownload: null, sheet: null };
+    const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', notice: '', applicantItemDrafts: {}, applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openAddAreas: [], openAddForms: [], closedOrgYears: [], openOrgFolds: [], openOrgGroups: [], closedOrgGroups: [], openOrgYears: [], quickFilledFrom: {}, coachingSelection: [], attachmentLinks: {}, submissionZip: null, lastDownload: null, sheet: null };
     // 알 수 없는 포털 값이 남아 있으면 다시 고르게 한다.
     restored.portal = ['admin', 'proposal'].includes(saved.portal) ? saved.portal : '';
     // 예전에 저장한 상태에는 의뢰 건 정보가 없다. 빈 값으로 채우기만 하고 기존 데이터는 건드리지 않는다.
@@ -3133,7 +3139,7 @@ function saveState() {
   // 다만 브라우저 저장 한도가 있으므로 앞쪽 얼마간만 남긴다. 나머지는 다시 불러올 때 채워진다.
   const CACHED_NOTICES = 120;
   const safe = { ...state, reviewDetail: false, reviewPanels: [], reviewFocus: false, companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [],
-    archiveNotices: (state.archiveNotices || []).slice(0, CACHED_NOTICES), archiveProposals: (state.archiveProposals || []).slice(0, CACHED_NOTICES), noticeUrlDraft: '', busy: '', error: '', notice: '', applicantItemDrafts: {}, applicantNameDraft: '', applicantComparison: null, applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openAddAreas: [], quickFilledFrom: {}, files: state.files.map(({ text, ...meta }) => meta),
+    archiveNotices: (state.archiveNotices || []).slice(0, CACHED_NOTICES), archiveProposals: (state.archiveProposals || []).slice(0, CACHED_NOTICES), noticeUrlDraft: '', busy: '', error: '', notice: '', applicantItemDrafts: {}, applicantNameDraft: '', applicantComparison: null, applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openAddAreas: [], openAddForms: [], closedOrgYears: [], openOrgFolds: [], openOrgGroups: [], closedOrgGroups: [], openOrgYears: [], quickFilledFrom: {}, files: state.files.map(({ text, ...meta }) => meta),
     // 이 첨부 원본은 브라우저 메모리에만 있다. 새로고침 뒤에 파일이 있다고 잘못 말하지 않도록 연결 기록도 저장하지 않는다.
     // 기관이 준 서류는 R2에 보관하며 그것은 이 목록이 아니라 기관자료 줄에 남는다.
     attachmentLinks: {}, submissionZip: null, lastDownload: null, sheet: null };
@@ -5245,6 +5251,24 @@ function orgStepKey() {
   }).key;
 }
 
+// 빈 입력칸을 접는 자리. 처음 온 사람에게 빈 칸부터 보이면 「이걸 다 적어야 하나」가 된다.
+// 보통은 문서를 올려 채우므로 손으로 넣는 칸은 눌러서 펼친다(22-19와 같은 규칙).
+function addForm(key, label, body) {
+  const open = (state.openAddForms || []).includes(key);
+  return `<details class="add-fold" data-add-form="${escapeHtml(key)}" ${open ? 'open' : ''}><summary>${escapeHtml(label)}</summary>${body}</details>`;
+}
+
+// 바깥 두 층(불러온 기관 정보 · 상세정보)의 펼침. 기억은 이번 화면에서만 산다(22-22 방식).
+// 「다음 할 일」이 그 안을 가리키면 접혀 있으면 안 되므로 상태와 상관없이 펼친다.
+function orgFoldOpen(key) {
+  if ((state.openOrgFolds || []).includes(key)) return true;
+  return key === 'detail' && orgStepKey() === 'confirm';
+}
+// 「다음 할 일」이 이 구역을 가리키는가. 지금은 실적 확인 하나뿐이지만 자리를 하나로 둔다.
+function stepPointsAt(groupKey) {
+  return groupKey === 'performance' && orgStepKey() === 'confirm';
+}
+
 // 초록을 붙이는 유일한 통로. 판정이 가리키는 자리가 아니면 아무것도 붙지 않는다.
 // 갈색이 아홉 자리로 늘어 뜻을 잃었던 길을 초록이 그대로 가지 않게, 여기 한 곳으로만 지나가게 한다.
 function goMark(key, kind = 'button') {
@@ -5324,16 +5348,15 @@ function applicantSourcesView(applicant) {
   const draft = state.applicantSourceDraft || initial.applicantSourceDraft;
   const sources = applicant.sources || [];
   return `<div class="card"><div class="card-title"><div><h3>기관자료 ${sources.length}건</h3><span>홈페이지·소개서·과거 계획서 등 어디서 온 정보인지 남깁니다. 자료를 등록해도 기관 정보가 바로 바뀌지는 않습니다.</span></div></div>
-    <div class="two-col"><div class="field"><label for="source-kind">자료 종류</label><select id="source-kind">${SOURCE_KINDS.map(kind => `<option ${draft.kind === kind ? 'selected' : ''}>${escapeHtml(kind)}</option>`).join('')}</select></div>
+    ${addForm('source', '자료 줄 손으로 추가하기', `<div class="two-col"><div class="field"><label for="source-kind">자료 종류</label><select id="source-kind">${SOURCE_KINDS.map(kind => `<option ${draft.kind === kind ? 'selected' : ''}>${escapeHtml(kind)}</option>`).join('')}</select></div>
       <div class="field"><label for="source-name">자료명</label><input id="source-name" value="${escapeHtml(draft.name)}" placeholder="예: 2025 기관소개서"></div></div>
     <div class="two-col"><div class="field"><label for="source-url">주소(URL, 선택)</label><input id="source-url" type="url" value="${escapeHtml(draft.url)}" placeholder="https://"></div>
-      <div class="field"><label for="source-asof">자료 기준일</label><input id="source-asof" value="${escapeHtml(draft.asOf)}" placeholder="예: 2026-03 또는 2025년 사업"></div></div>
+      <div class="field"><label for="source-asof">자료 기준일</label><input id="source-asof" value="${escapeHtml(draft.asOf)}" placeholder="예: 2026-03 또는 2025년 사업"></div></div><div class="actions" style="margin:0"><span class="muted">URL은 기록만 합니다. 페이지 내용은 아래 「연혁·사업계획서를 올리면 자동으로 채워집니다」 칸에 붙여넣으면 이 자료를 출처로 저장합니다.</span><button class="button secondary" id="add-applicant-source">기관자료 등록</button></div>`)}
     ${applicant.filesConsentAt ? '' : `<div class="alert"><strong>기관이 준 서류 원본을 보관할 수 있습니다</strong>
       <p>등록증·연혁 같은 파일을 이 기관에 매달아 보관합니다. 나중에 「그 서류 다시 주세요」에 답할 수 있고,
       새 등록증과 견줘 무엇이 바뀌었는지도 볼 수 있습니다. 보관한 서류는 <b>이 기관을 볼 수 있는 사람만</b> 열 수 있고,
       <b>언제든 지울 수 있습니다</b>. 자료 줄이나 기관을 지우면 파일도 함께 지워지며, 지운 파일은 되돌릴 수 없습니다.</p>
       <div class="actions" style="margin:0"><span class="muted">한 번만 여쭙니다.</span><button class="button secondary" id="consent-org-files">동의하고 서류 보관 쓰기</button></div></div>`}
-    <div class="actions" style="margin:0"><span class="muted">URL은 기록만 합니다. 페이지 내용은 아래 「연혁·사업계획서를 올리면 자동으로 채워집니다」 칸에 붙여넣으면 이 자료를 출처로 저장합니다.</span><button class="button secondary" id="add-applicant-source">기관자료 등록</button></div>
     ${sources.length ? `<div class="requirement-list">${sources.map(source => `<article class="requirement"><div><span class="tag">${escapeHtml(source.kind)}</span><div><strong>${escapeHtml(source.name || source.url || '이름 없는 자료')}</strong><small class="muted">${source.url ? `<a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(source.url.slice(0, 60))}</a> · ` : ''}기준일 ${escapeHtml(source.asOf || ASOF_UNKNOWN)}</small>
       ${source.file ? `<small class="muted">보관한 서류 · ${escapeHtml(source.file.name)} · ${fileSizeLabel(source.file.size)} · ${escapeHtml(String(source.file.uploadedAt).slice(0, 10))} 받음${source.file.uploadedBy ? ` · ${escapeHtml(source.file.uploadedBy)}` : ''}</small>` : '<small class="muted">보관한 서류 없음</small>'}</div></div>
       <div class="actions" style="margin:0;gap:8px">${source.file
@@ -5559,8 +5582,7 @@ function ideaAssetPanel() {
         <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-asset-confirm="${escapeHtml(item.id)}" ${item.evidenceConfirmed ? 'checked' : ''}>근거를 확인했습니다</label>
         <button class="button secondary" data-remove-asset="${escapeHtml(item.id)}">삭제</button></div>
     </div></article>`).join('') || '<p class="muted">등록한 자산·아이디어가 없습니다.</p>'}</div>
-    <h4>새로 적기</h4>
-    <div class="two-col">
+    ${addForm('asset', '자산·아이디어 새로 적기', `<div class="two-col">
       <div class="field"><label for="asset-kind">유형</label><select id="asset-kind"><option value="">선택</option>${ASSET_KINDS.map(kind => `<option value="${escapeHtml(kind)}" ${draft.kind === kind ? 'selected' : ''}>${escapeHtml(kind)}</option>`).join('')}</select></div>
       <div class="field"><label for="asset-status">상태</label><select id="asset-status">${Object.values(ASSET_STATUS).map(status => `<option value="${status}" ${draft.status === status ? 'selected' : ''}>${escapeHtml(ASSET_STATUS_LABELS[status])}</option>`).join('')}</select></div>
     </div>
@@ -5569,7 +5591,7 @@ function ideaAssetPanel() {
         : `<input id="asset-${key}" data-asset-field="${key}" value="${escapeHtml(draft[key] || '')}">`
     }</div>`).join('')}
     <div class="actions"><span class="muted">검증된 보유자산으로 두려면 운영 경험과 근거를 함께 적어야 합니다.</span>
-      <button class="button secondary" id="asset-save" ${state.busy ? 'disabled' : ''}>자산·아이디어 저장</button></div>
+      <button class="button secondary" id="asset-save" ${state.busy ? 'disabled' : ''}>자산·아이디어 저장</button></div>`)}
   </details>`;
 }
 
@@ -5668,23 +5690,21 @@ function applicantCandidateView(applicant) {
 function applicantDetailView(applicant) {
   const groups = detailProgress(applicant);
   const filled = groups.filter(group => group.total).length;
-  return `<div class="card" id="applicant-detail">
-    <div class="card-title"><div><h3>2단계 상세정보 <span class="muted">(선택)</span></h3>
-      <span>여덟 구역 중 ${filled}구역에 자료가 있습니다. 지금 적지 않아도 계획서는 만들어집니다.</span></div>
-      <div><button class="button secondary" id="close-all-details">모두 접기</button></div></div>
+  const total = groups.reduce((sum, group) => sum + group.total, 0);
+  return `<details class="card org-details" id="applicant-detail" data-org-fold="detail" ${orgFoldOpen('detail') ? 'open' : ''}>
+    <summary><b>2단계 상세정보 <span class="muted">(선택)</span></b> <small>여덟 구역 중 ${filled}구역에 자료 ${total}건 · 지금 적지 않아도 계획서는 만들어집니다</small>
+      ${orgFoldOpen('detail') ? '<button class="button secondary summary-action" id="close-all-details">구역 모두 접기</button>' : ''}</summary>
     <div class="alert"><strong>상세정보를 등록하면 계획서가 달라집니다</strong><p>${DETAIL_INTRO}</p></div>
     <div class="stat-badges">${groups.map(group => `<span class="stat-badge" title="${escapeHtml(group.hint)}"><strong>${group.confirmed}/${group.total}</strong><span>${escapeHtml(group.title)}</span></span>`).join('')}</div>
     ${groups.map(group => detailGroupPanel(applicant, group)).join('')}
-  </div>`;
+  </details>`;
 }
 
 function detailGroupPanel(applicant, group) {
-  // 자료가 있는 묶음은 펼치고 빈 묶음은 접는다. 96건이 들어왔는데 접혀 있으면 들어간 줄 모른다.
-  // 사람이 직접 열고 닫은 것은 그 뜻을 지킨다 — 연 것도 닫은 것도 기억한다.
-  // 예전에는 편 자리만 기억해서, 어제 눌러 둔 빈 묶음 하나가 오늘도 혼자 펼쳐져 있었다.
-  const open = (state.closedOrgGroups || []).includes(group.key)
-    ? false
-    : ((state.openOrgGroups || []).includes(group.key) || group.total > 0);
+  // 구역은 모두 접은 채로 시작한다. 자료가 있는 구역을 펼쳐 두었더니 실적 96건이 그대로 쏟아져
+  // 화면을 감당할 수 없었다(22-42). 접힌 줄에 건수가 있으므로 열지 않아도 무엇이 얼마나 있는지 보인다.
+  // 다만 「다음 할 일」이 가리키는 구역은 접지 않는다 — 가리켜 놓고 감추면 찾을 수가 없다.
+  const open = (state.openOrgGroups || []).includes(group.key) || stepPointsAt(group.key);
   const areas = group.areas.map(key => APPLICANT_AREAS.find(area => area.key === key)).filter(Boolean);
   // 실적은 접힌 채로도 한 번에 확인할 수 있어야 한다. 제목 줄에서 바로 누른다.
   const pending = group.key === 'performance' ? group.total - group.confirmed : 0;
@@ -5748,12 +5768,15 @@ function applicantAreaFields(applicant, area, showTitle) {
           <div class="actions" style="margin:0"><span></span><button class="button secondary" data-remove-applicant-item="${escapeHtml(item.id)}">항목 삭제</button></div></article></details>`;
   const list = entries => `<div class="item-list">${entries.map(editor).join('')}</div>`;
   // 실적은 해마다 접어 둔다. 어느 해를 펼쳐 두었는지는 기억한다 — 한 건 고칠 때마다 닫히면 못 쓴다.
+  // 다만 가장 최근 해는 열어 둔다. 상세정보 → 실적 → 연도까지 세 번을 눌러야 한 줄이 보이면 너무 깊다.
+  const yearOpen = (year, index) => (state.openOrgYears || []).includes(year)
+    || (index === 0 && !(state.openOrgYears || []).length && !(state.closedOrgYears || []).includes(year));
   const folded = area.key === 'performance' && items.length > YEAR_FOLD_MIN;
   const years = folded ? groupItemsByYear(items) : [];
   return `${showTitle ? `<h4>${escapeHtml(area.title)} · ${items.length}건</h4>` : ''}
         ${items.length
           ? (folded
-            ? years.map(group => `<details class="year-fold" data-org-year="${escapeHtml(group.year)}" ${(state.openOrgYears || []).includes(group.year) ? 'open' : ''}><summary><b>${escapeHtml(group.year)}</b> ${group.items.length}건 <small class="muted">확인됨 ${countConfirmed(group.items)}건</small></summary>${list(group.items)}</details>`).join('')
+            ? years.map((group, index) => `<details class="year-fold" data-org-year="${escapeHtml(group.year)}" ${yearOpen(group.year, index) ? 'open' : ''}><summary><b>${escapeHtml(group.year)}</b> ${group.items.length}건 <small class="muted">확인됨 ${countConfirmed(group.items)}건</small></summary>${list(group.items)}</details>`).join('')
             : list(items))
           : '<p class="muted">등록한 항목이 없습니다.</p>'}
         <details class="add-fold" data-add-area="${escapeHtml(area.key)}" ${(state.openAddAreas || []).includes(area.key) ? 'open' : ''}><summary>문서에 없는 것을 손으로 넣기</summary>
@@ -5793,13 +5816,15 @@ function applicantLoadedView(applicant) {
   // 열한 칸이 전부 비었으면 하나씩 적는 것보다 문서를 올리는 쪽이 훨씬 빠르다.
   // 그 카드는 이 화면 맨 아래에 있어 위에서부터 손으로 채우는 사람은 끝까지 못 본다.
   const empty = summary.every(area => !area.total);
-  return `<div class="card"><div class="card-title"><div><h3>불러온 신청기관 정보 · ${escapeHtml(applicant.name)}</h3><span>확인된 정보만 계획서 작성에 전달됩니다.</span></div></div>
+  const needsCheck = applicant.items.length - confirmed.length;
+  return `<details class="card org-details" data-org-fold="loaded" ${orgFoldOpen('loaded') ? 'open' : ''}>
+    <summary><b>불러온 신청기관 정보 · ${escapeHtml(applicant.name)}</b> <small>확인됨 ${confirmed.length}건 · 확인 필요 ${needsCheck}건 · 확인된 것만 계획서에 전달됩니다</small></summary>
     ${empty ? `<div class="alert warning"><strong>연혁·사업계획서·결산서를 올리면 자동으로 채워집니다</strong>
       <p>열한 칸을 하나씩 적지 않아도 됩니다. 기관 연혁을 올리면 연도별 사업실적이, 사업계획서를 올리면 인력·시설·협력기관·예산이, 고유번호증을 올리면 기관명·대표자·고유번호가 후보로 올라옵니다.</p>
       <p><button class="button primary next-step" id="go-applicant-doc">연혁·사업계획서 올리러 가기</button></p></div>` : ''}
     <div class="summary-grid">${summary.map(area => `<button type="button" data-open-area="${escapeHtml(area.key)}" title="${escapeHtml(area.title)} 적으러 가기"><span>${escapeHtml(area.title)}</span><strong>${area.confirmed}건 확인됨</strong><small>확인 필요·오래된 정보 ${area.needsCheck}건</small></button>`).join('')}</div>
     ${confirmedInfoView(applicant, confirmed)}
-    <details><summary>전달하지 않는 확인 필요·오래된 정보 ${applicant.items.length - confirmed.length}건</summary><p class="muted">아래 항목은 항목명만 표시하며 내용은 계획서 작성 요청에 포함하지 않습니다.</p><div class="cap-grid">${applicant.items.filter(item => item.status !== CONFIRMED_STATUS).map(item => `<div><span>${escapeHtml(areaTitle(item.area))}</span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.status)}</small></div>`).join('') || '<p class="muted">없음</p>'}</div></details></div>`;
+    <details><summary>전달하지 않는 확인 필요·오래된 정보 ${applicant.items.length - confirmed.length}건</summary><p class="muted">아래 항목은 항목명만 표시하며 내용은 계획서 작성 요청에 포함하지 않습니다.</p><div class="cap-grid">${applicant.items.filter(item => item.status !== CONFIRMED_STATUS).map(item => `<div><span>${escapeHtml(areaTitle(item.area))}</span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.status)}</small></div>`).join('') || '<p class="muted">없음</p>'}</div></details></details>`;
 }
 
 // 앞 항목들을 묶은 문장으로 보이면 그 자리에 적는다. 건수는 그대로 두고 꼬리표만 단다.
@@ -5888,10 +5913,10 @@ function projectValuesView(applicant) {
   const draft = state.projectValueDraft;
   return `<div class="card"><div class="card-title"><div><h3>이번 사업 전용 값</h3><span>기관 원본은 그대로 두고 이번 계획서에만 사용할 값을 지정합니다.</span></div></div>
     <p class="muted">예: 기관 보유 프로그램 12회 → 이번 공모 설계 16회. 이번 사업 값을 지정해도 신청기관 원본 정보는 변경되지 않습니다.</p>
-    <div class="two-col"><div class="field"><label for="project-value-item">연결할 기관 정보</label><select id="project-value-item"><option value="">기관 정보와 연결하지 않음</option>${applicant.items.map(item => `<option value="${escapeHtml(item.id)}" ${draft.applicantItemId === item.id ? 'selected' : ''}>${escapeHtml(`${areaTitle(item.area)} · ${item.label}`)}</option>`).join('')}</select></div>
+    ${addForm('project-value', '이번 사업 값 손으로 추가하기', `<div class="two-col"><div class="field"><label for="project-value-item">연결할 기관 정보</label><select id="project-value-item"><option value="">기관 정보와 연결하지 않음</option>${applicant.items.map(item => `<option value="${escapeHtml(item.id)}" ${draft.applicantItemId === item.id ? 'selected' : ''}>${escapeHtml(`${areaTitle(item.area)} · ${item.label}`)}</option>`).join('')}</select></div>
     <div class="field"><label for="project-value-label">항목명</label><input id="project-value-label" value="${escapeHtml(draft.label)}" placeholder="예: 프로그램 회기"></div></div>
     <div class="field"><label for="project-value-value">이번 사업 값</label><input id="project-value-value" value="${escapeHtml(draft.value)}" placeholder="예: 16회"></div>
-    <div class="actions" style="margin:0"><span></span><button class="button primary" id="add-project-value">이번 사업 값 추가</button></div>
+    <div class="actions" style="margin:0"><span></span><button class="button primary" id="add-project-value">이번 사업 값 추가</button></div>`)}
     ${state.projectValues.length ? `<div class="requirement-list">${state.projectValues.map(item => { const source = applicant.items.find(value => value.id === item.applicantItemId); return `<article class="requirement"><div><span class="tag">이번 사업</span><div><strong>${escapeHtml(item.label)}: ${escapeHtml(item.value)}</strong><small>신청기관 원본: ${escapeHtml(source ? `${source.label} = ${source.value}` : '기관 정보에 없음')} (변경되지 않음)</small></div></div><button class="button secondary" data-remove-project-value="${escapeHtml(item.id)}">삭제</button></article>`; }).join('')}</div>` : '<p class="muted">지정한 이번 사업 값이 없습니다.</p>'}</div>`;
 }
 
@@ -7329,8 +7354,8 @@ function coachingReferenceView(coaching) {
     <div class="two-col"><div class="field"><label for="reference-type">자료 유형</label><select id="reference-type">${REFERENCE_TYPES.map(type => `<option value="${escapeHtml(type)}" ${coaching.referenceType === type ? 'selected' : ''}>${escapeHtml(type)}</option>`).join('')}</select></div>
     <div class="field"><label for="reference-file">참고자료 파일 추가</label><input id="reference-file" type="file" accept=".pdf,.docx,.txt,.hwpx,.hwp" multiple></div></div>
     <label class="dropzone" id="reference-dropzone" for="reference-file"><strong>참고자료를 여기에 끌어다 놓으세요</strong><small>선택한 자료 유형으로 여러 개를 한 번에 추가합니다</small></label>
-    <div class="two-col"><div class="field"><label for="reference-name">붙여넣을 자료명</label><input id="reference-name" value="${escapeHtml(coaching.referenceNameDraft || '')}" placeholder="예: 2026년 배분사업 공고문"></div><div class="field"><label>&nbsp;</label><button class="button secondary" id="add-reference-text">붙여넣은 참고자료 추가</button></div></div>
-    <div class="field"><label for="reference-text">참고자료 내용 붙여넣기</label><textarea id="reference-text" style="min-height:90px" placeholder="공고문·요강·평가기준 원문을 붙여넣으세요.">${escapeHtml(coaching.referenceDraft || '')}</textarea></div>
+    ${addForm('reference', '파일 대신 내용을 붙여넣기', `<div class="two-col"><div class="field"><label for="reference-name">붙여넣을 자료명</label><input id="reference-name" value="${escapeHtml(coaching.referenceNameDraft || '')}" placeholder="예: 2026년 배분사업 공고문"></div><div class="field"><label>&nbsp;</label><button class="button secondary" id="add-reference-text">붙여넣은 참고자료 추가</button></div></div>
+    <div class="field"><label for="reference-text">참고자료 내용 붙여넣기</label><textarea id="reference-text" style="min-height:90px" placeholder="공고문·요강·평가기준 원문을 붙여넣으세요.">${escapeHtml(coaching.referenceDraft || '')}</textarea></div>`)}
     ${references.length ? `<div class="requirement-list">${references.map((item, index) => {
       const assessment = review.assessments[index] || {};
       return `<article class="requirement"><div><span class="${usageTag[assessment.usage] || 'tag'}">${escapeHtml(assessment.usage || '판별 중')}</span><div><strong>${escapeHtml(item.fileName)}</strong><small>${escapeHtml(item.referenceType)} · ${item.text.length.toLocaleString()}자${assessment.years?.length ? ` · 자료 연도 ${assessment.years.join('·')}` : ''}</small></div></div>
@@ -8188,23 +8213,38 @@ function bindApplicants() {
   document.querySelectorAll('[data-org-year]').forEach(el => el.addEventListener('toggle', () => {
     const year = el.dataset.orgYear;
     const open = new Set(state.openOrgYears || []);
-    if (el.open) open.add(year); else open.delete(year);
+    const closed = new Set(state.closedOrgYears || []);
+    // 맨 위 해는 기본으로 열려 있으므로, 닫은 것도 적어 두어야 다시 열리지 않는다.
+    if (el.open) { open.add(year); closed.delete(year); } else { open.delete(year); closed.add(year); }
     state.openOrgYears = [...open];
+    state.closedOrgYears = [...closed];
+    saveState();
+  }));
+  document.querySelectorAll('[data-add-form]').forEach(el => el.addEventListener('toggle', () => {
+    const key = el.dataset.addForm;
+    const open = new Set(state.openAddForms || []);
+    if (el.open) open.add(key); else open.delete(key);
+    state.openAddForms = [...open];
+    saveState();
+  }));
+  document.querySelectorAll('[data-org-fold]').forEach(el => el.addEventListener('toggle', () => {
+    const key = el.dataset.orgFold;
+    const open = new Set(state.openOrgFolds || []);
+    if (el.open) open.add(key); else open.delete(key);
+    state.openOrgFolds = [...open];
     saveState();
   }));
   document.querySelectorAll('[data-detail-group]').forEach(el => el.addEventListener('toggle', () => {
     const key = el.dataset.detailGroup;
+    // 구역은 기본이 접힘이므로 「연 것」만 기억하면 된다. 닫은 것을 따로 적어 둘 까닭이 없다.
     const open = new Set(state.openOrgGroups || []);
-    const closed = new Set(state.closedOrgGroups || []);
-    // 연 것과 닫은 것을 따로 기억한다. 닫아 둔 묶음이 자료가 있다고 다시 열리지 않는다.
-    if (el.open) { open.add(key); closed.delete(key); } else { open.delete(key); closed.add(key); }
+    if (el.open) open.add(key); else open.delete(key);
     state.openOrgGroups = [...open];
-    state.closedOrgGroups = [...closed];
     saveState();
   }));
   // 제목 줄의 「모두 확인」은 묶음을 여닫지 않는다.
   document.querySelector('#confirm-all-performance-head')?.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); confirmAllPerformance(); });
-  document.querySelector('#close-all-details')?.addEventListener('click', () => setState({ openOrgGroups: [], closedOrgGroups: DETAIL_GROUPS.map(group => group.key) }));
+  document.querySelector('#close-all-details')?.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); setState({ openOrgGroups: [] }); });
   // 다시 올리는 길은 그 자리에서. 또 찾아 헤매지 않게 한다.
   document.querySelector('#recheck-upload')?.addEventListener('click', () => focusAnchor('#applicant-cert-drop'));
   document.querySelector('#basic-to-writing')?.addEventListener('click', () => void saveBasicInfo({ thenWrite: true }));
