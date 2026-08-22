@@ -301,12 +301,17 @@ export function buildApplicantOrganization(applicant, projectValues = [], { requ
 function tokens(value) {
   return [...new Set(String(value || '').replace(/[^가-힣A-Za-z0-9]/g, ' ').split(/\s+/).filter(token => token.length > 1))];
 }
+// 낱말이 하나라도 겹치면 연결하던 것을 그만둔다.
+//
+// 실제로 났던 일: 「진행상황에 따라 사업 시작 시점 등 기간이 조정될 수 있다」에 실적 99건이
+// 통째로 붙었다. 항목명이 「2017년 사업실적」이라 「사업」 한 낱말로 전부 걸렸고,
+// 「신청기간은 2026년 7월 1일부터…」에는 2026년 실적 30건이 붙었다. 조항과 아무 상관이 없다.
+//
+// 그래서 계획서에 실을 실적을 고를 때 쓰는 규칙(relatedItems)을 여기서도 그대로 쓴다 —
+// 항목 셋 중 하나를 넘게 가리키는 낱말은 근거가 못 되고, 드문 낱말은 하나로 충분하며
+// 어중간하면 둘 이상 겹쳐야 한다. 판정을 두 곳에서 따로 만들면 또 어긋난다.
 function matchItems(text_, items) {
-  const keys = tokens(text_);
-  return items.filter(item => {
-    const haystack = `${item.label} ${item.value} ${areaTitle(item.area)}`;
-    return keys.some(token => haystack.includes(token));
-  });
+  return relatedItems(items, [text_], { limit: 0 });
 }
 
 // 공고 요구사항과 신청기관 정보를 비교해 네 갈래로 구분한다.
@@ -406,7 +411,11 @@ export const RELATED_LIMIT = 30;
 export function relatedMatches(items = [], requirements = [], { limit = RELATED_LIMIT } = {}) {
   const list = Array.isArray(items) ? items : [];
   if (!list.length) return [];
-  const haystacks = new Map(list.map(item => [item.id, `${item.label} ${item.value} ${areaTitle(item.area)}`]));
+  // 실적은 항목명이 「2017년 사업실적」이라 아무것도 가려내지 못한다. 값과 내용만 본다.
+  // 나머지 항목은 항목명이 뜻을 가지므로(기관명·상근 인력) 함께 본다.
+  const haystacks = new Map(list.map(item => [item.id, item.area === 'performance'
+    ? `${item.value} ${item.detail || ''}`
+    : `${item.label} ${item.value} ${item.detail || ''} ${areaTitle(item.area)}`]));
   const scores = new Map();
   const words = new Map();
   const used = new Set();
@@ -416,8 +425,11 @@ export function relatedMatches(items = [], requirements = [], { limit = RELATED_
       if (used.has(token)) continue;
       used.add(token);
       const hits = list.filter(item => haystacks.get(item.id).includes(token));
-      if (!hits.length || hits.length > list.length * GENERIC_RATIO) continue;
-      const weight = hits.length <= list.length * RARE_RATIO ? RELATED_SCORE : 1;
+      // 한두 항목만 가리키는 낱말은 흔한 낱말이 아니다. 항목이 서너 개뿐인 기관에서 비율만 보면
+      // 「상근」 한 낱말이 33%가 되어 흔한 낱말로 걸러진다.
+      if (!hits.length || hits.length > Math.max(2, list.length * GENERIC_RATIO)) continue;
+      // 항목이 몇 개뿐인 기관에서는 비율이 뜻을 잃는다. 한 항목만 가리키는 낱말은 언제나 드문 낱말이다.
+      const weight = hits.length <= Math.max(1, list.length * RARE_RATIO) ? RELATED_SCORE : 1;
       for (const item of hits) {
         scores.set(item.id, (scores.get(item.id) || 0) + weight);
         words.set(item.id, [...(words.get(item.id) || []), token]);
