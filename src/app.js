@@ -70,6 +70,7 @@ import { ARCHIVE_PAGE_SIZES, ARCHIVE_PAGE_SIZE_LABEL, ARCHIVE_STATUSES, DEFAULT_
 import { SAMPLE_MARK, SAMPLE_NOTE, SAMPLE_NOTICE, SAMPLE_NOTICE_KEY, SAMPLE_STAGES, SAMPLE_STAGE_BY_STEP, buildSampleProject } from './sample-project.js';
 import { SAMPLE_REAL_COACHING } from './sample-coaching-run.js';
 import { RELATED_LIMIT, countConfirmed, confirmAreaItems, relatedMatches, requiresConsortium, restoreItemStatuses, SOURCE_KINDS, makeApplicantSource, APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, mergeApplicantItems, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
+import { groupAreas } from './org-area-order.js';
 import { nextOrgStep } from './org-next-step.js';
 import { suggestBasicFields } from './org-basic-suggest.js';
 import { staleReason, staleSummary } from './org-staleness.js';
@@ -5822,9 +5823,29 @@ function applicantLoadedView(applicant) {
     ${empty ? `<div class="alert warning"><strong>연혁·사업계획서·결산서를 올리면 자동으로 채워집니다</strong>
       <p>열한 칸을 하나씩 적지 않아도 됩니다. 기관 연혁을 올리면 연도별 사업실적이, 사업계획서를 올리면 인력·시설·협력기관·예산이, 고유번호증을 올리면 기관명·대표자·고유번호가 후보로 올라옵니다.</p>
       <p><button class="button primary next-step" id="go-applicant-doc">연혁·사업계획서 올리러 가기</button></p></div>` : ''}
-    <div class="summary-grid">${summary.map(area => `<button type="button" data-open-area="${escapeHtml(area.key)}" title="${escapeHtml(area.title)} 적으러 가기"><span>${escapeHtml(area.title)}</span><strong>${area.confirmed}건 확인됨</strong><small>확인 필요·오래된 정보 ${area.needsCheck}건</small></button>`).join('')}</div>
+    ${areaGroupsView(applicant, summary)}
     ${confirmedInfoView(applicant, confirmed)}
     <details><summary>전달하지 않는 확인 필요·오래된 정보 ${applicant.items.length - confirmed.length}건</summary><p class="muted">아래 항목은 항목명만 표시하며 내용은 계획서 작성 요청에 포함하지 않습니다.</p><div class="cap-grid">${applicant.items.filter(item => item.status !== CONFIRMED_STATUS).map(item => `<div><span>${escapeHtml(areaTitle(item.area))}</span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.status)}</small></div>`).join('') || '<p class="muted">없음</p>'}</div></details></details>`;
+}
+
+// 열한 칸을 공고 기준으로 세운다(22-43). 빈 칸이 96건짜리 칸과 같은 자리를 차지하지 않게 한다.
+// 앞으로 올리는 것은 근거가 있는 칸뿐이다 — 컨소시엄 필수(공고 문장)와 겹치는 실적 건수(이미 세고 있다).
+// 짐작으로 올리지 않는 까닭은 src/org-area-order.js에 적어 두었다.
+function areaGroupsView(applicant, summary) {
+  const requirements = comparisonRequirements();
+  const history = splitApplicantProfile(applicant).history;
+  const criteria = [String(state.selectedNotice?.title || state.project.title || '').trim(), ...requirements].filter(Boolean);
+  const performanceMatches = history.length && criteria.length ? relatedMatches(history, criteria, { limit: 0 }).length : 0;
+  const grouped = groupAreas(summary, { consortium: requiresConsortium(requirements, currentNoticeContract()), performanceMatches });
+  const cell = area => `<button type="button" data-open-area="${escapeHtml(area.key)}" title="${escapeHtml(area.title)} 적으러 가기"><span>${escapeHtml(area.title)}</span><strong>${area.total}건${area.total ? ` · 확인됨 ${area.confirmed}건` : ''}</strong><small>${escapeHtml(area.why || (area.total ? `확인 필요·오래된 정보 ${area.needsCheck}건` : '아직 비어 있습니다'))}</small></button>`;
+  return `${grouped.required.length ? `<h4>이 공고가 요구하는 것 · ${grouped.required.length}칸</h4>
+    <div class="summary-grid">${grouped.required.map(cell).join('')}</div>` : ''}
+    ${grouped.filled.length ? `<h4>${grouped.required.length ? '그 밖에 채운 것' : '채운 것'} · ${grouped.filled.length}칸</h4>
+    <div class="summary-grid">${grouped.filled.map(cell).join('')}</div>` : ''}
+    ${grouped.empty.length ? `<details class="add-fold" data-add-form="empty-areas" ${(state.openAddForms || []).includes('empty-areas') ? 'open' : ''}>
+      <summary>아직 빈 칸 ${grouped.empty.length}칸 — ${escapeHtml(grouped.empty.map(area => area.title).join(' · '))}</summary>
+      <p class="muted">비어 있어도 계획서는 만들어집니다. 모르는 자리는 [확인 필요]로 남습니다.</p>
+      <div class="summary-grid">${grouped.empty.map(cell).join('')}</div></details>` : ''}`;
 }
 
 // 앞 항목들을 묶은 문장으로 보이면 그 자리에 적는다. 건수는 그대로 두고 꼬리표만 단다.
