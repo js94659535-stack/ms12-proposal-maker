@@ -39,25 +39,23 @@ test('중분류는 모두 같은 함수가 그린다', () => {
 
 test('하나를 열면 나머지는 닫힌다', () => {
   const toggle = app.slice(app.indexOf("document.querySelectorAll('[data-section]')"), app.indexOf('  // 소분류도 한 번에 하나다'));
-  assert.match(toggle, /if \(el\.open\) chosen\[screen\] = key;/);
-  // 닫으면 빈 문자열이다 — 「고르지 않았다」와 「닫아 두었다」는 다른 뜻이다.
-  assert.match(toggle, /else if \(chosen\[screen\] === key\) chosen\[screen\] = '';/);
+  // 무엇이 열려 있어야 하는지는 accordion-state가 정한다. 처리기는 그 값을 담기만 한다.
+  assert.match(toggle, /const next = nextOpenGroup\(openSectionKey\(screen\), key\);/);
   // 나머지를 닫으려면 다시 그려야 한다.
-  assert.match(toggle, /state\.openSections = chosen;\s*\n\s*setState\(\{\}\);/);
+  assert.match(toggle, /state\.openSections = \{ \.\.\.\(state\.openSections \|\| \{\}\), \[screen\]: next \};\s*\n\s*setState\(\{\}\);/);
 });
 
 test('처음 열리는 것은 「다음 할 일」이 가리키는 중분류다', () => {
   const key = app.slice(app.indexOf('function openSectionKey(screen)'), app.indexOf('// 중분류 한 칸.'));
-  assert.match(key, /if \(chosen !== undefined\) return keys\.includes\(chosen\) \? chosen : '';/);
   assert.match(key, /const pointed = screen === 'applicants' \? orgStepSection\(\) : pickStepSection\(\);/);
-  // 가리키는 것이 없으면 첫 번째다.
-  assert.match(key, /return keys\.includes\(pointed\) \? pointed : keys\[0\] \|\| '';/);
+  // 「고르지 않았다·닫아 두었다·이것을 열었다」 셋을 가르는 규칙은 resolveOpenGroup 한 곳에 있다.
+  assert.match(key, /resolveOpenGroup\(\(state\.openSections \|\| \{\}\)\[screen\], keys\.includes\(pointed\) \? pointed : '', keys\[0\] \|\| ''\)/);
 });
 
 test('펼침은 이번 화면에서만 기억한다', () => {
   // 22-19의 접기가 안 먹은 까닭이 이것이었다. 한 번 편 것이 브라우저에 저장돼 새로고침해도 펴져 있었다.
   const save = app.slice(app.indexOf('function saveState()'), app.indexOf('function loadNavigationHistory()'));
-  for (const key of ['openAddForms: []', 'openFitGroups: []', 'openSections: {}', 'openOrgGroup: null', 'openOrgYears: []']) {
+  for (const key of ['openAddForms: []', 'openFitGroups: []', 'openSections: {}', 'openOrgGroup: undefined', 'openOrgYears: []']) {
     assert.ok(save.includes(key), `${key}를 저장하고 있다`);
   }
 });

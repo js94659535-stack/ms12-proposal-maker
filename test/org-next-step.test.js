@@ -192,8 +192,8 @@ test('가리키는 자리가 접혀 있으면 그 자리가 열린 채로 시작
   assert.match(where, /'add-org': 'picker', basic: 'basic', upload: 'basic', apply: 'candidates'/);
   const key = app.slice(app.indexOf('function openSectionKey(screen)'), app.indexOf('// 중분류 한 칸.'));
   // 사람이 고른 적이 있으면 그것이 답이다. 빈 문자열은 「닫아 두었다」는 뜻이라 그대로 둔다.
-  assert.match(key, /if \(chosen !== undefined\) return keys\.includes\(chosen\) \? chosen : '';/);
-  assert.match(key, /return keys\.includes\(pointed\) \? pointed : keys\[0\] \|\| '';/);
+  assert.match(key, /const open = resolveOpenGroup\(\(state\.openSections \|\| \{\}\)\[screen\], keys\.includes\(pointed\) \? pointed : '', keys\[0\] \|\| ''\);/);
+  assert.match(key, /return keys\.includes\(open\) \? open : '';/);
   // 소분류도 같은 규칙이다.
   assert.match(app, /function stepPointsAt\(groupKey\) \{\s*\n\s*return Boolean\(groupKey\) && stepGroupKey\(orgStepInfo\(\)\) === groupKey;/);
   // 띠를 누르면 가리키는 중분류와 구역을 함께 연다.

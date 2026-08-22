@@ -104,7 +104,7 @@ test('상세정보 안내 문구를 그대로 띄우고 구역을 한 번에 펼
   assert.match(app, /<p>\$\{DETAIL_INTRO\}<\/p>/);
   // 구역은 한 번에 하나만 열린다(22-01⑤). 96건이 쏟아지지 않게 나머지는 접힌 줄로 남는다.
   // 처음 열리는 것은 「다음 할 일」이 가리키는 구역이고, 사람이 연 뒤에는 그것이 열린 것이다.
-  assert.match(app, /function openGroupKey\(\) \{\s*\n\s*const chosen = state\.openOrgGroup;/);
+  assert.match(app, /return resolveOpenGroup\(state\.openOrgGroup, stepGroupKey\(orgStepInfo\(\)\), ''\) \|\| '';/);
   assert.match(app, /const open = openGroupKey\(\) === key;/);
   assert.match(app, /data-detail-group="\$\{escapeHtml\(key\)\}" \$\{open \? 'open' : ''\}/);
   // 「모두 펼치기」도 「모두 접기」도 없다. 한 번에 하나만 열리므로 접을 것이 하나뿐이고,

@@ -61,12 +61,12 @@ test('구역은 한 번에 하나만 열린다', () => {
   // 접혀 있어도 무엇이 얼마나 있는지는 제목 줄에 남는다.
   assert.match(panel, /sub: `등록 \$\{group\.total\}건 · 확인됨 \$\{group\.confirmed\}건`/);
   // 여는 규칙은 subSection 한 곳에 있다.
-  assert.match(app, /function openGroupKey\(\) \{\s*\n\s*const chosen = state\.openOrgGroup;/);
+  assert.match(app, /return resolveOpenGroup\(state\.openOrgGroup, stepGroupKey\(orgStepInfo\(\)\), ''\) \|\| '';/);
   assert.match(app, /const open = openGroupKey\(\) === key;/);
   // 연 것 하나만 기억한다. 닫으면 빈 문자열이라 아무것도 열리지 않은 채로 둔다.
   const toggle = app.slice(app.indexOf("document.querySelectorAll('[data-detail-group]')"), app.indexOf("  // 제목 줄의 「모두 확인」은"));
-  assert.match(toggle, /if \(el\.open\) state\.openOrgGroup = key;/);
-  assert.match(toggle, /else if \(openGroupKey\(\) === key\) state\.openOrgGroup = '';/);
+  assert.match(toggle, /const next = nextOpenGroup\(openGroupKey\(\), el\.dataset\.detailGroup\);/);
+  assert.match(toggle, /state\.openOrgGroup = next;/);
   assert.doesNotMatch(toggle, /closed/);
 });
 
@@ -80,7 +80,7 @@ test('「다음 할 일」이 가리키는 구역이 처음 열린다', () => {
   assert.match(where, /if \(step\.area === 'performance'\) return 'performance';/);
   // 사람이 고르기 전에는 판정이 가리키는 구역이 열린 것이다.
   const group = app.slice(app.indexOf('function openGroupKey()'), app.indexOf('function subSection(key,'));
-  assert.match(group, /return stepGroupKey\(orgStepInfo\(\)\) \|\| '';/);
+  assert.match(group, /resolveOpenGroup\(state\.openOrgGroup, stepGroupKey\(orgStepInfo\(\)\), ''\)/);
 });
 
 test('접힌 채로도 제목 줄에서 한 번에 확인할 수 있다', () => {
