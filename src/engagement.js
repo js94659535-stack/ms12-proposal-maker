@@ -1,5 +1,6 @@
 // 「사업계획서 의뢰 건」 한 건의 경계를 정한다. 규칙 기반 로컬 처리만 하고 외부 API를 호출하지 않는다.
 // 기관 영구정보(신청기관에 계속 남는 사실)와 이번 사업 정보(이 의뢰 건에서만 쓰는 값)를 절대 자동으로 섞지 않는다.
+import { countConfirmed, countUnconfirmed } from '../server/applicant-count.js';
 import { CONFIRMED_STATUS, splitApplicantProfile } from './applicants.js';
 import { ITEM_SOURCE_TYPES, applyFormSpecToOutline, formItemSkeleton, mergeFormTables } from './form-spec.js';
 
@@ -239,8 +240,8 @@ export function organizationBoundary(applicant, projectValues = []) {
     .map(entry => ({ ...entry, from: records.find(record => record.value === entry.value).label }));
   return {
     permanent, records, thisProject, mixed,
-    confirmed: permanent.filter(item => item.status === CONFIRMED_STATUS).length,
-    unverified: permanent.filter(item => item.status !== CONFIRMED_STATUS).length,
+    confirmed: countConfirmed(permanent),
+    unverified: countUnconfirmed(permanent),
     withoutOrigin: [...permanent, ...records].filter(item => !item.origin).length
   };
 }

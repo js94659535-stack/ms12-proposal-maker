@@ -1,3 +1,4 @@
+import { countConfirmed } from '../server/applicant-count.js';
 // 공고문·요강·평가기준에서 「선정 논리」를 구조화한다.
 // 규칙 기반 로컬 처리만 사용하며 외부 API를 호출하지 않는다. 공고에 없는 내용을 공식 기준처럼 만들지 않는다.
 export const NOTICE_FIELDS = [
@@ -181,7 +182,7 @@ export function noticeOverview(structure, logic, requirements, context = {}) {
     : '공식 평가표가 공고에 없습니다. 배점을 지어내지 않고, 필수 조건을 빠짐없이 채우는 쪽으로 씁니다.';
 
   // 5) 우리 형편과 맞나. 기관정보에 있는 것만 말한다. 없는 것은 없다고 말한다.
-  const facts = applicant ? (applicant.items || []).filter(item => item.status === '확인됨').length : 0;
+  const facts = applicant ? countConfirmed(applicant.items || []) : 0;
   const fit = !applicant
     ? '신청기관을 아직 고르지 않았습니다. 기관을 정해야 실적·인력·시설을 계획서에 넣을 수 있습니다.'
     : facts

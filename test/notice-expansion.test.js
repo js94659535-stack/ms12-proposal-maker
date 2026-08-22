@@ -452,10 +452,11 @@ test('총론은 자격·마감·형편을 먼저 말한다', async () => {
   const todayEnd = noticeOverview(structure, logic, requirements, { notice: { ...notice, deadline: '2026-08-16' }, today: '2026-08-16' });
   assert.match(todayEnd.when, /\(오늘\)/);
   // 기관을 골랐으면 확인된 기관정보 건수를 말한다. 없으면 없다고 말한다.
+  // 값이 비면 확인됨으로 세지 않는다(server/applicant-count.js). 그래서 값을 함께 둔다.
   const empty = noticeOverview(structure, logic, requirements, { notice, applicant: { name: '햇살센터', items: [] }, today: '2026-08-16' });
   assert.match(empty.fit, /확인된 기관정보가 없습니다/);
   const some = noticeOverview(structure, logic, requirements, {
-    notice, applicant: { name: '햇살센터', items: [{ status: '확인됨' }, { status: '확인 필요' }] }, today: '2026-08-16'
+    notice, applicant: { name: '햇살센터', items: [{ status: '확인됨', value: '상근 12명' }, { status: '확인 필요', value: '' }] }, today: '2026-08-16'
   });
   assert.match(some.fit, /기관정보 1건/);
   // 마감일을 못 읽으면 셈하지 않는다.
