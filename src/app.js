@@ -1,6 +1,6 @@
-import { regionBriefWithAI, analyzeWithAI, coreProposalWithAI, diagnoseWithAI, draftPartWithAI, draftWithAI, finalizeWithAI, fullProposalWithAI, masterWithAI, patchSectionsWithAI, preciseReviewWithAI, proposalJobs, rewriteWithAI, setUsageProposalId } from './api.js';
+import { readImagesWithAI, regionBriefWithAI, analyzeWithAI, coreProposalWithAI, diagnoseWithAI, draftPartWithAI, draftWithAI, finalizeWithAI, fullProposalWithAI, masterWithAI, patchSectionsWithAI, preciseReviewWithAI, proposalJobs, rewriteWithAI, setUsageProposalId } from './api.js';
 import { EXAMPLE_NOTE, EXAMPLE_POINTS, EXAMPLE_SECTIONS, EXAMPLE_SUMMARY, EXAMPLE_TITLE } from './example-plan.js';
-import { extractFile, extractFiles } from './files.js';
+import { ACCEPT, extractFile, extractFiles } from './files.js';
 import { localAnalyze } from './fallback.js';
 import { buildDocxBlob, downloadBlob, exportDocx, exportPdf, printDocument, submissionFileName } from './export.js';
 import { buildProposalPdfBlob, exportProposalPdf } from './pdf-export.js';
@@ -64,6 +64,8 @@ import { buildWritingPipeline } from './writing-pipeline.js';
 import { INDICATORS, INDICATOR_KINDS, derivedFigures, emptySurvey, filledIndicators, openIndicators } from '../server/region-indicators.js';
 import { ENGAGEMENT_STAGES, PROPOSAL_OUTLINE, buildDocumentPlan, formSpecNotice, buildEngagement, canGenerateProposal, designSnapshotStale, designStatus, makeClient, makeDesignApproval, makeNoticeRequest, normalizeEngagement } from './engagement.js';
 import { EXTERNAL_SOURCE, appendProposalVersion, findVersionById, normalizeProposalVersions, resolveSavedVersion, applySectionRevision, buildCoachingHandoff, buildExternalWorkingCopy, coachingVerdict, compareCoachingRounds, findProposalVersion, handoffItemsForSection, matchSectionsForIssue, proposalTextFromSections, proposalTextFromSnapshot, revisionInstruction, sectionsFromProposalText, verifyLockedValues } from './coaching-handoff.js';
+import { OCR_HINT, OCR_MAX_IMAGES, OCR_TOO_MANY, isImageType } from '../server/ocr.js';
+import { ocrResult, pdfPageImages, shrinkImage } from './image-text.js';
 import { splitApplicantProfile } from './applicants.js';
 import { BOX, loadFrom, openBox, saveTo } from './archive-names.js';
 import { ARCHIVE_PAGE_SIZES, ARCHIVE_PAGE_SIZE_LABEL, ARCHIVE_STATUSES, DEFAULT_WATCH, archiveTableRows, shortDate, watchHits } from './archive-table.js';
@@ -5674,10 +5676,11 @@ function applicantBasicView(applicant, who = '신청기관') {
     ${(() => { const stale = staleSummary(applicant.items, new Date().getFullYear()); return stale ? `<div class="alert warning"><strong>다시 확인할 정보 ${stale.count}건</strong><p>${escapeHtml(stale.message)}</p><div class="actions" style="margin:0"><span class="muted">상태는 그대로 둡니다. 확인해 두신 값은 계획서에 계속 쓰입니다.</span><button class="button secondary" id="recheck-upload">새 문서 올리기</button></div></div>` : ''; })()}
     <label class="dropzone${goMark('upload', 'target')}" id="applicant-cert-drop" for="applicant-cert-file">
       <strong>사업자등록증·고유번호증을 올리면 자동으로 채워집니다</strong>
-      <small>기관명 · 기관 유형 · 주소 · 대표자 · 고유번호 · PDF · DOCX · HWP · HWPX · TXT</small>
+      <small>기관명 · 기관 유형 · 주소 · 대표자 · 고유번호 · PDF · DOCX · HWP · HWPX · TXT · 사진(JPG·PNG)</small>
       ${goNote('upload', '여기에 올리세요')}
-      <input type="file" id="applicant-cert-file" accept=".pdf,.docx,.txt,.hwpx,.hwp"></label>
+      <input type="file" id="applicant-cert-file" accept="${escapeHtml(ACCEPT)}"></label>
     <p class="muted">파일을 고르거나 여기에 끌어다 놓으세요. 찾은 값은 아래 「입력 후보」에 올라오고, 반영해야 이 칸에 들어갑니다. 손으로 적어도 됩니다.</p>
+    <p class="muted">${escapeHtml(OCR_HINT)} 화면을 캡처해 이 화면에서 <b>Ctrl+V</b>로 붙여넣어도 됩니다.</p>
     <div class="two-col">
       <div class="field"><label for="applicant-name">${escapeHtml(who)}명</label><input id="applicant-name" value="${escapeHtml(applicant.name)}"></div>
       <div class="field"><label for="applicant-note">기관 메모 <span class="muted">(선택)</span></label><input id="applicant-note" value="${escapeHtml(applicant.note)}" placeholder="예: 2026년 기준 정보"></div>
@@ -8405,6 +8408,7 @@ function bindApplicants() {
   document.querySelector('#applicant-doc-file')?.addEventListener('change', loadApplicantDocument);
   document.querySelector('#applicant-cert-file')?.addEventListener('change', loadApplicantDocument);
   bindDropzone('#applicant-cert-drop', files => void loadApplicantDocumentFile(files[0]));
+  bindImagePaste();
   bindDropzone('#applicant-doc-drop', files => void loadApplicantDocumentFile(files[0]));
   // 카드 안 아무 곳에 놓아도 파일로 받는다. 붙여넣기 칸에 놓으면 파일 이름만 글자로 붙던 자리다.
   bindDropzone('#applicant-doc', files => void loadApplicantDocumentFile(files[0]));
@@ -8481,11 +8485,58 @@ async function loadApplicantDocument(event) {
 }
 
 // 고르기와 끌어다 놓기가 같은 길을 쓴다. 끌어다 놓은 파일이 붙여넣기 칸에 글자로 붙지 않게 한다.
+// 화면을 캡처해 Ctrl+V로 붙이는 길(22-51). 파일로 저장했다가 다시 고르는 것보다 훨씬 빠르다.
+// 붙여넣은 그림은 이름이 image.png이거나 아예 없으므로 형식은 MIME으로 가린다.
+let pasteBound = false;
+function bindImagePaste() {
+  if (pasteBound) return;
+  pasteBound = true;
+  window.addEventListener('paste', event => {
+    // 글자를 붙여넣는 중이면 건드리지 않는다. 입력칸 안에서는 그대로 붙는다.
+    const active = document.activeElement;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+    const items = [...(event.clipboardData?.items || [])].filter(item => item.kind === 'file' && isImageType(item.type));
+    if (!items.length) return;
+    // 기관정보 화면에서만 받는다. 다른 화면에서 붙여넣은 그림까지 읽으면 돈만 나간다.
+    if (state.activeTool !== 'applicants') return;
+    event.preventDefault();
+    const files = items.map(item => item.getAsFile()).filter(Boolean);
+    if (files.length > OCR_MAX_IMAGES) { setState({ error: OCR_TOO_MANY }); return; }
+    void loadApplicantDocumentFile(files[0]);
+  });
+}
+
+// 사진·스캔본을 글자로 옮기는 한 곳. 파일 읽기가 여기로 넘겨 주고, 결과는 파일과 같은 모양으로 돌아온다.
+//
+// 화면에서 1600px으로 줄여 보낸다. 비용은 화면에 적지 않는다 — 「이 사진을 읽는 데 84원」이 뜨면
+// 올리기를 망설이게 된다(22-51). 대신 관리자 화면의 사용량 기록에 task='ocr'로 남는다.
+async function readImagesForFile(input, meta = {}) {
+  const files = Array.isArray(input) ? input : [input];
+  if (files.length > OCR_MAX_IMAGES) throw new Error(OCR_TOO_MANY);
+  let images = [];
+  let pages = meta.pages || files.length;
+  if (meta.from === 'PDF') {
+    setState({ busy: '스캔본을 쪽마다 그려 읽는 중...' });
+    const rendered = await pdfPageImages(await files[0].arrayBuffer());
+    images = rendered.images;
+    pages = rendered.totalPages;
+    if (rendered.totalPages > OCR_MAX_IMAGES) {
+      // 앞 세 쪽만 읽었다는 것을 숨기지 않는다. 뒤쪽이 빠진 줄 모르고 쓰면 없는 사실이 된다.
+      setState({ notice: `${meta.name}: ${rendered.totalPages}쪽 중 앞 ${OCR_MAX_IMAGES}쪽만 읽었습니다. 나머지는 글자를 인식한 PDF로 올려 주세요.` });
+    }
+  } else {
+    setState({ busy: '사진에서 글자를 읽는 중...' });
+    images = await Promise.all(files.map(file => shrinkImage(file)));
+  }
+  const text = await readImagesWithAI(images);
+  return ocrResult(meta.name || files[0]?.name || '사진', meta.size || files[0]?.size || 0, text, { pages, from: meta.from });
+}
+
 async function loadApplicantDocumentFile(file) {
   if (!file) return;
   setState({ busy: '기관 문서를 읽는 중...', error: '', notice: '' });
   try {
-    const parsed = await extractFile(file);
+    const parsed = await extractFile(file, { readImages: readImagesForFile });
     state.applicantDocDraft = parsed.text;
     setState({ busy: '', applicantDocDraft: parsed.text });
     buildApplicantCandidates(parsed.text, parsed.name);

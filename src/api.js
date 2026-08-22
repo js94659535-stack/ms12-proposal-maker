@@ -17,6 +17,22 @@ async function request(action, payload, extra = {}) {
   return data;
 }
 
+// 사진·스캔본에서 글자를 읽어 온다(22-51). 사진은 화면에서 이미 1600px으로 줄여 보낸다.
+// 원문 이미지는 서버에 저장하지 않는다 — 읽은 글자만 돌아온다.
+export async function readImagesWithAI(images) {
+  const response = await fetch('/api/ocr', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ images })
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(data.error || `사진 읽기 실패 (${response.status})`);
+    error.status = response.status;
+    throw error;
+  }
+  return String(data.text || '');
+}
+
 // MS12 핵심제안서. 제출처와 희망 쪽수에 맞춰 만들며, 계정당 한 번만 열리는지는 서버가 D1에서 확인한다.
 export const coreProposalWithAI = payload => request('coreProposal', payload);
 // 선정 가능성 진단서. 구독회원 기능이며 서버가 남은 편수를 확인한다.

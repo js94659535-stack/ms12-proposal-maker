@@ -5,11 +5,15 @@ import { extractHwpDocument } from './hwp-text.js';
 // 못 읽는 형식에는 언제나 같은 말로 변환을 안내한다.
 export const HWP_CONVERT_GUIDE = 'HWPX·DOCX·PDF로 변환 후 다시 올려 주세요.';
 import { loadModule } from './module-loader.js';
+import { isImageType } from '../server/ocr.js';
 
 const HWP_GUIDE = `한글 HWP 파일을 읽지 못했습니다. ${HWP_CONVERT_GUIDE}`;
 // 지원 형식. 화면 안내와 input accept가 이 목록을 함께 쓴다.
 export const SUPPORTED = Object.freeze(['pdf', 'docx', 'txt', 'hwpx', 'hwp']);
-export const ACCEPT = SUPPORTED.map(item => `.${item}`).join(',');
+// 사진도 받는다(22-51). 사업자등록증을 찍어 올리는 것이 가장 흔한 길이다.
+// 확장자가 아니라 MIME으로 가린다 — 붙여넣은 그림은 이름이 image.png라 확장자가 없을 수도 있다.
+export const IMAGE_ACCEPT = 'image/jpeg,image/png,image/webp';
+export const ACCEPT = `${SUPPORTED.map(item => `.${item}`).join(',')},${IMAGE_ACCEPT}`;
 
 // 왜 못 읽었는지 갈라서 알려 준다. 원인을 뭉뚱그리면 사용자가 할 수 있는 일이 없다.
 export const REASON = Object.freeze({
@@ -17,6 +21,7 @@ export const REASON = Object.freeze({
   encrypted: '암호가 걸린 문서입니다. 암호를 푼 뒤 다시 올려 주세요.',
   damaged: '파일이 손상되었거나 형식과 내용이 다릅니다.',
   scanned: '글자가 없는 스캔 문서로 보입니다. 글자를 인식한 PDF나 원본 문서로 올려 주세요.',
+  noImageReader: '사진에서 글자를 읽는 길이 이 화면에는 아직 없습니다. 파일로 올려 주세요.',
   unsupported: `지원하지 않는 형식입니다. ${HWP_CONVERT_GUIDE}`
 });
 
@@ -142,11 +147,17 @@ export function pageText(items = []) {
   return lines.join('\n').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-export async function extractFile(file) {
+export async function extractFile(file, options = {}) {
   const extension = file.name.split('.').pop()?.toLowerCase();
   const size = file.size;
   if (size > 20 * 1024 * 1024) throw new Error(`${file.name}: 파일은 20MB 이하여야 합니다.`);
   if (size === 0) throw new Error(`${file.name}: ${REASON.empty}`);
+
+  // 사진은 형식을 MIME으로 가린다. 붙여넣은 그림은 이름이 image.png이거나 이름이 없다.
+  if (isImageType(file.type)) {
+    if (!options.readImages) throw new Error(`${file.name}: ${REASON.noImageReader}`);
+    return options.readImages([file], { from: '사진', name: file.name, size });
+  }
 
   if (extension === 'txt') {
     const text = await file.text();
@@ -214,19 +225,22 @@ export async function extractFile(file) {
       pages.push(`[${pageNo}쪽]\n${pageText(content.items)}`);
     }
     const text = pages.join('\n\n');
-    // 쪽은 있는데 글자가 거의 없으면 스캔본이다. 없는 내용을 지어내지 않는다.
-    if (text.replace(/\[\d+쪽\]/g, '').trim().length < 20) throw new Error(`${file.name}: ${REASON.scanned}`);
+    // 쪽은 있는데 글자가 거의 없으면 스캔본이다. 전에는 여기서 돌려보냈고, 이제 이 자리가 사진 읽기로 가는 문이다.
+    if (text.replace(/\[\d+쪽\]/g, '').trim().length < 20) {
+      if (!options.readImages) throw new Error(`${file.name}: ${REASON.scanned}`);
+      return options.readImages(file, { from: 'PDF', name: file.name, size, pages: pdf.numPages });
+    }
     return { name: file.name, type: 'PDF', size, text, pages: pdf.numPages, tables: 0, extracted: true };
   }
 
   throw new Error(`${file.name}: ${REASON.unsupported} 지원 형식은 PDF·DOCX·TXT·HWPX·HWP입니다.`);
 }
 
-export async function extractFiles(files, onProgress) {
+export async function extractFiles(files, onProgress, options = {}) {
   const results = [];
   for (let i = 0; i < files.length; i += 1) {
     onProgress?.(`${files[i].name} 읽는 중 (${i + 1}/${files.length})`);
-    results.push(await extractFile(files[i]));
+    results.push(await extractFile(files[i], options));
   }
   return results;
 }

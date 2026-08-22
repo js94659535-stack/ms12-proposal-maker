@@ -169,7 +169,8 @@ test('없는 자산이 HTML로 내려오지 않도록 404 문서를 둔다', () 
 test('지원 형식과 실패 사유가 구분되어 있다', async () => {
   const { ACCEPT, REASON, SUPPORTED } = await import('../src/files.js');
   assert.deepEqual([...SUPPORTED], ['pdf', 'docx', 'txt', 'hwpx', 'hwp']);
-  assert.equal(ACCEPT, '.pdf,.docx,.txt,.hwpx,.hwp');
+  // 사진도 받는다(22-51). 확장자 다섯에 이미지 MIME 셋이 붙는다.
+  assert.equal(ACCEPT, '.pdf,.docx,.txt,.hwpx,.hwp,image/jpeg,image/png,image/webp');
   // 빈 문서·암호·손상·스캔을 각각 다르게 말한다.
   const messages = [REASON.empty, REASON.encrypted, REASON.damaged, REASON.scanned];
   assert.equal(new Set(messages).size, 4);
