@@ -51,8 +51,11 @@ test('띠는 제목 줄 바로 아래 하나뿐이고 판정은 한 곳에서 �
   const view = app.slice(app.indexOf('function applicantSelectView()'), app.indexOf('function applicantLoadedView('));
   // 제목 줄 다음이 띠다. 기관정보 화면과 같은 자리·같은 모양이다.
   assert.match(view, /신청기관 정보 관리<\/button><\/div>\s*\n\s*\$\{applicantPickBar\(\)\}/);
+  // 판정은 applicantPickStep 한 곳에서 하고, 띠와 「처음 열리는 중분류」가 같은 값을 읽는다.
+  const judge = app.slice(app.indexOf('function applicantPickStep()'), app.indexOf('function applicantPickBar()'));
+  assert.match(judge, /return nextApplicantPick\(\{/);
   const bar = app.slice(app.indexOf('function applicantPickBar()'), app.indexOf('function applicantSelectView()'));
-  assert.match(bar, /const step = nextApplicantPick\(\{/);
+  assert.match(bar, /const step = applicantPickStep\(\);/);
   assert.match(bar, /class="next-step-bar\$\{step\.done \? ' done' : ''\}" id="pick-step-bar"/);
   // 꽉 찬 초록은 이 하나뿐이다.
   assert.equal([...bar.matchAll(/class="button go(?![-\w])/g)].length, 1);
@@ -64,12 +67,13 @@ test('띠는 제목 줄 바로 아래 하나뿐이고 판정은 한 곳에서 �
 test('갈래마다 데려가는 곳이 다르다', () => {
   const handler = app.slice(app.indexOf("document.querySelector('#pick-step-action')"), app.indexOf("document.querySelector('#skip-applicant')"));
   assert.match(handler, /if \(key === 'add-org'\) return setState\(\{ activeTool: 'applicants'/);
-  assert.match(handler, /if \(key === 'pick'\) return focusAnchor\('#applicant-picker'\);/);
+  // 중분류가 한 번에 하나만 열리므로, 데려가기 전에 그 중분류부터 연다(22-56).
+  assert.match(handler, /if \(key === 'pick'\) \{ openStepSection\('pick'\); return focusAnchor\('#applicant-picker'\); \}/);
   // 확인하는 자리는 이 화면이 아니라 기관정보 화면이다. 거기 띠로 넘겨준다(22-53).
   assert.match(handler, /if \(key === 'confirm'\) return openApplicantEditor\(\{ anchor: '#next-step-bar' \}\);/);
   assert.match(handler, /return navigateToStep\(state\.step \+ 1/);
   // 데려갈 자리에 이름표가 있어야 한다.
-  assert.match(app, /<div class="card" id="applicant-picker" tabindex="-1">/);
+  assert.match(app, /section\('pick', 'picker', \{[^}]*id: 'applicant-picker',/);
 });
 
 test('「공고 × 신청기관 비교」의 여섯 묶음은 기본 접힘이다', () => {

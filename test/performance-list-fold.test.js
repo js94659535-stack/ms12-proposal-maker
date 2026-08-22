@@ -53,20 +53,24 @@ test('접힌 줄은 눌러서 펼치는 것으로 보인다', () => {
   assert.match(css, /\.year-fold>summary\{[^}]*cursor:pointer/);
 });
 
-test('구역은 모두 접힌 채로 시작한다', () => {
-  // 전에는 자료가 있는 구역을 펼쳐 두었다. 실적 96건이 그대로 쏟아져 화면을 감당할 수 없었다(22-42).
+test('구역은 한 번에 하나만 열린다', () => {
+  // 전에는 자료가 있는 구역을 펼쳐 두었다. 실적 96건이 그대로 쏟아져 화면을 감당할 수 없었고(22-42),
+  // 여럿을 열어 둘 수 있게 두었더니 화면이 다시 길어졌다. 이제 하나뿐이다(22-56⑤).
   const panel = app.slice(app.indexOf('function detailGroupPanel(applicant, group)'), app.indexOf('// 실적을 한 번에 확인됨으로 올리는 줄'));
-  assert.match(panel, /const open = \(state\.openOrgGroups \|\| \[\]\)\.includes\(group\.key\) \|\| stepPointsAt\(group\.key\);/);
   assert.doesNotMatch(panel, /group\.total > 0/);
   // 접혀 있어도 무엇이 얼마나 있는지는 제목 줄에 남는다.
-  assert.match(panel, /등록 \$\{group\.total\}건 · 확인됨 \$\{group\.confirmed\}건/);
-  // 기본이 접힘이므로 「연 것」만 기억한다.
-  const toggle = app.slice(app.indexOf("document.querySelectorAll('[data-detail-group]')"), app.indexOf("document.querySelectorAll('[data-confirm-group]')"));
-  assert.match(toggle, /if \(el\.open\) open\.add\(key\); else open\.delete\(key\);/);
+  assert.match(panel, /sub: `등록 \$\{group\.total\}건 · 확인됨 \$\{group\.confirmed\}건`/);
+  // 여는 규칙은 subSection 한 곳에 있다.
+  assert.match(app, /function openGroupKey\(\) \{\s*\n\s*const chosen = state\.openOrgGroup;/);
+  assert.match(app, /const open = openGroupKey\(\) === key;/);
+  // 연 것 하나만 기억한다. 닫으면 빈 문자열이라 아무것도 열리지 않은 채로 둔다.
+  const toggle = app.slice(app.indexOf("document.querySelectorAll('[data-detail-group]')"), app.indexOf("  // 제목 줄의 「모두 확인」은"));
+  assert.match(toggle, /if \(el\.open\) state\.openOrgGroup = key;/);
+  assert.match(toggle, /else if \(openGroupKey\(\) === key\) state\.openOrgGroup = '';/);
   assert.doesNotMatch(toggle, /closed/);
 });
 
-test('「다음 할 일」이 가리키는 구역은 접지 않는다', () => {
+test('「다음 할 일」이 가리키는 구역이 처음 열린다', () => {
   // 초록·화살표를 붙여 놓고 그 자리를 감추면 찾을 수가 없다.
   // 가리키는 구역이 무엇인지는 판정 한 곳(stepGroupKey)이 정한다. 확인 전이 기본정보 쪽인데
   // 실적 96건이 펼쳐지던 것을 그렇게 고쳤다(22-49).
@@ -74,21 +78,21 @@ test('「다음 할 일」이 가리키는 구역은 접지 않는다', () => {
   assert.match(helper, /return Boolean\(groupKey\) && stepGroupKey\(orgStepInfo\(\)\) === groupKey;/);
   const where = app.slice(app.indexOf('function stepGroupKey(step)'), app.indexOf('function nextStepAnchor('));
   assert.match(where, /if \(step\.area === 'performance'\) return 'performance';/);
-  const fold = app.slice(app.indexOf('function orgFoldOpen(key)'), app.indexOf('function stepPointsAt('));
-  assert.match(fold, /if \(key === 'detail'\) return Boolean\(group\) && !BASIC_AREAS\.includes\(group\);/);
-  assert.match(fold, /if \(step\.key === 'basic' \|\| step\.key === 'upload'\) return true;/);
+  // 사람이 고르기 전에는 판정이 가리키는 구역이 열린 것이다.
+  const group = app.slice(app.indexOf('function openGroupKey()'), app.indexOf('function subSection(key,'));
+  assert.match(group, /return stepGroupKey\(orgStepInfo\(\)\) \|\| '';/);
 });
 
 test('접힌 채로도 제목 줄에서 한 번에 확인할 수 있다', () => {
   // 실적만이 아니다. 확인 전이 남은 구역이면 어느 구역이든 같은 단추가 붙는다(22-53⑤).
   const panel = app.slice(app.indexOf('function detailGroupPanel(applicant, group)'), app.indexOf('// 실적을 한 번에 확인됨으로 올리는 줄'));
-  assert.match(panel, /\$\{confirmGroupButton\(group\.key, pending\)\}/);
+  assert.match(panel, /action: confirmGroupButton\(group\.key, pending\),/);
   assert.match(panel, /const pending = group\.total - group\.confirmed;/);
   const button = app.slice(app.indexOf('function confirmGroupButton(groupKey, pending)'), app.indexOf('function detailGroupPanel('));
   assert.match(button, /if \(!pending\) return '';/);
   assert.match(button, /data-confirm-group="\$\{escapeHtml\(groupKey\)\}">\$\{pending\}건 모두 확인<\/button>/);
   // 제목 줄의 단추는 묶음을 여닫지 않는다.
-  const handler = app.slice(app.indexOf("document.querySelectorAll('[data-confirm-group]')"), app.indexOf("document.querySelector('#close-all-details')"));
+  const handler = app.slice(app.indexOf("document.querySelectorAll('[data-confirm-group]')"), app.indexOf("document.querySelector('#recheck-upload')"));
   assert.match(handler, /event\.stopPropagation\(\);\s*\n?\s*confirmAllInGroup\(el\.dataset\.confirmGroup\)/);
 });
 
@@ -103,43 +107,9 @@ test('한 건은 한 줄로 접히고 눌러야 편집칸이 펴진다', () => {
   assert.match(fields, /\$\{fromDocument\(item\) \? '문서에서' : '직접 입력'\}/);
 });
 
-test('반영 뒤 열어 주는 자리는 닫힘 기록을 지운다', () => {
+test('반영 뒤에는 넣은 자리가 열린다', () => {
   const apply = app.slice(app.indexOf('function applySafeApplicantCandidates()'), app.indexOf('function selectApplicantForProject('));
-  // 닫아 둔 적이 있으면 열리지 않아, 넣어도 안 보이는 일이 생긴다.
-  assert.match(apply, /closedOrgGroups: group \? \(state\.closedOrgGroups \|\| \[\]\)\.filter\(key => key !== group\) : state\.closedOrgGroups/);
-});
-
-test('손으로 넣는 칸은 아예 없다', () => {
-  // 22-44에서 지웠다. 세 번 요청받았고, 값은 문서에서 들어오는 것이 원칙이다.
-  // 이미 그 칸으로 넣어 둔 값은 그대로 두고 넣는 길만 없앴다.
-  const fields = app.slice(app.indexOf('function applicantAreaFields(applicant, area, showTitle)'), app.indexOf('function applicantLoadedView'));
-  assert.doesNotMatch(fields, /data-add-area=/);
-  assert.doesNotMatch(fields, /문서에 없는 것을 손으로 넣기/);
-  assert.doesNotMatch(fields, /새 항목명|새 항목 내용/);
-  assert.ok(!app.includes('data-add-applicant-item'), '항목 추가 버튼이 남아 있다');
-  assert.ok(!app.includes('function addApplicantItem('), '넣는 함수가 남아 있다');
-  assert.ok(!app.includes('applicantItemDrafts'), '넣던 임시값이 남아 있다');
-  // 대신 비어 있는 구역에는 한 줄과 올리러 가는 길만 둔다.
-  assert.match(fields, /문서를 올리면 채워집니다/);
-  assert.match(fields, /data-go-upload="1"/);
-});
-test('「전달할 확인된 정보」도 연도별로 접고 제목이 사실을 말한다', () => {
-  const view = app.slice(app.indexOf('function confirmedInfoView(applicant, confirmed)'), app.indexOf('function applicantFitView(applicant)'));
-  // 저장된 것과 이번 공고에 실리는 것은 다르다. 둘을 나눠 적는다.
-  assert.match(view, /저장된 확인 정보 \$\{confirmed\.length\}건/);
-  assert.match(view, /이번 공고에 실리는 것 \$\{sent\}건/);
-  assert.match(view, /나머지 \$\{organization\.otherPastProjects\.count\}건은 건수만 전달/);
-  // 실리는 건수는 실제로 보내는 자료에서 센다. 따로 세지 않는다.
-  assert.match(view, /const organization = organizationForGeneration\(\);/);
-  // 실적은 22-06에서 만든 연도 접기를 그대로 쓴다. 새로 만들지 않는다.
-  assert.match(view, /groupItemsByYear\(records\)\.map\(group => `<details class="year-fold"/);
-  // 기본은 접힘이다.
-  assert.match(view, /<details><summary>저장된 확인 정보/);
-});
-
-test('출처별 정보의 실적도 접는다', () => {
-  const view = app.slice(app.indexOf('function applicantSourceView(applicant)'), app.indexOf('function applicantBasicView('));
-  assert.match(view, /groupItemsByYear\(performance\)\.map\(group => `<details class="year-fold"/);
-  // 접기 기억은 다른 목록과 섞이지 않게 이름을 따로 쓴다.
-  assert.match(view, /data-org-year="출처-\$\{escapeHtml\(group\.year\)\}"/);
+  // 한 번에 하나만 열리므로 「닫아 둔 기록」이 따로 없다. 넣은 구역을 열린 하나로 삼는다.
+  assert.match(apply, /openOrgGroup: group || state.openOrgGroup,/);
+  assert.doesNotMatch(app, /closedOrgGroups/);
 });

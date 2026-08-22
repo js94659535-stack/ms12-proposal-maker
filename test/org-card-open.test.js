@@ -56,7 +56,7 @@ test('전부 0건일 때만 문서 추출을 가리킨다', () => {
   assert.match(view, /기관 연혁을 올리면 연도별 사업실적이/);
   // 말만 하고 데려가지 않으면 지금과 다를 것이 없다.
   assert.match(view, /id="go-applicant-doc"/);
-  assert.match(app, /<div class="card" id="applicant-doc" tabindex="-1">/);
+  assert.match(app, /section\('applicants', 'documents', \{\n\s*id: 'applicant-doc',/);
   assert.match(app, /document\.querySelector\('#go-applicant-doc'\)\?\.addEventListener\('click', \(\) => openApplicantEditor\(\{ anchor: '#applicant-doc' \}\)\);/);
 });
 

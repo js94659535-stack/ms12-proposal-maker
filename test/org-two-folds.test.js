@@ -1,34 +1,64 @@
-// 신청기관 정보를 두 층 다 접는다.
+// 중분류는 아코디언이다 — 한 화면에 한 번에 하나만 열린다 (22-42에서 접기, 22-56에서 아코디언).
 //
 // 실제로 났던 일: 기관을 고르면 열한 칸 요약이 통째로 펼쳐지고, 그 아래 상세정보 여덟 구역 중
 // 자료가 있는 구역이 또 펼쳐졌다. 실적 96건이 들어온 기관에서는 한 화면에 감당할 수 없는 양이 쏟아졌다.
+// 접어 두는 것으로 한 번 줄였지만, 여럿을 동시에 열 수 있는 한 화면은 다시 길어졌다 —
+// 중분류 다섯이 모두 펼쳐진 채로 나오는 일이 그대로 남아 있었다.
 //
-// 이제 바깥 두 층은 접혀 있고 접힌 줄에 건수가 남는다. 눌러야 열린다.
-// 다만 「다음 할 일」이 가리키는 자리는 접지 않는다 — 가리켜 놓고 감추면 찾을 수가 없다.
+// 이제 화면은 늘 「제목 몇 줄 + 열린 내용 하나」다.
+// 가로 탭이 아니라 세로로 세운 까닭은 제목이 길어서다 — 「불러온 신청기관 정보 · (주)마인드스토리」.
+// 처음 열리는 것은 「다음 할 일」이 가리키는 중분류이고, 가리키는 것이 없으면 첫 번째다.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-const app = fs.readFileSync('src/app.js', 'utf8');
+const app = fs.readFileSync('src/app.js', 'utf8').split('\r\n').join('\n');
+const css = fs.readFileSync('src/styles.css', 'utf8');
 
-test('불러온 신청기관 정보가 접혀 있고 줄에 건수가 남는다', () => {
-  const view = app.slice(app.indexOf('function applicantLoadedView(applicant)'), app.indexOf('// 앞 항목들을 묶은 문장으로 보이면'));
-  assert.match(view, /<details class="card org-details" data-org-fold="loaded" \$\{orgFoldOpen\('loaded'\) \? 'open' : ''\}>/);
-  assert.match(view, /확인됨 \$\{confirmed\.length\}건 · 확인 필요 \$\{needsCheck\}건/);
-  // 열한 칸 요약은 그 안에 있다.
-  assert.ok(view.indexOf('class="summary-grid"') > view.indexOf('data-org-fold="loaded"'));
+test('두 화면의 중분류를 한 곳에 적어 둔다', () => {
+  // 목록이 코드 여기저기 흩어져 있으면 「첫 번째」가 어느 것인지 화면마다 달라진다.
+  const list = app.slice(app.indexOf('const SECTIONS = Object.freeze({'), app.indexOf('// 「다음 할 일」이 가리키는 중분류.'));
+  assert.match(list, /applicants: \['picker', 'map', 'basic', 'candidates', 'detail', 'sources', 'documents'\]/);
+  assert.match(list, /pick: \['picker', 'loaded', 'fit', 'values', 'questions'\]/);
 });
 
-test('상세정보도 접혀 있고 줄에 구역 수와 건수가 남는다', () => {
-  const view = app.slice(app.indexOf('function applicantDetailView(applicant)'), app.indexOf('function detailGroupPanel(applicant, group)'));
-  assert.match(view, /<details class="card org-details" id="applicant-detail" data-org-fold="detail"/);
-  assert.match(view, /여덟 구역 중 \$\{filled\}구역에 자료 \$\{total\}건/);
+test('중분류는 모두 같은 함수가 그린다', () => {
+  // 열두 자리가 저마다 카드를 그리면 「하나만 열림」이 한 곳에서 지켜지지 않는다.
+  const maker = app.slice(app.indexOf('function section(screen, key, {'), app.indexOf('// 소분류도 같은 형식이다.'));
+  assert.match(maker, /const open = openSectionKey\(screen\) === key;/);
+  assert.match(maker, /class="card org-details section\$\{mark\}" data-section="\$\{escapeHtml\(screen\)\}:\$\{escapeHtml\(key\)\}"/);
+  assert.match(maker, /<div class="section-body">\$\{body\}<\/div>/);
+  // 열두 중분류가 모두 이 함수를 지난다.
+  const keys = [...app.matchAll(/section\('(applicants|pick)', '([a-z-]+)', \{/g)].map(m => `${m[1]}:${m[2]}`);
+  assert.deepEqual(keys.sort(), [
+    'applicants:basic', 'applicants:candidates', 'applicants:detail', 'applicants:documents',
+    'applicants:map', 'applicants:picker', 'applicants:picker', 'applicants:sources',
+    'pick:fit', 'pick:loaded', 'pick:picker', 'pick:questions', 'pick:values'
+  ].sort(), `중분류를 그리는 자리: ${keys.join(', ')}`);
+});
+
+test('하나를 열면 나머지는 닫힌다', () => {
+  const toggle = app.slice(app.indexOf("document.querySelectorAll('[data-section]')"), app.indexOf('  // 소분류도 한 번에 하나다'));
+  assert.match(toggle, /if \(el\.open\) chosen\[screen\] = key;/);
+  // 닫으면 빈 문자열이다 — 「고르지 않았다」와 「닫아 두었다」는 다른 뜻이다.
+  assert.match(toggle, /else if \(chosen\[screen\] === key\) chosen\[screen\] = '';/);
+  // 나머지를 닫으려면 다시 그려야 한다.
+  assert.match(toggle, /state\.openSections = chosen;\s*\n\s*setState\(\{\}\);/);
+});
+
+test('처음 열리는 것은 「다음 할 일」이 가리키는 중분류다', () => {
+  const key = app.slice(app.indexOf('function openSectionKey(screen)'), app.indexOf('// 중분류 한 칸.'));
+  assert.match(key, /if \(chosen !== undefined\) return keys\.includes\(chosen\) \? chosen : '';/);
+  assert.match(key, /const pointed = screen === 'applicants' \? orgStepSection\(\) : pickStepSection\(\);/);
+  // 가리키는 것이 없으면 첫 번째다.
+  assert.match(key, /return keys\.includes\(pointed\) \? pointed : keys\[0\] \|\| '';/);
 });
 
 test('펼침은 이번 화면에서만 기억한다', () => {
+  // 22-19의 접기가 안 먹은 까닭이 이것이었다. 한 번 편 것이 브라우저에 저장돼 새로고침해도 펴져 있었다.
   const save = app.slice(app.indexOf('function saveState()'), app.indexOf('function loadNavigationHistory()'));
-  for (const key of ['openAddForms', 'openOrgFolds', 'openOrgGroups', 'openOrgYears']) {
-    assert.ok(save.includes(key + ": []"), key + "를 저장하고 있다");
+  for (const key of ['openAddForms: []', 'openFitGroups: []', 'openSections: {}', 'openOrgGroup: null', 'openOrgYears: []']) {
+    assert.ok(save.includes(key), `${key}를 저장하고 있다`);
   }
 });
 
@@ -37,38 +67,36 @@ test('빈 입력칸은 눌러서 펼친다', () => {
   for (const key of ['source', 'project-value', 'asset', 'reference']) {
     assert.ok(app.includes(`addForm('${key}'`), `${key} 칸이 접히지 않았다`);
   }
-  const helper = app.slice(app.indexOf('function addForm(key, label, body)'), app.indexOf('function orgFoldOpen(key)'));
+  const helper = app.slice(app.indexOf('function addForm(key, label, body)'), app.indexOf('// 중분류 아코디언.'));
   assert.match(helper, /class="add-fold" data-add-form=/);
 });
 
-test('접는 층은 셋을 넘지 않고 해는 모두 접힌다', () => {
-  // 상세정보 → 구역 → 연도. 그 아래는 항목이다.
-  // 22-42에서 맨 위 해를 열어 두었다가 22-44에서 되돌렸다 — 실적 28건이 펼쳐진 채로 나왔다.
-  const fields = app.slice(app.indexOf('function applicantAreaFields(applicant, area, showTitle)'), app.indexOf('function applicantLoadedView'));
+test('연도는 하나만 열리게 하지 않는다', () => {
+  // 소소분류까지 하나만 열면 2026을 열 때 2025가 닫혀 견줄 수가 없다.
+  // 연도는 견주어 보는 것이라 여러 해를 함께 편다. 다만 처음에는 모두 접혀 있다(22-44).
+  const fields = app.slice(app.indexOf('function applicantAreaFields(applicant, area, showTitle)'), app.indexOf('function comparisonRequirements()'));
   assert.match(fields, /const yearOpen = year => \(state\.openOrgYears \|\| \[\]\)\.includes\(year\);/);
 });
 
-test('기본정보 중단원도 접히고 줄에 채운 칸 수가 남는다', () => {
-  const view = app.slice(app.indexOf('function applicantBasicView(applicant, who'), app.indexOf('function applicantCandidateView'));
-  // 「다음 할 일」이 이 카드를 가리키면 초록 테두리가 함께 붙는다(22-53⑤). 접기 자체는 그대로다.
-  assert.match(view, /<details class="card org-details\$\{goPlace\('basic'\)\}\$\{goPlace\('upload'\)\}" id="applicant-editor" tabindex="-1" data-org-fold="basic"/);
-  assert.match(view, /채운 것 \$\{status\.filled\}\/\$\{status\.total\}칸/);
-  // 모자란 것이 무엇인지도 접힌 줄에 남는다.
-  assert.match(view, /status\.missing\.join\(' · '\)/);
+test('세모 대신 탭 모양으로 열림을 말한다', () => {
+  const tab = css.slice(css.indexOf('/* 중분류 아코디언 (22-56).'));
+  // 열린 줄은 한 단계 진해지고, 왼쪽 막대가 두꺼워지고, 아이보리 내용이 딸려 나온다.
+  assert.match(tab, /\.card\.section\{background:var\(--fold-body\)/);
+  assert.match(tab, /\.card\.section>summary\{background:var\(--fold-1\);[^}]*box-shadow:inset 3px 0 0 var\(--fold-edge\)\}/);
+  assert.match(tab, /\.card\.section\[open\]>summary\{background:var\(--fold-1-open\);box-shadow:inset 6px 0 0 var\(--fold-0\)\}/);
+  // 세모는 붙이지 않는다. 신호가 둘이면 어느 것을 믿어야 할지 흐려진다.
+  assert.match(tab, /\.card\.section>summary::before\{display:none\}/);
+  // 색은 하나만 늘렸다. 열린 줄은 --navy의 30% 톤이고 내용은 22-54 전의 바탕색이다.
+  assert.match(tab, /--fold-1-open:#c5c0bd;/);
+  assert.match(tab, /--fold-body:#faf6f0;/);
 });
 
-test('「다음 할 일」이 가리키면 그 중단원을 펴고 그 자리로 데려간다', () => {
-  const fold = app.slice(app.indexOf('function orgFoldOpen(key)'), app.indexOf('function stepPointsAt('));
-  assert.match(fold, /if \(step\.key === 'basic' \|\| step\.key === 'upload'\) return true;/);
-  // 실적이든 이용자든 상세정보 안을 가리키면 바깥 층을 편다. 어느 구역인지는 stepGroupKey 가 정한다.
-  assert.match(fold, /if \(key === 'detail'\) return Boolean\(group\) && !BASIC_AREAS\.includes\(group\);/);
-  // 접기를 늘리면 가리킨 자리가 화면 밖으로 나간다. 한 번만 데려간다.
-  const scroll = app.slice(app.indexOf('function scrollToNextStep()'), app.indexOf('function scrollToNextStep()') + 700);
-  // 띠가 아니라 「거기서 할 일」로 데려간다. 띠는 이미 맨 위라 데려가 봐야 제자리다.
-  assert.match(scroll, /document\.querySelector\('\.go-target'\) \|\| document\.querySelector\('\.go-place'\) \|\| document\.querySelector\('\.button\.go'\)/);
-  // 열쇠말이 같아도 가리키는 구역이 바뀌면 다시 데려간다.
-  assert.match(scroll, /const mark = `\$\{step\.key\}:\$\{stepGroupKey\(step\)\}`;/);
-  assert.match(scroll, /if \(!step\.key \|\| mark === lastGoStep\) return;/);
-  assert.match(scroll, /scrollIntoView\(\{ behavior: 'smooth', block: 'center' \}\)/);
-  assert.match(app, /runPendingAiMove\(\); scrollToNextStep\(\);/);
+test('소분류도 같은 형식이되 한 겹 옅다', () => {
+  const tab = css.slice(css.indexOf('/* 중분류 아코디언 (22-56).'));
+  assert.match(tab, /\.card\.section\.sub\{background:var\(--fold-3\)/);
+  assert.match(tab, /\.card\.section\.sub>summary\{background:var\(--fold-2\)\}/);
+  assert.match(tab, /\.card\.section\.sub\[open\]>summary\{background:var\(--fold-1\)\}/);
+  // 층 규칙(22-55)은 그대로다 — 소분류가 중분류보다 옅다.
+  const maker = app.slice(app.indexOf('function subSection(key, {'), app.indexOf('// 「다음 할 일」이 이 구역을 가리키는가.'));
+  assert.match(maker, /class="card org-details section sub\$\{mark\}"/);
 });

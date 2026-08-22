@@ -41,7 +41,7 @@ test('하나뿐이고 골라 둔 기관이면 한 줄로 줄인다', () => {
 test('펼침 기억은 이번 화면에서만 산다', () => {
   // 22-19의 접기가 안 먹은 까닭이 이것이었다. 한 번 편 것이 브라우저에 저장돼 새로고침해도 펴져 있었다.
   const save = app.slice(app.indexOf('function saveState()'), app.indexOf('function loadNavigationHistory()'));
-  assert.match(save, /openAddForms: \[\], openFitGroups: \[\], openOrgFolds: \[\], openOrgGroups: \[\], closedOrgGroups: \[\], openOrgYears: \[\], quickFilledFrom: \{\}/);
+  assert.match(save, /openAddForms: \[\], openFitGroups: \[\], openSections: \{\}, openOrgGroup: null, openOrgYears: \[\], quickFilledFrom: \{\}/);
   const load = app.slice(app.indexOf('const restored = {'), app.indexOf('const restored = {') + 2000);
-  assert.match(load, /openAddForms: \[\], openFitGroups: \[\], openOrgFolds: \[\], openOrgGroups: \[\], closedOrgGroups: \[\], openOrgYears: \[\], quickFilledFrom: \{\}/);
+  assert.match(load, /openAddForms: \[\], openFitGroups: \[\], openSections: \{\}, openOrgGroup: null, openOrgYears: \[\], quickFilledFrom: \{\}/);
 });

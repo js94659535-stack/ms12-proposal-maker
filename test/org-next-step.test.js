@@ -175,7 +175,7 @@ test('띠에서 시작해 자리로 가고 거기서 할 일까지 이어진다'
   assert.doesNotMatch(panel, /group\.key === 'performance' \? group\.total - group\.confirmed : 0/);
   // 기본정보 안의 두 구역에도 같은 단추가 있다.
   const basic = app.slice(app.indexOf("function applicantBasicView(applicant, who = '신청기관')"), app.indexOf('function applicantCandidateView('));
-  assert.match(basic, /\$\{confirmGroupButton\(area\.key, pending\)\}/);
+  assert.match(basic, /action: confirmGroupButton\(area\.key, pending\),/);
 
   // 누르면 그 구역을 통째로 올리고, 되돌리는 길이 같은 자리에 남는다.
   assert.match(app, /function confirmAllInGroup\(groupKey\) \{/);
@@ -184,14 +184,22 @@ test('띠에서 시작해 자리로 가고 거기서 할 일까지 이어진다'
   assert.match(app, /function groupUndoBar\(applicant, groupKey\)/);
 });
 
-test('가리키는 자리가 접혀 있으면 그 구역만 편다', () => {
+test('가리키는 자리가 접혀 있으면 그 자리가 열린 채로 시작한다', () => {
   // 가리켜 놓고 감추면 눌러서 열고 또 찾아야 한다.
-  // 다만 실적을 가리키지 않을 때 실적을 펴면 96건이 그대로 쏟아진다(22-49).
-  const open = app.slice(app.indexOf('function orgFoldOpen(key)'), app.indexOf('// 초록을 붙이는 유일한 통로'));
-  assert.match(open, /const group = stepGroupKey\(step\);/);
-  assert.match(open, /return BASIC_AREAS\.includes\(group\);/);
-  assert.match(open, /if \(key === 'detail'\) return Boolean\(group\) && !BASIC_AREAS\.includes\(group\);/);
-  assert.match(open, /function stepPointsAt\(groupKey\) \{\s*\n\s*return Boolean\(groupKey\) && stepGroupKey\(orgStepInfo\(\)\) === groupKey;/);
+  // 중분류는 한 번에 하나만 열리므로(22-56), 처음 열리는 하나가 판정이 가리키는 것이어야 한다.
+  const where = app.slice(app.indexOf('function orgStepSection()'), app.indexOf('function openStepSection(screen)'));
+  assert.match(where, /if \(group\) return BASIC_AREAS\.includes\(group\) \? 'basic' : 'detail';/);
+  assert.match(where, /'add-org': 'picker', basic: 'basic', upload: 'basic', apply: 'candidates'/);
+  const key = app.slice(app.indexOf('function openSectionKey(screen)'), app.indexOf('// 중분류 한 칸.'));
+  // 사람이 고른 적이 있으면 그것이 답이다. 빈 문자열은 「닫아 두었다」는 뜻이라 그대로 둔다.
+  assert.match(key, /if \(chosen !== undefined\) return keys\.includes\(chosen\) \? chosen : '';/);
+  assert.match(key, /return keys\.includes\(pointed\) \? pointed : keys\[0\] \|\| '';/);
+  // 소분류도 같은 규칙이다.
+  assert.match(app, /function stepPointsAt\(groupKey\) \{\s*\n\s*return Boolean\(groupKey\) && stepGroupKey\(orgStepInfo\(\)\) === groupKey;/);
+  // 띠를 누르면 가리키는 중분류와 구역을 함께 연다.
+  const opener = app.slice(app.indexOf('function openStepSection(screen)'), app.indexOf('function openSectionKey(screen)'));
+  assert.match(opener, /state\.openSections = \{ \.\.\.\(state\.openSections \|\| \{\}\), \[screen\]: key \};/);
+  assert.match(opener, /if \(screen === 'applicants' && group\) state\.openOrgGroup = group;/);
 });
 
 test('초록은 판정이 가리킬 때만 켜지고 글자를 함께 둔다', () => {

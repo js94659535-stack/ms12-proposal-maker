@@ -83,7 +83,7 @@ test('반영한 뒤에는 어디에 들어갔는지 보여 준다', () => {
   // 넣은 자리를 열고 그 자리로 데려간다.
   assert.match(apply, /const group = areaDestination\(review\.candidates\.find\(candidate => SAFE_KINDS\.includes\(candidate\.kind\)\)\?\.area \|\| ''\);/);
   assert.match(apply, /pendingAiMove = \{ anchor: `\[data-detail-group="\$\{group\}"\]`, sameView: true \}/);
-  assert.match(apply, /openOrgGroups: group \?/);
+  assert.match(apply, /openOrgGroup: group \|\| state\.openOrgGroup,/);
   // 확인해야 쓰인다는 것을 그 자리에서 말한다.
   assert.match(apply, /모두 ‘확인 필요’ 상태이며, 확인해야 계획서에 사실로 쓰입니다/);
 });

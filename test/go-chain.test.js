@@ -93,7 +93,7 @@ test('확인 전이 실적 밖이면 그 구역이 초록이 되고 거기서 �
   assert.match(html, /data-next-anchor="\[data-detail-group=&quot;clients&quot;\]"/);
 
   // ② 그 자리 — 이용자 구역 카드에 초록 테두리가 붙고, 접혀 있지 않다.
-  assert.match(html, /class="card org-details go-place" data-detail-group="clients" open/);
+  assert.match(html, /class="card org-details section sub go-place" data-detail-group="clients" open/);
 
   // ③ 거기서 할 일 — 그 구역의 「2건 모두 확인」이 초록이다. 화살표는 이 클래스에 매여 있다.
   assert.match(html, /class="button secondary summary-action go-target" data-confirm-group="clients">2건 모두 확인<\/button>/);
@@ -110,7 +110,7 @@ test('확인 전이 실적이면 실적 구역이 초록이 된다', async () =>
     applicants: [{ ...base, items: base.items.map(entry => (entry.area === 'performance' ? { ...entry, status: '확인 필요' } : entry)) }],
     quickOrg: quick
   }));
-  assert.match(html, /class="card org-details go-place" data-detail-group="performance" open/);
+  assert.match(html, /class="card org-details section sub go-place" data-detail-group="performance" open/);
   assert.match(html, /class="button secondary summary-action go-target" data-confirm-group="performance">2건 모두 확인<\/button>/);
   // 띠는 데려가지 않고 그 자리에서 끝낸다.
   assert.match(html, /data-next-bulk="1"/);
@@ -124,7 +124,7 @@ test('빈 칸을 채우라고 할 때는 그 칸에 화살표와 글자가 함�
   };
   const html = await draw(open({ applicants: [bare], quickOrg: { orgName: '햇살센터' } }, 'org-2'));
   // 기본정보 카드가 「그 자리」, 첫 빈 칸이 「거기서 할 일」이다.
-  assert.match(html, /class="card org-details go-place" id="applicant-editor"/);
+  assert.match(html, /class="card org-details section go-place" data-section="applicants:basic" id="applicant-editor" tabindex="-1" open>/);
   assert.match(html, /class="field go-target"/);
   // 색만으로 알리지 않는다.
   assert.match(html, /class="go-note">여기를 채우세요<\/small>/);

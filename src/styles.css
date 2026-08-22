@@ -993,3 +993,31 @@ select{max-width:100%}
 .item-fold[open]>summary::before,.add-fold[open]>summary::before{transform:rotate(90deg)}
 /* 「다음 할 일」이 가리키는 줄에서는 세모도 초록이다. 자리를 함께 말한다. */
 .go-place>summary::before{border-left-color:var(--go)}
+
+/* 중분류 아코디언 (22-56). 한 화면의 중분류는 한 번에 하나만 열린다.
+   화면은 늘 「제목 몇 줄 + 열린 내용 하나」다 — 다섯이 모두 펼쳐지면 무엇을 보고 있었는지 잃는다.
+   가로 탭이 아니라 세로로 세운 까닭은 제목이 길어서다(「불러온 신청기관 정보 · (주)마인드스토리」).
+
+   ④ 세모 대신 탭 모양으로 말한다. 열린 줄은 ⑴ 한 단계 진해지고 ⑵ 왼쪽 막대가 두꺼워지며
+   ⑶ 아래가 트여 아이보리 내용과 한 덩어리가 된다. 색만으로 알리지 않는다 — 막대 두께와
+   내용이 딸려 나오는 모양이 색을 못 보아도 「열렸다」를 말한다.
+
+   색은 새로 하나만 늘렸다. 열린 줄은 --navy를 흰색에 30%로 섞은 톤이고(닫힌 줄은 18%),
+   내용은 22-54 전까지 이 앱의 바탕이던 아이보리다. 층 규칙(22-55)은 그대로 산다 —
+   중분류가 소분류보다 진하고, 열면 한 단계 더 진해질 뿐이다. */
+:root{
+  --fold-1-open:#c5c0bd;
+  --fold-body:#faf6f0;
+}
+.card.section{background:var(--fold-body);padding:0;overflow:hidden}
+.card.section>summary{background:var(--fold-1);padding:14px 18px;box-shadow:inset 3px 0 0 var(--fold-edge)}
+.card.section[open]>summary{background:var(--fold-1-open);box-shadow:inset 6px 0 0 var(--fold-0)}
+/* 소분류도 같은 형식이되 한 겹 옅다. 열린 내용은 흰색이라 중분류의 아이보리 위에서 떠오른다. */
+.card.section.sub{background:var(--fold-3);margin-left:var(--fold-indent);border-left:0}
+.card.section.sub>summary{background:var(--fold-2)}
+.card.section.sub[open]>summary{background:var(--fold-1)}
+/* 탭에는 세모를 붙이지 않는다. 모양이 이미 열림을 말하고, 세모까지 있으면 신호가 둘이 된다. */
+.card.section>summary::before{display:none}
+.section-body{padding:16px 20px 20px}
+.card.section.sub .section-body{padding:12px 14px 16px}
+@media(max-width:600px){.card.section>summary{padding:12px 14px}.section-body{padding:14px}}

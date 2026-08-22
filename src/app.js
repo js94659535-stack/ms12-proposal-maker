@@ -135,10 +135,13 @@ const initial = {
   viewMode: '', expertDetail: false, workspace: 'personal', markDraft: {}, markOpen: false,
   // 검증 결과 화면. 총론을 먼저 보고 각론은 눌렀을 때만 편다.
   reviewDetail: false, reviewPanels: [], reviewFocus: false, reviseOpen: false, reviseDraft: null, revisions: [], revisionBackup: null,
-  // 상세정보에서 지금 펼쳐 둔 구역. 모든 구역을 한 번에 열지 않는다.
-  openOrgGroups: [],
-  // 바깥 두 층(불러온 기관 정보 · 상세정보)의 펼침. 저장하지 않는다 — 다음에 들어오면 다시 접힌다.
-  openOrgFolds: [],
+  // 화면마다 지금 열어 둔 중분류 하나. 한 번에 하나만 열린다(22-56).
+  // { applicants: '기본정보', pick: '공고 비교' }처럼 화면 이름을 열쇠로 쓴다.
+  // 값이 없으면 아직 사람이 고르지 않은 것이고, 빈 문자열이면 사람이 닫아 둔 것이다.
+  // 저장하지 않는다 — 다음에 들어오면 「다음 할 일」이 가리키는 것이 다시 열린다(22-22 방식).
+  openSections: {},
+  // 열어 둔 소분류 하나. 중분류가 한 번에 하나만 열리므로 이 값도 하나면 된다.
+  openOrgGroup: null,
   // 손으로 넣는 칸을 펼쳤는지. 이것도 저장하지 않는다.
   openAddForms: [],
   // 「공고 × 신청기관 비교」에서 펼쳐 둔 묶음. 같은 규칙으로 저장하지 않는다.
@@ -149,7 +152,7 @@ const initial = {
   designJobs: {},
   // 이 계획서에 남아 있는 AI 작업 기록. 다시 만들기 전에 먼저 보여 준다.
   aiJobs: { list: [], loadedFor: '' },
-  applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openOrgYears: [], closedOrgGroups: [], quickFilledFrom: {}, quickSavedAt: '', orgPickerOpen: false, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
+  applicants: [], selectedApplicantId: '', applicantEditingId: '', applicantNameDraft: '', projectValues: [], projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantComparison: null, applicantResolvedQuestions: [], applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openOrgYears: [], quickFilledFrom: {}, quickSavedAt: '', orgPickerOpen: false, coachingApplicantId: '', applicantSourceDraft: { kind: '홈페이지', name: '', url: '', asOf: '' },
   revisionPlan: null, draftReview: null, projectNarrative: '',
   // 서버가 붙여 준 근거 검증·평가자 검토. 화면은 판정하지 않고 그대로 보여 준다.
   serverGuard: null, serverEvidence: null, evaluatorReview: null, proposalVersions: [], proposalFlow: { status: '', baselineVersion: 0, reviewTarget: null, rounds: [], requests: [], requestOpen: false, requestText: '', requestScope: [], openVersion: 0, compareVersion: 0, approvedVersion: 0, approvedAt: '' }, coachingSelection: [], applicantSkipped: false, noticeLogic: null, redesignForContract: false,
@@ -3108,7 +3111,7 @@ function loadState() {
     const stagedGeneration = saved.stagedGeneration && typeof saved.stagedGeneration === 'object'
       ? { ...structuredClone(initial.stagedGeneration), ...saved.stagedGeneration, parts: Array.isArray(saved.stagedGeneration.parts) ? saved.stagedGeneration.parts : [], completedGroupIds: Array.isArray(saved.stagedGeneration.completedGroupIds) ? saved.stagedGeneration.completedGroupIds : [] }
       : structuredClone(initial.stagedGeneration);
-    const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', notice: '', applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openAddForms: [], openFitGroups: [], openOrgFolds: [], openOrgGroups: [], closedOrgGroups: [], openOrgYears: [], quickFilledFrom: {}, coachingSelection: [], attachmentLinks: {}, submissionZip: null, lastDownload: null, sheet: null };
+    const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', notice: '', applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openAddForms: [], openFitGroups: [], openSections: {}, openOrgGroup: null, openOrgYears: [], quickFilledFrom: {}, coachingSelection: [], attachmentLinks: {}, submissionZip: null, lastDownload: null, sheet: null };
     // 알 수 없는 포털 값이 남아 있으면 다시 고르게 한다.
     restored.portal = ['admin', 'proposal'].includes(saved.portal) ? saved.portal : '';
     // 예전에 저장한 상태에는 의뢰 건 정보가 없다. 빈 값으로 채우기만 하고 기존 데이터는 건드리지 않는다.
@@ -3146,7 +3149,7 @@ function saveState() {
   // 다만 브라우저 저장 한도가 있으므로 앞쪽 얼마간만 남긴다. 나머지는 다시 불러올 때 채워진다.
   const CACHED_NOTICES = 120;
   const safe = { ...state, reviewDetail: false, reviewPanels: [], reviewFocus: false, companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [],
-    archiveNotices: (state.archiveNotices || []).slice(0, CACHED_NOTICES), archiveProposals: (state.archiveProposals || []).slice(0, CACHED_NOTICES), noticeUrlDraft: '', busy: '', error: '', notice: '', applicantNameDraft: '', applicantComparison: null, applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openAddForms: [], openFitGroups: [], openOrgFolds: [], openOrgGroups: [], closedOrgGroups: [], openOrgYears: [], quickFilledFrom: {}, files: state.files.map(({ text, ...meta }) => meta),
+    archiveNotices: (state.archiveNotices || []).slice(0, CACHED_NOTICES), archiveProposals: (state.archiveProposals || []).slice(0, CACHED_NOTICES), noticeUrlDraft: '', busy: '', error: '', notice: '', applicantNameDraft: '', applicantComparison: null, applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openAddForms: [], openFitGroups: [], openSections: {}, openOrgGroup: null, openOrgYears: [], quickFilledFrom: {}, files: state.files.map(({ text, ...meta }) => meta),
     // 이 첨부 원본은 브라우저 메모리에만 있다. 새로고침 뒤에 파일이 있다고 잘못 말하지 않도록 연결 기록도 저장하지 않는다.
     // 기관이 준 서류는 R2에 보관하며 그것은 이 목록이 아니라 기관자료 줄에 남는다.
     attachmentLinks: {}, submissionZip: null, lastDownload: null, sheet: null };
@@ -5297,22 +5300,72 @@ function addForm(key, label, body) {
   return `<details class="add-fold" data-add-form="${escapeHtml(key)}" ${open ? 'open' : ''}><summary>${escapeHtml(label)}</summary>${body}</details>`;
 }
 
-// 바깥 두 층(불러온 기관 정보 · 상세정보)의 펼침. 기억은 이번 화면에서만 산다(22-22 방식).
-// 「다음 할 일」이 그 안을 가리키면 접혀 있으면 안 되므로 상태와 상관없이 펼친다.
-function orgFoldOpen(key) {
-  if ((state.openOrgFolds || []).includes(key)) return true;
-  // 가리켜 놓고 감추면 눌러서 열고 또 찾아야 한다. 가리키는 자리만 편다.
+// 중분류 아코디언. 한 화면의 중분류는 한 번에 하나만 열린다(22-56).
+//
+// 왜. 다섯이 모두 펼쳐지면 화면이 끝없이 이어지고 무엇을 보고 있었는지 잃는다.
+// 가로 탭으로 세우지 못한 까닭은 제목이 길어서다 — 「불러온 신청기관 정보 · (주)마인드스토리」는
+// 한 줄에 들어가지 않는다. 그래서 세로로 세우고 하나만 편다.
+//
+// 처음 열리는 것은 「다음 할 일」이 가리키는 중분류이고, 가리키는 것이 없으면 첫 번째다.
+// 사람이 하나를 열면 그때부터 그것이 열린 것이고, 닫으면 아무것도 열리지 않은 채로 둔다.
+// 기억은 이번 화면에서만 산다(22-22 방식) — 저장하지 않으므로 다음에 들어오면 다시 판정을 따른다.
+const SECTIONS = Object.freeze({
+  applicants: ['picker', 'map', 'basic', 'candidates', 'detail', 'sources', 'documents'],
+  pick: ['picker', 'loaded', 'fit', 'values', 'questions']
+});
+// 「다음 할 일」이 가리키는 중분류. 판정은 이미 한 곳에 있고 여기서는 그것을 중분류 이름으로 옮긴다.
+function orgStepSection() {
   const step = orgStepInfo();
   const group = stepGroupKey(step);
-  if (key === 'basic') {
-    if (step.key === 'basic' || step.key === 'upload') return true;
-    // 확인 전인 것이 기본정보 쪽이면 그 중단원을 편다. 실적은 건드리지 않는다.
-    return BASIC_AREAS.includes(group);
-  }
-  if (key === 'detail') return Boolean(group) && !BASIC_AREAS.includes(group);
-  return false;
+  if (group) return BASIC_AREAS.includes(group) ? 'basic' : 'detail';
+  return { 'add-org': 'picker', basic: 'basic', upload: 'basic', apply: 'candidates' }[step.key] || '';
 }
-// 「다음 할 일」이 이 구역을 가리키는가. 가리키는 구역 하나만 편다.
+function pickStepSection() {
+  const key = applicantPickStep().key;
+  return key === 'add-org' || key === 'pick' ? 'picker' : '';
+}
+// 「다음 할 일」이 가리키는 중분류를 연다. 띠를 눌렀을 때만 부른다 —
+// 그리는 동안에는 사람이 열어 둔 것을 뺏지 않고, 누른 순간에만 판정을 따른다.
+function openStepSection(screen) {
+  const key = screen === 'applicants' ? orgStepSection() : pickStepSection();
+  if (!key) return;
+  state.openSections = { ...(state.openSections || {}), [screen]: key };
+  // 구역까지 가리키면 그 구역도 연다. 중분류만 열어 두면 그 안에서 또 찾아야 한다.
+  const group = stepGroupKey(orgStepInfo());
+  if (screen === 'applicants' && group) state.openOrgGroup = group;
+}
+
+function openSectionKey(screen) {
+  const keys = SECTIONS[screen] || [];
+  const chosen = (state.openSections || {})[screen];
+  // 사람이 고른 적이 있으면 그것이 답이다. 빈 문자열은 「닫아 두었다」는 뜻이라 그대로 둔다.
+  if (chosen !== undefined) return keys.includes(chosen) ? chosen : '';
+  const pointed = screen === 'applicants' ? orgStepSection() : pickStepSection();
+  return keys.includes(pointed) ? pointed : keys[0] || '';
+}
+// 중분류 한 칸. 제목 줄과 그 안의 내용을 같은 모양으로 그린다.
+// title·sub·action은 이미 HTML이다 — 부르는 쪽이 escapeHtml을 지나 만든다.
+function section(screen, key, { title, sub = '', body, id = '', action = '', mark = '' }) {
+  const open = openSectionKey(screen) === key;
+  return `<details class="card org-details section${mark}" data-section="${escapeHtml(screen)}:${escapeHtml(key)}"${id ? ` id="${id}" tabindex="-1"` : ''} ${open ? 'open' : ''}>
+    <summary><b>${title}</b>${sub ? ` <small>${sub}</small>` : ''}${action}</summary>
+    <div class="section-body">${body}</div></details>`;
+}
+// 소분류도 같은 형식이다. 중분류가 한 번에 하나만 열리므로 열린 소분류도 화면에 하나뿐이고,
+// 그래서 기억할 값도 하나면 된다. 연도(소소분류)까지 하나만 열게 하지는 않는다 —
+// 연도는 견주어 보는 것이라 2026을 열면 2025가 닫히면 견줄 수가 없다.
+function openGroupKey() {
+  const chosen = state.openOrgGroup;
+  if (chosen !== null && chosen !== undefined) return chosen;
+  return stepGroupKey(orgStepInfo()) || '';
+}
+function subSection(key, { title, sub = '', body, action = '', mark = '' }) {
+  const open = openGroupKey() === key;
+  return `<details class="card org-details section sub${mark}" data-detail-group="${escapeHtml(key)}" ${open ? 'open' : ''}>
+    <summary><b>${title}</b>${sub ? ` <small>${sub}</small>` : ''}${action}</summary>
+    <div class="section-body">${body}</div></details>`;
+}
+// 「다음 할 일」이 이 구역을 가리키는가. 초록을 붙일지 정할 때만 쓴다.
 function stepPointsAt(groupKey) {
   return Boolean(groupKey) && stepGroupKey(orgStepInfo()) === groupKey;
 }
@@ -5401,16 +5454,24 @@ function orgPickerView(who) {
   const consortium = requiresConsortium(comparisonRequirements(), currentNoticeContract());
   if (only && only.id === state.selectedApplicantId && !consortium.required && !state.orgPickerOpen) {
     const confirmed = countConfirmed(only.items);
-    return `<div class="card"><div class="card-title"><div><h3>${escapeHtml(only.name)}</h3>
-      <span>확인됨 ${confirmed}건 · 확인 필요 ${only.items.length - confirmed}건 · 이번 사업 신청기관</span></div>
-      <button class="button secondary" id="open-org-picker">다른 기관 쓰기</button></div></div>`;
+    return section('applicants', 'picker', {
+      title: escapeHtml(only.name),
+      sub: `확인됨 ${confirmed}건 · 확인 필요 ${only.items.length - confirmed}건 · 이번 사업 신청기관`,
+      action: '<button class="button secondary summary-action" id="open-org-picker">다른 기관 쓰기</button>',
+      body: '<p class="muted">이 기관으로 계획서를 씁니다. 다른 기관을 더하거나 바꾸려면 위 단추를 누르세요.</p>'
+    });
   }
-  return `<div class="card${goPlace('add-org')}"><div class="card-title"><div><h3>등록된 ${who} ${state.applicants.length}곳</h3><span>${consortium.required ? `이 공고는 기관 둘 이상을 요구합니다 — 「${escapeHtml(consortium.evidence)}」` : '우리 기관도 등록기관 중 하나로만 다룹니다.'}</span></div><div><button class="button secondary" id="load-applicants">${loadFrom('org')}</button></div></div>
-    <div class="two-col"><div class="field${goMark('add-org')}"><label for="applicant-name-draft">새 ${who}명</label><input id="applicant-name-draft" value="${escapeHtml(state.applicantNameDraft)}" placeholder="예: 사단법인 ○○센터">${goNote('add-org', '여기에 기관명을 적으세요')}</div><div class="field"><label>&nbsp;</label><button class="button secondary" id="add-applicant">신청기관 추가</button></div></div>
+  return section('applicants', 'picker', {
+    mark: goPlace('add-org'),
+    title: `등록된 ${escapeHtml(who)} ${state.applicants.length}곳`,
+    sub: consortium.required ? `이 공고는 기관 둘 이상을 요구합니다 — 「${escapeHtml(consortium.evidence)}」` : '우리 기관도 등록기관 중 하나로만 다룹니다.',
+    action: `<button class="button secondary summary-action" id="load-applicants">${loadFrom('org')}</button>`,
+    body: `<div class="two-col"><div class="field${goMark('add-org')}"><label for="applicant-name-draft">새 ${who}명</label><input id="applicant-name-draft" value="${escapeHtml(state.applicantNameDraft)}" placeholder="예: 사단법인 ○○센터">${goNote('add-org', '여기에 기관명을 적으세요')}</div><div class="field"><label>&nbsp;</label><button class="button secondary" id="add-applicant">신청기관 추가</button></div></div>
     ${state.applicants.length ? `<div class="requirement-list">${state.applicants.map(applicant => {
       const confirmed = countConfirmed(applicant.items);
       return `<article class="requirement"><div><span class="tag">${applicant.id === state.selectedApplicantId ? '이번 사업 신청기관' : '등록기관'}</span><div><strong>${escapeHtml(applicant.name)}</strong><small>확인됨 ${confirmed}건 · 확인 필요·오래된 정보 ${applicant.items.length - confirmed}건 · 최근 수정 ${escapeHtml(String(applicant.updatedAt).slice(0, 10))}</small></div></div><div class="actions" style="margin:0;gap:8px"><button class="button secondary" data-edit-applicant="${escapeHtml(applicant.id)}">${(state.applicantEditingId || state.selectedApplicantId) === applicant.id ? '관리 중' : '이 기관 관리'}</button><button class="button secondary" data-select-applicant="${escapeHtml(applicant.id)}">이번 사업 신청기관으로 선택</button><button class="button secondary" data-delete-applicant="${escapeHtml(applicant.id)}">삭제</button></div></article>`;
-    }).join('')}</div>` : '<p class="muted">등록된 신청기관이 없습니다. 기관명을 입력하고 추가하세요.</p>'}</div>`;
+    }).join('')}</div>` : '<p class="muted">등록된 신청기관이 없습니다. 기관명을 입력하고 추가하세요.</p>'}`
+  });
 }
 
 const fileSizeLabel = bytes => (Number(bytes) >= 1024 * 1024 ? `${(Number(bytes) / 1024 / 1024).toFixed(1)}MB` : `${Math.max(1, Math.round(Number(bytes || 0) / 1024))}KB`);
@@ -5419,7 +5480,10 @@ const fileSizeLabel = bytes => (Number(bytes) >= 1024 * 1024 ? `${(Number(bytes)
 function applicantSourcesView(applicant) {
   const draft = state.applicantSourceDraft || initial.applicantSourceDraft;
   const sources = applicant.sources || [];
-  return `<div class="card"><div class="card-title"><div><h3>기관자료 ${sources.length}건</h3><span>홈페이지·소개서·과거 계획서 등 어디서 온 정보인지 남깁니다. 자료를 등록해도 기관 정보가 바로 바뀌지는 않습니다.</span></div></div>
+  return section('applicants', 'sources', {
+    title: `기관자료 ${sources.length}건`,
+    sub: '홈페이지·소개서·과거 계획서 등 어디서 온 정보인지 남깁니다. 자료를 등록해도 기관 정보가 바로 바뀌지는 않습니다.',
+    body: `
     ${addForm('source', '자료 줄 손으로 추가하기', `<div class="two-col"><div class="field"><label for="source-kind">자료 종류</label><select id="source-kind">${SOURCE_KINDS.map(kind => `<option ${draft.kind === kind ? 'selected' : ''}>${escapeHtml(kind)}</option>`).join('')}</select></div>
       <div class="field"><label for="source-name">자료명</label><input id="source-name" value="${escapeHtml(draft.name)}" placeholder="예: 2025 기관소개서"></div></div>
     <div class="two-col"><div class="field"><label for="source-url">주소(URL, 선택)</label><input id="source-url" type="url" value="${escapeHtml(draft.url)}" placeholder="https://"></div>
@@ -5434,7 +5498,8 @@ function applicantSourcesView(applicant) {
       <div class="actions" style="margin:0;gap:8px">${source.file
         ? `<button class="button secondary" data-open-source-file="${escapeHtml(source.id)}">서류 열기</button><button class="button secondary" data-drop-source-file="${escapeHtml(source.id)}">서류 지우기</button>`
         : `<label class="button secondary" for="source-file-${escapeHtml(source.id)}">서류 파일 붙이기<input type="file" id="source-file-${escapeHtml(source.id)}" data-source-file="${escapeHtml(source.id)}" style="display:none"></label>`}
-      <button class="button secondary" data-remove-source="${escapeHtml(source.id)}">자료 삭제</button></div></article>`).join('')}</div>` : '<p class="muted">등록한 기관자료가 없습니다.</p>'}</div>`;
+      <button class="button secondary" data-remove-source="${escapeHtml(source.id)}">자료 삭제</button></div></article>`).join('')}</div>` : '<p class="muted">등록한 기관자료가 없습니다.</p>'}`
+  });
 }
 function addApplicantSource() {
   const applicant = findApplicant(state.applicants, state.applicantEditingId);
@@ -5503,13 +5568,18 @@ function removeApplicantSource(id) {
 // 기존 기관 문서에서 정보를 뽑아 ‘업데이트 후보’로만 만든다. 사용자가 반영을 눌러야 기관 정보가 바뀐다.
 function applicantDocumentView(applicant) {
   const review = state.applicantExtraction?.applicantId === applicant.id ? state.applicantExtraction : null;
-  return `<div class="card" id="applicant-doc" tabindex="-1"><div class="card-title"><div><h3>연혁·사업계획서·등록증을 올리면 자동으로 채워집니다</h3><span>올린 문서에서 찾은 것만 후보로 만듭니다. 기존 정보를 자동으로 덮어쓰지 않습니다.</span></div></div><div class="cap-grid"><div><span>올리는 것</span><strong>기관 연혁 · 사업 실적표</strong><small>채워지는 것 — 연도별 사업실적 (예: 2017년 · 송원대학교, 조선대학교 취창업 청년 캠프)</small></div><div><span>올리는 것</span><strong>사업계획서 · 결과보고서</strong><small>채워지는 것 — 인력 · 시설 · 협력기관 · 예산 (예: 상근 인력 5명, 상담실 2실)</small></div><div><span>올리는 것</span><strong>사업자등록증 · 고유번호증 · 결산서</strong><small>채워지는 것 — 기관명 · 대표자 · 주소 · 고유번호 · 연간 예산</small></div></div>
+  return section('applicants', 'documents', {
+    id: 'applicant-doc',
+    title: '연혁·사업계획서·등록증을 올리면 자동으로 채워집니다',
+    sub: '올린 문서에서 찾은 것만 후보로 만듭니다. 기존 정보를 자동으로 덮어쓰지 않습니다.',
+    body: `<div class="cap-grid"><div><span>올리는 것</span><strong>기관 연혁 · 사업 실적표</strong><small>채워지는 것 — 연도별 사업실적 (예: 2017년 · 송원대학교, 조선대학교 취창업 청년 캠프)</small></div><div><span>올리는 것</span><strong>사업계획서 · 결과보고서</strong><small>채워지는 것 — 인력 · 시설 · 협력기관 · 예산 (예: 상근 인력 5명, 상담실 2실)</small></div><div><span>올리는 것</span><strong>사업자등록증 · 고유번호증 · 결산서</strong><small>채워지는 것 — 기관명 · 대표자 · 주소 · 고유번호 · 연간 예산</small></div></div>
     <label class="dropzone" id="applicant-doc-drop" for="applicant-doc-file"><strong>파일을 고르거나 여기에 끌어다 놓으세요</strong><small>사업자등록증 · 고유번호증 · 연혁 · 사업계획서 · 결과보고서 · 결산서 · PDF · DOCX · HWP · HWPX · TXT</small><input type="file" id="applicant-doc-file" accept=".pdf,.docx,.txt,.hwpx,.hwp"></label><p class="muted">한글 파일(HWP·HWPX)은 표를 행 그대로 읽습니다. 읽지 못하면 이유를 알려 드립니다. 그림으로만 된 문서는 아직 읽지 못합니다.</p>
     <div class="field"><label for="applicant-doc-text">또는 문서 내용 붙여넣기</label><textarea id="applicant-doc-text" style="min-height:110px" placeholder="예) 기관명: 사단법인 ○○센터 / 상근 인력: 5명 / 2025년 청소년 마음건강 지원사업">${escapeHtml(state.applicantDocDraft)}</textarea></div>
     <div class="actions" style="margin:0"><span class="muted">${escapeHtml(review ? `${review.documentName || '붙여넣은 문서'} · 문서 기준시점 ${review.documentAsOf || ASOF_UNKNOWN}` : '외부 AI 호출 없이 규칙 기반으로 추출합니다.')}</span><button class="button secondary" id="extract-applicant-doc">업데이트 후보 만들기</button></div>
     <div class="actions" style="margin-top:14px"><span class="muted">계획서보관함에 저장된 과거 사업계획서는 다시 업로드하지 않고 바로 사용할 수 있습니다.</span><button class="button secondary" id="load-applicant-archive">${loadFrom('proposal')}</button></div>
     ${state.archiveProposals.length ? `<div class="requirement-list">${state.archiveProposals.map(item => `<article class="requirement"><div><span class="tag">${escapeHtml(archiveStageLabel(item.stage))}</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(new Date(item.updatedAt).toLocaleDateString('ko-KR'))} 저장</small></div></div><button class="button secondary" data-applicant-archive="${escapeHtml(item.id)}">이 계획서에서 기관 정보 추출</button></article>`).join('')}</div>` : ''}
-    ${review ? candidateReviewView(review) : ''}</div>`;
+    ${review ? candidateReviewView(review) : ''}`
+  });
 }
 
 // 두 화면(신청기관 정보·검증 결과)이 같은 후보 목록 UI를 쓴다.
@@ -5715,8 +5785,12 @@ function applicantBasicView(applicant, who = '신청기관') {
   // 중단원도 접는다(22-47). 접힌 줄에 몇 칸을 채웠는지와 무엇이 모자란지 남긴다.
   // 두 갈래가 이 카드를 가리킨다 — 빈 칸을 채우는 길(basic)과 문서를 올리는 길(upload).
   // 한 번에 하나만 참이므로 테두리는 하나다.
-  return `<details class="card org-details${goPlace('basic')}${goPlace('upload')}" id="applicant-editor" tabindex="-1" data-org-fold="basic" ${orgFoldOpen('basic') ? 'open' : ''}>
-    <summary><b>기본정보 · ${escapeHtml(applicant.name)}</b> <small>채운 것 ${status.filled}/${status.total}칸 · ${status.ready ? (status.saved ? '저장됨' : '저장하면 시작 가능') : `${escapeHtml(status.missing.join(' · '))} 필요`}</small></summary>
+  return section('applicants', 'basic', {
+    id: 'applicant-editor',
+    mark: `${goPlace('basic')}${goPlace('upload')}`,
+    title: `기본정보 · ${escapeHtml(applicant.name)}`,
+    sub: `채운 것 ${status.filled}/${status.total}칸 · ${status.ready ? (status.saved ? '저장됨' : '저장하면 시작 가능') : `${escapeHtml(status.missing.join(' · '))} 필요`}`,
+    body: `
     ${(() => { const stale = staleSummary(applicant.items, new Date().getFullYear()); return stale ? `<div class="alert warning"><strong>다시 확인할 정보 ${stale.count}건</strong><p>${escapeHtml(stale.message)}</p><div class="actions" style="margin:0"><span class="muted">상태는 그대로 둡니다. 확인해 두신 값은 계획서에 계속 쓰입니다.</span><button class="button secondary" id="recheck-upload">새 문서 올리기</button></div></div>` : ''; })()}
     <label class="dropzone${goMark('upload')}" id="applicant-cert-drop" for="applicant-cert-file">
       <strong>사업자등록증·고유번호증을 올리면 자동으로 채워집니다</strong>
@@ -5744,20 +5818,25 @@ function applicantBasicView(applicant, who = '신청기관') {
     ${BASIC_AREAS.map(key => APPLICANT_AREAS.find(area => area.key === key)).filter(Boolean).map(area => {
       const list = areaItems(applicant, area.key);
       const pending = list.filter(item => item.status !== CONFIRMED_STATUS).length;
-      return `<details class="card org-details${goPlace('confirm', area.key)}" data-detail-group="${area.key}" ${(state.openOrgGroups || []).includes(area.key) || stepPointsAt(area.key) ? 'open' : ''}>
-        <summary><b>${escapeHtml(area.title)}</b> <small>등록 ${list.length}건${pending ? ` · 확인 전 ${pending}건` : ''} · 주소·대표자·신청자격처럼 더 적을 것이 있을 때만 펼치세요</small>${confirmGroupButton(area.key, pending)}</summary>
-        ${groupUndoBar(applicant, area.key)}${applicantAreaFields(applicant, area, false)}</details>`;
-    }).join('')}
-  </details>`;
+      return subSection(area.key, {
+        mark: goPlace('confirm', area.key),
+        title: escapeHtml(area.title),
+        sub: `등록 ${list.length}건${pending ? ` · 확인 전 ${pending}건` : ''} · 주소·대표자·신청자격처럼 더 적을 것이 있을 때만 펼치세요`,
+        action: confirmGroupButton(area.key, pending),
+        body: `${groupUndoBar(applicant, area.key)}${applicantAreaFields(applicant, area, false)}`
+      });
+    }).join('')}`
+  });
 }
 
 // 파일·내 정보에서 뽑은 값은 후보로만 제안한다. 회원이 확인해야 저장된다.
 function applicantCandidateView(applicant) {
-  return `<div class="card${goPlace('apply')}"><div class="card-title"><div><h3>입력 후보</h3>
-    <span>내 정보와 올린 문서에서 찾은 값입니다. 출처와 함께 보여 주고, 확인해야 기관정보가 됩니다.</span></div></div>
-    ${profileBridgePanel(applicant)}
-    ${applicantScopeView(applicant)}
-    ${applicantSourceView(applicant)}</div>`;
+  return section('applicants', 'candidates', {
+    mark: goPlace('apply'),
+    title: '입력 후보',
+    sub: '내 정보와 올린 문서에서 찾은 값입니다. 출처와 함께 보여 주고, 확인해야 기관정보가 됩니다.',
+    body: `${profileBridgePanel(applicant)}${applicantScopeView(applicant)}${applicantSourceView(applicant)}`
+  });
 }
 
 // ---------- 상세정보(선택) ----------
@@ -5766,13 +5845,14 @@ function applicantDetailView(applicant) {
   const groups = detailProgress(applicant);
   const filled = groups.filter(group => group.total).length;
   const total = groups.reduce((sum, group) => sum + group.total, 0);
-  return `<details class="card org-details" id="applicant-detail" data-org-fold="detail" ${orgFoldOpen('detail') ? 'open' : ''}>
-    <summary><b>상세정보 <span class="muted">(선택)</span></b> <small>여덟 구역 중 ${filled}구역에 자료 ${total}건 · 지금 적지 않아도 계획서는 만들어집니다</small>
-      ${orgFoldOpen('detail') ? '<button class="button secondary summary-action" id="close-all-details">구역 모두 접기</button>' : ''}</summary>
-    <div class="alert"><strong>상세정보를 등록하면 계획서가 달라집니다</strong><p>${DETAIL_INTRO}</p></div>
+  return section('applicants', 'detail', {
+    id: 'applicant-detail',
+    title: '상세정보 <span class="muted">(선택)</span>',
+    sub: `여덟 구역 중 ${filled}구역에 자료 ${total}건 · 지금 적지 않아도 계획서는 만들어집니다`,
+    body: `<div class="alert"><strong>상세정보를 등록하면 계획서가 달라집니다</strong><p>${DETAIL_INTRO}</p></div>
     <div class="stat-badges">${groups.map(group => `<span class="stat-badge" title="${escapeHtml(group.hint)}"><strong>${group.confirmed}/${group.total}</strong><span>${escapeHtml(group.title)}</span></span>`).join('')}</div>
-    ${groups.map(group => detailGroupPanel(applicant, group)).join('')}
-  </details>`;
+    ${groups.map(group => detailGroupPanel(applicant, group)).join('')}`
+  });
 }
 
 // 구역 제목 줄의 「N건 모두 확인」. 열한 칸 어디서나 같은 모양·같은 자리에 둔다.
@@ -5786,21 +5866,25 @@ function confirmGroupButton(groupKey, pending) {
 }
 
 function detailGroupPanel(applicant, group) {
-  // 구역은 모두 접은 채로 시작한다. 자료가 있는 구역을 펼쳐 두었더니 실적 96건이 그대로 쏟아져
-  // 화면을 감당할 수 없었다(22-42). 접힌 줄에 건수가 있으므로 열지 않아도 무엇이 얼마나 있는지 보인다.
-  // 다만 「다음 할 일」이 가리키는 구역은 접지 않는다 — 가리켜 놓고 감추면 찾을 수가 없다.
-  const open = (state.openOrgGroups || []).includes(group.key) || stepPointsAt(group.key);
+  // 구역도 한 번에 하나만 열린다(22-56⑤). 자료가 있는 구역을 펼쳐 두었더니 실적 96건이 그대로
+  // 쏟아져 화면을 감당할 수 없었고(22-42), 여럿을 열어 두어도 마찬가지였다.
+  // 접힌 줄에 건수가 있으므로 열지 않아도 무엇이 얼마나 있는지 보인다.
+  // 처음 열리는 것은 「다음 할 일」이 가리키는 구역이다 — 가리켜 놓고 감추면 찾을 수가 없다.
   const areas = group.areas.map(key => APPLICANT_AREAS.find(area => area.key === key)).filter(Boolean);
   // 접힌 채로도 한 번에 확인할 수 있어야 한다. 제목 줄에서 바로 누른다.
   // 예전에는 실적에만 있었다. 그래서 확인 전인 것이 이용자·인력 쪽이면 「확인하러 가기」로 데려다 놓고도
   // 거기서 누를 것이 없었다(22-53⑤). 확인 전이 남은 구역이면 어느 구역이든 같은 단추를 둔다.
   const pending = group.total - group.confirmed;
-  return `<details class="card org-details${goPlace('confirm', group.key)}" data-detail-group="${group.key}" ${open ? 'open' : ''}>
-    <summary><b>${escapeHtml(group.title)}</b> <small>등록 ${group.total}건 · 확인됨 ${group.confirmed}건</small>${confirmGroupButton(group.key, pending)}</summary>
-    <p class="muted">${escapeHtml(group.hint)}</p>
+  return subSection(group.key, {
+    mark: goPlace('confirm', group.key),
+    title: escapeHtml(group.title),
+    sub: `등록 ${group.total}건 · 확인됨 ${group.confirmed}건`,
+    action: confirmGroupButton(group.key, pending),
+    body: `<p class="muted">${escapeHtml(group.hint)}</p>
     ${group.key === 'performance' ? performanceConfirmBar(applicant) : groupUndoBar(applicant, group.key)}
     ${areas.map(area => applicantAreaFields(applicant, area, areas.length > 1)).join('')}
-    ${group.key === 'programs' ? ideaAssetPanel() : ''}</details>`;
+    ${group.key === 'programs' ? ideaAssetPanel() : ''}`
+  });
 }
 
 // 방금 이 구역을 통째로 올렸는가. 새로고침하면 「방금」이 아니므로 그때는 되돌리기를 감춘다.
@@ -5892,16 +5976,19 @@ function comparisonRequirements() {
 // 이 화면의 「지금 할 일」 띠. 판정은 nextApplicantPick 한 곳에서 하고 여기서는 결과만 그린다.
 //
 // 기관정보 화면의 띠와 같은 모양·같은 자리다. 화면마다 다르게 생기면 「저게 뭐였지」가 다시 생긴다.
-function applicantPickBar() {
+function applicantPickStep() {
   const applicant = selectedApplicant();
   const confirmed = applicant ? countConfirmed(applicant.items) : 0;
-  const step = nextApplicantPick({
+  return nextApplicantPick({
     applicantCount: state.applicants.length,
     hasPick: Boolean(applicant),
     pickName: applicant?.name || '',
     unconfirmed: applicant ? applicant.items.length - confirmed : 0,
     confirmed
   });
+}
+function applicantPickBar() {
+  const step = applicantPickStep();
   return `<div class="next-step-bar${step.done ? ' done' : ''}" id="pick-step-bar">
     <div><span>${step.done ? '다 됐습니다' : '다음 할 일'}</span><strong>${escapeHtml(step.message)}</strong></div>
     <button class="button go next-step" id="pick-step-action" data-pick-key="${escapeHtml(step.key)}">${escapeHtml(step.actionLabel)}</button></div>`;
@@ -5912,11 +5999,16 @@ function applicantSelectView() {
   return `<div class="page-heading"><div><h2>이번 사업의 신청기관을 선택하세요</h2><p>선택한 기관의 ‘확인됨’ 정보만 마스터 설계와 계획서 작성 요청에 전달합니다.</p></div><div class="actions">${sampleButton('applicant', '[샘플] 기관 보기')}${sampleButton('fit', '[샘플] 적합성 보기')}</div><button class="button secondary" data-open-applicants="1">신청기관 정보 관리</button></div>
     ${applicantPickBar()}
     ${applicant ? '' : `<div class="alert warning"><strong>신청기관 선택은 필수가 아닙니다</strong><p>신청기관을 선택하지 않거나 기관 정보가 부족해도 계획서 작성을 진행할 수 있습니다. 확인되지 않은 기관 사실은 AI가 만들지 않고 계획서에 <b>[확인 필요]</b>로 남습니다.</p><div class="actions" style="margin:0"><span></span><button class="button primary" id="skip-applicant">신청기관 없이 계획서 작성 계속 →</button></div></div>`}
-    <div class="card" id="applicant-picker" tabindex="-1"><div class="card-title"><div><h3>등록된 신청기관 ${state.applicants.length}곳</h3><span>공고 정보와 분리해 보관한 기관 정보입니다.</span></div><button class="button secondary" id="load-applicants">${loadFrom('org')}</button></div>
-    ${state.applicants.length ? `<div class="requirement-list">${state.applicants.map(item => {
-      const confirmed = countConfirmed(item.items);
-      return `<article class="requirement"><div><span class="tag ${item.id === state.selectedApplicantId ? '' : 'mandatory'}">${item.id === state.selectedApplicantId ? '선택됨' : '미선택'}</span><div><strong>${escapeHtml(item.name)}</strong><small>확인됨 ${confirmed}건 · 확인 필요·오래된 정보 ${item.items.length - confirmed}건</small></div></div><button class="button ${item.id === state.selectedApplicantId ? 'secondary' : 'primary'}" data-select-applicant="${escapeHtml(item.id)}">${item.id === state.selectedApplicantId ? '다시 불러오기' : '이 기관으로 신청'}</button></article>`;
-    }).join('')}</div>` : '<div class="empty-state"><div>▣</div><h2>등록된 신청기관이 없습니다</h2><p>기관을 등록하면 확인된 기관 정보를 계획서에 사용할 수 있습니다. 등록하지 않아도 작성은 진행됩니다.</p><button class="button primary" data-open-applicants="1">신청기관 정보 등록</button></div>'}</div>
+    ${section('pick', 'picker', {
+      id: 'applicant-picker',
+      title: `등록된 신청기관 ${state.applicants.length}곳`,
+      sub: '공고 정보와 분리해 보관한 기관 정보입니다.',
+      action: `<button class="button secondary summary-action" id="load-applicants">${loadFrom('org')}</button>`,
+      body: state.applicants.length ? `<div class="requirement-list">${state.applicants.map(item => {
+        const confirmed = countConfirmed(item.items);
+        return `<article class="requirement"><div><span class="tag ${item.id === state.selectedApplicantId ? '' : 'mandatory'}">${item.id === state.selectedApplicantId ? '선택됨' : '미선택'}</span><div><strong>${escapeHtml(item.name)}</strong><small>확인됨 ${confirmed}건 · 확인 필요·오래된 정보 ${item.items.length - confirmed}건</small></div></div><button class="button ${item.id === state.selectedApplicantId ? 'secondary' : 'primary'}" data-select-applicant="${escapeHtml(item.id)}">${item.id === state.selectedApplicantId ? '다시 불러오기' : '이 기관으로 신청'}</button></article>`;
+      }).join('')}</div>` : '<div class="empty-state"><div>▣</div><h2>등록된 신청기관이 없습니다</h2><p>기관을 등록하면 확인된 기관 정보를 계획서에 사용할 수 있습니다. 등록하지 않아도 작성은 진행됩니다.</p><button class="button primary" data-open-applicants="1">신청기관 정보 등록</button></div>'
+    })}
     ${applicant ? applicantLoadedView(applicant) : ''}
     ${applicant ? applicantFitView(applicant) : ''}
     ${applicant ? projectValuesView(applicant) : ''}
@@ -5931,14 +6023,16 @@ function applicantLoadedView(applicant) {
   // 그 카드는 이 화면 맨 아래에 있어 위에서부터 손으로 채우는 사람은 끝까지 못 본다.
   const empty = summary.every(area => !area.total);
   const needsCheck = applicant.items.length - confirmed.length;
-  return `<details class="card org-details" data-org-fold="loaded" ${orgFoldOpen('loaded') ? 'open' : ''}>
-    <summary><b>불러온 신청기관 정보 · ${escapeHtml(applicant.name)}</b> <small>확인됨 ${confirmed.length}건 · 확인 필요 ${needsCheck}건 · 확인된 것만 계획서에 전달됩니다</small></summary>
-    ${empty ? `<div class="alert warning"><strong>연혁·사업계획서·결산서를 올리면 자동으로 채워집니다</strong>
+  return section('pick', 'loaded', {
+    title: `불러온 신청기관 정보 · ${escapeHtml(applicant.name)}`,
+    sub: `확인됨 ${confirmed.length}건 · 확인 필요 ${needsCheck}건 · 확인된 것만 계획서에 전달됩니다`,
+    body: `${empty ? `<div class="alert warning"><strong>연혁·사업계획서·결산서를 올리면 자동으로 채워집니다</strong>
       <p>열한 칸을 하나씩 적지 않아도 됩니다. 기관 연혁을 올리면 연도별 사업실적이, 사업계획서를 올리면 인력·시설·협력기관·예산이, 고유번호증을 올리면 기관명·대표자·고유번호가 후보로 올라옵니다.</p>
-      <p><button class="button go next-step" id="go-applicant-doc">연혁·사업계획서 올리러 가기</button></p></div>` : ''}
+      <p><button class="button secondary" id="go-applicant-doc">연혁·사업계획서 올리러 가기</button></p></div>` : ''}
     ${areaGroupsView(applicant, summary)}
     ${confirmedInfoView(applicant, confirmed)}
-    <details><summary>전달하지 않는 확인 필요·오래된 정보 ${applicant.items.length - confirmed.length}건</summary><p class="muted">아래 항목은 항목명만 표시하며 내용은 계획서 작성 요청에 포함하지 않습니다.</p><div class="cap-grid">${applicant.items.filter(item => item.status !== CONFIRMED_STATUS).map(item => `<div><span>${escapeHtml(areaTitle(item.area))}</span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.status)}</small></div>`).join('') || '<p class="muted">없음</p>'}</div></details></details>`;
+    <details class="add-fold"><summary>전달하지 않는 확인 필요·오래된 정보 ${applicant.items.length - confirmed.length}건</summary><p class="muted">아래 항목은 항목명만 표시하며 내용은 계획서 작성 요청에 포함하지 않습니다.</p><div class="cap-grid">${applicant.items.filter(item => item.status !== CONFIRMED_STATUS).map(item => `<div><span>${escapeHtml(areaTitle(item.area))}</span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.status)}</small></div>`).join('') || '<p class="muted">없음</p>'}</div></details>`
+  });
 }
 
 // 기관정보 화면에도 같은 지도를 놓는다. 열한 칸 지도는 3단계 「신청기관 준비」 화면에만 있어서,
@@ -5949,10 +6043,12 @@ function orgAreaMapView(applicant) {
   const needsCheck = applicant.items.length - confirmed;
   const stale = staleItems(applicant.items, new Date().getFullYear());
   const staleUnconfirmed = stale.filter(entry => !isConfirmed(entry.item)).length;
-  return `<details class="card org-details" data-org-fold="map" ${orgFoldOpen('map') ? 'open' : ''}>
-    <summary><b>무엇을 채웠고 무엇이 비었나</b> <small>확인됨 ${confirmed}건 · 확인 필요 ${needsCheck}건${stale.length ? ` · 다시 확인 ${stale.length}건` : ''}</small></summary>
-    ${stale.length ? `<p class="muted">「다시 확인 ${stale.length}건」은 확인 필요와 따로 셉니다. ${staleUnconfirmed}건은 확인 필요에도 들어 있고, ${stale.length - staleUnconfirmed}건은 확인됨이지만 기준시점이 오래되었거나 적혀 있지 않습니다.</p>` : ''}
-    ${areaGroupsView(applicant, summary)}</details>`;
+  return section('applicants', 'map', {
+    title: '무엇을 채웠고 무엇이 비었나',
+    sub: `확인됨 ${confirmed}건 · 확인 필요 ${needsCheck}건${stale.length ? ` · 다시 확인 ${stale.length}건` : ''}`,
+    body: `${stale.length ? `<p class="muted">「다시 확인 ${stale.length}건」은 확인 필요와 따로 셉니다. ${staleUnconfirmed}건은 확인 필요에도 들어 있고, ${stale.length - staleUnconfirmed}건은 확인됨이지만 기준시점이 오래되었거나 적혀 있지 않습니다.</p>` : ''}
+    ${areaGroupsView(applicant, summary)}`
+  });
 }
 
 // 열한 칸을 공고 기준으로 세운다(22-43). 빈 칸이 96건짜리 칸과 같은 자리를 차지하지 않게 한다.
@@ -6056,21 +6152,29 @@ function applicantFitView(applicant) {
   // 바로 위의 요약 여섯 칸이 이미 건수를 말하므로 목록은 접어 두고, 볼 것이 있는 묶음만 눌러서 편다.
   // 펼친 묶음은 기억한다 — 읽는 중에 다시 그렸다고 닫히면 읽을 수가 없다.
   const fitOpen = key => (state.openFitGroups || []).includes(key);
-  return `<div class="card"><div class="card-title"><div><h3>공고 × 신청기관 비교</h3><span>AI 호출 없이 공고 원문과 등록 정보만으로 구분합니다. 아래 묶음을 누르면 그 목록이 펼쳐집니다.</span></div></div>
+  return section('pick', 'fit', {
+    title: '공고 × 신청기관 비교',
+    sub: 'AI 호출 없이 공고 원문과 등록 정보만으로 구분합니다. 아래 묶음을 누르면 그 목록이 펼쳐집니다.',
+    body: `
     <div class="match-summary">${groups.map(group => `<div><span class="status ${group.status}">${escapeHtml(group.name)}</span><strong>${group.items.length}</strong></div>`).join('')}</div>
     ${fitPerformanceView(applicant, requirements)}
-    ${groups.map(group => `<details class="add-fold" data-fit-group="${escapeHtml(group.key)}" ${fitOpen(group.key) ? 'open' : ''}><summary>${escapeHtml(group.name)} ${group.items.length}건</summary><div class="requirement-list">${group.items.length ? group.items.map(item => `<article class="requirement"><div><span class="status ${group.status}">${escapeHtml(group.name)}</span><div><strong>${escapeHtml(item.requirement)}</strong>${item.noticeValue ? `<small><b>공고가 정한 값</b> · ${escapeHtml(item.noticeValue)}</small>` : ''}<small>${escapeHtml(toKoreanLabel(item.location) || '공고 원문')} · ${escapeHtml(item.action)}</small>${group.markRollup ? rollupNote(item.requirement) : ''}</div></div>${item.matchedItems.length ? `<p class="muted">연결된 기관 정보 ${item.matchedItems.length}건: ${escapeHtml(item.matchedItems.slice(0, 5).map(value => `${value.label}(${value.status})`).join(', '))}${item.matchedItems.length > 5 ? ` · 그 외 ${item.matchedItems.length - 5}건` : ''}</p>` : ''}</article>`).join('') : '<p class="muted">해당 항목이 없습니다.</p>'}</div></details>`).join('')}</div>`;
+    ${groups.map(group => `<details class="add-fold" data-fit-group="${escapeHtml(group.key)}" ${fitOpen(group.key) ? 'open' : ''}><summary>${escapeHtml(group.name)} ${group.items.length}건</summary><div class="requirement-list">${group.items.length ? group.items.map(item => `<article class="requirement"><div><span class="status ${group.status}">${escapeHtml(group.name)}</span><div><strong>${escapeHtml(item.requirement)}</strong>${item.noticeValue ? `<small><b>공고가 정한 값</b> · ${escapeHtml(item.noticeValue)}</small>` : ''}<small>${escapeHtml(toKoreanLabel(item.location) || '공고 원문')} · ${escapeHtml(item.action)}</small>${group.markRollup ? rollupNote(item.requirement) : ''}</div></div>${item.matchedItems.length ? `<p class="muted">연결된 기관 정보 ${item.matchedItems.length}건: ${escapeHtml(item.matchedItems.slice(0, 5).map(value => `${value.label}(${value.status})`).join(', '))}${item.matchedItems.length > 5 ? ` · 그 외 ${item.matchedItems.length - 5}건` : ''}</p>` : ''}</article>`).join('') : '<p class="muted">해당 항목이 없습니다.</p>'}</div></details>`).join('')}`
+  });
 }
 
 function projectValuesView(applicant) {
   const draft = state.projectValueDraft;
-  return `<div class="card"><div class="card-title"><div><h3>이번 사업 전용 값</h3><span>기관 원본은 그대로 두고 이번 계획서에만 사용할 값을 지정합니다.</span></div></div>
+  return section('pick', 'values', {
+    title: '이번 사업 전용 값',
+    sub: '기관 원본은 그대로 두고 이번 계획서에만 사용할 값을 지정합니다.',
+    body: `
     <p class="muted">예: 기관 보유 프로그램 12회 → 이번 공모 설계 16회. 이번 사업 값을 지정해도 신청기관 원본 정보는 변경되지 않습니다.</p>
     ${addForm('project-value', '이번 사업 값 손으로 추가하기', `<div class="two-col"><div class="field"><label for="project-value-item">연결할 기관 정보</label><select id="project-value-item"><option value="">기관 정보와 연결하지 않음</option>${applicant.items.map(item => `<option value="${escapeHtml(item.id)}" ${draft.applicantItemId === item.id ? 'selected' : ''}>${escapeHtml(`${areaTitle(item.area)} · ${item.label}`)}</option>`).join('')}</select></div>
     <div class="field"><label for="project-value-label">항목명</label><input id="project-value-label" value="${escapeHtml(draft.label)}" placeholder="예: 프로그램 회기"></div></div>
     <div class="field"><label for="project-value-value">이번 사업 값</label><input id="project-value-value" value="${escapeHtml(draft.value)}" placeholder="예: 16회"></div>
     <div class="actions" style="margin:0"><span></span><button class="button primary" id="add-project-value">이번 사업 값 추가</button></div>`)}
-    ${state.projectValues.length ? `<div class="requirement-list">${state.projectValues.map(item => { const source = applicant.items.find(value => value.id === item.applicantItemId); return `<article class="requirement"><div><span class="tag">이번 사업</span><div><strong>${escapeHtml(item.label)}: ${escapeHtml(item.value)}</strong><small>신청기관 원본: ${escapeHtml(source ? `${source.label} = ${source.value}` : '기관 정보에 없음')} (변경되지 않음)</small></div></div><button class="button secondary" data-remove-project-value="${escapeHtml(item.id)}">삭제</button></article>`; }).join('')}</div>` : '<p class="muted">지정한 이번 사업 값이 없습니다.</p>'}</div>`;
+    ${state.projectValues.length ? `<div class="requirement-list">${state.projectValues.map(item => { const source = applicant.items.find(value => value.id === item.applicantItemId); return `<article class="requirement"><div><span class="tag">이번 사업</span><div><strong>${escapeHtml(item.label)}: ${escapeHtml(item.value)}</strong><small>신청기관 원본: ${escapeHtml(source ? `${source.label} = ${source.value}` : '기관 정보에 없음')} (변경되지 않음)</small></div></div><button class="button secondary" data-remove-project-value="${escapeHtml(item.id)}">삭제</button></article>`; }).join('')}</div>` : '<p class="muted">지정한 이번 사업 값이 없습니다.</p>'}`
+  });
 }
 
 function applicantQuestionsView(applicant) {
@@ -6081,11 +6185,15 @@ function applicantQuestionsView(applicant) {
   const asked = plan.ask.slice(0, 5);
   const answered = asked.filter(question => String(state.designAnswers[question] || '').trim()).length;
   const openAsk = answered > 0 || (state.openAddForms || []).includes('applicant-questions');
-  return `<div class="card"><div class="card-title"><div><h3>부족한 정보만 확인</h3><span>신청기관 정보에서 이미 확인되는 내용은 다시 묻지 않습니다.</span></div></div>
+  return section('pick', 'questions', {
+    title: '부족한 정보만 확인',
+    sub: '신청기관 정보에서 이미 확인되는 내용은 다시 묻지 않습니다.',
+    body: `
     ${plan.resolved.length ? `<details class="add-fold"><summary>신청기관 정보로 이미 확인된 질문 ${plan.resolved.length}건 · 다시 묻지 않음</summary><div class="requirement-list">${plan.resolved.map(item => `<article class="requirement"><div><span class="tag">확인됨</span><div><strong>${escapeHtml(item.question)}</strong><small>${escapeHtml(item.answer)}</small></div></div></article>`).join('')}</div></details>` : ''}
     ${asked.length ? `<details class="add-fold" data-add-form="applicant-questions" ${openAsk ? 'open' : ''}><summary>답할 질문 ${asked.length}건${answered ? ` · 적어 둔 답 ${answered}건` : ''} — 답하지 않아도 계획서는 만들어집니다</summary>
       ${asked.map((question, index) => `<div class="field"><label>${escapeHtml(question)}</label><textarea data-applicant-answer="${index}" data-question="${escapeHtml(question)}">${escapeHtml(state.designAnswers[question] || '')}</textarea></div>`).join('')}</details>`
-    : '<p class="muted">신청기관 정보만으로 현재 확인이 필요한 질문이 없습니다.</p>'}</div>`;
+    : '<p class="muted">신청기관 정보만으로 현재 확인이 필요한 질문이 없습니다.</p>'}`
+  });
 }
 
 
@@ -8356,7 +8464,7 @@ function openApplicantEditor({ group = '', anchor = '' }) {
     activeTool: 'applicants',
     // 카드는 이번 사업 신청기관의 것이다. 앞서 다른 기관을 열어 둔 채면 엉뚱한 기관이 열린다.
     applicantEditingId: state.selectedApplicantId,
-    openOrgGroups: group ? [...new Set([...(state.openOrgGroups || []), group])] : state.openOrgGroups,
+    openOrgGroup: group || state.openOrgGroup,
     notice: '', error: ''
   });
   const selector = group ? `[data-detail-group="${group}"]` : anchor;
@@ -8371,7 +8479,7 @@ function bindApplicants() {
   // 기관을 열면 저장해 둔 기본정보를 입력칸에 다시 채운다. 같은 내용을 두 번 적지 않게 한다.
   document.querySelectorAll('[data-edit-applicant]').forEach(el => el.onclick = () => setState({
     ...(fillQuickFromDocuments(findApplicant(state.applicants, el.dataset.editApplicant)) || {}),
-    activeTool: 'applicants', applicantEditingId: el.dataset.editApplicant, openOrgGroups: [], closedOrgGroups: [],
+    activeTool: 'applicants', applicantEditingId: el.dataset.editApplicant, openSections: {}, openOrgGroup: null,
     quickOrg: { ...quickDraft(), ...draftFromApplicant(findApplicant(state.applicants, el.dataset.editApplicant)) }, notice: '', error: ''
   }));
   // 필요한 구역만 연다. 다시 그려도 열어 둔 구역이 닫히지 않게 기억한다.
@@ -8406,27 +8514,30 @@ function bindApplicants() {
     state.openAddForms = [...open];
     saveState();
   }));
-  document.querySelectorAll('[data-org-fold]').forEach(el => el.addEventListener('toggle', () => {
-    const key = el.dataset.orgFold;
-    const open = new Set(state.openOrgFolds || []);
-    if (el.open) open.add(key); else open.delete(key);
-    state.openOrgFolds = [...open];
-    saveState();
+  // 중분류를 열면 그 화면에서 그것 하나가 열린 것이 된다. 나머지는 다시 그리면서 닫힌다.
+  // 닫으면 빈 문자열을 적어 둔다 — 「고르지 않았다」와 「닫아 두었다」는 다른 뜻이다.
+  document.querySelectorAll('[data-section]').forEach(el => el.addEventListener('toggle', () => {
+    const [screen, key] = String(el.dataset.section).split(':');
+    const chosen = { ...(state.openSections || {}) };
+    if (el.open) chosen[screen] = key;
+    else if (chosen[screen] === key) chosen[screen] = '';
+    else return;
+    state.openSections = chosen;
+    setState({});
   }));
+  // 소분류도 한 번에 하나다(22-56⑤).
   document.querySelectorAll('[data-detail-group]').forEach(el => el.addEventListener('toggle', () => {
     const key = el.dataset.detailGroup;
-    // 구역은 기본이 접힘이므로 「연 것」만 기억하면 된다. 닫은 것을 따로 적어 둘 까닭이 없다.
-    const open = new Set(state.openOrgGroups || []);
-    if (el.open) open.add(key); else open.delete(key);
-    state.openOrgGroups = [...open];
-    saveState();
+    if (el.open) state.openOrgGroup = key;
+    else if (openGroupKey() === key) state.openOrgGroup = '';
+    else return;
+    setState({});
   }));
   // 제목 줄의 「모두 확인」은 묶음을 여닫지 않는다.
   document.querySelectorAll('[data-confirm-group]').forEach(el => el.addEventListener('click', event => {
     event.preventDefault(); event.stopPropagation();
     confirmAllInGroup(el.dataset.confirmGroup);
   }));
-  document.querySelector('#close-all-details')?.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); setState({ openOrgGroups: [] }); });
   // 다시 올리는 길은 그 자리에서. 또 찾아 헤매지 않게 한다.
   document.querySelector('#recheck-upload')?.addEventListener('click', () => focusAnchor('#applicant-cert-drop'));
   document.querySelector('#basic-to-writing')?.addEventListener('click', () => void saveBasicInfo({ thenWrite: true }));
@@ -8437,7 +8548,7 @@ function bindApplicants() {
   document.querySelector('#pick-step-action')?.addEventListener('click', event => {
     const key = event.currentTarget.dataset.pickKey;
     if (key === 'add-org') return setState({ activeTool: 'applicants', notice: '', error: '' });
-    if (key === 'pick') return focusAnchor('#applicant-picker');
+    if (key === 'pick') { openStepSection('pick'); return focusAnchor('#applicant-picker'); }
     if (key === 'confirm') return openApplicantEditor({ anchor: '#next-step-bar' });
     return navigateToStep(state.step + 1, { notice: '', error: '' });
   });
@@ -8461,7 +8572,10 @@ function bindApplicants() {
     if (button.dataset.nextKey === 'write') return void saveBasicInfo({ thenWrite: true });
     // 실적 확인은 데려가지 않고 여기서 끝낸다.
     if (button.dataset.nextBulk) return confirmAllPerformance();
-    // 나머지는 그 자리로 데려가고 잠깐 강조한다. 눌렀는데 또 찾게 하지 않는다.
+    // 중분류가 한 번에 하나만 열리므로, 데려가기 전에 그 중분류부터 연다(22-56).
+    // 사람이 다른 것을 열어 두었어도 띠를 눌렀으면 가리키는 자리로 가겠다는 뜻이다.
+    openStepSection('applicants');
+    // 그 자리로 데려가고 잠깐 강조한다. 눌렀는데 또 찾게 하지 않는다.
     focusAnchor(button.dataset.nextAnchor || '#applicant-editor');
   });
   document.querySelector('#undo-bulk-confirm')?.addEventListener('click', undoBulkConfirm);
@@ -8601,7 +8715,7 @@ function addApplicant() {
   state.applicants = upsertApplicant(state.applicants, applicant);
   state.applicantNameDraft = '';
   // 새 기관에는 앞서 열어 둔 기관의 담당자·유형이 따라오지 않는다. 기관명만 물려준다.
-  setState({ applicants: state.applicants, applicantNameDraft: '', applicantEditingId: applicant.id, openOrgGroups: [], closedOrgGroups: [], quickOrg: { orgName: applicant.name }, notice: `${name} 신청기관을 추가했습니다. 기본정보부터 적어 주세요.`, error: '' });
+  setState({ applicants: state.applicants, applicantNameDraft: '', applicantEditingId: applicant.id, openSections: {}, openOrgGroup: null, quickOrg: { orgName: applicant.name }, notice: `${name} 신청기관을 추가했습니다. 기본정보부터 적어 주세요.`, error: '' });
   void persistApplicant(applicant.id, false);
 }
 
@@ -8766,8 +8880,7 @@ function applySafeApplicantCandidates() {
     ...(autofill || {}),
     applicants: state.applicants,
     applicantExtraction: { ...review, candidates: remaining },
-    openOrgGroups: group ? [...new Set([...(state.openOrgGroups || []), group])] : state.openOrgGroups,
-    closedOrgGroups: group ? (state.closedOrgGroups || []).filter(key => key !== group) : state.closedOrgGroups,
+    openOrgGroup: group || state.openOrgGroup,
     notice: `후보 ${applied}건을 ${group ? `상세정보 「${(DETAIL_GROUPS.find(item => item.key === group) || {}).title || group}」에 ` : ''}넣었습니다. 모두 ‘확인 필요’ 상태이며, 확인해야 계획서에 사실로 쓰입니다.${remaining.length ? ` 남은 ${remaining.length}건은 기존 값과 달라 항목마다 확인해 주세요.` : ''}`,
     error: ''
   });
