@@ -631,6 +631,9 @@ export function buildBlueprint({ structure, applicant, fitResult, projectValues,
     ...design.filter(entry => entry.status !== 'CONFIRMED').map(entry => ({ item: entry.title, kind: '설계값', why: entry.status === 'PROPOSED' ? '사용자 확정 전 설계안입니다.' : entry.basis })),
     ...requirementLinks.filter(link => !link.covered || !link.hasApplicantEvidence).map(link => ({ item: link.requirement, kind: '공고 요건', why: link.gap || '기관 근거가 필요합니다.' }))
   ];
+  // 「제출 전 점검」은 설계값과 공고 요건 두 무리를 더한 값이라 요약 칸의 「확인 필요」보다 늘 크다.
+  // 나뉜 수를 손으로 적지 않고 목록에서 센다(23-09). 세는 방식은 그대로다.
+  const checked = kind => submissionChecklist.filter(entry => entry.kind === kind).length;
   const readiness = typeBlocked || coreOpen.length || brokenLinks.length
     ? 'DESIGN_INCOMPLETE'
     : (submissionChecklist.length ? 'DRAFT_READY' : 'SUBMISSION_READY');
@@ -639,7 +642,7 @@ export function buildBlueprint({ structure, applicant, fitResult, projectValues,
     ? `신청유형 선택 필요 — ${typeList.map(entry => entry.name).join(' / ')} 중 하나를 먼저 고르세요`
     : readiness === 'SUBMISSION_READY'
       ? '제출 문서 확정 단계로 진행 가능'
-      : `초안 작성 가능 — 제출 전 ${submissionChecklist.length}개 항목 확인 필요`;
+      : `초안 작성 가능 — 제출 전 점검 ${submissionChecklist.length}곳 — 설계값 ${checked('설계값')} · 공고 요건 ${checked('공고 요건')}`;
 
   return {
     noticeTitle: structure?.noticeTitle || '',

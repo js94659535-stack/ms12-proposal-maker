@@ -4604,18 +4604,18 @@ function blueprintView() {
     ? blueprintBadge('확인-필요', '신청유형을 먼저 선택하세요')
     : blueprint.readiness === 'SUBMISSION_READY'
       ? blueprintBadge('충족', '제출 문서 확정 단계로 진행 가능')
-      : blueprintBadge('부분-충족', `제출 전 확인이 필요한 항목이 있습니다 · ${blueprint.submissionChecklist.length}개`);
+      : blueprintBadge('부분-충족', '제출 전 확인이 필요한 항목이 있습니다');
   return `<div class="card" id="project-blueprint"><div class="card-title"><div><h3>사업 설계도</h3><span>공고 값·기관 값·이번 사업 값을 섞지 않습니다. 확정하지 않은 값은 [확인 필요]로 남깁니다.</span></div>
       <button class="button primary" id="blueprint-draft" ${guard(blueprint.canDraft ? '' : (draftHint || '초안을 만들 자료가 아직 없습니다. 공고를 먼저 분석해 주세요.'), 'notice')}>초안 작성</button></div>
-    <p class="muted">${escapeHtml(blueprint.verdict)} · 신청기관 ${escapeHtml(blueprint.applicantName)}</p>
+    <p class="muted">신청기관 ${escapeHtml(blueprint.applicantName)} · ${escapeHtml(blueprint.verdict)}</p>
     ${formSpecNoticeView()}
     <div style="margin-bottom:12px">${draftHint}</div>
     ${blueprintTypeView(blueprint)}
     <div class="summary-grid" style="margin-top:16px"><div><span>확정</span><strong>${blueprint.byStatus.CONFIRMED}</strong><small>공고·사용자 확정 값</small></div>
     <div><span>근거 있음</span><strong>${blueprint.byStatus.SUPPORTED}</strong><small>확인된 기관 정보·관련 실적</small></div>
     <div><span>설계안</span><strong>${blueprint.byStatus.PROPOSED}</strong><small>확정 전 · 사실로 쓰지 않음</small></div>
-    <div><span>확인 필요</span><strong>${blueprint.byStatus.NEEDS_CONFIRMATION}</strong><small>사용자 확인 전까지 [확인 필요]</small></div></div>
-    ${coreQuestions.length ? `<div class="alert warning"><strong>필수 확인 ${coreQuestions.length}개</strong>${coreQuestions.map(entry => `<p>· [${escapeHtml(entry.section)}] ${escapeHtml(entry.question)}</p>`).join('')}</div>` : ''}
+    <div><span>확인 필요</span><strong>${blueprint.byStatus.NEEDS_CONFIRMATION}</strong><small>설계 항목 ${design.length}개 중 · 사용자 확인 전까지 [확인 필요]</small></div></div>
+    ${coreQuestions.length ? `<div class="alert warning"><strong>먼저 답할 질문 ${coreQuestions.length}개</strong>${coreQuestions.map(entry => `<p>· [${escapeHtml(entry.section)}] ${escapeHtml(entry.question)}</p>`).join('')}</div>` : ''}
     <div class="requirement-list">${cards.map(blueprintItemCard).join('')}</div>
     <details><summary>공고 선정요건 점검 ${noticeChecks.length}개 · 남은 질문 ${restQuestions.length}개</summary>
       <div class="requirement-list">${blueprint.requirementLinks.map(link => `<article class="requirement"><div>${blueprintBadge(link.covered ? (link.hasApplicantEvidence ? '충족' : '부분-충족') : '확인-필요', link.covered ? (link.hasApplicantEvidence ? '대응+근거' : '설계 대응') : '미대응')}<div><strong>${escapeHtml(link.requirement)}</strong><small>${escapeHtml(link.sections.map(section => `${section.title}(${BLUEPRINT_STATUS_LABEL[section.status]})`).join(' · ') || '설계 항목이 아니라 제출 준비 단계에서 확인')}</small>${link.gap ? `<small class="muted">${escapeHtml(link.gap)}</small>` : ''}</div></div></article>`).join('')}</div>
