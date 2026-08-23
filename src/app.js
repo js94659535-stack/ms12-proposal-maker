@@ -75,6 +75,7 @@ import { RELATED_LIMIT, countConfirmed, isConfirmed, confirmAreaItems, relatedMa
 import { groupAreas } from './org-area-order.js';
 import { nextApplicantPick, nextOrgStep } from './org-next-step.js';
 import { nextDesignStep } from './design-next-step.js';
+import { shouldRunDesign } from './design-rerun.js';
 import { nextOpenGroup, resolveOpenGroup } from './accordion-state.js';
 import { suggestBasicFields } from './org-basic-suggest.js';
 import { staleItems, staleReason, staleSummary } from './org-staleness.js';
@@ -7071,7 +7072,8 @@ async function redesignToContract() {
     state.projectValues = (state.projectValues || []).filter(value => !conflicts.some(item => item.field === (value.label || value.blueprintKey)));
   }
   state.redesignForContract = true;
-  await generateCompleteProposal();
+  // 실행계약서 충돌을 반영하려고 일부러 다시 만드는 자리다.
+  await generateCompleteProposal({ redo: true });
   if (!state.stagedGeneration?.master) { state.redesignForContract = false; return; }
   await generateProposalParts();
 }
@@ -8345,12 +8347,12 @@ function bind() {
   document.querySelectorAll('[data-restore-notice]').forEach(el => el.onclick = () => restoreNotice(el.dataset.restoreNotice));
   document.querySelectorAll('[data-delete-notice-forever]').forEach(el => el.onclick = () => deleteNoticeForever(el.dataset.deleteNoticeForever));
   document.querySelector('#choose-preview-notice')?.addEventListener('click', choosePreviewNotice);
-  document.querySelector('#proceed-selected-notice')?.addEventListener('click', generateCompleteProposal);
+  document.querySelector('#proceed-selected-notice')?.addEventListener('click', () => generateCompleteProposal());
   document.querySelectorAll('[data-select-subproject]').forEach(el => el.onclick = () => selectNoticeSubproject(el.dataset.selectSubproject));
   document.querySelectorAll('[data-download-attachment]').forEach(el => el.onclick = () => handleOfficialAttachment(el.dataset.downloadAttachment, false));
   document.querySelectorAll('[data-extract-attachment]').forEach(el => el.onclick = () => handleOfficialAttachment(el.dataset.extractAttachment, true));
   const analyzeButton = document.querySelector('#analyze');
-  if (analyzeButton) { analyzeButton.textContent = '사업계획서 작성 →'; analyzeButton.addEventListener('click', generateCompleteProposal); }
+  if (analyzeButton) { analyzeButton.textContent = '사업계획서 작성 →'; analyzeButton.addEventListener('click', () => generateCompleteProposal()); }
   document.querySelectorAll('[data-answer]').forEach(el => el.oninput = () => { const questions = state.answers.length ? state.answers : structuredClone(state.analysis.questions || []); questions[Number(el.dataset.answer)].answer = el.value; state.answers = questions; saveState(); });
   document.querySelectorAll('[data-design-part]').forEach(el => el.oninput = () => {
     // 나눈 칸은 하나의 답으로 합쳐 저장한다. 저장 모양(문자열)은 그대로다.
@@ -8364,7 +8366,7 @@ function bind() {
   });
   document.querySelectorAll('[data-design-answer]').forEach(el => el.oninput = () => { const question = el.dataset.designQuestion; if (question) { state.designAnswers[question] = el.value; saveState(); } });
   document.querySelectorAll('[data-reuse-answer]').forEach(el => el.onclick = () => reuseAnswerToApplicant(el.dataset.reuseAnswer));
-  document.querySelector('#regenerate-design')?.addEventListener('click', generateCompleteProposal);
+  document.querySelector('#regenerate-design')?.addEventListener('click', () => generateCompleteProposal({ redo: true }));
   // 사용자는 한 번만 누른다. 남은 항목이 있으면 그 항목부터 이어서 작성한다.
   document.querySelector('#generate-parts')?.addEventListener('click', () => generateProposalParts());
   // 멈춤과 이어쓰기. 멈춰도 끝난 묶음은 지우지 않고, 이어쓰기는 남은 묶음부터 시작한다.
@@ -10435,8 +10437,16 @@ function showError(error) {
   setState({ error: error.message });
 }
 
-async function generateCompleteProposal() {
+// 이미 만들어 둔 설계가 있으면 다시 부르지 않는다(23-11). 「선택 완료 · 다음 단계」와 「초안 작성」은
+// 앞으로 가라는 뜻이지 다시 만들라는 뜻이 아닌데, 끝난 뒤 한 번 더 누르면 그때마다 AI를 다시 불렀다.
+// 막던 것은 state.busy 하나뿐이라 「도는 동안」만 막혔고, 끝나고 나면 아무것도 막지 않았다.
+// 다시 만드는 것이 뜻인 자리(설계 다시 만들기·실행계약서 충돌 반영)는 redo로 부른다.
+// 공고가 바뀌었으면 앞 공고의 설계를 쓸 수 없으므로 그때는 그대로 다시 만든다.
+async function generateCompleteProposal(options = {}) {
   if (aiBusy('이미 계획서를 만들고 있습니다')) return;
+  if (!shouldRunDesign({ redo: options?.redo === true, hasMaster: Boolean(state.stagedGeneration?.master), noticeChanged: noticeLogicStale() })) {
+    return navigateToStep(4, { busy: '', error: '', notice: '이미 만들어 둔 설계가 있어 그대로 씁니다. 처음부터 다시 만들려면 「설계 다시 만들기」를 누르세요.' });
+  }
   const manualLength = state.manualSources.filter(value => value.extractionStatus === 'success').reduce((sum, value) => sum + value.extractedText.length, 0);
   if (state.sourceText.trim().length + manualLength < 30) return setState({ error: '사업계획서를 작성할 공식 또는 직접 자료를 30자 이상 입력해 주세요.' });
   if (state.sourceText.length > 180000 || state.sourceText.length + manualLength > 220000) return setState({ error: '생성 입력 자료가 허용 길이를 초과했습니다. 자료를 나누거나 불필요한 내용을 줄여 주세요.' });

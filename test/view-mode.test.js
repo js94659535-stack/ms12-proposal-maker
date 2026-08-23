@@ -62,9 +62,12 @@ test('작성 과정 자세히 보기는 계획서가 나오기 전에도 열린�
 
 test('같은 단추를 다시 눌러도 AI를 두 번 부르지 않는다', () => {
   assert.match(app, /function aiBusy\(what = '이미 만들고 있습니다'\) \{\s*\n\s*if \(!state\.busy\) return false;/);
-  for (const name of ['runSimpleGeneration', 'runRevision', 'generateCompleteProposal', 'generateProposalParts']) {
+  for (const name of ['runSimpleGeneration', 'runRevision', 'generateProposalParts']) {
     assert.match(app, new RegExp(`async function ${name}\\(\\) \\{\\s*\\n\\s*if \\(aiBusy`), name);
   }
+  // 설계는 인자를 하나 받는다(23-11). busy만으로는 도는 동안만 막혀서, 끝난 뒤 한 번 더 누르면
+  // 그때마다 AI를 다시 불렀다. 만들어 둔 것이 있는지도 함께 본다 — 판정은 design-rerun.js에 있다.
+  assert.match(app, /async function generateCompleteProposal\(options = \{\}\) \{\s*\n\s*if \(aiBusy/);
   // 막을 때도 무슨 일이 벌어지고 있는지 알려 준다. 조용히 삼키지 않는다.
   assert.match(app, /setState\(\{ notice: `\$\{what\}\. 끝나면 결과가 화면에 나옵니다\.`, error: '' \}\);/);
 });
