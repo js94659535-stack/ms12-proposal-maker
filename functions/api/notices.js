@@ -61,7 +61,7 @@ async function importNoticeUrl(fetcher, rawUrl, existingNotices = []) {
       deadline: period.deadline, deadlineKnown: Boolean(period.deadline), deadlineSource: period.deadlineSource,
       stage, daysLeft,
       sourceUrl: detailUrl(SOURCES[reference.source].origin, reference.bbsSn || '1000', reference.listSn),
-      attachments: detail.attachments.map(file => ({ name: file.name, fileType: classifyAttachment(file.name) })),
+      attachments: detail.attachments.map(file => attachmentRecord(file, classifyAttachment(file.name))),
       officialTextExtracted: overview.length > 0
     };
     if (reference.source === 'gwangju') {
@@ -180,7 +180,7 @@ async function collectPortal(fetcher, { status, source, config, today }) {
       const detail = await detailCache.get(key);
       return {
         ...base, ...buildOfficialSummary(detail), officialTextExtracted: Boolean(detail.overview),
-        attachments: detail.attachments.map(file => ({ name: file.name, fileType: file.fileType }))
+        attachments: detail.attachments.map(file => attachmentRecord(file, file.fileType))
       };
     } catch {
       // 상세 한 건이 막힌 것은 통로 장애가 아니다. 목록에는 남긴다.
@@ -261,7 +261,7 @@ async function buildBoardNotice(fetcher, source, config, row, today) {
     deadline: period.deadline, deadlineKnown: Boolean(period.deadline), deadlineSource: period.deadlineSource,
     stage, daysLeft, registeredAt,
     sourceUrl: detailUrl(config.origin, row.bbsSn, row.listSn),
-    attachments: detail.attachments.map(file => ({ name: file.name, fileType: classifyAttachment(file.name) })),
+    attachments: detail.attachments.map(file => attachmentRecord(file, classifyAttachment(file.name))),
     officialTextExtracted: overview.length > 0
   };
 }
@@ -402,6 +402,17 @@ async function loadProposalNotice(fetcher, reference) {
     businessName: fields['사업명'], performancePeriod: fields['사업수행기간'] || '', applicationPeriod: fields['공모기간'] || '',
     supportLimit: fields['지원한도(원)'] || '', overview: fields['개요'] || '', subprojects: splitSubprojects(fields['개요'])
   };
+}
+
+// 첨부 기록 하나. 이름과 종류만 남기면 **다시 내려받을 수 없다**(23-26).
+// downloadProposalAttachment()는 url이나 fileSeCode·dstbBsnsCode·sn·fileSn이 있어야 하고,
+// 없으면 validAttachment()가 400으로 막는다. 상세 페이지를 다시 읽어도 마감 뒤에는 페이지가 내려가
+// 손잡이를 다시 뽑을 수 없다 — 보관함에 들어간 뒤에는 되돌릴 방법이 없다.
+// 종류(fileType)는 부르는 쪽이 정하던 대로 그대로 받는다. 여기서는 손잡이만 얹는다.
+export const ATTACHMENT_HANDLE = Object.freeze(['url', 'fileSeCode', 'dstbBsnsCode', 'sn', 'fileSn']);
+export function attachmentRecord(file, fileType) {
+  const handle = ATTACHMENT_HANDLE.filter(key => file?.[key]).map(key => [key, file[key]]);
+  return { name: file?.name, fileType, ...Object.fromEntries(handle) };
 }
 
 export function classifyAttachment(name) {
