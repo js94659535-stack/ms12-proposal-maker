@@ -105,6 +105,19 @@ function decodeXmlText(value) {
 }
 
 // OWPML 본문에서 문단·표 구분만 유지하고 텍스트를 뽑는다. 문장을 새로 만들거나 요약하지 않는다.
+// HWPX에서도 같은 것을 뽑는다 — 칸이 하나뿐인 맨 바깥 표가 안내 박스다.
+// 표 안의 표는 세지 않으려고 `<hp:tbl>` 안에 또 `<hp:tbl>`이 있으면 건너뛴다.
+export function hwpxGuideBoxes(xml) {
+  const boxes = [];
+  for (const table of String(xml).match(/<hp:tbl[\s>][\s\S]*?<\/hp:tbl>/g) || []) {
+    if ((table.match(/<hp:tbl[\s>]/g) || []).length !== 1) continue;
+    if ((table.match(/<hp:tc[\s>]/g) || []).length !== 1) continue;
+    const text = hwpxSectionText(table).replace(/\s+/g, ' ').trim();
+    if (text) boxes.push(text);
+  }
+  return boxes;
+}
+
 export function hwpxSectionText(xml) {
   const pattern = /<(?:\w+:)?t(?=[\s>])[^>]*>([\s\S]*?)<\/(?:\w+:)?t>|<(?:\w+:)?lineBreak\b[^>]*\/?>|<(?:\w+:)?tab\b[^>]*\/?>|<(?:\w+:)?tbl(?=[\s>])[^>]*>|<\/(?:\w+:)?tbl>|<\/(?:\w+:)?p>|<\/(?:\w+:)?tc>|<\/(?:\w+:)?tr>/g;
   let text = '';
@@ -202,22 +215,24 @@ export async function extractFile(file, options = {}) {
       // 원인을 그대로 전한다. 못 읽은 것을 읽은 것처럼 만들지 않는다.
       throw new Error(`${file.name}: ${error?.message || HWP_GUIDE}`);
     }
-    return { name: file.name, type: 'HWP', size, text: result.text, pages: null, tables: result.tables, extracted: true };
+    return { name: file.name, type: 'HWP', size, text: result.text, pages: null, tables: result.tables, guides: result.guides || [], extracted: true };
   }
 
   if (extension === 'hwpx') {
     const buffer = await file.arrayBuffer();
     let text = '';
     let tables = 0;
+    let guides = [];
     try {
       const sections = await hwpxSections(buffer);
       text = sections.map(section => hwpxSectionText(section)).filter(Boolean).join('\n\n');
       tables = sections.reduce((sum, section) => sum + countXmlTables(section, 'tbl'), 0);
+      guides = sections.flatMap(section => hwpxGuideBoxes(section));
     } catch (error) {
       throw new Error(`${file.name}: ${error?.message || REASON.damaged}`);
     }
     if (!text.trim()) throw new Error(`${file.name}: ${REASON.scanned} ${HWP_CONVERT_GUIDE}`);
-    return { name: file.name, type: 'HWPX', size, text, pages: null, tables, extracted: true };
+    return { name: file.name, type: 'HWPX', size, text, pages: null, tables, guides, extracted: true };
   }
 
   if (extension === 'docx') {

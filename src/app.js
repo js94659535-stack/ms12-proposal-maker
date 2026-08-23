@@ -9785,7 +9785,7 @@ async function addManualFiles(event) {
       // 올린 문서가 무엇인지 내용으로 정한다. 사용자가 고른 값은 그대로 두고, 애매하면 애매하다고 적는다.
       const guess = classifyDocument(file.name, parsed.text);
       const picked = state.manualSourceTypeTouched ? state.manualSourceType : guess.kind;
-      const record = manualSourceRecord(file.name, picked, parsed.text, 'success', '');
+      const record = manualSourceRecord(file.name, picked, parsed.text, 'success', '', parsed.guides || []);
       additions.push({ ...record, autoKind: guess.kind, autoConfidence: guess.confidence, autoReason: guess.reason });
     } catch (error) {
       additions.push(manualSourceRecord(file.name, state.manualSourceType, '', 'failed', error.message));
@@ -9803,8 +9803,10 @@ function addManualText() {
   setState({ manualSources: [...state.manualSources, item], manualSourceName: '', manualSourceText: '', notice: '붙여넣기 자료를 추가했습니다.' });
 }
 
-function manualSourceRecord(fileName, sourceType, extractedText, extractionStatus, extractionError) {
-  return { id: globalThis.crypto?.randomUUID?.() || `source-${Date.now()}-${Math.random().toString(16).slice(2)}`, fileName, sourceType, extractedText, extractionStatus, extractionError };
+// 서식의 회색 안내 박스는 본문과 따로 들고 다닌다(24-04). 본문에 표시를 끼워 넣으면
+// AI로 가는 글이 달라지므로, 읽을 때 뽑아 둔 것을 그대로 옆에 붙인다.
+function manualSourceRecord(fileName, sourceType, extractedText, extractionStatus, extractionError, guides = []) {
+  return { id: globalThis.crypto?.randomUUID?.() || `source-${Date.now()}-${Math.random().toString(16).slice(2)}`, fileName, sourceType, extractedText, extractionStatus, extractionError, guides };
 }
 
 async function loadOfficialNotices() {

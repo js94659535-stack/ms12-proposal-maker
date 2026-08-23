@@ -20,7 +20,7 @@ export function formSources(manualSources = []) {
       return FORM_SOURCE_TYPES.includes(guess.kind) ? { item, sourceType: guess.kind } : null;
     })
     .filter(Boolean)
-    .map(({ item, sourceType }) => ({ id: item.id, fileName: clean(item.fileName, 120), sourceType, text: String(item.extractedText) }));
+    .map(({ item, sourceType }) => ({ id: item.id, fileName: clean(item.fileName, 120), sourceType, text: String(item.extractedText), guides: Array.isArray(item.guides) ? item.guides : [] }));
 }
 function linesOf(source) {
   return String(source.text).split(/\n+|(?=[○●▶▸□■※])/)
@@ -36,17 +36,61 @@ const ITEM_LINE = /^(?:[□■○●▶▸※\s]*)?(\d{1,2}|[가-힣])\s*[.)]\s*
 const CHAR_LIMIT = /(\d[\d,]*)\s*자\s*(?:이내|이하|내외|까지)/;
 const PAGE_LIMIT = /(\d[\d,]*)\s*(?:쪽|페이지|p)\s*(?:이내|이하|내외|까지)/i;
 // 서식의 작성 항목으로 볼 만한 이름만 남긴다(안내문·머리말과 구분).
-const ITEM_HINT = /문제\s*의식|지향점|전략|차별성|강점|모집|연계|협력|산출목표|필요성|목적|목표|대상|프로그램|사업\s*내용|사업명|추진|일정|인력|조직|수행\s*체계|예산|성과|지표|평가|기대|효과|개요|배경|계획|방법|방안|홍보|협력|사후|문제|지향|차별성|강점|전략|선정|모집|참여자|활용/;
+// 「이용자」는 이 기관 서식이 「대상·참여자」 대신 쓰는 말이다(24-03에서 실측). 이 낱말 하나만 더했다.
+// 문을 둘 지나야 해서 여기와 OUTLINE_MATCH.target 두 곳에 든다 — 하나만 넣으면 앞 문에서 걸러진다.
+const ITEM_HINT = /문제\s*의식|지향점|전략|차별성|강점|모집|연계|협력|산출목표|필요성|목적|목표|대상|이용자|프로그램|사업\s*내용|사업명|추진|일정|인력|조직|수행\s*체계|예산|성과|지표|평가|기대|효과|개요|배경|계획|방법|방안|홍보|협력|사후|문제|지향|차별성|강점|전략|선정|모집|참여자|활용/;
 // 신뢰성·회계 점검표의 선택지와 안내 문항은 계획서 작성 항목이 아니다.
 const ITEM_SKIP = /제출\s*서류|첨부|유의|안내|문의|접수|신청\s*방법|작성\s*요령|서식\s*\d|붙임|해당\s*(?:없음|있음)|회계부정|인권침해|조사\/수사|재판|처분|체크|서명|동의/;
 
 // 작성 항목은 신청서·계획서 서식에서만 읽는다. 공고문의 조항·안내 문장을 작성 항목으로 오인하지 않는다.
 export const ITEM_SOURCE_TYPES = ['공모신청서', '사업계획서 서식'];
+// 회색 안내 박스에서 항목을 읽는다(24-04).
+//
+// 서식은 표 사이의 **1행 1칸짜리 회색 박스**로 「• 현재 어떤 어려움에 직면해 있습니까?」처럼
+// 물음을 던진다. 서식 자신이 「최종 제출 시에는 설명박스를 모두 삭제」라고 적어 정체가 분명하다.
+//
+// **번호 붙은 줄이 먼저다.** 그것이 있으면 서식이 스스로 차례와 이름을 매긴 것이라 더 정확하다.
+// 안내 박스는 **번호 줄이 못 채운 갈래만 메운다** — 나란히 두면 같은 자리에 이름이 둘 생기고,
+// 물음 문장은 길어서 목차 줄에 들어가지 않는다.
+function guideItems(sources, claimed) {
+  const items = [];
+  const taken = new Set(claimed);
+  for (const source of sources) {
+    for (const raw of source.guides || []) {
+      const line = clean(raw, 400);
+      // 안내문·동의문·첨부 안내는 항목이 아니다. 번호 줄이 지나던 그 잣대를 여기서도 쓴다.
+      if (ITEM_SKIP.test(line)) continue;
+      const name = clean(line.replace(/^[•○●▶▸□■※\s]+/, ''), 60).replace(/[.!?]\s*$/, '');
+      if (name.length < 4 || !ITEM_HINT.test(name)) continue;
+      // 번호 줄이 이미 맡은 갈래면 넘어간다. 못 맡은 자리만 메운다.
+      const key = outlineKeyOf(name);
+      if (!key || taken.has(key)) continue;
+      taken.add(key);
+      const chars = CHAR_LIMIT.exec(line);
+      const pages = PAGE_LIMIT.exec(line);
+      items.push({
+        id: `form-guide-${items.length + 1}`,
+        order: items.length + 1,
+        name,
+        limitChars: chars ? number(chars[1]) : 0,
+        limitPages: pages ? number(pages[1]) : 0,
+        status: chars || pages ? '확인됨' : '확인 필요',
+        evidence: line, location: `${source.fileName} · ${source.sourceType} · 안내 박스`
+      });
+      if (items.length >= 25) break;
+    }
+  }
+  return items;
+}
+
 export function extractFormItems(sources) {
   const marked = sources.filter(item => ITEM_SOURCE_TYPES.includes(item.sourceType));
   // 사용자가 종류를 잘못 골랐거나 자동 분류가 애매해도 작업을 멈추지 않는다.
   const pool = marked.length ? marked : sources.filter(item => item.extractionStatus === 'success');
-  return readFormItems(pool);
+  // 번호 붙은 줄이 먼저다. 그것이 있으면 서식이 스스로 차례를 매긴 것이다.
+  const numbered = readFormItems(pool);
+  const guides = guideItems(pool, numbered.map(item => outlineKeyOf(item.name)).filter(Boolean));
+  return [...numbered, ...guides].map((item, index) => ({ ...item, order: index + 1 }));
 }
 
 function readFormItems(sources) {
@@ -214,11 +258,21 @@ export function buildFormSpec(manualSources = []) {
 
 // ---------- 설계안 반영 ----------
 // 서식 항목명을 계획서 목차 키에 잇는다. 이름이 맞지 않으면 억지로 잇지 않는다.
+// 먼저 걸리는 갈래가 이긴다. 그래서 **좁은 것을 앞에, 넓은 것을 뒤에** 둔다(24-04).
+// 예전 차례에서는 「추진 내용별 **일정**을 기재」가 `schedule`이 아니라 `programs`로 갔다 —
+// `programs`의 「추진 내용」이 앞에 있어서다. 낱말을 더해 풀지 않고 차례로 풀었다.
+// `programs`(사업 내용·방법)가 가장 넓으므로 맨 뒤다.
+// 이름 하나가 어느 갈래인가. 고르는 자리를 하나로 둔다 — 여러 곳에서 같은 표를 뒤지면 어긋난다.
+function outlineKeyOf(name) {
+  return Object.entries(OUTLINE_MATCH).find(([, pattern]) => pattern.test(name))?.[0] || '';
+}
 const OUTLINE_MATCH = {
-  necessity: /필요성|배경|현황|문제/, purpose: /목적|취지/, goals: /목표/, target: /대상|참여자/,
-  programs: /프로그램|사업\s*내용|추진\s*내용|활동|방법/, schedule: /일정|추진\s*계획|기간/,
-  roles: /인력|조직|수행\s*체계|역할|협력/, budget: /예산|사업비/,
-  indicators: /지표|측정|평가/, outcomes: /기대|효과|사후|지속/
+  budget: /예산|사업비/, schedule: /일정|추진\s*계획|기간/, indicators: /지표|측정|평가/,
+  roles: /인력|조직|수행\s*체계|역할|협력/, outcomes: /기대|효과|사후|지속/,
+  // 「이용자」는 이 기관 서식이 「대상·참여자」 대신 쓰는 말이다(24-03에서 실측). 이 하나만 더했다.
+  target: /대상|참여자|이용자/, goals: /목표/, purpose: /목적|취지/,
+  necessity: /필요성|배경|현황|문제/,
+  programs: /프로그램|사업\s*내용|추진\s*내용|활동|방법/
 };
 // 서식이 정한 분량과 필수 표를 설계안 목차에 반영한다. 서식에 없으면 기존 기본값을 그대로 둔다.
 export function applyFormSpecToOutline(outline, formSpec) {

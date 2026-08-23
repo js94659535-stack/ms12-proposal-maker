@@ -247,17 +247,70 @@ export function countSectionTables(bytes) {
   return count;
 }
 
+// 회색 안내 박스. 이 기관 서식은 번호 붙은 줄 없이 **1행 1칸짜리 표**로 「무엇을 쓰라」고 묻는다(24-03).
+// 서식 자신이 「최종 제출 시에는 설명박스(작성 방법이 안내되어 있는 회색 박스)를 모두 삭제」라고
+// 적어 두어 정체가 분명하다. 맨 바깥 표만 본다 — 표 안의 표는 칸 하나여도 안내 박스가 아니다.
+//
+// 본문(extractHwpText)은 건드리지 않는다. 거기에 표시를 끼워 넣으면 AI로 가는 글이 달라진다.
+export function sectionGuideBoxes(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const boxes = [];
+  const open = [];
+  let offset = 0;
+  while (offset + 4 <= bytes.length) {
+    const header = view.getUint32(offset, true);
+    const tag = header & 0x3ff;
+    const level = (header >> 10) & 0x3ff;
+    let size = (header >> 20) & 0xfff;
+    offset += 4;
+    if (size === 0xfff) { size = view.getUint32(offset, true); offset += 4; }
+    if (offset + size > bytes.length) break;
+    while (open.length && level <= open[open.length - 1].level) {
+      const done = open.pop();
+      if (!open.length && done.cells === 1 && done.text.trim()) boxes.push(done.text.replace(/\s+/g, ' ').trim());
+    }
+    if (tag === CTRL_HEADER_TAG && size >= 4 && controlId(bytes, offset) === 'tbl ') {
+      open.push({ level, cells: 0, text: '' });
+      offset += size;
+      continue;
+    }
+    if (tag === LIST_HEADER_TAG && size >= 12 && open.length && level === open[open.length - 1].level + 1) {
+      open[open.length - 1].cells += 1;
+      offset += size;
+      continue;
+    }
+    if (tag === PARA_TEXT_TAG && open.length) {
+      const box = open[open.length - 1];
+      for (let index = 0; index + 1 < size; index += 2) {
+        const code = view.getUint16(offset + index, true);
+        if (code === 13 || code === 10 || code === 9) { box.text += ' '; continue; }
+        if (code < 32) { if (code) index += 14; continue; }
+        box.text += String.fromCharCode(code);
+      }
+    }
+    offset += size;
+  }
+  while (open.length) {
+    const done = open.pop();
+    if (!open.length && done.cells === 1 && done.text.trim()) boxes.push(done.text.replace(/\s+/g, ' ').trim());
+  }
+  return boxes;
+}
+
 // 본문과 표 개수를 함께 돌려준다. 첨부 진단 화면이 이 값을 쓴다.
 export async function extractHwpDocument(buffer) {
   const text = await extractHwpText(buffer);
   let tables = 0;
+  const guides = [];
   try {
     const streams = readCompoundFile(buffer);
     const flags = new DataView(streams.get('FileHeader').buffer, streams.get('FileHeader').byteOffset, streams.get('FileHeader').byteLength).getUint32(36, true);
     for (const [name, raw] of streams.entries()) {
       if (!/^Section\d+$/.test(name)) continue;
-      tables += countSectionTables(flags & 0x1 ? await inflateRaw(raw) : raw);
+      const bytes = flags & 0x1 ? await inflateRaw(raw) : raw;
+      tables += countSectionTables(bytes);
+      guides.push(...sectionGuideBoxes(bytes));
     }
-  } catch { /* 표 수를 못 세도 본문은 그대로 쓴다 */ }
-  return { text, tables };
+  } catch { /* 표 수나 안내 박스를 못 세도 본문은 그대로 쓴다 */ }
+  return { text, tables, guides };
 }
