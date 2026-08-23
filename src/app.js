@@ -75,7 +75,7 @@ import { RELATED_LIMIT, countConfirmed, isConfirmed, confirmAreaItems, relatedMa
 import { groupAreas } from './org-area-order.js';
 import { nextApplicantPick, nextOrgStep } from './org-next-step.js';
 import { nextDesignStep } from './design-next-step.js';
-import { shouldRunDesign } from './design-rerun.js';
+import { shouldRunAgain } from './ai-rerun.js';
 import { applicantHints, hintIsPastWork, hintText } from './applicant-hints.js';
 import { nextOpenGroup, resolveOpenGroup } from './accordion-state.js';
 import { suggestBasicFields } from './org-basic-suggest.js';
@@ -4222,16 +4222,20 @@ function regionBriefResultView(brief) {
 async function runRegionBrief() {
   if (aiBusy('이미 쓰고 있습니다')) return;
   const survey = regionSurvey();
+  const regionBrief = {
+    region: survey.region, survey,
+    projectTitle: state.project.title || '', target: (state.projectValues || []).find(item => item.key === 'target')?.value || '',
+    noticeProblem: state.noticeLogic?.structure?.fields?.find(item => item.title === '해결하려는 문제')?.evidence?.[0]?.sentence || ''
+  };
+  // 조사표가 그대로면 같은 문단이 나온다(23-17).
+  const inputFingerprint = await sha256Text(JSON.stringify(regionBrief));
+  if (!shouldRunAgain({ hasResult: Boolean(state.regionBrief?.paragraphs?.length), inputChanged: state.regionBrief?.inputFingerprint !== inputFingerprint })) {
+    return setState({ notice: '조사표가 그대로라 지난 문단을 그대로 보여 줍니다.', error: '' });
+  }
   setAiBusy('지역 현황을 쓰는 중...', { error: '', notice: '' });
   try {
-    const result = await regionBriefWithAI({
-      regionBrief: {
-        region: survey.region, survey,
-        projectTitle: state.project.title || '', target: (state.projectValues || []).find(item => item.key === 'target')?.value || '',
-        noticeProblem: state.noticeLogic?.structure?.fields?.find(item => item.title === '해결하려는 문제')?.evidence?.[0]?.sentence || ''
-      }
-    });
-    setState({ busy: '', regionBrief: result, notice: result.verification?.ok === false ? '문장에 조사표에 없는 수치가 있습니다. 확인해 주세요.' : '지역 현황 문단을 썼습니다.' });
+    const result = await regionBriefWithAI({ regionBrief });
+    setState({ busy: '', regionBrief: { ...result, inputFingerprint }, notice: result.verification?.ok === false ? '문장에 조사표에 없는 수치가 있습니다. 확인해 주세요.' : '지역 현황 문단을 썼습니다.' });
   } catch (error) { setState({ busy: '', error: error.message }); }
 }
 // 쓴 문단을 계획서 본문으로 옮긴다. 기존 항목을 지우지 않고 「사업 필요성」 자리에 넣는다.
@@ -4674,6 +4678,11 @@ async function runPreciseReview(round = 1) {
   // 기준이 비어 있으면 검증하지 않는다. 비교할 것이 없으면 「기준에 없다」는 지적만 돌아온다.
   const readiness = reviewBasisReadiness(preciseBasis());
   if (!readiness.ready) return setState({ error: readiness.reason });
+  // 보낼 것이 그대로면 결과도 그대로다. 끝난 뒤 다시 눌러도 또 부르지 않는다(23-17).
+  const inputFingerprint = await sha256Text(JSON.stringify({ basis: preciseBasis(), sections: state.sections, tables: state.proposalTables || [] }));
+  if (!shouldRunAgain({ hasResult: Boolean(state.preciseReview?.issues), inputChanged: state.preciseReview?.inputFingerprint !== inputFingerprint })) {
+    return setState({ notice: '계획서와 기준이 그대로라 지난 검증 결과를 그대로 보여 줍니다.', error: '' });
+  }
   const before = structuredClone(state.sections);
   const startedAt = Date.now();
   setAiBusy(round > 1 ? '정밀 재검증 중' : '정밀 검증 중', { error: '', notice: '' }, 'preciseReview');
@@ -4682,7 +4691,7 @@ async function runPreciseReview(round = 1) {
     const issues = normalizeReviewIssues(result.issues, state.sections);
     // 검증만으로 본문이 바뀌지 않았음을 확인한다.
     if (JSON.stringify(before) !== JSON.stringify(state.sections)) throw new Error('검증 중 계획서 본문이 바뀌었습니다. 반영하지 않았습니다.');
-    state.preciseReview = { round, issues, summary: reviewSummary(issues), fingerprint: sectionsFingerprint(state.sections), note: String(result.summary || '').slice(0, 500), at: new Date().toISOString() };
+    state.preciseReview = { round, issues, summary: reviewSummary(issues), fingerprint: sectionsFingerprint(state.sections), inputFingerprint, note: String(result.summary || '').slice(0, 500), at: new Date().toISOString() };
     markAiDoneAt('preciseReview', startedAt, { preciseReview: state.preciseReview, notice: `정밀 ${round > 1 ? '재' : ''}검증에서 ${issues.length}건을 확인했습니다. 본문은 바꾸지 않았습니다.`, error: '' });
   } catch (error) { setState({ busy: '', error: error.message }); }
 }
@@ -9233,9 +9242,16 @@ async function loadArchivedProposalForCoaching(id) {
 async function runProposalCoaching() {
   if (state.coaching.text.trim().length < 30) return setState({ error: '검증할 계획서 내용을 30자 이상 입력해 주세요.' });
   if (state.coaching.pendingJob) return;
+  // 계획서와 심사기준이 그대로면 지난 검증이 그대로 맞다(23-17). 이 자리가 한 번에 가장 비싸다.
+  const payload = coachingPayload();
+  const inputFingerprint = await sha256Text(JSON.stringify(payload));
+  if (!shouldRunAgain({ hasResult: Boolean(state.coaching.result), inputChanged: state.coaching.inputFingerprint !== inputFingerprint })) {
+    return setState({ notice: '계획서가 그대로라 지난 검증 결과를 그대로 보여 줍니다.', error: '' });
+  }
+  state.coaching = { ...state.coaching, inputFingerprint };
   setAiBusy('계획서 전체 검증 작업을 시작하는 중...', { error: '', notice: '' }, 'coaching');
   try {
-    const response = await coachingRequest({ action: 'startCoaching', ...coachingPayload() });
+    const response = await coachingRequest({ action: 'startCoaching', ...payload });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(coachingFailureMessage(result, response.status));
     state.coaching.pendingJob = { id: result.jobId, status: result.status || 'queued', pollCount: 0, startedAt: busyStartedAt || Date.now(), diagnostic: result.diagnostic || null };
@@ -9691,7 +9707,7 @@ async function runProposalReview(force = false) {
   if (state.reviewBusy || state.sections.length !== 10) return;
   const payload = reviewPayload();
   const fingerprint = await sha256Text(JSON.stringify(payload));
-  if (!force && state.reviewResult && state.reviewFingerprint === fingerprint) return setState({ notice: '같은 초안의 기존 심사 결과를 표시합니다.' });
+  if (!shouldRunAgain({ redo: force, hasResult: Boolean(state.reviewResult), inputChanged: state.reviewFingerprint !== fingerprint })) return setState({ notice: '같은 초안의 기존 심사 결과를 표시합니다.' });
   state.reviewOriginalDraft = structuredClone(state.sections);
   state.reviewBusy = true;
   setAiBusy('사업계획서를 심사자 관점에서 검토하는 중...', { error: '', notice: '' }, 'review');
@@ -10479,7 +10495,7 @@ function showError(error) {
 // 공고가 바뀌었으면 앞 공고의 설계를 쓸 수 없으므로 그때는 그대로 다시 만든다.
 async function generateCompleteProposal(options = {}) {
   if (aiBusy('이미 계획서를 만들고 있습니다')) return;
-  if (!shouldRunDesign({ redo: options?.redo === true, hasMaster: Boolean(state.stagedGeneration?.master), noticeChanged: noticeLogicStale() })) {
+  if (!shouldRunAgain({ redo: options?.redo === true, hasResult: Boolean(state.stagedGeneration?.master), inputChanged: noticeLogicStale() })) {
     return navigateToStep(4, { busy: '', error: '', notice: '이미 만들어 둔 설계가 있어 그대로 씁니다. 처음부터 다시 만들려면 「설계 다시 만들기」를 누르세요.' });
   }
   const manualLength = state.manualSources.filter(value => value.extractionStatus === 'success').reduce((sum, value) => sum + value.extractedText.length, 0);
