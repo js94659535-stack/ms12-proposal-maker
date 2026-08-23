@@ -31,6 +31,16 @@ async function inflateRaw(bytes) {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
+// 항목 이름의 글자표. 플래그 0x800이 켜져 있으면 UTF-8이고, 꺼져 있으면 만든 프로그램의 기본 글자표다.
+// 윈도에서 만든 한글 이름 ZIP은 대개 CP949이고 비트가 꺼져 있다 —
+// 실제 공고 첨부에서 플래그가 `0x0000`이라 이름이 통째로 깨졌다(24-01에서 실측).
+// EUC-KR은 ASCII와 같은 자리를 쓰므로 영문 이름은 어느 쪽으로 읽어도 같다.
+export function decodeZipName(bytes, flag) {
+  if (flag & 0x800) return new TextDecoder().decode(bytes);
+  // 이 글자표를 모르는 곳에서는 예전처럼 UTF-8로 읽는다. 이름 때문에 파일을 통째로 못 열면 안 된다.
+  try { return new TextDecoder('euc-kr').decode(bytes); } catch { return new TextDecoder().decode(bytes); }
+}
+
 // ZIP central directory만 읽어 필요한 항목을 꺼낸다. 전체 ZIP 라이브러리를 추가하지 않는다.
 //
 // 바이트로 꺼낸다(23-29). 예전에는 글자로 풀어 돌려주기만 해서 두 자리가 함께 막혀 있었다 —
@@ -51,13 +61,15 @@ export async function readZipFiles(buffer, wanted = () => true) {
   const decoder = new TextDecoder();
   for (let index = 0; index < count; index += 1) {
     if (view.getUint32(offset, true) !== 0x02014b50) break;
+    // ZIP은 이름을 어떤 글자표로 담았는지 플래그 한 비트로만 말한다.
+    const flag = view.getUint16(offset + 8, true);
     const method = view.getUint16(offset + 10, true);
     const compressedSize = view.getUint32(offset + 20, true);
     const nameLength = view.getUint16(offset + 28, true);
     const extraLength = view.getUint16(offset + 30, true);
     const commentLength = view.getUint16(offset + 32, true);
     const localOffset = view.getUint32(offset + 42, true);
-    const name = decoder.decode(bytes.subarray(offset + 46, offset + 46 + nameLength));
+    const name = decodeZipName(bytes.subarray(offset + 46, offset + 46 + nameLength), flag);
     if (wanted(name)) entries.push({ name, method, compressedSize, localOffset });
     offset += 46 + nameLength + extraLength + commentLength;
   }

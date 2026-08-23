@@ -445,7 +445,10 @@ async function downloadProposalAttachment(fetcher, attachment) {
     const detailUrl = new URL('/mobile/mobileMainBsnsDetail.do', PROPOSAL_ORIGIN);
     detailUrl.searchParams.set('dstbBsnsCode', attachment.dstbBsnsCode);
     detailUrl.searchParams.set('appnDocNo', '');
-    const detailResponse = await fetcher(detailUrl.href, { method: 'GET' });
+    // 수집기와 같은 헤더로 부른다(24-02). 맨몸 GET으로 부르면 같은 주소가 오류 화면을 돌려주고
+    // (실측 3,056자 · fn_fileDownload 0개) 손잡이 대조가 언제나 실패해 **어떤 첨부든 404**가 됐다.
+    // 헤더와 함께 부르면 11,838자에 첨부 링크 둘이 그대로 있다.
+    const detailResponse = await fetcher(detailUrl.href, { method: 'GET', headers: { ...PROPOSAL_HEADERS } });
     if (!detailResponse.ok) throw new Error('detail failed');
     const detailHtml = await detailResponse.text();
     const officialFiles = [...detailHtml.matchAll(/fn_fileDownload\('([^']+)'\s*,\s*'([^']+)'\s*,\s*'([^']+)'\s*,\s*'([^']+)'\)[^>]*>([\s\S]*?)<\/a>/gi)].map(match => ({
