@@ -14,11 +14,14 @@ const read = name => fs.readFileSync(new URL(name, import.meta.url), 'utf8').spl
 const app = read('../src/app.js');
 const bar = app.slice(app.indexOf('function stepBar(step, {'), app.indexOf('function bindNextStepBar('));
 
-test('두 화면이 같은 함수를 부른다', () => {
+test('세 화면이 같은 함수를 부른다', () => {
   const org = app.slice(app.indexOf('function orgNextStepBar()'), app.indexOf('// 올린 자료에 답이 있는 칸을 화면을 그릴 때마다 채운다.'));
   const pick = app.slice(app.indexOf('function applicantPickBar()'), app.indexOf('function applicantSelectView()'));
+  const design = app.slice(app.indexOf('function designNextStepBar()'), app.indexOf('function businessSelectView()'));
   assert.match(org, /return stepBar\(step, \{/);
   assert.match(pick, /return stepBar\(step, \{/);
+  assert.match(design, /return stepBar\(step, \{/);
+  assert.doesNotMatch(design, /class="next-step-bar/);
   // 어느 화면도 띠 HTML을 스스로 적지 않는다.
   assert.doesNotMatch(org, /class="next-step-bar/);
   assert.doesNotMatch(pick, /class="next-step-bar/);
@@ -58,6 +61,10 @@ test('초록은 화면마다 이 띠 하나뿐이다', () => {
   assert.equal([...view.matchAll(/\$\{orgNextStepBar\(\)\}/g)].length, 1);
   const pickView = app.slice(app.indexOf('function applicantSelectView()'), app.indexOf('function applicantLoadedView('));
   assert.equal([...pickView.matchAll(/\$\{applicantPickBar\(\)\}/g)].length, 1);
+  // 23-04에서 셋째가 붙었다. 이 화면도 띠 하나뿐이다.
+  const designView = app.slice(app.indexOf('function businessSelectView()'), app.indexOf('function applicantStatusTag('));
+  assert.equal([...designView.matchAll(/\$\{designNextStepBar\(\)\}/g)].length, 1);
+  assert.equal([...designView.matchAll(/class="button go(?![-\w])/g)].length, 0);
 });
 
 test('누르면 열고 나서 데려간다 — 차례는 한 곳에서만 지킨다', () => {
@@ -68,15 +75,17 @@ test('누르면 열고 나서 데려간다 — 차례는 한 곳에서만 지킨
   assert.ok(order.indexOf('if (plan.open) plan.open();') < order.indexOf('if (plan.go) plan.go();'),
     '데려간 뒤에 여는 차례가 되었다');
   // 두 화면 모두 이 함수로 처리기를 단다. 각자 addEventListener를 걸지 않는다.
-  assert.equal([...app.matchAll(/bindNextStepBar\('/g)].length, 2);
+  assert.equal([...app.matchAll(/bindNextStepBar\('/g)].length, 3);
   assert.doesNotMatch(app, /querySelector\('#next-step-action'\)\?\.addEventListener/);
   assert.doesNotMatch(app, /querySelector\('#pick-step-action'\)\?\.addEventListener/);
 });
 
-test('같은 판정을 읽는 스크롤 도우미는 아직 기관정보 화면만 본다', () => {
-  // 23-03은 그리는 쪽만 모았다. scrollToNextStep은 orgStepInfo()를 그대로 부르고 있어
-  // 셋째 띠가 붙어도 따라가지 않는다. 그 사실을 시험으로 적어 두고 다음 작업에서 함께 본다.
-  const scroll = app.slice(app.indexOf('function scrollToNextStep()'), app.indexOf('function scrollToNextStep()') + 700);
-  assert.match(scroll, /const step = orgStepInfo\(\);/);
-  assert.doesNotMatch(scroll, /applicantPickStep/);
+test('스크롤 도우미는 그려진 띠에게 묻는다 — 세 화면 모두', () => {
+  // 23-03까지는 어느 화면에 있든 기관정보 화면의 판정만 읽었다. 셋째 띠가 붙으면서
+  // 그려진 띠에게 묻도록 바꿨다(23-04). 화면이 늘어도 이 함수는 그대로다.
+  const scroll = app.slice(app.indexOf('function scrollToNextStep()'), app.indexOf('// 소개 화면에는 폼이 없다'));
+  assert.match(scroll, /querySelector\('#next-step-action, #pick-step-action, #design-step-action'\)/);
+  assert.doesNotMatch(scroll, /orgStepInfo\(\)/);
+  // 띠로는 데려가지 않는다 — 띠는 이미 화면 맨 위라 제자리걸음이다.
+  assert.match(scroll, /const target = document\.querySelector\('\.go-target'\) \|\| document\.querySelector\('\.go-place'\);/);
 });

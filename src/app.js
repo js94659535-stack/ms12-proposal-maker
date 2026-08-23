@@ -74,6 +74,7 @@ import { SAMPLE_REAL_COACHING } from './sample-coaching-run.js';
 import { RELATED_LIMIT, countConfirmed, isConfirmed, confirmAreaItems, relatedMatches, requiresConsortium, restoreItemStatuses, SOURCE_KINDS, makeApplicantSource, APPLICANT_AREAS, APPLICANT_STATUSES, CONFIRMED_STATUS, applicantAreaSummary, areaItems, areaTitle, itemsBySource, buildApplicantOrganization, compareNoticeWithApplicant, confirmedItems, findApplicant, makeApplicantItem, mergeApplicantItems, migrateCompanyFactsToApplicant, normalizeApplicant, planApplicantQuestions, upsertApplicant } from './applicants.js';
 import { groupAreas } from './org-area-order.js';
 import { nextApplicantPick, nextOrgStep } from './org-next-step.js';
+import { nextDesignStep } from './design-next-step.js';
 import { nextOpenGroup, resolveOpenGroup } from './accordion-state.js';
 import { suggestBasicFields } from './org-basic-suggest.js';
 import { staleItems, staleReason, staleSummary } from './org-staleness.js';
@@ -4559,7 +4560,7 @@ function currentBlueprint() {
 function blueprintTypeView(blueprint) {
   const { options, selected, blocked } = blueprint.applicationTypes;
   if (!options.length) return '';
-  return `<div class="card-title" style="margin-top:6px"><div><h4 style="margin:0">신청유형</h4><span>${blocked ? '유형에 따라 대상·사업내용·요건이 다릅니다. 먼저 하나를 고르세요.' : '선택한 유형의 조건만 설계에 반영했습니다. 다른 유형 조건은 제외됩니다.'}</span></div></div>
+  return `<div class="card-title" id="blueprint-type" tabindex="-1" style="margin-top:6px"><div><h4 style="margin:0">신청유형</h4><span>${blocked ? '유형에 따라 대상·사업내용·요건이 다릅니다. 먼저 하나를 고르세요.' : '선택한 유형의 조건만 설계에 반영했습니다. 다른 유형 조건은 제외됩니다.'}</span></div></div>
     <div class="requirement-list">${options.map(option => `<article class="requirement"><div><span class="status ${selected === option.name ? '충족' : '확인-필요'}">${selected === option.name ? '선택함' : '선택 가능'}</span><div><strong>${escapeHtml(option.name)}</strong><small>${escapeHtml(option.description || '공고에 설명 문장이 없습니다.')}</small></div></div><button class="button ${selected === option.name ? 'secondary' : 'primary'}" data-blueprint-type="${escapeHtml(option.name)}">${selected === option.name ? '선택됨' : '이 유형으로 설계'}</button></article>`).join('')}</div>`;
 }
 
@@ -5161,9 +5162,33 @@ function engagementOperatorView(engagement) {
       <div class="actions"><span class="muted">상세 작업은 기존 화면에서 이어서 합니다.</span><div><button class="button secondary" data-step="1">공고 분석</button><button class="button secondary" data-step="3">사업 설계도</button><button class="button secondary" data-step="4">계획서 작성</button><button class="button secondary" id="engagement-open-coaching">검증·코칭</button></div></div></div>`;
 }
 
+// 사업 설계 화면의 「지금 할 일」. 판정은 nextDesignStep 한 곳에서 하고 여기서는 값만 모아 넘긴다.
+//
+// 차례가 뜻을 갖는다. 설계도(currentBlueprint)는 공고 구조와 신청기관이 둘 다 있어야 값을 내므로,
+// 그 둘을 묻는 갈래가 설계 이야기보다 반드시 앞이다. 없으면 null을 그대로 넘기고 판정이 앞 갈래로 답한다.
+function designStepInfo() {
+  const blueprint = currentBlueprint();
+  return nextDesignStep({
+    subprojectCount: (state.pendingNoticeChoice?.subprojects || []).length,
+    hasNotice: Boolean(state.selectedNotice || state.noticePreview),
+    hasStructure: Boolean(state.noticeLogic?.structure),
+    hasApplicant: Boolean(selectedApplicant()),
+    conflictCount: currentOfficialConflicts().length,
+    blueprint
+  });
+}
+function designNextStepBar() {
+  const step = designStepInfo();
+  return stepBar(step, {
+    id: 'design-step-bar',
+    actionId: 'design-step-action',
+    data: { 'design-key': step.key }
+  });
+}
+
 function businessSelectView() {
-  const choice = state.pendingNoticeChoice ? `<div class="card"><div class="card-title"><div><h3>작성할 세부사업을 선택하세요</h3><span>선택한 사업 내용만 계획서에 반영됩니다.</span></div></div><div class="requirement-list">${state.pendingNoticeChoice.subprojects.map((item, index) => `<article class="requirement"><div><span class="tag">${escapeHtml(item.id)}</span><strong>${escapeHtml(item.title)}</strong></div><button class="button primary" data-select-subproject="${index}">이 사업 선택</button></article>`).join('')}</div></div>` : '';
-  return `<div class="page-heading"><div><h2>작성할 사업을 확정하세요</h2><p>복수 세부사업일 때만 한 사업을 선택합니다. 아래 사업 설계도를 확인한 뒤 초안 작성으로 넘어갑니다.</p></div><div class="actions">${sampleButton('blueprint', '[샘플] 완성 설계도 보기')}</div></div>${choice}${contractLockView()}${selectedNoticeDetailView()}${blueprintView()}${attachmentView()}${!state.pendingNoticeChoice && !state.selectedNotice ? '<div class="empty-state"><div>◉</div><h2>선택한 공고가 없습니다</h2><button class="button primary" data-step="1">공고 확인으로 이동</button></div>' : ''}`;
+  const choice = state.pendingNoticeChoice ? `<div class="card" id="subproject-choice" tabindex="-1"><div class="card-title"><div><h3>작성할 세부사업을 선택하세요</h3><span>선택한 사업 내용만 계획서에 반영됩니다.</span></div></div><div class="requirement-list">${state.pendingNoticeChoice.subprojects.map((item, index) => `<article class="requirement"><div><span class="tag">${escapeHtml(item.id)}</span><strong>${escapeHtml(item.title)}</strong></div><button class="button primary" data-select-subproject="${index}">이 사업 선택</button></article>`).join('')}</div></div>` : '';
+  return `<div class="page-heading"><div><h2>작성할 사업을 확정하세요</h2><p>복수 세부사업일 때만 한 사업을 선택합니다. 아래 사업 설계도를 확인한 뒤 초안 작성으로 넘어갑니다.</p></div><div class="actions">${sampleButton('blueprint', '[샘플] 완성 설계도 보기')}</div></div>${designNextStepBar()}${choice}${contractLockView()}${selectedNoticeDetailView()}${blueprintView()}${attachmentView()}${!state.pendingNoticeChoice && !state.selectedNotice ? '<div class="empty-state"><div>◉</div><h2>선택한 공고가 없습니다</h2><button class="button primary" data-step="1">공고 확인으로 이동</button></div>' : ''}`;
 }
 
 function applicantStatusTag(status) { return `<span class="status ${status === CONFIRMED_STATUS ? '충족' : status === '오래된 정보' ? '부분-충족' : '확인-필요'}">${escapeHtml(status)}</span>`; }
@@ -7319,13 +7344,18 @@ function render() {
 // 가리키는 자리가 바뀐 첫 번째 그리기에서만 움직인다.
 let lastGoStep = '';
 function scrollToNextStep() {
-  const step = orgStepInfo();
+  // 어느 화면이든 띠 하나가 지금 할 일을 말한다. 그려진 띠에게 물으면 화면마다 판정을 다시 고를
+  // 필요가 없다 — 셋째 띠가 붙어도 이 함수는 그대로다(23-04).
+  // 예전에는 어느 화면에 있든 기관정보 화면의 판정만 읽어서, 다른 화면에서는 엉뚱한 값으로 셈했다.
+  const bar = document.querySelector('#next-step-action, #pick-step-action, #design-step-action');
+  if (!bar) return;
   // 가리키는 구역까지 함께 본다. 기본정보를 확인하고 나면 열쇠말은 그대로 confirm 인데
   // 가리키는 자리는 다음 구역으로 옮겨 간다 — 열쇠말만 보면 그때 데려가지 않는다(22-53⑤).
-  const mark = `${step.key}:${stepGroupKey(step)}`;
-  if (!step.key || mark === lastGoStep) return;
-  // 「거기서 할 일」이 먼저다. 띠는 이미 화면 맨 위에 있어서, 띠로 데려가면 제자리걸음이 된다.
-  const target = document.querySelector('.go-target') || document.querySelector('.go-place') || document.querySelector('.button.go');
+  const data = bar.dataset || {};
+  const mark = `${bar.id}:${data.nextKey || data.pickKey || data.designKey || ''}:${data.nextAnchor || ''}`;
+  if (mark === lastGoStep) return;
+  // 「거기서 할 일」로만 데려간다. 띠는 이미 화면 맨 위에 있어서, 띠로 데려가면 제자리걸음이다.
+  const target = document.querySelector('.go-target') || document.querySelector('.go-place');
   if (!target) return;
   lastGoStep = mark;
   setTimeout(() => target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 40);
@@ -8574,6 +8604,15 @@ function bindApplicants() {
   // 신청기관 정보가 없어도 계획서 작성을 막지 않는다.
   // 이 화면의 띠. 갈래마다 데려가는 곳이 다르다 — 고르는 자리는 이 화면 안이고,
   // 확인하는 자리는 기관정보 화면이다(거기에 띠 → 그 자리 → 거기서 할 일이 이미 이어져 있다).
+  // 사업 설계 화면. 이 화면에는 접힌 중분류가 없어 열 것이 없다 — 갈래마다 데려가기만 한다.
+  // 두 갈래는 이 화면에서 할 수 없는 일이라 앞 단계로 돌려보낸다.
+  bindNextStepBar('design-step-action', button => {
+    const key = button.dataset.designKey;
+    if (key === 'notice' || key === 'analyze') return { act: () => navigateToStep(1, { notice: '', error: '' }) };
+    if (key === 'applicant') return { act: () => navigateToStep(2, { notice: '', error: '' }) };
+    const anchor = { subproject: '#subproject-choice', conflict: '#notice-contract-locks', type: '#blueprint-type', design: '#project-blueprint', draft: '#blueprint-draft' }[key];
+    return { go: () => focusAnchor(anchor || '#project-blueprint') };
+  });
   bindNextStepBar('pick-step-action', button => {
     const key = button.dataset.pickKey;
     if (key === 'add-org') return { act: () => setState({ activeTool: 'applicants', notice: '', error: '' }) };
