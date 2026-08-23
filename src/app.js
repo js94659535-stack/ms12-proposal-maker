@@ -4478,7 +4478,12 @@ function formSpecNoticeView() {
 }
 
 const BLUEPRINT_STATUS_LABEL = { CONFIRMED: '확정', SUPPORTED: '근거 있음', PROPOSED: '설계안', NEEDS_CONFIRMATION: '확인 필요' };
-const BLUEPRINT_STATUS_CLASS = { CONFIRMED: '충족', SUPPORTED: '부분-충족', PROPOSED: '검토-필요', NEEDS_CONFIRMATION: '확인-필요' };
+const BLUEPRINT_STATUS_CLASS = { CONFIRMED: '충족', SUPPORTED: '부분-충족', PROPOSED: '검토-필요', NEEDS_CONFIRMATION: '답-필요' };
+// 설계도 딱지는 이 함수 하나로만 그린다(23-07). 빛깔을 고르는 자리가 넷으로 흩어져 있어서
+// 「확인 필요」(설계 항목)·「미대응」(공고 선정요건)·「선택 가능」(신청유형 보기)이 같은 회색을 함께 썼다.
+// 셋은 세는 것이 다르다 — 띠가 세는 것은 첫째뿐인데 눈으로 세면 아홉이었다(23-05).
+// 「확인 필요」만 제 빛깔(답-필요)로 나오고, 「선택 가능」은 채우지 않은 모양(보기)으로 물러난다.
+const blueprintBadge = (tone, text) => `<span class="status ${tone}">${escapeHtml(text)}</span>`;
 // 설계도 항목에서 사용자가 바로 값을 넣을 수 있는 자리. 값은 이번 사업 값(projectSpecificValues)으로만 저장한다.
 const BLUEPRINT_INPUTS = {
   summary: [['name', '사업명']],
@@ -4560,14 +4565,18 @@ function currentBlueprint() {
 function blueprintTypeView(blueprint) {
   const { options, selected, blocked } = blueprint.applicationTypes;
   if (!options.length) return '';
-  return `<div class="card-title" id="blueprint-type" tabindex="-1" style="margin-top:6px"><div><h4 style="margin:0">신청유형</h4><span>${blocked ? '유형에 따라 대상·사업내용·요건이 다릅니다. 먼저 하나를 고르세요.' : '선택한 유형의 조건만 설계에 반영했습니다. 다른 유형 조건은 제외됩니다.'}</span></div></div>
-    <div class="requirement-list">${options.map(option => `<article class="requirement"><div><span class="status ${selected === option.name ? '충족' : '확인-필요'}">${selected === option.name ? '선택함' : '선택 가능'}</span><div><strong>${escapeHtml(option.name)}</strong><small>${escapeHtml(option.description || '공고에 설명 문장이 없습니다.')}</small></div></div><button class="button ${selected === option.name ? 'secondary' : 'primary'}" data-blueprint-type="${escapeHtml(option.name)}">${selected === option.name ? '선택됨' : '이 유형으로 설계'}</button></article>`).join('')}</div>`;
+  // 「선택 가능」은 보기에 붙는 말이라, 이 칸이 「확인 필요」 열넷에 든다는 것을 화면에서 볼 수 없었다 —
+  // 유형을 고르기 전에는 요약 칸 5와 카드 딱지 4가 갈렸다. 제 항목의 상태 딱지를 머리에 단다(23-07).
+  const typeItem = blueprint.items.find(item => item.key === 'applicationType');
+  const typeBadge = typeItem ? blueprintBadge(BLUEPRINT_STATUS_CLASS[typeItem.status], BLUEPRINT_STATUS_LABEL[typeItem.status]) : '';
+  return `<div class="card-title" id="blueprint-type" tabindex="-1" style="margin-top:6px"><div><h4 style="margin:0">신청유형 ${typeBadge}</h4><span>${blocked ? '유형에 따라 대상·사업내용·요건이 다릅니다. 먼저 하나를 고르세요.' : '선택한 유형의 조건만 설계에 반영했습니다. 다른 유형 조건은 제외됩니다.'}</span></div></div>
+    <div class="requirement-list">${options.map(option => `<article class="requirement"><div>${blueprintBadge(selected === option.name ? '충족' : '보기', selected === option.name ? '선택함' : '선택 가능')}<div><strong>${escapeHtml(option.name)}</strong><small>${escapeHtml(option.description || '공고에 설명 문장이 없습니다.')}</small></div></div><button class="button ${selected === option.name ? 'secondary' : 'primary'}" data-blueprint-type="${escapeHtml(option.name)}">${selected === option.name ? '선택됨' : '이 유형으로 설계'}</button></article>`).join('')}</div>`;
 }
 
 function blueprintItemCard(item) {
   const inputs = BLUEPRINT_INPUTS[item.key] || [];
   const needsInput = item.status === 'NEEDS_CONFIRMATION' || item.status === 'PROPOSED';
-  return `<article class="requirement"><div><span class="status ${BLUEPRINT_STATUS_CLASS[item.status]}">${BLUEPRINT_STATUS_LABEL[item.status]}</span><div><strong>${escapeHtml(item.title)}${item.status === 'PROPOSED' ? ' <span class="tag">설계안 · 확정 아님</span>' : ''}</strong>
+  return `<article class="requirement"><div>${blueprintBadge(BLUEPRINT_STATUS_CLASS[item.status], BLUEPRINT_STATUS_LABEL[item.status])}<div><strong>${escapeHtml(item.title)}${item.status === 'PROPOSED' ? ' <span class="tag">설계안 · 확정 아님</span>' : ''}</strong>
     <small>${item.value ? nl(String(item.value).slice(0, 400)) : '<b>[확인 필요]</b> 값을 만들지 않았습니다.'}</small>
     ${item.basis ? `<small class="muted">${escapeHtml(item.basis)}</small>` : ''}</div></div>
     ${item.evidence?.length ? `<details><summary>근거 ${item.evidence.length}건</summary>${item.evidence.map(evidence => `<blockquote>[${escapeHtml(String(evidence.source).split(' > ').pop())}] ${escapeHtml(evidence.sentence)}</blockquote>`).join('')}</details>` : ''}
@@ -4592,10 +4601,10 @@ function blueprintView() {
   const restQuestions = blueprint.openQuestions.filter(entry => !coreQuestions.includes(entry));
   const noticeChecks = blueprint.submissionChecklist.filter(entry => entry.kind === '공고 요건');
   const draftHint = !blueprint.canDraft
-    ? '<span class="status 확인-필요">신청유형을 먼저 선택하세요</span>'
+    ? blueprintBadge('확인-필요', '신청유형을 먼저 선택하세요')
     : blueprint.readiness === 'SUBMISSION_READY'
-      ? '<span class="status 충족">제출 문서 확정 단계로 진행 가능</span>'
-      : `<span class="status 부분-충족">제출 전 확인이 필요한 항목이 있습니다 · ${blueprint.submissionChecklist.length}개</span>`;
+      ? blueprintBadge('충족', '제출 문서 확정 단계로 진행 가능')
+      : blueprintBadge('부분-충족', `제출 전 확인이 필요한 항목이 있습니다 · ${blueprint.submissionChecklist.length}개`);
   return `<div class="card" id="project-blueprint"><div class="card-title"><div><h3>사업 설계도</h3><span>공고 값·기관 값·이번 사업 값을 섞지 않습니다. 확정하지 않은 값은 [확인 필요]로 남깁니다.</span></div>
       <button class="button primary" id="blueprint-draft" ${guard(blueprint.canDraft ? '' : (draftHint || '초안을 만들 자료가 아직 없습니다. 공고를 먼저 분석해 주세요.'), 'notice')}>초안 작성</button></div>
     <p class="muted">${escapeHtml(blueprint.verdict)} · 신청기관 ${escapeHtml(blueprint.applicantName)}</p>
@@ -4609,7 +4618,7 @@ function blueprintView() {
     ${coreQuestions.length ? `<div class="alert warning"><strong>필수 확인 ${coreQuestions.length}개</strong>${coreQuestions.map(entry => `<p>· [${escapeHtml(entry.section)}] ${escapeHtml(entry.question)}</p>`).join('')}</div>` : ''}
     <div class="requirement-list">${cards.map(blueprintItemCard).join('')}</div>
     <details><summary>공고 선정요건 점검 ${noticeChecks.length}개 · 남은 질문 ${restQuestions.length}개</summary>
-      <div class="requirement-list">${blueprint.requirementLinks.map(link => `<article class="requirement"><div><span class="status ${link.covered ? (link.hasApplicantEvidence ? '충족' : '부분-충족') : '확인-필요'}">${link.covered ? (link.hasApplicantEvidence ? '대응+근거' : '설계 대응') : '미대응'}</span><div><strong>${escapeHtml(link.requirement)}</strong><small>${escapeHtml(link.sections.map(section => `${section.title}(${BLUEPRINT_STATUS_LABEL[section.status]})`).join(' · ') || '설계 항목이 아니라 제출 준비 단계에서 확인')}</small>${link.gap ? `<small class="muted">${escapeHtml(link.gap)}</small>` : ''}</div></div></article>`).join('')}</div>
+      <div class="requirement-list">${blueprint.requirementLinks.map(link => `<article class="requirement"><div>${blueprintBadge(link.covered ? (link.hasApplicantEvidence ? '충족' : '부분-충족') : '확인-필요', link.covered ? (link.hasApplicantEvidence ? '대응+근거' : '설계 대응') : '미대응')}<div><strong>${escapeHtml(link.requirement)}</strong><small>${escapeHtml(link.sections.map(section => `${section.title}(${BLUEPRINT_STATUS_LABEL[section.status]})`).join(' · ') || '설계 항목이 아니라 제출 준비 단계에서 확인')}</small>${link.gap ? `<small class="muted">${escapeHtml(link.gap)}</small>` : ''}</div></div></article>`).join('')}</div>
       ${restQuestions.length ? `<div class="questions" style="margin-top:12px">${restQuestions.map(entry => `<p class="muted">· [${escapeHtml(entry.section)}] ${escapeHtml(entry.question)}</p>`).join('')}</div>` : ''}
     </details>
     <details><summary>설계 논리 점검 (문제 → 대상 → 프로그램 → 예산 → 성과)</summary><div class="cap-grid">${blueprint.logic.map(link => `<div><span>${escapeHtml(link.state)}</span><strong>${escapeHtml(link.link)}</strong><small>${escapeHtml(link.reason)}</small></div>`).join('')}</div></details>
