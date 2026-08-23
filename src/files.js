@@ -32,7 +32,12 @@ async function inflateRaw(bytes) {
 }
 
 // ZIP central directory만 읽어 필요한 항목을 꺼낸다. 전체 ZIP 라이브러리를 추가하지 않는다.
-async function readZipEntries(buffer, wanted) {
+//
+// 바이트로 꺼낸다(23-29). 예전에는 글자로 풀어 돌려주기만 해서 두 자리가 함께 막혀 있었다 —
+// ZIP 안의 HWP 같은 **이진 파일을 못 꺼냈고**(23-24), 원본을 풀어 고친 뒤 **다시 묶지도 못했다**(23-28).
+// 다시 묶으려면 안 바꾸는 항목까지 바이트 그대로 들고 있어야 하므로, 무엇을 꺼낼지 고르지 않으면
+// 전부 돌려준다. 글자로 읽던 자리(HWPX·DOCX)는 아래 readZipEntries가 그대로 감싼다.
+export async function readZipFiles(buffer, wanted = () => true) {
   const view = new DataView(buffer);
   const bytes = new Uint8Array(buffer);
   let end = -1;
@@ -62,9 +67,21 @@ async function readZipEntries(buffer, wanted) {
     const start = entry.localOffset + 30 + view.getUint16(entry.localOffset + 26, true) + view.getUint16(entry.localOffset + 28, true);
     const raw = bytes.subarray(start, start + entry.compressedSize);
     if (entry.method !== 0 && entry.method !== 8) throw new Error('지원하지 않는 ZIP 압축 방식입니다.');
-    results.push({ name: entry.name, text: decoder.decode(entry.method === 0 ? raw : await inflateRaw(raw)) });
+    results.push({ name: entry.name, bytes: entry.method === 0 ? raw.slice() : await inflateRaw(raw) });
   }
   return results;
+}
+
+// 글자로 읽는 자리는 이 갈래를 쓴다. 하는 일이 예전과 같다.
+async function readZipEntries(buffer, wanted) {
+  const decoder = new TextDecoder();
+  return (await readZipFiles(buffer, wanted)).map(entry => ({ name: entry.name, text: decoder.decode(entry.bytes) }));
+}
+
+// ZIP 안에서 읽어 볼 만한 것만 고른다. 폴더 표시와 맥에서 붙는 껍데기는 뺀다.
+const ZIP_SKIP = /(^|\/)(__MACOSX\/|\.)/;
+export function zipEntryNames(entries) {
+  return entries.filter(entry => !entry.name.endsWith('/') && !ZIP_SKIP.test(entry.name)).map(entry => entry.name);
 }
 
 function decodeXmlText(value) {
@@ -231,6 +248,40 @@ export async function extractFile(file, options = {}) {
       return options.readImages(file, { from: 'PDF', name: file.name, size, pages: pdf.numPages });
     }
     return { name: file.name, type: 'PDF', size, text, pages: pdf.numPages, tables: 0, extracted: true };
+  }
+
+  // ZIP은 첨부로 자주 온다 — 공고 한 건에 서식 여러 개가 묶여 있다(23-24의 그 파일).
+  // 예전에는 여기까지 와서 「지원하지 않는 형식」으로 돌아갔다. 버튼은 눌리는데 뒤에서 거부하니
+  // 사용자는 파일을 다 내려받은 뒤에야, 그것도 까닭 없이 막혔다.
+  if (extension === 'zip') {
+    if (options.zipDepth >= 1) throw new Error(`${file.name}: ZIP 안의 ZIP은 한 겹까지만 풉니다.`);
+    let entries;
+    try {
+      entries = await readZipFiles(await file.arrayBuffer());
+    } catch (error) {
+      throw new Error(`${file.name}: ${error?.message || REASON.damaged}`);
+    }
+    const names = zipEntryNames(entries);
+    if (!names.length) throw new Error(`${file.name}: ${REASON.empty}`);
+    const inner = [];
+    const skipped = [];
+    for (const entry of entries) {
+      if (!names.includes(entry.name)) continue;
+      const short = entry.name.split('/').pop();
+      // 안의 파일을 같은 길로 다시 읽는다. 읽는 규칙을 두 벌 두지 않는다.
+      try {
+        const read = await extractFile(new File([entry.bytes], short), { ...options, zipDepth: (options.zipDepth || 0) + 1 });
+        inner.push({ name: short, text: read.text, tables: read.tables || 0 });
+      } catch (error) {
+        skipped.push(`${short} — ${String(error?.message || '').replace(`${short}: `, '')}`);
+      }
+    }
+    // 읽은 것이 하나도 없으면 읽은 척하지 않는다. 무엇이 들었는지는 알려 준다.
+    if (!inner.length) throw new Error(`${file.name}: 안에 든 ${names.length}개를 읽지 못했습니다. ${skipped.join(' / ')}`);
+    const head = `[ZIP: ${file.name}] 안에 든 파일 ${names.length}개\n${names.map(one => `· ${one}`).join('\n')}`;
+    const body = inner.map(one => `\n\n[${one.name}]\n${one.text}`).join('');
+    const tail = skipped.length ? `\n\n[읽지 못한 파일 ${skipped.length}개]\n${skipped.map(one => `· ${one}`).join('\n')}` : '';
+    return { name: file.name, type: 'ZIP', size, text: `${head}${body}${tail}`, pages: null, tables: inner.reduce((sum, one) => sum + one.tables, 0), extracted: true, entries: names };
   }
 
   throw new Error(`${file.name}: ${REASON.unsupported} 지원 형식은 PDF·DOCX·TXT·HWPX·HWP입니다.`);
