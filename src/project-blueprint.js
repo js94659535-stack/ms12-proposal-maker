@@ -603,7 +603,14 @@ export function buildBlueprint({ structure, applicant, fitResult, projectValues,
     openItems.length ? openItems.map(entry => entry.title).join(' / ') : '없음',
     { basis: openItems.length ? '아래 항목은 사용자 확인 전까지 계획서 본문에 쓰지 않습니다.' : '확인이 필요한 항목이 없습니다.', question: openItems.length ? '위 항목들을 확정해 주시겠습니까?' : '' }));
 
-  const byStatus = Object.fromEntries(BLUEPRINT_STATUSES.map(status => [status, items.filter(entry => entry.status === status).length]));
+  // 「설계 항목」은 이 열넷이다. items 열여섯 중 requirementLinks·openItems 둘은 설계 칸이 아니라
+  // 다른 것을 요약한 줄이라 뺀다 — 공고 선정요건 대응과 확인이 필요한 항목 묶음이다.
+  //
+  // 세는 자리를 여기 하나로 모은다(23-06). 예전에는 byStatus가 열여섯을 세고 화면은 열셋만 카드로
+  // 그려서, 띠가 「설계 항목 8개」라고 말하는데 화면에서 세면 그보다 적었다(23-05에서 실측).
+  // 이 값을 draftPlaceholders·submissionChecklist도 함께 쓰므로 같은 filter를 두 번 적지 않는다.
+  const design = items.filter(entry => !['requirementLinks', 'openItems'].includes(entry.key));
+  const byStatus = Object.fromEntries(BLUEPRINT_STATUSES.map(status => [status, design.filter(entry => entry.status === status).length]));
   const brokenLinks = logic.filter(link => link.state === '설계 보완 필요');
   const coreOpen = items.filter(entry => CORE_SECTIONS.includes(entry.key) && entry.status === 'NEEDS_CONFIRMATION');
   const questions = [
@@ -615,7 +622,6 @@ export function buildBlueprint({ structure, applicant, fitResult, projectValues,
 
   // 신청유형이 갈리는데 고르지 않았을 때만 먼저 선택을 요구한다. 그 밖에는 초안 작성을 막지 않는다.
   const typeBlocked = typeList.length > 1 && !selectedType;
-  const design = items.filter(entry => !['requirementLinks', 'openItems'].includes(entry.key));
   // 초안에서 [확인 필요]로 남길 자리
   const draftPlaceholders = design
     .filter(entry => entry.status === 'NEEDS_CONFIRMATION' || entry.status === 'PROPOSED')
