@@ -639,10 +639,14 @@ export function buildBlueprint({ structure, applicant, fitResult, projectValues,
     : (submissionChecklist.length ? 'DRAFT_READY' : 'SUBMISSION_READY');
   const canDraft = !typeBlocked;
   const headline = !canDraft
+    // 이 갈래의 앞머리는 남긴다. 빼면 「기초형 / 심화형 중 하나를 먼저 고르세요」가 되어
+    // 그것이 신청유형이라는 말이 한 줄에서 사라진다. 띠도 이 문장을 그대로 읽는다.
     ? `신청유형 선택 필요 — ${typeList.map(entry => entry.name).join(' / ')} 중 하나를 먼저 고르세요`
     : readiness === 'SUBMISSION_READY'
       ? '제출 문서 확정 단계로 진행 가능'
-      : `초안 작성 가능 — 제출 전 점검 ${submissionChecklist.length}곳 — 설계값 ${checked('설계값')} · 공고 요건 ${checked('공고 요건')}`;
+      // 앞머리 「초안 작성 가능」은 뺐다(23-10). 갈색 「초안 작성」 버튼이 눌리는 것으로 같은 말을
+      // 이미 하고 있었고, 앞머리가 있으면 한 줄에 줄표가 둘이 되어 어디까지가 한 덩어리인지 흐려진다.
+      : `제출 전 점검 ${submissionChecklist.length}곳 — 설계값 ${checked('설계값')} · 공고 요건 ${checked('공고 요건')}`;
 
   return {
     noticeTitle: structure?.noticeTitle || '',

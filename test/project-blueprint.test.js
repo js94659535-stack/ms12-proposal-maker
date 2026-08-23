@@ -115,7 +115,7 @@ test('문제→대상→목적→프로그램→회기·인력→예산→성과
   // 설계가 덜 됐어도 초안 작성 자체는 막지 않는다.
   assert.equal(blueprint.readiness, 'DESIGN_INCOMPLETE');
   assert.equal(blueprint.canDraft, true);
-  assert.match(blueprint.verdict, /초안 작성 가능/);
+  assert.match(blueprint.verdict, /^제출 전 점검 \d+곳 — 설계값 \d+ · 공고 요건 \d+$/);
   assert.ok(blueprint.verdictReasons.length > 0);
   // 미확정 값은 초안에서 [확인 필요] 자리로 남는다.
   assert.ok(blueprint.draftPlaceholders.some(entry => entry.placeholder.includes('[확인 필요]')));

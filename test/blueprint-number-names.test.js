@@ -59,6 +59,25 @@ test('제출 전 점검은 두 무리를 더한 값이고, 나뉜 수를 값에�
   assert.match(source, /제출 전 점검 \$\{submissionChecklist\.length\}곳 — 설계값 \$\{checked\('설계값'\)\} · 공고 요건 \$\{checked\('공고 요건'\)\}/);
 });
 
+test('판정 한 줄에 줄표는 하나뿐이다', () => {
+  // 줄표가 둘이면 어디까지가 한 덩어리인지 흐려진다 —
+  // 「초안 작성 가능 — 제출 전 점검 14곳 — 설계값 10 · 공고 요건 4」이 그랬다(23-10).
+  const dashes = line => [...String(line).matchAll(/—/g)].length;
+  for (const input of [{ applicant: SAMPLE_APPLICANT, projectValues: TYPED }, { applicant: SAMPLE_APPLICANT, projectValues: SAVED }, SPARSE]) {
+    const { verdict } = plan(input);
+    assert.ok(dashes(verdict) <= 1, `줄표가 ${dashes(verdict)}개다 — ${verdict}`);
+  }
+  // 갈래 셋을 모두 그려 볼 수는 없으므로 판정을 만드는 자리에서도 본다.
+  const from = source.indexOf('const headline = ');
+  const branches = source.slice(from, source.indexOf(';', from)).match(/`[^`]*`|'[^']*'/g) || [];
+  assert.ok(branches.length >= 3, '갈래를 못 찾았다');
+  for (const branch of branches) {
+    assert.ok(dashes(branch) <= 1, `갈래에 줄표가 둘이다 — ${branch}`);
+    // 앞머리 「초안 작성 가능」은 사라졌다. 갈색 「초안 작성」 버튼이 같은 말을 한다.
+    assert.ok(!branch.includes('초안 작성 가능'), `앞머리가 남아 있다 — ${branch}`);
+  }
+});
+
 test('★ 「먼저 답할 질문」과 요약 칸 「확인 필요」는 다른 값에서 나온다', () => {
   // 샘플 공고에서는 둘이 우연히 같다. 자료를 바꾸면 갈린다 —
   // 질문은 일곱에서 자르므로 확인 필요 항목이 여덟이 되는 순간 둘이 벌어진다.
