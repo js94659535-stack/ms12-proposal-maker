@@ -129,7 +129,8 @@ test('여러 항목을 묻는 질문은 항목을 그대로 돌려준다', () =>
 });
 
 test('화면이 갈래·힌트·묻는 가짓수를 그린다', () => {
-  assert.match(app, /function questionField\(item, index\) \{/);
+  // 셋째 인자는 기관 정보에서 찾은 근거다(23-13). 답 칸에 넣지 않고 아래에 보여 주기만 한다.
+  assert.match(app, /function questionField\(item, index, hint\) \{/);
   assert.match(app, /const verdict = classifyQuestion\(item\.question, \{/);
   assert.match(app, /noticeNames: \[KOREAN_LABELS\.NOTICE_CONTRACT, KOREAN_LABELS\.OFFICIAL_NOTICE_TEXT\]/);
   assert.match(app, /이 질문은 <b>\$\{parts\.length\}가지<\/b>를 묻습니다/);

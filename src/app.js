@@ -76,6 +76,7 @@ import { groupAreas } from './org-area-order.js';
 import { nextApplicantPick, nextOrgStep } from './org-next-step.js';
 import { nextDesignStep } from './design-next-step.js';
 import { shouldRunDesign } from './design-rerun.js';
+import { applicantHints, hintIsPastWork, hintText } from './applicant-hints.js';
 import { nextOpenGroup, resolveOpenGroup } from './accordion-state.js';
 import { suggestBasicFields } from './org-basic-suggest.js';
 import { staleItems, staleReason, staleSummary } from './org-staleness.js';
@@ -7242,15 +7243,17 @@ function currentDesignQuestions() {
   const applicant = selectedApplicant();
   const structure = logic?.structure || null;
   const fitResult = structure && applicant ? matchApplicantToNotice(structure, applicant) : null;
-  return buildDesignQuestions({
+  const plan = buildDesignQuestions({
     structure, fitResult, blueprint: currentBlueprint(), applicant,
     projectValues: state.projectValues, aiQuestions: state.missingInformation || [], answers: state.designAnswers || {}
   });
+  // 화면의 다섯도 기관 정보를 지나게 한다(23-13). 답은 채우지 않는다 — 어느 항목이 걸렸는지만 받는다.
+  return { ...plan, hints: applicantHints(plan.questions.map(item => item.question), applicant) };
 }
 // 질문 한 칸. 갈래는 kind가 아니라 근거 위치로 정한다 —
 // 모델이 만든 질문에는 출처만 보고 「필수 확인」이 붙어서 갈래로 쓸 수 없다.
 const ANSWER_TONE = { '판단': '부분-충족', '사실 확인': '확인-필요', '설계': '충족' };
-function questionField(item, index) {
+function questionField(item, index, hint) {
   // 설계도는 신청기관을 골라야 만들어진다(currentBlueprint가 없으면 null).
   // 없으면 항목 대조가 통째로 비어 갈래가 「사실 확인」으로만 떨어지고 「N가지」도 안 나온다.
   // 안전하기는 하지만 왜 그런지 알 수 없어, 무엇을 하면 되는지 화면이 말한다.
@@ -7277,7 +7280,38 @@ function questionField(item, index) {
     ${split
       ? parts.map((part, partIndex) => `<input data-design-part="${index}" data-design-question="${escapeHtml(item.question)}" data-design-part-label="${escapeHtml(part)}" placeholder="${escapeHtml(part)}${partIndex ? '' : ' — 아는 것만 적으면 됩니다'}">`).join('')
       : `<textarea data-design-answer="${index}" data-design-question="${escapeHtml(item.question)}" placeholder="확인된 사실만 적어 주세요. 모르면 비워 두면 [확인 필요]로 남습니다.">${escapeHtml(answer)}</textarea>`}
+    ${applicantHintView(hint, index)}
   </div>`;
+}
+
+// 기관 정보에서 찾은 것. ★ 답 칸에는 넣지 않고 근거와 함께 보여 주기만 한다 —
+// 누르면 그때 들어간다. 기관 정보 흐름의 「반영 → 확인」과 같은 관문이다.
+// 찾은 것이 없으면 아무것도 그리지 않는다. 없는 것을 지어내지 않는다.
+function applicantHintView(items, index) {
+  if (!items?.length) return '';
+  const past = hintIsPastWork(items);
+  return `<div class="alert warning" style="margin:8px 0 0">
+    <strong>${past ? '지난 사업에서는 이랬습니다' : '기관 정보에서 확인된 내용입니다'}</strong>
+    <p>${past ? '이번 사업 값이 아닙니다. 그대로 옮기지 말고 이번 사업에 맞게 고쳐 주세요.' : '아래 내용이 이 질문과 이어집니다. 눌러야 답 칸에 들어갑니다.'}</p>
+    ${items.map(one => `<p>· <b>${escapeHtml(areaTitle(one.area))} · ${escapeHtml(one.label)}</b> — ${escapeHtml(String(one.value ?? '').replace(/\s+/g, ' ').slice(0, 160))}</p>`).join('')}
+    <div class="actions" style="margin:6px 0 0"><span class="muted">누르면 답 칸에 글로 들어갑니다. 자동으로 확정되지 않습니다.</span>
+      <button class="button secondary" data-use-applicant-hint="${index}">답 칸에 넣기</button></div></div>`;
+}
+
+// 찾은 것을 답 칸으로 옮긴다. 누르기 전에는 들어가지 않는다(23-13).
+// 화면을 다시 그리지 않는다 — 답이 차면 그 질문이 목록에서 빠지므로, 방금 넣은 글이 눈앞에서 사라진다.
+function useApplicantHint(index) {
+  const plan = currentDesignQuestions();
+  const item = plan.questions[index];
+  const items = item ? plan.hints.get(item.question) : null;
+  if (!items?.length) return;
+  const before = String(state.designAnswers[item.question] || '').trim();
+  const next = before ? `${before}\n${hintText(items)}` : hintText(items);
+  state.designAnswers = { ...state.designAnswers, [item.question]: next };
+  saveState();
+  const box = document.querySelector(`[data-design-answer="${index}"]`);
+  if (box) { box.value = next; box.focus(); }
+  else setState({ notice: '기관 정보에서 찾은 내용을 답 칸에 넣었습니다. 이번 사업에 맞게 고쳐 주세요.', error: '' });
 }
 
 function designQuestionsView() {
@@ -7287,7 +7321,7 @@ function designQuestionsView() {
   const reuse = reusableAnswerCandidates(plan.questions, state.designAnswers, selectedApplicant());
   return `<div class="card" id="result-questions" tabindex="-1"><div class="card-title"><div><h3>선정 가능성을 높이기 위한 핵심 질문</h3><span>공고와 신청기관 정보에서 확인되지 않은 내용 중 사업 설계와 평가에 중요한 내용만 질문합니다.</span></div><span class="status ${plan.questions.length ? '확인-필요' : '충족'}">${plan.questions.length ? `${answered}/${plan.questions.length} 답변` : '추가 질문 없음'}</span></div>
     ${plan.resolved.length ? `<p class="muted">이미 확인된 내용 ${plan.resolved.length}건은 다시 묻지 않습니다.</p>` : ''}
-    ${plan.questions.map((item, index) => questionField(item, index)).join('')}
+    ${plan.questions.map((item, index) => questionField(item, index, plan.hints.get(item.question))).join('')}
     ${reuse.length ? `<div class="alert warning"><strong>신청기관 정보에 추가할까요?</strong><p>아래 답변은 기관 자체 정보로 다시 쓸 수 있습니다. 누르면 「확인 필요」 상태로만 추가되고 자동으로 확정되지 않습니다.</p>
       ${reuse.map(item => `<div class="actions" style="margin:6px 0"><span>${escapeHtml(item.label)}: ${escapeHtml(item.value.slice(0, 60))}…</span><button class="button secondary" data-reuse-answer="${escapeHtml(item.questionId)}">신청기관 정보에 추가</button></div>`).join('')}</div>` : ''}
     ${plan.questions.length ? `<div class="actions"><span>답변은 이번 사업 정보로만 저장하고 기관 정보와 자동으로 섞지 않습니다.</span><button class="button primary" id="regenerate-design">답변 반영해 다시 생성</button></div>` : '<p class="muted">공고 요구와 확인된 기관 정보로 설계에 필요한 값이 모두 확인되었습니다.</p>'}</div>`;
@@ -8366,6 +8400,7 @@ function bind() {
   });
   document.querySelectorAll('[data-design-answer]').forEach(el => el.oninput = () => { const question = el.dataset.designQuestion; if (question) { state.designAnswers[question] = el.value; saveState(); } });
   document.querySelectorAll('[data-reuse-answer]').forEach(el => el.onclick = () => reuseAnswerToApplicant(el.dataset.reuseAnswer));
+  document.querySelectorAll('[data-use-applicant-hint]').forEach(el => el.onclick = () => useApplicantHint(Number(el.dataset.useApplicantHint)));
   document.querySelector('#regenerate-design')?.addEventListener('click', () => generateCompleteProposal({ redo: true }));
   // 사용자는 한 번만 누른다. 남은 항목이 있으면 그 항목부터 이어서 작성한다.
   document.querySelector('#generate-parts')?.addEventListener('click', () => generateProposalParts());
