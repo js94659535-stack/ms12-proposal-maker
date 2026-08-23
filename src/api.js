@@ -1,11 +1,28 @@
-// 어느 계획서에 쓴 비용인지 묶으려고 식별자를 함께 보낸다. 화면이 정해 주고 없으면 빈 값이다.
+// 어느 계획서에 쓴 비용인지 묶으려고 식별자를 함께 보낸다. 화면이 정해 준다.
+//
+// 예전에는 없으면 빈 값으로 보냈다. 식별자는 보관함에 저장했을 때에만 생겼는데, 새 계획서를 처음
+// 만드는 구간이 바로 설계와 본문 작성이라 **가장 비싼 첫 판이 통째로 계획서 한 건 상한 밖**이었다.
+// 실측 154건 중 35건(금액으로 24%)이 그렇게 빠져나갔다(23-16 조사).
+//
+// 그래서 **돈이 나가는 첫 순간에 여기서 만든다**(23-18). 그 순간이 곧 이 계획서의 시작이다.
+// 공고를 고를 때로 하지 않은 까닭: 공고를 고르지 않고 원문을 붙여넣는 길이 따로 있어 그 길이 샌다.
+// 만든 식별자는 화면에 곧바로 알려 화면이 제 상태에 담고, 보관함에 저장할 때 그것을 그대로 쓴다.
 let currentProposalId = '';
+let announceProposalId = null;
 export function setUsageProposalId(value) { currentProposalId = String(value || '').slice(0, 80); }
+export function onProposalIdCreated(handler) { announceProposalId = typeof handler === 'function' ? handler : null; }
+function proposalIdForCall() {
+  if (!currentProposalId) {
+    currentProposalId = globalThis.crypto?.randomUUID?.() || `proposal-${Date.now()}`;
+    announceProposalId?.(currentProposalId);
+  }
+  return currentProposalId;
+}
 
 async function request(action, payload, extra = {}) {
   const response = await fetch('/api/proposal', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, ...extra, payload: { ...payload, proposalId: currentProposalId } })
+    body: JSON.stringify({ action, ...extra, payload: { ...payload, proposalId: proposalIdForCall() } })
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {

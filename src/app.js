@@ -1,4 +1,4 @@
-import { readImagesWithAI, regionBriefWithAI, analyzeWithAI, coreProposalWithAI, diagnoseWithAI, draftPartWithAI, draftWithAI, finalizeWithAI, fullProposalWithAI, masterWithAI, patchSectionsWithAI, preciseReviewWithAI, proposalJobs, rewriteWithAI, setUsageProposalId } from './api.js';
+import { readImagesWithAI, regionBriefWithAI, analyzeWithAI, coreProposalWithAI, diagnoseWithAI, draftPartWithAI, draftWithAI, finalizeWithAI, fullProposalWithAI, masterWithAI, onProposalIdCreated, patchSectionsWithAI, preciseReviewWithAI, proposalJobs, rewriteWithAI, setUsageProposalId } from './api.js';
 import { EXAMPLE_NOTE, EXAMPLE_POINTS, EXAMPLE_SECTIONS, EXAMPLE_SUMMARY, EXAMPLE_TITLE } from './example-plan.js';
 import { ACCEPT, extractFile, extractFiles } from './files.js';
 import { localAnalyze } from './fallback.js';
@@ -7354,7 +7354,7 @@ function directFactsView() {
 }
 
 function render() {
-  // 지금 작업 중인 계획서를 사용량 기록에 묶는다. 값이 없으면 계정 기준으로만 남는다.
+  // 지금 작업 중인 계획서를 사용량 기록에 묶는다. 아직 없으면 첫 호출 때 만들어져 아래로 돌아온다.
   setUsageProposalId(state.archiveProposalId || state.currentVersionId || '');
   // 로그인하기 전에는 작업 화면을 그리지 않는다. 실제 차단은 서버가 하고 화면은 그 결과를 따른다.
   // 우수 계획서 예시는 로그인 여부와 상관없이 열린다. 서버를 부르지 않는 정적 화면이다.
@@ -10905,6 +10905,10 @@ function refusePartial() {
   setState({ error: reason, notice: '' });
   return true;
 }
+
+// 돈이 나간 첫 순간에 api가 만든 식별자를 받아 둔다(23-18). 이것만으로 보관함에 저장되지는 않는다 —
+// 목록은 서버가 가진 것만 보여 주므로, 저장하지 않은 계획서는 보관함에 나타나지 않는다.
+onProposalIdCreated(id => { state.archiveProposalId = state.archiveProposalId || id; saveState(); });
 
 async function archiveCurrentProposal(forcedStage, announce = false) {
   if (!state.project.title && !state.selectedNotice?.title) throw new Error('저장할 계획서 제목이 없습니다.');
