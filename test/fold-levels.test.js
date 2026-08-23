@@ -15,24 +15,35 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { contrastAt, contrastRatio, relativeLuminance, toRgb } from '../src/color-contrast.js';
 
 const css = fs.readFileSync('src/styles.css', 'utf8');
 // 층 규칙만 잘라 본다. 뒤에 붙는 다른 규칙까지 함께 보면 엉뚱한 것을 잡는다.
 const section = (from, to) => css.slice(css.indexOf(from), to ? css.indexOf(to) : undefined);
 const block = section('/* 접기 네 층 (22-48에서 셋', '/* 층마다 제목 글자도 다르게 (22-50)');
 
-// 밝기와 대비. 층이 정말로 갈리는지는 눈이 아니라 이 숫자로 지킨다.
-const rgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
-const lum = hex => {
-  const lin = c => (c / 255 <= 0.04045 ? c / 255 / 12.92 : Math.pow((c / 255 + 0.055) / 1.055, 2.4));
-  const [r, g, b] = rgb(hex);
-  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
-};
-const contrast = (a, b) => {
-  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
-};
-const NAVY = (css.match(/--navy:(#[0-9a-f]{6})/) || [])[1];
+// 밝기와 대비는 src/color-contrast.js가 잰다. 층이 정말로 갈리는지는 눈이 아니라 이 숫자로 지킨다.
+const lum = relativeLuminance;
+const contrast = contrastRatio;
+const rgb = toRgb;
+
+// styles.css의 변수 선언을 모두 읽어 둔다. var(--x)로 다른 이름을 가리키면 따라간다.
+const VARS = new Map([...css.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;{}]+);/g)].map(match => [match[1], match[2].trim()]));
+function resolveColor(value, depth = 0) {
+  const raw = String(value ?? '').trim();
+  if (/^#[0-9a-f]{3,8}$/i.test(raw)) return raw;
+  const points = raw.match(/^var\((--[a-z0-9-]+)\)$/);
+  return points && depth < 5 ? resolveColor(VARS.get(points[1]), depth + 1) : '';
+}
+// 층 색을 손으로 적지 않는다. 목록을 적으면 새 색이 들어올 때 또 빠진다 —
+// 22-01에서 --fold-1-open과 --fold-body(아이보리)가 그렇게 빠져 아무 시험도 보지 않았다.
+// 값이 색인 --fold-* 를 전부 집어 오므로, 앞으로 무엇이 늘어도 저절로 걸린다.
+const FOLD_COLORS = [...VARS]
+  .filter(([name]) => name.startsWith('--fold-'))
+  .map(([name, value]) => [name, resolveColor(value)])
+  .filter(([, hex]) => hex);
+const NAVY = resolveColor(VARS.get('--navy'));
+const tone = name => resolveColor(VARS.get(name));
 
 test('바탕은 흰색이다', () => {
   assert.match(css, /^:root\{[^}]*background:#fff;/);
@@ -104,6 +115,46 @@ test('층 구분에 초록·갈색을 쓰지 않는다', () => {
   assert.ok(!block.includes('var(--go)'), '다음 할 일 초록을 층 구분에 썼다');
   assert.ok(!block.includes('var(--blue)'), '주 버튼 갈색을 층 구분에 썼다');
   assert.ok(!block.includes('var(--green)'));
+});
+
+test('--fold-* 색은 하나도 빠짐없이 초록도 갈색도 아니다', () => {
+  // 목록을 손으로 적지 않는다. 22-01에서 --fold-1-open과 아이보리가 들어왔을 때
+  // 시험이 --fold-1·--fold-2 둘만 보고 있어 새 색 둘을 아무도 보지 않았다.
+  const GO = resolveColor(VARS.get('--go'));      // 초록 #03C75A
+  const BROWN = resolveColor(VARS.get('--blue')); // 갈색 #8c5a33
+  assert.ok(FOLD_COLORS.length >= 8, `집어 온 층 색이 ${FOLD_COLORS.length}개뿐이다`);
+  for (const [name, hex] of FOLD_COLORS) {
+    assert.notEqual(hex.toLowerCase(), GO.toLowerCase(), `${name}에 다음 할 일 초록을 썼다`);
+    assert.notEqual(hex.toLowerCase(), BROWN.toLowerCase(), `${name}에 주 버튼 갈색을 썼다`);
+  }
+  // 22-01에서 들어온 둘이 실제로 집혔는지 이름으로 확인한다. 이름이 바뀌면 여기서 걸린다.
+  const names = FOLD_COLORS.map(([name]) => name);
+  assert.ok(names.includes('--fold-1-open'), '열린 제목 줄 색이 집히지 않았다');
+  assert.ok(names.includes('--fold-body'), '아이보리 내용 색이 집히지 않았다');
+  assert.equal(tone('--fold-body'), '#faf6f0');
+});
+
+test('아코디언 두 대비를 값으로 못 박는다', () => {
+  // 보고서에만 있던 숫자를 코드가 지킨다. 색을 옮기면 여기서 걸린다.
+  // 닫힌 줄과 열린 줄이 갈려야 「어느 것이 열렸나」가 보이고,
+  // 열린 줄과 내용이 갈려야 제목 줄이 내용에 묻히지 않는다.
+  assert.equal(contrastAt(tone('--fold-1'), tone('--fold-1-open')), 1.28);
+  assert.equal(contrastAt(tone('--fold-1-open'), tone('--fold-body')), 1.67);
+  // 열린 줄은 닫힌 줄보다 어둡다 — 「한 단계 진해진다」가 규칙이다.
+  assert.ok(lum(tone('--fold-1-open')) < lum(tone('--fold-1')), '열린 줄이 닫힌 줄보다 밝다');
+  // 내용은 열린 제목 줄보다 밝다. 22-55의 「깊을수록 옅다」와 같은 방향이다.
+  assert.ok(lum(tone('--fold-body')) > lum(tone('--fold-1-open')), '내용이 제목 줄보다 어둡다');
+});
+
+test('왼쪽 막대 대비는 재어 두되 값을 못 박지 않는다', () => {
+  // 열린 줄의 막대는 짙어서 확실히 보인다. 닫힌 줄의 막대는 제 바탕과 거의 같아
+  // 색으로는 거의 보이지 않고 3px→6px라는 두께 차이만 남는다(23-01에서 잰 값 1.00).
+  // 눈으로 보고 정할 문제라 값을 고치지 않았고, 그래서 시험도 「몇 이상」으로 묶지 않는다.
+  // 다만 둘의 관계는 뒤집히면 안 된다 — 열린 쪽 막대가 늘 더 잘 보여야 한다.
+  const openBar = contrastRatio(tone('--fold-0'), tone('--fold-1-open'));
+  const closedBar = contrastRatio(tone('--fold-edge'), tone('--fold-1'));
+  assert.ok(openBar > closedBar * 3, `열린 줄 막대가 닫힌 줄 막대보다 뚜렷하지 않다 (${openBar.toFixed(2)} / ${closedBar.toFixed(2)})`);
+  assert.ok(openBar >= 3, `열린 줄 막대가 바탕에서 보이지 않는다 (${openBar.toFixed(2)})`);
 });
 
 test('보관함의 연도 묶음도 같은 변수를 읽는다', () => {
