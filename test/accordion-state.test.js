@@ -144,9 +144,15 @@ test('띠 클릭: 판정 읽기 → 중분류 열기 → 구역 열기 → 그 �
     at = found;
   }
   // ④ 그 자리로 이동. 여는 것이 먼저이고 데려가는 것이 나중이다.
-  const handler = app.slice(app.indexOf("document.querySelector('#next-step-action')"), app.indexOf("document.querySelector('#undo-bulk-confirm')"));
-  assert.ok(handler.indexOf("openStepSection('applicants')") < handler.indexOf('focusAnchor(button.dataset.nextAnchor'),
+  // 23-03에서 그 차례를 bindNextStepBar 한 곳으로 옮겼다. 화면은 무엇을 열고 어디로 갈지만 넘긴다.
+  const order = app.slice(app.indexOf('function bindNextStepBar(actionId, decide)'), app.indexOf('function orgNextStepBar()'));
+  assert.ok(order.indexOf('if (plan.open) plan.open();') < order.indexOf('if (plan.go) plan.go();'),
     '데려간 뒤에 열면 이미 닫힌 자리를 보여 준 뒤가 된다');
-  const pick = app.slice(app.indexOf("document.querySelector('#pick-step-action')"), app.indexOf("document.querySelector('#skip-applicant')"));
-  assert.match(pick, /if \(key === 'pick'\) \{ openStepSection\('pick'\); return focusAnchor\('#applicant-picker'\); \}/);
+  // 그 자리에서 끝내는 갈래는 열지도 데려가지도 않는다.
+  assert.match(order, /if \(plan\.act\) return void plan\.act\(\);/);
+  const handler = app.slice(app.indexOf("bindNextStepBar('next-step-action'"), app.indexOf("document.querySelector('#undo-bulk-confirm')"));
+  assert.match(handler, /open: \(\) => openStepSection\('applicants'\),/);
+  assert.match(handler, /go: \(\) => focusAnchor\(button\.dataset\.nextAnchor/);
+  const pick = app.slice(app.indexOf("bindNextStepBar('pick-step-action'"), app.indexOf("document.querySelector('#skip-applicant')"));
+  assert.match(pick, /if \(key === 'pick'\) return \{ open: \(\) => openStepSection\('pick'\), go: \(\) => focusAnchor\('#applicant-picker'\) \};/);
 });

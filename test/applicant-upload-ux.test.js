@@ -44,7 +44,7 @@ test('다음에 누를 곳 하나만 표시하고 화면 전체를 깜박이지 
   // 후보가 있으면 초록으로 눈에 띄게 한다(22-19). 갈색은 맨 위 띠 하나뿐이라 자리가 겹치지 않는다.
   assert.match(view, /class="button secondary\$\{goMark\('apply'\)\}" id="apply-safe-candidates"/);
   // 띠 안 버튼이 초록이다(22-52). 갈색은 「다음 할 일」에 쓰지 않는다.
-  assert.match(app, /<button class="button go next-step" id="next-step-action"/);
+  assert.match(app, /<button class="button go next-step" id="\$\{actionId\}"/);
   // 맥박은 네 번만 뛰고 멈춘다. 계속 움직이면 읽는 것을 방해한다.
   assert.match(css, /\.button\.next-step\{animation:nextStep 1\.5s ease-out 4\}/);
   assert.match(css, /@keyframes nextStep\{/);

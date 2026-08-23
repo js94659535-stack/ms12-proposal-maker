@@ -5402,13 +5402,40 @@ function goNote(key, label, area) {
   return goHere(key, area) ? `<small class="go-note">${escapeHtml(label)}</small>` : '';
 }
 
+// 「다음 할 일」 띠 하나. 화면마다 판정은 달라도 띠의 생김새는 같아야 한다 —
+// 화면마다 다르게 생기면 「저게 뭐였지」가 다시 생긴다. 그래서 그리는 자리는 여기 하나다(23-03).
+//
+// 화면이 다른 것은 셋뿐이다. 상자와 버튼의 이름표(id)와, 누를 때 처리기가 읽을 값(data-*)이다.
+// 그 셋만 받고 나머지는 판정 결과(step)가 그대로 채운다.
+function stepBar(step, { id, actionId, data = {} }) {
+  const marks = Object.entries(data).map(([name, value]) => ` data-${name}="${escapeHtml(value)}"`).join('');
+  return `<div class="next-step-bar${step.done ? ' done' : ''}" id="${id}">
+    <div><span>${step.done ? '다 됐습니다' : '다음 할 일'}</span><strong>${escapeHtml(step.message)}</strong></div>
+    <button class="button go next-step" id="${actionId}"${marks}>${escapeHtml(step.actionLabel)}</button></div>`;
+}
+
+// 띠를 눌렀을 때의 차례. 22-01에서 이은 흐름을 여기 한 곳에서만 지킨다 —
+// 가리키는 자리를 **먼저 열고**, 그다음에 데려간다. 데려간 뒤에 열면 닫힌 자리를 보여 준 뒤가 된다.
+// 무엇을 열고 어디로 데려가는지는 화면마다 다르므로 그 둘을 함수로 받는다.
+// act를 돌려주면 열지도 데려가지도 않고 그 자리에서 끝낸다(실적 일괄 확인·다음 단계로 나가기).
+function bindNextStepBar(actionId, decide) {
+  document.querySelector(`#${actionId}`)?.addEventListener('click', event => {
+    const plan = decide(event.currentTarget) || {};
+    if (plan.act) return void plan.act();
+    if (plan.open) plan.open();
+    if (plan.go) plan.go();
+  });
+}
+
 function orgNextStepBar() {
   const step = orgStepInfo();
   // 실적 확인은 그 자리로 데려가는 대신 여기서 바로 끝낸다.
   const bulk = step.key === 'confirm' && step.area === 'performance';
-  return `<div class="next-step-bar${step.done ? ' done' : ''}" id="next-step-bar">
-    <div><span>${step.done ? '다 됐습니다' : '다음 할 일'}</span><strong>${escapeHtml(step.message)}</strong></div>
-    <button class="button go next-step" id="next-step-action" data-next-key="${escapeHtml(step.key)}" data-next-bulk="${bulk ? '1' : ''}" data-next-anchor="${escapeHtml(nextStepAnchor(step))}">${escapeHtml(step.actionLabel)}</button></div>`;
+  return stepBar(step, {
+    id: 'next-step-bar',
+    actionId: 'next-step-action',
+    data: { 'next-key': step.key, 'next-bulk': bulk ? '1' : '', 'next-anchor': nextStepAnchor(step) }
+  });
 }
 
 // 올린 자료에 답이 있는 칸을 화면을 그릴 때마다 채운다.
@@ -5991,9 +6018,11 @@ function applicantPickStep() {
 }
 function applicantPickBar() {
   const step = applicantPickStep();
-  return `<div class="next-step-bar${step.done ? ' done' : ''}" id="pick-step-bar">
-    <div><span>${step.done ? '다 됐습니다' : '다음 할 일'}</span><strong>${escapeHtml(step.message)}</strong></div>
-    <button class="button go next-step" id="pick-step-action" data-pick-key="${escapeHtml(step.key)}">${escapeHtml(step.actionLabel)}</button></div>`;
+  return stepBar(step, {
+    id: 'pick-step-bar',
+    actionId: 'pick-step-action',
+    data: { 'pick-key': step.key }
+  });
 }
 
 function applicantSelectView() {
@@ -8545,12 +8574,13 @@ function bindApplicants() {
   // 신청기관 정보가 없어도 계획서 작성을 막지 않는다.
   // 이 화면의 띠. 갈래마다 데려가는 곳이 다르다 — 고르는 자리는 이 화면 안이고,
   // 확인하는 자리는 기관정보 화면이다(거기에 띠 → 그 자리 → 거기서 할 일이 이미 이어져 있다).
-  document.querySelector('#pick-step-action')?.addEventListener('click', event => {
-    const key = event.currentTarget.dataset.pickKey;
-    if (key === 'add-org') return setState({ activeTool: 'applicants', notice: '', error: '' });
-    if (key === 'pick') { openStepSection('pick'); return focusAnchor('#applicant-picker'); }
-    if (key === 'confirm') return openApplicantEditor({ anchor: '#next-step-bar' });
-    return navigateToStep(state.step + 1, { notice: '', error: '' });
+  bindNextStepBar('pick-step-action', button => {
+    const key = button.dataset.pickKey;
+    if (key === 'add-org') return { act: () => setState({ activeTool: 'applicants', notice: '', error: '' }) };
+    if (key === 'pick') return { open: () => openStepSection('pick'), go: () => focusAnchor('#applicant-picker') };
+    // 확인하는 자리는 이 화면이 아니라 기관정보 화면이다. 여는 일까지 openApplicantEditor가 함께 한다.
+    if (key === 'confirm') return { act: () => openApplicantEditor({ anchor: '#next-step-bar' }) };
+    return { act: () => navigateToStep(state.step + 1, { notice: '', error: '' }) };
   });
   document.querySelector('#skip-applicant')?.addEventListener('click', () => navigateToStep(3, { applicantSkipped: true, notice: '신청기관 없이 진행합니다. 확인되지 않은 기관 사실은 만들지 않고 [확인 필요]로 남깁니다.', error: '' }));
   document.querySelectorAll('[data-delete-applicant]').forEach(el => el.onclick = () => removeApplicant(el.dataset.deleteApplicant));
@@ -8567,16 +8597,18 @@ function bindApplicants() {
     // 한 건이라도 손으로 바꾸면 일괄 되돌리기는 더 이상 「방금 그것」이 아니다. 기록을 지운다.
     setState({ applicants: state.applicants, applicantConfirmUndo: null, notice: '항목 상태를 변경했습니다. 이 기관 정보에 함께 저장합니다.' });
   });
-  document.querySelector('#next-step-action')?.addEventListener('click', event => {
-    const button = event.currentTarget;
-    if (button.dataset.nextKey === 'write') return void saveBasicInfo({ thenWrite: true });
+  // 열고 데려가는 차례는 bindNextStepBar가 지킨다. 여기서는 갈래마다 무엇을 할지만 고른다.
+  bindNextStepBar('next-step-action', button => {
+    if (button.dataset.nextKey === 'write') return { act: () => void saveBasicInfo({ thenWrite: true }) };
     // 실적 확인은 데려가지 않고 여기서 끝낸다.
-    if (button.dataset.nextBulk) return confirmAllPerformance();
+    if (button.dataset.nextBulk) return { act: confirmAllPerformance };
     // 중분류가 한 번에 하나만 열리므로, 데려가기 전에 그 중분류부터 연다(22-01).
     // 사람이 다른 것을 열어 두었어도 띠를 눌렀으면 가리키는 자리로 가겠다는 뜻이다.
-    openStepSection('applicants');
-    // 그 자리로 데려가고 잠깐 강조한다. 눌렀는데 또 찾게 하지 않는다.
-    focusAnchor(button.dataset.nextAnchor || '#applicant-editor');
+    return {
+      open: () => openStepSection('applicants'),
+      // 그 자리로 데려가고 잠깐 강조한다. 눌렀는데 또 찾게 하지 않는다.
+      go: () => focusAnchor(button.dataset.nextAnchor || '#applicant-editor')
+    };
   });
   document.querySelector('#undo-bulk-confirm')?.addEventListener('click', undoBulkConfirm);
   document.querySelectorAll('[data-remove-applicant-item]').forEach(el => el.onclick = () => {

@@ -79,7 +79,8 @@ test('띠는 제목 바로 아래 하나뿐이고 판정은 한 곳에서 온다
 });
 
 test('이 화면에서 초록 버튼은 띠 안의 하나뿐이고 갈색은 없다', () => {
-  const names = ['applicantsToolView', 'orgNextStepBar', 'applicantBasicView', 'applicantCandidateView', 'profileBridgePanel', 'applicantScopeView', 'applicantSourceView',
+  // 띠의 HTML은 23-03에서 stepBar() 한 곳으로 모였다. 꽉 찬 초록도 거기 한 번만 적혀 있다.
+  const names = ['applicantsToolView', 'stepBar', 'applicantBasicView', 'applicantCandidateView', 'profileBridgePanel', 'applicantScopeView', 'applicantSourceView',
     'applicantDetailView', 'detailGroupPanel', 'performanceConfirmBar', 'applicantAreaFields', 'applicantSourcesView', 'applicantDocumentView', 'candidateReviewView', 'ideaAssetPanel'];
   const found = [];
   for (const name of names) {
@@ -91,17 +92,20 @@ test('이 화면에서 초록 버튼은 띠 안의 하나뿐이고 갈색은 없
     for (const match of body.matchAll(/button primary(?![^>]*id=)/g)) found.push(`갈색:${name}:이름없음`);
     for (const match of body.matchAll(/button go[^-][^>]*id="([^"]*)"/g)) found.push(match[1]);
   }
-  assert.deepEqual(found, ['next-step-action'], `버튼: ${found.join(', ')}`);
+  assert.deepEqual(found, ['${actionId}'], `버튼: ${found.join(', ')}`);
+  // 그 하나에 실제로 들어가는 이름표는 두 화면이 각각 넘긴다.
+  assert.match(app, /actionId: 'next-step-action',/);
+  assert.match(app, /actionId: 'pick-step-action',/);
   // 갈색이 「다음 할 일」을 말하는 자리는 앱 어디에도 없다(22-52).
   assert.ok(!app.includes('button primary next-step'), '갈색으로 다음 할 일을 말하는 버튼이 남아 있다');
 });
 
 test('「채우러 가기」는 그 자리로 데려간다', () => {
-  const handler = app.slice(app.indexOf("document.querySelector('#next-step-action')"), app.indexOf("document.querySelector('#undo-bulk-confirm')"));
-  assert.match(handler, /focusAnchor\(button\.dataset\.nextAnchor/);
+  const handler = app.slice(app.indexOf("bindNextStepBar('next-step-action'"), app.indexOf("document.querySelector('#undo-bulk-confirm')"));
+  assert.match(handler, /go: \(\) => focusAnchor\(button\.dataset\.nextAnchor/);
   // 실적 확인은 데려가지 않고 그 자리에서 끝낸다.
-  assert.match(handler, /if \(button\.dataset\.nextBulk\) return confirmAllPerformance\(\);/);
-  assert.match(handler, /if \(button\.dataset\.nextKey === 'write'\) return void saveBasicInfo\(\{ thenWrite: true \}\);/);
+  assert.match(handler, /if \(button\.dataset\.nextBulk\) return \{ act: confirmAllPerformance \};/);
+  assert.match(handler, /if \(button\.dataset\.nextKey === 'write'\) return \{ act: \(\) => void saveBasicInfo\(\{ thenWrite: true \}\) \};/);
   // 데려가는 방식은 이미 있는 것을 쓴다.
   const focus = app.slice(app.indexOf('function focusAnchor(anchor)'), app.indexOf('// 기관정보 화면이 지금 다루는 기관'));
   assert.match(focus, /pendingAiMove = \{ anchor, sameView: true \}/);
@@ -154,8 +158,10 @@ test('띠에서 시작해 자리로 가고 거기서 할 일까지 이어진다'
   // ① 띠 — 꽉 찬 초록 버튼은 기관정보 화면의 이 하나뿐이다.
   const view = app.slice(app.indexOf('function applicantsToolView()'), app.indexOf('function applicantSourcesView('));
   assert.equal([...view.matchAll(/class="button go(?![-\w])/g)].length, 0);
-  const bar = app.slice(app.indexOf('function orgNextStepBar()'), app.indexOf('// 올린 자료에 답이 있는 칸을 화면을 그릴 때마다 채운다.'));
+  // 꽉 찬 초록은 앱 전체에서 stepBar() 안의 한 줄뿐이다(23-03).
+  const bar = app.slice(app.indexOf('function stepBar(step, {'), app.indexOf('function bindNextStepBar('));
   assert.equal([...bar.matchAll(/class="button go(?![-\w])/g)].length, 1);
+  assert.equal([...app.matchAll(/class="button go next-step"/g)].length, 1);
 
   // ② 그 자리 — 띠가 데려가는 곳이 곧 초록 테두리가 붙는 구역 카드다. 같은 값을 읽는다.
   const where = app.slice(app.indexOf('function stepGroupKey(step)'), app.indexOf('// 지금 「다음 할 일」이 무엇인지'));
