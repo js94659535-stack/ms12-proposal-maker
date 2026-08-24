@@ -77,7 +77,7 @@ import { nextApplicantPick, nextOrgStep } from './org-next-step.js';
 import { nextDesignStep } from './design-next-step.js';
 import { shouldRunAgain } from './ai-rerun.js';
 import { applicantHints, hintIsPastWork, hintText } from './applicant-hints.js';
-import { nextOpenGroup, resolveOpenGroup } from './accordion-state.js';
+import { nextOpenGroups, resolveOpenGroups, sameOpenGroups } from './accordion-state.js';
 import { suggestBasicFields } from './org-basic-suggest.js';
 import { staleItems, staleReason, staleSummary } from './org-staleness.js';
 import { rollupMark } from './requirement-rollup.js';
@@ -146,7 +146,7 @@ const initial = {
   openSections: {},
   // 열어 둔 소분류 하나. 중분류가 한 번에 하나만 열리므로 이 값도 하나면 된다.
   // undefined는 아직 고르지 않은 것이고 null은 사람이 닫아 둔 것이다(src/accordion-state.js).
-  openOrgGroup: undefined,
+  openOrgGroups: undefined,
   // 손으로 넣는 칸을 펼쳤는지. 이것도 저장하지 않는다.
   openAddForms: [],
   // 「공고 × 신청기관 비교」에서 펼쳐 둔 묶음. 같은 규칙으로 저장하지 않는다.
@@ -3116,7 +3116,7 @@ function loadState() {
     const stagedGeneration = saved.stagedGeneration && typeof saved.stagedGeneration === 'object'
       ? { ...structuredClone(initial.stagedGeneration), ...saved.stagedGeneration, parts: Array.isArray(saved.stagedGeneration.parts) ? saved.stagedGeneration.parts : [], completedGroupIds: Array.isArray(saved.stagedGeneration.completedGroupIds) ? saved.stagedGeneration.completedGroupIds : [] }
       : structuredClone(initial.stagedGeneration);
-    const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', notice: '', applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openAddForms: [], openFitGroups: [], openSections: {}, openOrgGroup: undefined, openOrgYears: [], quickFilledFrom: {}, coachingSelection: [], attachmentLinks: {}, submissionZip: null, lastDownload: null, sheet: null };
+    const restored = { ...structuredClone(initial), ...saved, coaching: { ...structuredClone(initial.coaching), ...(saved.coaching || {}) }, stagedGeneration, step: Math.max(0, Math.min(STEPS.length - 1, Number(saved.step) || 0)), companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [], archiveNotices: [], archiveProposals: [], selectedNoticeIndexes: [], noticePreview: null, pendingNoticeChoice: null, noticeUrlDraft: '', busy: '', error: '', notice: '', applicantNameDraft: '', projectValueDraft: { label: '', value: '', applicantItemId: '' }, applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openAddForms: [], openFitGroups: [], openSections: {}, openOrgGroups: undefined, openOrgYears: [], quickFilledFrom: {}, coachingSelection: [], attachmentLinks: {}, submissionZip: null, lastDownload: null, sheet: null };
     // 알 수 없는 포털 값이 남아 있으면 다시 고르게 한다.
     restored.portal = ['admin', 'proposal'].includes(saved.portal) ? saved.portal : '';
     // 예전에 저장한 상태에는 의뢰 건 정보가 없다. 빈 값으로 채우기만 하고 기존 데이터는 건드리지 않는다.
@@ -3154,7 +3154,7 @@ function saveState() {
   // 다만 브라우저 저장 한도가 있으므로 앞쪽 얼마간만 남긴다. 나머지는 다시 불러올 때 채워진다.
   const CACHED_NOTICES = 120;
   const safe = { ...state, reviewDetail: false, reviewPanels: [], reviewFocus: false, companyFactDraft: '', archiveKeyDraft: '', noticeResults: [], noticeSources: [],
-    archiveNotices: (state.archiveNotices || []).slice(0, CACHED_NOTICES), archiveProposals: (state.archiveProposals || []).slice(0, CACHED_NOTICES), noticeUrlDraft: '', busy: '', error: '', notice: '', applicantNameDraft: '', applicantComparison: null, applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openAddForms: [], openFitGroups: [], openSections: {}, openOrgGroup: undefined, openOrgYears: [], quickFilledFrom: {}, files: state.files.map(({ text, ...meta }) => meta),
+    archiveNotices: (state.archiveNotices || []).slice(0, CACHED_NOTICES), archiveProposals: (state.archiveProposals || []).slice(0, CACHED_NOTICES), noticeUrlDraft: '', busy: '', error: '', notice: '', applicantNameDraft: '', applicantComparison: null, applicantDocDraft: '', applicantExtraction: null, applicantConfirmUndo: null, openAddForms: [], openFitGroups: [], openSections: {}, openOrgGroups: undefined, openOrgYears: [], quickFilledFrom: {}, files: state.files.map(({ text, ...meta }) => meta),
     // 이 첨부 원본은 브라우저 메모리에만 있다. 새로고침 뒤에 파일이 있다고 잘못 말하지 않도록 연결 기록도 저장하지 않는다.
     // 기관이 준 서류는 R2에 보관하며 그것은 이 목록이 아니라 기관자료 줄에 남는다.
     attachmentLinks: {}, submissionZip: null, lastDownload: null, sheet: null };
@@ -5376,38 +5376,38 @@ function pickStepSection() {
 function openStepSection(screen) {
   const key = screen === 'applicants' ? orgStepSection() : pickStepSection();
   if (!key) return;
-  state.openSections = { ...(state.openSections || {}), [screen]: key };
+  state.openSections = { ...(state.openSections || {}), [screen]: nextOpenGroups(openSectionKeys(screen), key, true) };
   // 구역까지 가리키면 그 구역도 연다. 중분류만 열어 두면 그 안에서 또 찾아야 한다.
   const group = stepGroupKey(orgStepInfo());
-  if (screen === 'applicants' && group) state.openOrgGroup = group;
+  if (screen === 'applicants' && group) state.openOrgGroups = nextOpenGroups(openGroupKeys(), group, true);
 }
 
-function openSectionKey(screen) {
+function openSectionKeys(screen) {
   const keys = SECTIONS[screen] || [];
   const pointed = screen === 'applicants' ? orgStepSection() : pickStepSection();
   // 무엇이 열리는지는 accordion-state 한 곳이 정한다. 여기서 다시 따지지 않는다.
-  const open = resolveOpenGroup((state.openSections || {})[screen], keys.includes(pointed) ? pointed : '', keys[0] || '');
-  // 닫아 둔 것(null)과 목록에 없는 옛 이름은 「아무것도 열리지 않음」으로 그린다.
-  return keys.includes(open) ? open : '';
+  const open = resolveOpenGroups((state.openSections || {})[screen], keys.includes(pointed) ? pointed : '', keys[0] || '');
+  // 목록에 없는 옛 이름은 버린다. 모두 닫아 둔 것([])은 그대로 빈 목록이다.
+  return open.filter(one => keys.includes(one));
 }
 // 중분류 한 칸. 제목 줄과 그 안의 내용을 같은 모양으로 그린다.
 // title·sub·action은 이미 HTML이다 — 부르는 쪽이 escapeHtml을 지나 만든다.
 function section(screen, key, { title, sub = '', body, id = '', action = '', mark = '' }) {
-  const open = openSectionKey(screen) === key;
+  const open = openSectionKeys(screen).includes(key);
   return `<details class="card org-details section${mark}" data-section="${escapeHtml(screen)}:${escapeHtml(key)}"${id ? ` id="${id}" tabindex="-1"` : ''} ${open ? 'open' : ''}>
     <summary><b>${title}</b>${sub ? ` <small>${sub}</small>` : ''}${action}</summary>
     <div class="section-body">${body}</div></details>`;
 }
-// 소분류도 같은 형식이다. 중분류가 한 번에 하나만 열리므로 열린 소분류도 화면에 하나뿐이고,
-// 그래서 기억할 값도 하나면 된다. 연도(소소분류)까지 하나만 열게 하지는 않는다 —
-// 연도는 견주어 보는 것이라 2026을 열면 2025가 닫히면 견줄 수가 없다.
-function openGroupKey() {
+// 소분류도 같은 형식이고 **같은 규칙**이다(24-07). 중분류만 여럿 열리고 구역은 하나만 열리면
+// 두 층이 다르게 움직여, 같은 삼각형을 눌렀는데 어떤 줄은 옆엣것을 닫고 어떤 줄은 안 닫는다.
+// 연도(소소단원)는 22-01부터 이미 여럿이었으므로, 이제 세 층이 모두 「누르면 열리고 다시 누르면 닫힌다」다.
+function openGroupKeys() {
   // 중분류와 같은 함수를 쓴다. 구역에는 「가리키는 것이 없을 때의 첫 번째」가 없다 —
   // 여덟 구역 중 아무거나 열어 두면 그 구역만 특별해진다. 그때는 아무것도 열지 않는다.
-  return resolveOpenGroup(state.openOrgGroup, stepGroupKey(orgStepInfo()), '') || '';
+  return resolveOpenGroups(state.openOrgGroups, stepGroupKey(orgStepInfo()), '');
 }
 function subSection(key, { title, sub = '', body, action = '', mark = '' }) {
-  const open = openGroupKey() === key;
+  const open = openGroupKeys().includes(key);
   return `<details class="card org-details section sub${mark}" data-detail-group="${escapeHtml(key)}" ${open ? 'open' : ''}>
     <summary><b>${title}</b>${sub ? ` <small>${sub}</small>` : ''}${action}</summary>
     <div class="section-body">${body}</div></details>`;
@@ -5919,12 +5919,19 @@ function applicantDetailView(applicant) {
   const groups = detailProgress(applicant);
   const filled = groups.filter(group => group.total).length;
   const total = groups.reduce((sum, group) => sum + group.total, 0);
+  // 여덟 구역을 함께 열 수 있게 되면서(24-07) 화면이 다시 길어질 수 있다. 하나씩 다시 누르는
+  // 길밖에 없으면 연 만큼 눌러야 하므로 한 번에 걷는 길을 둔다. 열린 것이 없으면 내보내지 않는다 —
+  // 「모두 펼치기」는 그대로 없다. 여덟을 한꺼번에 펴면 22-42에서 화면을 감당 못 했던 그 자리로 돌아간다.
+  const closeAll = openGroupKeys().length
+    ? '<button class="button secondary" id="close-all-details">구역 모두 접기</button>'
+    : '';
   return section('applicants', 'detail', {
     id: 'applicant-detail',
     title: '상세정보 <span class="muted">(선택)</span>',
     sub: `여덟 구역 중 ${filled}구역에 자료 ${total}건 · 지금 적지 않아도 계획서는 만들어집니다`,
     body: `<div class="alert"><strong>상세정보를 등록하면 계획서가 달라집니다</strong><p>${DETAIL_INTRO}</p></div>
     <div class="stat-badges">${groups.map(group => `<span class="stat-badge" title="${escapeHtml(group.hint)}"><strong>${group.confirmed}/${group.total}</strong><span>${escapeHtml(group.title)}</span></span>`).join('')}</div>
+    ${closeAll}
     ${groups.map(group => detailGroupPanel(applicant, group)).join('')}`
   });
 }
@@ -8580,7 +8587,7 @@ function openApplicantEditor({ group = '', anchor = '' }) {
     activeTool: 'applicants',
     // 카드는 이번 사업 신청기관의 것이다. 앞서 다른 기관을 열어 둔 채면 엉뚱한 기관이 열린다.
     applicantEditingId: state.selectedApplicantId,
-    openOrgGroup: group || state.openOrgGroup,
+    openOrgGroups: group ? nextOpenGroups(openGroupKeys(), group, true) : state.openOrgGroups,
     notice: '', error: ''
   });
   const selector = group ? `[data-detail-group="${group}"]` : anchor;
@@ -8595,7 +8602,7 @@ function bindApplicants() {
   // 기관을 열면 저장해 둔 기본정보를 입력칸에 다시 채운다. 같은 내용을 두 번 적지 않게 한다.
   document.querySelectorAll('[data-edit-applicant]').forEach(el => el.onclick = () => setState({
     ...(fillQuickFromDocuments(findApplicant(state.applicants, el.dataset.editApplicant)) || {}),
-    activeTool: 'applicants', applicantEditingId: el.dataset.editApplicant, openSections: {}, openOrgGroup: undefined,
+    activeTool: 'applicants', applicantEditingId: el.dataset.editApplicant, openSections: {}, openOrgGroups: undefined,
     quickOrg: { ...quickDraft(), ...draftFromApplicant(findApplicant(state.applicants, el.dataset.editApplicant)) }, notice: '', error: ''
   }));
   // 필요한 구역만 연다. 다시 그려도 열어 둔 구역이 닫히지 않게 기억한다.
@@ -8640,18 +8647,23 @@ function bindApplicants() {
   // DOM과 상태가 어긋나는 순간 「방금 연 것을 다시 누른 것」으로 읽혀 **열자마자 도로 닫힌다.**
   document.querySelectorAll('[data-section]').forEach(el => el.addEventListener('toggle', () => {
     const [screen, key] = String(el.dataset.section).split(':');
-    const next = nextOpenGroup(openSectionKey(screen), key, el.open);
-    if ((state.openSections || {})[screen] === next) return;
+    const next = nextOpenGroups(openSectionKeys(screen), key, el.open);
+    if (sameOpenGroups((state.openSections || {})[screen], next)) return;
     state.openSections = { ...(state.openSections || {}), [screen]: next };
     setState({});
   }));
   // 소분류도 같은 함수를 쓴다. 판정을 두 번 적지 않는다.
   document.querySelectorAll('[data-detail-group]').forEach(el => el.addEventListener('toggle', () => {
-    const next = nextOpenGroup(openGroupKey(), el.dataset.detailGroup, el.open);
-    if (state.openOrgGroup === next) return;
-    state.openOrgGroup = next;
+    const next = nextOpenGroups(openGroupKeys(), el.dataset.detailGroup, el.open);
+    if (sameOpenGroups(state.openOrgGroups, next)) return;
+    state.openOrgGroups = next;
     setState({});
   }));
+  // 열어 둔 구역을 한 번에 걷는다. 판정을 거치지 않는다 — 「모두 닫았다」는 빈 목록 그대로다.
+  document.querySelector('#close-all-details')?.addEventListener('click', () => {
+    state.openOrgGroups = [];
+    setState({});
+  });
   // 제목 줄의 「모두 확인」은 묶음을 여닫지 않는다.
   document.querySelectorAll('[data-confirm-group]').forEach(el => el.addEventListener('click', event => {
     event.preventDefault(); event.stopPropagation();
@@ -8846,7 +8858,7 @@ function addApplicant() {
   state.applicants = upsertApplicant(state.applicants, applicant);
   state.applicantNameDraft = '';
   // 새 기관에는 앞서 열어 둔 기관의 담당자·유형이 따라오지 않는다. 기관명만 물려준다.
-  setState({ applicants: state.applicants, applicantNameDraft: '', applicantEditingId: applicant.id, openSections: {}, openOrgGroup: undefined, quickOrg: { orgName: applicant.name }, notice: `${name} 신청기관을 추가했습니다. 기본정보부터 적어 주세요.`, error: '' });
+  setState({ applicants: state.applicants, applicantNameDraft: '', applicantEditingId: applicant.id, openSections: {}, openOrgGroups: undefined, quickOrg: { orgName: applicant.name }, notice: `${name} 신청기관을 추가했습니다. 기본정보부터 적어 주세요.`, error: '' });
   void persistApplicant(applicant.id, false);
 }
 
@@ -9011,7 +9023,7 @@ function applySafeApplicantCandidates() {
     ...(autofill || {}),
     applicants: state.applicants,
     applicantExtraction: { ...review, candidates: remaining },
-    openOrgGroup: group || state.openOrgGroup,
+    openOrgGroups: group ? nextOpenGroups(openGroupKeys(), group, true) : state.openOrgGroups,
     notice: `후보 ${applied}건을 ${group ? `상세정보 「${(DETAIL_GROUPS.find(item => item.key === group) || {}).title || group}」에 ` : ''}넣었습니다. 모두 ‘확인 필요’ 상태이며, 확인해야 계획서에 사실로 쓰입니다.${remaining.length ? ` 남은 ${remaining.length}건은 기존 값과 달라 항목마다 확인해 주세요.` : ''}`,
     error: ''
   });

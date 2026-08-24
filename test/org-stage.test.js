@@ -102,15 +102,15 @@ test('기본정보만 저장하고 바로 계획서 작성으로 갈 수 있다'
 test('상세정보 안내 문구를 그대로 띄우고 구역을 한 번에 펼치지 않는다', () => {
   assert.equal(DETAIL_INTRO, '인력·사업실적·시설·보유 프로그램 등의 상세정보를 등록하면 AI가 기관의 실제 역량을 계획서에 반영할 수 있습니다. 반복 입력과 [확인 필요]가 줄어들며, 한 번 확인한 정보는 다음 계획서에서도 다시 사용할 수 있습니다.');
   assert.match(app, /<p>\$\{DETAIL_INTRO\}<\/p>/);
-  // 구역은 한 번에 하나만 열린다(22-01⑤). 96건이 쏟아지지 않게 나머지는 접힌 줄로 남는다.
-  // 처음 열리는 것은 「다음 할 일」이 가리키는 구역이고, 사람이 연 뒤에는 그것이 열린 것이다.
-  assert.match(app, /return resolveOpenGroup\(state\.openOrgGroup, stepGroupKey\(orgStepInfo\(\)\), ''\) \|\| '';/);
-  assert.match(app, /const open = openGroupKey\(\) === key;/);
+  // 처음 열리는 것은 「다음 할 일」이 가리키는 구역 하나뿐이다. 96건이 쏟아지지 않게 나머지는 접힌 줄로 남는다.
+  // 24-07부터 사람이 여럿을 열어 둘 수 있다 — 그래도 손대기 전 첫 화면은 그대로다.
+  assert.match(app, /return resolveOpenGroups\(state\.openOrgGroups, stepGroupKey\(orgStepInfo\(\)\), ''\);/);
+  assert.match(app, /const open = openGroupKeys\(\)\.includes\(key\);/);
   assert.match(app, /data-detail-group="\$\{escapeHtml\(key\)\}" \$\{open \? 'open' : ''\}/);
-  // 「모두 펼치기」도 「모두 접기」도 없다. 한 번에 하나만 열리므로 접을 것이 하나뿐이고,
-  // 그 하나는 제목 줄을 다시 눌러 닫는다(22-01⑤).
+  // 「모두 펼치기」는 없다 — 여덟을 한꺼번에 펴면 실적 96건이 그대로 쏟아진다(22-42).
+  // 「구역 모두 접기」는 24-07에서 돌아왔다. 여럿을 열 수 있으면 하나씩 다시 누르는 길밖에 없어진다.
   assert.doesNotMatch(app, /id="open-all-details"/);
-  assert.doesNotMatch(app, /id="close-all-details"/);
+  assert.match(app, /id="close-all-details"/);
 });
 
 test('상세정보를 고치면 보관자료에도 저장한다', () => {

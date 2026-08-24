@@ -24,8 +24,8 @@ test('두 화면의 중분류를 한 곳에 적어 둔다', () => {
 
 test('중분류는 모두 같은 함수가 그린다', () => {
   // 열두 자리가 저마다 카드를 그리면 「하나만 열림」이 한 곳에서 지켜지지 않는다.
-  const maker = app.slice(app.indexOf('function section(screen, key, {'), app.indexOf('// 소분류도 같은 형식이다.'));
-  assert.match(maker, /const open = openSectionKey\(screen\) === key;/);
+  const maker = app.slice(app.indexOf('function section(screen, key, {'), app.indexOf('// 소분류도 같은 형식이고'));
+  assert.match(maker, /const open = openSectionKeys\(screen\)\.includes\(key\);/);
   assert.match(maker, /class="card org-details section\$\{mark\}" data-section="\$\{escapeHtml\(screen\)\}:\$\{escapeHtml\(key\)\}"/);
   assert.match(maker, /<div class="section-body">\$\{body\}<\/div>/);
   // 열두 중분류가 모두 이 함수를 지난다.
@@ -37,25 +37,26 @@ test('중분류는 모두 같은 함수가 그린다', () => {
   ].sort(), `중분류를 그리는 자리: ${keys.join(', ')}`);
 });
 
-test('하나를 열면 나머지는 닫힌다', () => {
-  const toggle = app.slice(app.indexOf("document.querySelectorAll('[data-section]')"), app.indexOf('  // 소분류도 한 번에 하나다'));
+test('열어 둔 것을 여럿 담는다 — 하나를 눌러도 나머지는 그대로다', () => {
+  // 24-07 전에는 하나만 담아 다른 것을 열면 앞엣것이 닫혔다. 이제 목록이다.
+  const toggle = app.slice(app.indexOf("document.querySelectorAll('[data-section]')"), app.indexOf('  // 소분류도 같은 함수를 쓴다.'));
   // 무엇이 열려 있어야 하는지는 accordion-state가 정한다. 처리기는 그 값을 담기만 한다.
-  assert.match(toggle, /const next = nextOpenGroup\(openSectionKey\(screen\), key, el\.open\);/);
-  // 나머지를 닫으려면 다시 그려야 한다.
+  assert.match(toggle, /const next = nextOpenGroups\(openSectionKeys\(screen\), key, el\.open\);/);
+  // 담은 것을 화면에 옮기려면 다시 그려야 한다.
   assert.match(toggle, /state\.openSections = \{ \.\.\.\(state\.openSections \|\| \{\}\), \[screen\]: next \};\s*\n\s*setState\(\{\}\);/);
 });
 
 test('처음 열리는 것은 「다음 할 일」이 가리키는 중분류다', () => {
-  const key = app.slice(app.indexOf('function openSectionKey(screen)'), app.indexOf('// 중분류 한 칸.'));
+  const key = app.slice(app.indexOf('function openSectionKeys(screen)'), app.indexOf('// 중분류 한 칸.'));
   assert.match(key, /const pointed = screen === 'applicants' \? orgStepSection\(\) : pickStepSection\(\);/);
-  // 「고르지 않았다·닫아 두었다·이것을 열었다」 셋을 가르는 규칙은 resolveOpenGroup 한 곳에 있다.
-  assert.match(key, /resolveOpenGroup\(\(state\.openSections \|\| \{\}\)\[screen\], keys\.includes\(pointed\) \? pointed : '', keys\[0\] \|\| ''\)/);
+  // 「고르지 않았다·모두 닫아 두었다·이것들을 열었다」 셋을 가르는 규칙은 resolveOpenGroups 한 곳에 있다.
+  assert.match(key, /resolveOpenGroups\(\(state\.openSections \|\| \{\}\)\[screen\], keys\.includes\(pointed\) \? pointed : '', keys\[0\] \|\| ''\)/);
 });
 
 test('펼침은 이번 화면에서만 기억한다', () => {
   // 22-19의 접기가 안 먹은 까닭이 이것이었다. 한 번 편 것이 브라우저에 저장돼 새로고침해도 펴져 있었다.
   const save = app.slice(app.indexOf('function saveState()'), app.indexOf('function loadNavigationHistory()'));
-  for (const key of ['openAddForms: []', 'openFitGroups: []', 'openSections: {}', 'openOrgGroup: undefined', 'openOrgYears: []']) {
+  for (const key of ['openAddForms: []', 'openFitGroups: []', 'openSections: {}', 'openOrgGroups: undefined', 'openOrgYears: []']) {
     assert.ok(save.includes(key), `${key}를 저장하고 있다`);
   }
 });

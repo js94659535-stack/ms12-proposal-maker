@@ -53,21 +53,24 @@ test('접힌 줄은 눌러서 펼치는 것으로 보인다', () => {
   assert.match(css, /\.year-fold>summary\{[^}]*cursor:pointer/);
 });
 
-test('구역은 한 번에 하나만 열린다', () => {
-  // 전에는 자료가 있는 구역을 펼쳐 두었다. 실적 96건이 그대로 쏟아져 화면을 감당할 수 없었고(22-42),
-  // 여럿을 열어 둘 수 있게 두었더니 화면이 다시 길어졌다. 이제 하나뿐이다(22-01⑤).
+test('구역은 처음에 하나만 열려 있고, 사람이 여럿을 열 수 있다', () => {
+  // 전에는 자료가 있는 구역을 **저절로** 펼쳐 두었다. 실적 96건이 그대로 쏟아져 화면을 감당할 수 없었다(22-42).
+  // 24-07에서 되돌린 것은 그것이 아니라 「사람이 두 번째를 열면 첫 번째가 닫히던 것」이다.
+  // 저절로 열리는 것은 여전히 「다음 할 일」이 가리키는 하나뿐이다.
   const panel = app.slice(app.indexOf('function detailGroupPanel(applicant, group)'), app.indexOf('// 실적을 한 번에 확인됨으로 올리는 줄'));
   assert.doesNotMatch(panel, /group\.total > 0/);
   // 접혀 있어도 무엇이 얼마나 있는지는 제목 줄에 남는다.
   assert.match(panel, /sub: `등록 \$\{group\.total\}건 · 확인됨 \$\{group\.confirmed\}건`/);
   // 여는 규칙은 subSection 한 곳에 있다.
-  assert.match(app, /return resolveOpenGroup\(state\.openOrgGroup, stepGroupKey\(orgStepInfo\(\)\), ''\) \|\| '';/);
-  assert.match(app, /const open = openGroupKey\(\) === key;/);
-  // 연 것 하나만 기억한다. 닫으면 빈 문자열이라 아무것도 열리지 않은 채로 둔다.
-  const toggle = app.slice(app.indexOf("document.querySelectorAll('[data-detail-group]')"), app.indexOf("  // 제목 줄의 「모두 확인」은"));
-  assert.match(toggle, /const next = nextOpenGroup\(openGroupKey\(\), el\.dataset\.detailGroup, el\.open\);/);
-  assert.match(toggle, /state\.openOrgGroup = next;/);
+  assert.match(app, /return resolveOpenGroups\(state\.openOrgGroups, stepGroupKey\(orgStepInfo\(\)\), ''\);/);
+  assert.match(app, /const open = openGroupKeys\(\)\.includes\(key\);/);
+  // 연 것들을 기억한다. 모두 닫으면 빈 목록이라 아무것도 열리지 않은 채로 둔다.
+  const toggle = app.slice(app.indexOf("document.querySelectorAll('[data-detail-group]')"), app.indexOf("  // 열어 둔 구역을 한 번에 걷는다."));
+  assert.match(toggle, /const next = nextOpenGroups\(openGroupKeys\(\), el\.dataset\.detailGroup, el\.open\);/);
+  assert.match(toggle, /state\.openOrgGroups = next;/);
   assert.doesNotMatch(toggle, /closed/);
+  // 길어진 화면을 한 번에 걷는 길. 열린 것이 없으면 단추도 없다.
+  assert.match(app, /id="close-all-details"/);
 });
 
 test('「다음 할 일」이 가리키는 구역이 처음 열린다', () => {
@@ -79,8 +82,8 @@ test('「다음 할 일」이 가리키는 구역이 처음 열린다', () => {
   const where = app.slice(app.indexOf('function stepGroupKey(step)'), app.indexOf('function nextStepAnchor('));
   assert.match(where, /if \(step\.area === 'performance'\) return 'performance';/);
   // 사람이 고르기 전에는 판정이 가리키는 구역이 열린 것이다.
-  const group = app.slice(app.indexOf('function openGroupKey()'), app.indexOf('function subSection(key,'));
-  assert.match(group, /resolveOpenGroup\(state\.openOrgGroup, stepGroupKey\(orgStepInfo\(\)\), ''\)/);
+  const group = app.slice(app.indexOf('function openGroupKeys()'), app.indexOf('function subSection(key,'));
+  assert.match(group, /resolveOpenGroups\(state\.openOrgGroups, stepGroupKey\(orgStepInfo\(\)\), ''\)/);
 });
 
 test('접힌 채로도 제목 줄에서 한 번에 확인할 수 있다', () => {
@@ -109,7 +112,7 @@ test('한 건은 한 줄로 접히고 눌러야 편집칸이 펴진다', () => {
 
 test('반영 뒤에는 넣은 자리가 열린다', () => {
   const apply = app.slice(app.indexOf('function applySafeApplicantCandidates()'), app.indexOf('function selectApplicantForProject('));
-  // 한 번에 하나만 열리므로 「닫아 둔 기록」이 따로 없다. 넣은 구역을 열린 하나로 삼는다.
-  assert.match(apply, /openOrgGroup: group || state.openOrgGroup,/);
+  // 「닫아 둔 기록」이 따로 없다. 넣은 구역을 열어 둔 것에 **더한다**(24-07).
+  assert.match(apply, /openOrgGroups: group \? nextOpenGroups\(openGroupKeys\(\), group, true\) : state\.openOrgGroups,/);
   assert.doesNotMatch(app, /closedOrgGroups/);
 });
