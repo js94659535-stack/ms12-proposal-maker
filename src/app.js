@@ -8633,16 +8633,21 @@ function bindApplicants() {
   // 중분류를 누르면 다음에 무엇이 열려 있어야 하는지는 accordion-state가 정한다.
   // 열려 있던 것을 다시 누르면 닫힘(null)이고, 그 뜻은 「사람이 닫아 두었다」로 남는다 —
   // 그 뒤에 「다음 할 일」이 다른 곳을 가리켜도 화면이 제멋대로 열지 않는다.
+  //
+  // 브라우저가 이미 여닫은 **뒤에** 이 사건이 온다. 그 결과(`el.open`)를 판정에 **넘긴다**(24-05).
+  // 판정은 여전히 accordion-state 한 곳에서 한다 — 여기서 다시 따지지 않는다.
+  // 넘기지 않고 상태에서만 되짚으면, 같은 사건이 두 번 오거나 다시 그리기가 사이에 끼어
+  // DOM과 상태가 어긋나는 순간 「방금 연 것을 다시 누른 것」으로 읽혀 **열자마자 도로 닫힌다.**
   document.querySelectorAll('[data-section]').forEach(el => el.addEventListener('toggle', () => {
     const [screen, key] = String(el.dataset.section).split(':');
-    const next = nextOpenGroup(openSectionKey(screen), key);
+    const next = nextOpenGroup(openSectionKey(screen), key, el.open);
     if ((state.openSections || {})[screen] === next) return;
     state.openSections = { ...(state.openSections || {}), [screen]: next };
     setState({});
   }));
   // 소분류도 같은 함수를 쓴다. 판정을 두 번 적지 않는다.
   document.querySelectorAll('[data-detail-group]').forEach(el => el.addEventListener('toggle', () => {
-    const next = nextOpenGroup(openGroupKey(), el.dataset.detailGroup);
+    const next = nextOpenGroup(openGroupKey(), el.dataset.detailGroup, el.open);
     if (state.openOrgGroup === next) return;
     state.openOrgGroup = next;
     setState({});

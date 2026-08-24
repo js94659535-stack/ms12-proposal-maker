@@ -96,15 +96,34 @@ test('★ 닫고 → 판정이 옮겨 가고 → 다시 그려도 닫힌 채다'
 
 test('처리기는 스스로 따지지 않고 nextOpenGroup을 부른다', () => {
   const section = app.slice(app.indexOf("document.querySelectorAll('[data-section]')"), app.indexOf('  // 소분류도 같은 함수를 쓴다.'));
-  assert.match(section, /const next = nextOpenGroup\(openSectionKey\(screen\), key\);/);
+  // el.open은 브라우저가 여닫은 결과다. 판정에 **넘기되** 처리기가 스스로 따지지는 않는다(24-05).
+  assert.match(section, /const next = nextOpenGroup\(openSectionKey\(screen\), key, el\.open\);/);
   assert.match(section, /state\.openSections = \{ \.\.\.\(state\.openSections \|\| \{\}\), \[screen\]: next \};/);
-  // 처리기 안에 판정이 남아 있으면 안 된다. el.open을 보고 다시 따지던 자리를 없앴다.
-  assert.doesNotMatch(section, /el\.open/);
+  // 처리기 안에서 el.open을 보고 무엇을 열지 정하면 판정이 두 곳이 된다.
+  assert.doesNotMatch(section, /el\.open \?/);
 
   const group = app.slice(app.indexOf('  // 소분류도 같은 함수를 쓴다.'), app.indexOf('  // 제목 줄의 「모두 확인」은'));
-  assert.match(group, /const next = nextOpenGroup\(openGroupKey\(\), el\.dataset\.detailGroup\);/);
+  assert.match(group, /const next = nextOpenGroup\(openGroupKey\(\), el\.dataset\.detailGroup, el\.open\);/);
   assert.match(group, /state\.openOrgGroup = next;/);
-  assert.doesNotMatch(group, /el\.open/);
+  assert.doesNotMatch(group, /el\.open \?/);
+});
+
+test('★ 같은 사건이 두 번 와도 방금 연 것이 닫히지 않는다', () => {
+  // 실제로 났던 일: 접힌 줄을 누르면 1초도 안 되어 다시 닫혔다(24-05).
+  // 브라우저가 이미 연 뒤에 사건이 오는데 그 결과를 안 받으면,
+  // 두 번째 사건에서 nextOpenGroup('staff','staff')가 null이 되어 도로 닫힌다.
+  let open = nextOpenGroup('', 'staff', true);
+  assert.equal(open, 'staff');
+  open = nextOpenGroup(open, 'staff', true);
+  assert.equal(open, 'staff', '두 번째 사건에서 닫혔다');
+  open = nextOpenGroup(open, 'staff', true);
+  assert.equal(open, 'staff');
+  // 브라우저가 닫았으면 「사람이 닫아 두었다」로 남는다. 이것도 몇 번을 와도 같다.
+  assert.equal(nextOpenGroup('staff', 'staff', false), null);
+  assert.equal(nextOpenGroup(null, 'staff', false), null);
+  // 셋째 값을 안 주면 예전 규칙 그대로다.
+  assert.equal(nextOpenGroup('staff', 'staff'), null);
+  assert.equal(nextOpenGroup('staff', 'budget'), 'budget');
 });
 
 test('그리는 자리도 같은 함수를 지난다 — 판정을 두 번 적지 않는다', () => {

@@ -65,7 +65,7 @@ test('구역은 한 번에 하나만 열린다', () => {
   assert.match(app, /const open = openGroupKey\(\) === key;/);
   // 연 것 하나만 기억한다. 닫으면 빈 문자열이라 아무것도 열리지 않은 채로 둔다.
   const toggle = app.slice(app.indexOf("document.querySelectorAll('[data-detail-group]')"), app.indexOf("  // 제목 줄의 「모두 확인」은"));
-  assert.match(toggle, /const next = nextOpenGroup\(openGroupKey\(\), el\.dataset\.detailGroup\);/);
+  assert.match(toggle, /const next = nextOpenGroup\(openGroupKey\(\), el\.dataset\.detailGroup, el\.open\);/);
   assert.match(toggle, /state\.openOrgGroup = next;/);
   assert.doesNotMatch(toggle, /closed/);
 });

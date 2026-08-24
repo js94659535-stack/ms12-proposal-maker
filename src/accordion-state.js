@@ -17,7 +17,18 @@
 
 // 하나를 눌렀을 때 다음에 열려 있어야 할 것.
 // 열려 있던 것을 다시 누르면 닫는 것이고, 다른 것을 누르면 그것 하나만 열린다.
-export function nextOpenGroup(current, clicked) {
+// 무엇이 열려 있어야 하는가. `isOpen`은 브라우저가 이미 여닫은 결과다(24-05).
+//
+// `<details>`의 toggle 사건은 **브라우저가 여닫은 뒤에** 온다. 그러니 그 결과가 가장 확실한 근거다.
+// 예전에는 그것을 안 받고 상태에서만 되짚어 「열려 있던 것과 누른 것이 같으면 닫힘」으로 셈했는데,
+// DOM과 상태가 어긋나는 순간 — 같은 사건이 두 번 오거나, 다시 그리기가 사이에 끼거나 —
+// **방금 연 것이 「다시 누른 것」으로 읽혀 열자마자 닫혔다.** 이제는 뒤집히지 않는다:
+// 같은 사건이 몇 번 와도 답이 같다.
+//
+// 셋째 값을 안 주면 예전 규칙 그대로다. 부르는 쪽이 DOM을 모를 때가 있다.
+export function nextOpenGroup(current, clicked, isOpen) {
+  if (isOpen === true) return clicked;
+  if (isOpen === false) return null;
   return current === clicked ? null : clicked;
 }
 

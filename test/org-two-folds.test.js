@@ -40,7 +40,7 @@ test('중분류는 모두 같은 함수가 그린다', () => {
 test('하나를 열면 나머지는 닫힌다', () => {
   const toggle = app.slice(app.indexOf("document.querySelectorAll('[data-section]')"), app.indexOf('  // 소분류도 한 번에 하나다'));
   // 무엇이 열려 있어야 하는지는 accordion-state가 정한다. 처리기는 그 값을 담기만 한다.
-  assert.match(toggle, /const next = nextOpenGroup\(openSectionKey\(screen\), key\);/);
+  assert.match(toggle, /const next = nextOpenGroup\(openSectionKey\(screen\), key, el\.open\);/);
   // 나머지를 닫으려면 다시 그려야 한다.
   assert.match(toggle, /state\.openSections = \{ \.\.\.\(state\.openSections \|\| \{\}\), \[screen\]: next \};\s*\n\s*setState\(\{\}\);/);
 });
