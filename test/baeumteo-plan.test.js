@@ -64,3 +64,46 @@ test('진로설계는 학교폭력 특별교육 실적을 근거로 쓰되 대�
   assert.ok(text.includes('학교폭력 가해학생 특별교육 7년째'));
   assert.ok(career.lockNote.includes('대상 적합성'));
 });
+
+// ---------- 제출용 상세본 (10-06) ----------
+import { detailedPlan } from '../public/baeumteo/detail.js';
+import { SESSIONS } from '../public/baeumteo/sessions.js';
+import { STAGE_SESSIONS } from '../public/baeumteo/plan.js';
+
+test('★ 회차표는 사업마다 5·17·10·3회, 합 35회이고 봉사활동 2회가 들어 있다', () => {
+  for (const project of PROJECTS) {
+    const stages = SESSIONS[project.id];
+    assert.deepEqual(stages.map(stage => stage.length), STAGE_SESSIONS, `${project.id}: 단계별 회차`);
+    const all = stages.flat();
+    assert.equal(all.length, 35);
+    const service = all.filter(name => /^봉사활동[①②]/.test(name) && !/준비/.test(name));
+    assert.ok(service.length >= 2, `${project.id}: 봉사활동 2회 미만`);
+    assert.ok(all.some(name => /자치회의/.test(name)), `${project.id}: 자치회의 없음`);
+  }
+});
+
+test('상세본은 기관 없이도 아홉 항목이 다 있고 깨진 값이 없다', () => {
+  for (const project of PROJECTS) {
+    const text = detailedPlan(project, {});
+    for (const head of ['1. 배움터', '2. 참여 아동', '3. 교육복지사업', '4. 사업 내용', '5. 네트워킹', '6. 예산편성', '7. 평가', '8. 안전', '9. 지속']) assert.ok(text.includes(head), `${project.id}: ${head}`);
+    assert.ok(!/undefined|NaN|\[object|Infinity/.test(text), `${project.id}: 깨진 값`);
+    assert.ok(text.length > 4800, `${project.id}: 분량 ${text.length}`);
+    assert.ok(text.includes('35회 ') || text.includes('35회'), '35회 표시');
+  }
+});
+
+test('상세본의 예산 줄 합이 신청액과 같고 월별 교육 합이 35회다', () => {
+  for (const project of PROJECTS) {
+    const text = detailedPlan(project, {});
+    const amounts = [...text.matchAll(/^- (?:강사|학습재료|식비|프로젝트|봉사|교강사 회의)[^\n]*? ([\d,]+)만 원:/gm)].map(m => Number(m[1].replace(/,/g, '')) * 10_000);
+    assert.equal(amounts.reduce((a, b) => a + b, 0), capOf(project, {}), `${project.id}: 예산 합`);
+    const months = [...text.matchAll(/^- \d{4}\. \d+\. 교육 (\d+)회/gm)].map(m => Number(m[1]));
+    assert.equal(months.reduce((a, b) => a + b, 0), 35, `${project.id}: 월별 합`);
+  }
+});
+
+test('인원이 늘면 반 수와 단가 계산이 따라 바뀐다', () => {
+  const humanities = PROJECTS.find(project => project.id === 'humanities');
+  assert.match(detailedPlan(humanities, { people: 45 }), /3개 반/);
+  assert.match(detailedPlan(humanities, {}), /2개 반/);
+});
