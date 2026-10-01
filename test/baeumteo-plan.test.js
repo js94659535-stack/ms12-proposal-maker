@@ -136,3 +136,14 @@ test('섭외 요약은 1기관 1사업 규칙과 마감, 기관연동, PDF 제�
   }
   assert.equal(FUND.minSessions, 35);
 });
+
+test('진로설계는 20~50명 어느 규모든 한도(2천5백만 원)와 비율 규정 안에서 예산이 나온다', () => {
+  const career = byId('career');
+  assert.deepEqual(career.peopleRange, [20, 50]);
+  for (const count of [20, 30, 40, 50]) {
+    const budget = budgetPlan(career, { people: count });
+    assert.ok(budget.total <= capOf(career, {}), `${count}명: ${budget.total}`);
+    assert.deepEqual(budget.warnings, [], `${count}명: ${budget.warnings}`);
+  }
+  assert.match(detailedPlan(career, { people: 50 }), /4개 반/);
+});

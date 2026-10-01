@@ -64,7 +64,7 @@ function render() {
         <label>대표기관</label>
         <input data-p="${project.id}" data-k="lead" value="${esc(data.lead)}" placeholder="대표기관 이름 (비워 두면 선정 중)">
         ${slots}
-        <label>참여 인원 (최소 15명)</label>
+        <label>참여 인원 (${project.peopleRange ? `${project.peopleRange[0]}~${project.peopleRange[1]}명 범위 · ` : ''}최소 15명)</label>
         <input data-p="${project.id}" data-k="people" type="number" min="15" value="${esc(data.people)}" placeholder="${project.people}">
         ${project.capUnion ? `<p class="cand">연합 ${unionSize(project, data)}곳 · 5곳 이상이면 신청 한도가 ${won(project.capUnion)}로 오릅니다(신청액은 필요한 만큼만)</p>` : ''}
         <div class="row">
