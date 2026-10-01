@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>삼성 공고 레이더</title>
+<style>
+  :root { --bg:#fff; --ink:#1b1f23; --sub:#5b636b; --line:#e3e6ea; --accent:#0b6b3a; --warn:#b4231b; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14171a; --ink:#eceff2; --sub:#9aa3ab; --line:#2b3238; --accent:#4fd18b; --warn:#ff8a80; } }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 system-ui,"Malgun Gothic",sans-serif; }
+  main { max-width:720px; margin:0 auto; padding:24px 16px 64px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:var(--sub); font-size:14px; margin:0 0 20px; }
+  details { border-top:1px solid var(--line); }
+  details:last-of-type { border-bottom:1px solid var(--line); }
+  summary { display:flex; gap:10px; align-items:baseline; padding:12px 0; cursor:pointer; list-style:none; }
+  summary::-webkit-details-marker { display:none; }
+  .d { flex:none; min-width:56px; font-weight:700; color:var(--accent); }
+  .d.late { color:var(--sub); font-weight:400; }
+  .d.soon { color:var(--warn); }
+  .t { flex:1; }
+  .s { flex:none; color:var(--sub); font-size:13px; }
+  .body { padding:0 0 14px 66px; color:var(--sub); font-size:14px; }
+  .body p { margin:2px 0; }
+  a { color:var(--accent); }
+  #msg { color:var(--sub); }
+</style>
+</head>
+<body>
+<main>
+  <h1>삼성 공고 레이더</h1>
+  <p class="sub">삼성꿈장학재단 등 삼성 계열 공고 중 아동·청소년 교육, 문해력, 상담·정서에 맞는 것을 마감이 열린 순서로 보여 줍니다.</p>
+  <div id="list"><p id="msg">불러오는 중입니다…</p></div>
+</main>
+<script>
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+const list = document.querySelector('#list');
+fetch('/api/radar', { credentials: 'same-origin' }).then(async r => {
+  if (r.status === 401) { list.innerHTML = '<p id="msg">로그인한 뒤에 볼 수 있습니다. <a href="/">로그인하러 가기</a></p>'; return; }
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || '불러오지 못했습니다.');
+  list.innerHTML = data.items.map(item => {
+    const open = item.daysLeft !== null && item.daysLeft >= 0;
+    const d = item.daysLeft === null ? '' : open ? `D-${item.daysLeft}` : '마감';
+    const cls = !open ? 'late' : item.daysLeft <= 14 ? 'soon' : '';
+    return `<details><summary><span class="d ${cls}">${esc(d)}</span><span class="t">${esc(item.title)}</span><span class="s">${esc(item.source)}</span></summary>
+      <div class="body">${item.period ? `<p>신청기간 ${esc(item.period)}</p>` : ''}${item.eligibility ? `<p>신청자격 ${esc(item.eligibility)}</p>` : ''}${item.files?.length ? `<p>첨부 ${esc(item.files.join(' / '))}</p>` : ''}<p><a href="${esc(item.url)}" target="_blank" rel="noopener">공고 열기</a></p></div></details>`;
+  }).join('') || '<p id="msg">지금 가져올 공고가 없습니다.</p>';
+}).catch(e => { list.innerHTML = `<p id="msg">${esc(e.message)}</p>`; });
+</script>
+</body>
+</html>
