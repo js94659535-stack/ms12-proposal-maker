@@ -2,7 +2,7 @@
 // 기관이 하나도 없어도 끝까지 읽히고, 이름이 들어오면 그 자리만 바뀐다.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { FUND, PROJECTS, planText, pitchText, capOf, unionSize, budgetPlan, minSessionsOf } from '../public/baeumteo/plan.js';
+import { FUND, PROJECTS, planText, pitchText, capOf, unionSize, budgetPlan, minSessionsOf, optimalInput } from '../public/baeumteo/plan.js';
 import { PROGRAMS, RULES, budgetFor, sessionTotal } from '../public/baeumteo/programs.js';
 import { detailedPlan, monthlyThemes, monthsOf } from '../public/baeumteo/detail.js';
 
@@ -146,4 +146,26 @@ test('진로설계는 20~50명 어느 규모든 한도(2천5백만 원)와 비�
     assert.deepEqual(budget.warnings, [], `${count}명: ${budget.warnings}`);
   }
   assert.match(detailedPlan(career, { people: 50 }), /4개 반/);
+});
+
+test('★ 가상 최적 조건: 모든 칸이 채워지고 모든 가상 값에 표시가 붙으며 규정과 한도를 지킨다', () => {
+  for (const project of PROJECTS) {
+    const input = optimalInput(project);
+    const text = detailedPlan(project, input);
+    assert.ok(text.includes('경고: 〔가상〕 표시는 예시로 지어낸 값이며 사실이 아니다'), `${project.id}: 경고 문구`);
+    assert.ok(text.includes('〔가상〕'), `${project.id}: 가상 표시`);
+    const left = text.match(/\[확인 필요[^\]]*\]/g) || [];
+    assert.deepEqual(left, [], `${project.id}: 남은 확인 필요 ${left}`);
+    assert.ok(!text.includes('섭외 중') && !text.includes('선정 중'), `${project.id}: 빈 자리`);
+    const budget = budgetPlan(project, input);
+    assert.ok(budget.total <= capOf(project, input), `${project.id}: ${budget.total} > ${capOf(project, input)}`);
+    assert.deepEqual(budget.warnings, [], `${project.id}: ${budget.warnings}`);
+  }
+  const migrant = byId('migrant');
+  assert.equal(unionSize(migrant, optimalInput(migrant)), 5);
+  assert.equal(capOf(migrant, optimalInput(migrant)), 150_000_000);
+});
+
+test('가상 값은 켠 때만 나온다 — 기본 출력에는 〔가상〕이 없다', () => {
+  for (const project of PROJECTS) assert.ok(!detailedPlan(project, {}).includes('〔가상〕'), project.id);
 });

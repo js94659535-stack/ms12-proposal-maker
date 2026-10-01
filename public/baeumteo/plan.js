@@ -108,6 +108,13 @@ export function capOf(project, input = {}) {
 }
 export function people(project, input = {}) { return Math.max(FUND.minPeople, Number(input.people) || project.people); }
 export function budgetPlan(project, input = {}) { return budgetFor(project.id, people(project, input), { cap: capOf(project, input) }); }
+// 「모든 조건이 갖춰졌다」고 가정한 입력(10-08). 모두 〔가상〕 표시가 붙는다. 인원은 한도 안에서 가장 큰 값이다.
+export const OPTIMAL_PEOPLE = { humanities: 42, culture: 42, migrant: 90, career: 50, community: 90 };
+export function optimalInput(project) {
+  const partners = {};
+  for (const slot of project.slots) partners[slot.key] = `〔가상〕${slot.role.replace(/^참여기관\s*|^협력\s*/, '').replace(/^[①②③④⑤]\s*/, '')}(가칭)`;
+  return { virtual: true, lead: '〔가상〕대표기관(가칭)', partners, people: String(OPTIMAL_PEOPLE[project.id]), view: 'detail' };
+}
 export function minSessionsOf(project) { return project.minSessions || FUND.minSessions; }
 
 const programLine = program => `- ${program.name}(${program.stage}, ${program.months}): ${program.sessions}회 × ${program.hours}시간 — ${program.core}`;

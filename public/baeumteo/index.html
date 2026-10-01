@@ -37,7 +37,7 @@
   <div id="list"></div>
 </main>
 <script type="module">
-import { PROJECTS, budgetPlan, people, unionSize, planText, pitchText, won as wonOf } from './plan.js';
+import { PROJECTS, optimalInput, budgetPlan, people, unionSize, planText, pitchText, won as wonOf } from './plan.js';
 import { detailedPlan } from './detail.js';
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
 const KEY = 'baeumteo-v1';
@@ -71,6 +71,8 @@ function render() {
           <button data-view="pitch" data-p="${project.id}" class="${data.view === 'pitch' ? 'on' : ''}">섭외용 한 장</button>
           <button data-view="plan" data-p="${project.id}" class="${!data.view || data.view === 'plan' ? 'on' : ''}">계획서 요약</button>
           <button data-view="detail" data-p="${project.id}" class="${data.view === 'detail' ? 'on' : ''}">제출용 상세본</button>
+          <button data-optimal="${project.id}">가상 최적 조건으로 채우기</button>
+          ${data.virtual ? `<button data-clear="${project.id}">가상 값 지우기</button>` : ''}
           <button data-copy="${project.id}">복사</button>
           <button data-print="1">인쇄·PDF</button>
         </div>
@@ -101,6 +103,8 @@ root.addEventListener('input', event => {
 root.addEventListener('click', async event => {
   const el = event.target.closest('button'); if (!el) return;
   if (el.dataset.view) { input(el.dataset.p).view = el.dataset.view; save(); const id = el.dataset.p; render(); return; }
+  if (el.dataset.optimal) { const project = PROJECTS.find(p => p.id === el.dataset.optimal); saved[project.id] = optimalInput(project); save(); render(); return; }
+  if (el.dataset.clear) { saved[el.dataset.clear] = { lead: '', partners: {}, people: '', view: 'plan' }; save(); render(); return; }
   if (el.dataset.copy) { const text = document.querySelector(`#out-${el.dataset.copy}`).textContent; try { await navigator.clipboard.writeText(text); el.textContent = '복사됨'; setTimeout(() => { el.textContent = '복사'; }, 1500); } catch { el.textContent = '복사 실패'; } return; }
   if (el.dataset.print) window.print();
 });
