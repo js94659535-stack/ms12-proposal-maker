@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>배움터 협력 계획서</title>
+<style>
+  :root { --bg:#fff; --ink:#1b1f23; --sub:#5b636b; --line:#e3e6ea; --accent:#0b6b3a; --soft:#f3f6f4; --warn:#b4231b; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14171a; --ink:#eceff2; --sub:#9aa3ab; --line:#2b3238; --accent:#4fd18b; --soft:#1c2125; --warn:#ff8a80; } }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 system-ui,"Malgun Gothic",sans-serif; }
+  main { max-width:760px; margin:0 auto; padding:24px 16px 64px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:var(--sub); font-size:14px; margin:0 0 20px; }
+  details.p { border-top:1px solid var(--line); }
+  details.p:last-of-type { border-bottom:1px solid var(--line); }
+  summary { display:flex; gap:10px; align-items:baseline; padding:12px 0; cursor:pointer; list-style:none; }
+  summary::-webkit-details-marker { display:none; }
+  .n { flex:none; width:22px; font-weight:700; color:var(--accent); }
+  .t { flex:1; }
+  .s { flex:none; color:var(--sub); font-size:13px; }
+  .box { padding:0 0 18px 32px; }
+  .hint { color:var(--sub); font-size:14px; margin:4px 0 12px; }
+  label { display:block; font-size:13px; color:var(--sub); margin:10px 0 2px; }
+  input { width:100%; box-sizing:border-box; padding:8px 10px; font:inherit; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:6px; }
+  .cand { font-size:12px; color:var(--sub); margin:2px 0 0; }
+  .row { display:flex; gap:8px; margin:14px 0 8px; flex-wrap:wrap; }
+  button { font:inherit; font-size:14px; padding:7px 12px; color:var(--ink); background:var(--soft); border:1px solid var(--line); border-radius:6px; cursor:pointer; }
+  button.on { color:var(--accent); border-color:var(--accent); font-weight:700; }
+  pre { white-space:pre-wrap; word-break:keep-all; font:inherit; font-size:15px; background:var(--soft); border:1px solid var(--line); border-radius:8px; padding:14px; margin:8px 0 0; }
+  @media print { details.p:not([open]), .row, label, input, .cand, .hint, h1, .sub, summary { display:none !important; } details.p[open] { border:0; } .box { padding:0; } pre { border:0; background:none; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>배움터 협력 계획서</h1>
+  <p class="sub">삼성꿈장학재단 2027 배움터 교육지원사업(마감 11월 11일). 기관이 정해지지 않아도 계획서는 끝까지 읽힙니다. 이름을 넣으면 그 자리만 바뀝니다. 입력한 이름은 이 브라우저에만 저장됩니다.</p>
+  <div id="list"></div>
+</main>
+<script type="module">
+import { PROJECTS, capOf, people, unionSize, planText, pitchText } from './plan.js';
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+const KEY = 'baeumteo-v1';
+let saved = {};
+try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { saved = {}; }
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch { /* 저장이 막혀도 화면은 된다 */ } };
+const input = id => (saved[id] ||= { lead: '', partners: {}, people: '', view: 'plan' });
+const won = n => `${Math.round(n / 10_000).toLocaleString('ko-KR')}만 원`;
+const openIds = new Set();
+
+function render() {
+  document.querySelector('#list').innerHTML = PROJECTS.map(project => {
+    const data = input(project.id);
+    const cap = capOf(project, data);
+    const slots = project.slots.map(slot => `<label>${esc(slot.role)}</label>
+      <input data-p="${project.id}" data-k="${slot.key}" value="${esc(data.partners[slot.key] || '')}" placeholder="기관 이름 (비워 두면 섭외 중)">
+      <p class="cand">후보: ${esc(slot.candidates)}</p>`).join('');
+    const body = data.view === 'pitch' ? pitchText(project, data) : planText(project, data);
+    return `<details class="p" data-id="${project.id}" ${openIds.has(project.id) ? 'open' : ''}>
+      <summary><span class="n">${project.no}</span><span class="t">${esc(project.type)}</span><span class="s">${won(cap)} · ${people(project, data)}명</span></summary>
+      <div class="box">
+        <p class="hint">${esc(project.leadHint)}</p>
+        <label>대표기관</label>
+        <input data-p="${project.id}" data-k="lead" value="${esc(data.lead)}" placeholder="대표기관 이름 (비워 두면 선정 중)">
+        ${slots}
+        <label>참여 인원 (최소 15명)</label>
+        <input data-p="${project.id}" data-k="people" type="number" min="15" value="${esc(data.people)}" placeholder="${project.people}">
+        ${project.capUnion ? `<p class="cand">연합 ${unionSize(project, data)}곳 · 5곳 이상이면 신청 한도가 ${won(project.capUnion)}로 오릅니다</p>` : ''}
+        <div class="row">
+          <button data-view="plan" data-p="${project.id}" class="${data.view === 'pitch' ? '' : 'on'}">사업계획서</button>
+          <button data-view="pitch" data-p="${project.id}" class="${data.view === 'pitch' ? 'on' : ''}">섭외용 한 장</button>
+          <button data-copy="${project.id}">복사</button>
+          <button data-print="1">인쇄·PDF</button>
+        </div>
+        <pre id="out-${project.id}">${esc(body)}</pre>
+      </div></details>`;
+  }).join('');
+}
+
+// 입력할 때마다 전체를 다시 그리면 커서가 풀린다. 본문과 요약줄만 갱신한다.
+function refresh(id) {
+  const project = PROJECTS.find(p => p.id === id);
+  const data = input(id);
+  document.querySelector(`#out-${id}`).textContent = data.view === 'pitch' ? pitchText(project, data) : planText(project, data);
+  const summary = document.querySelector(`details[data-id="${id}"] .s`);
+  summary.textContent = `${won(capOf(project, data))} · ${people(project, data)}명`;
+}
+
+const root = document.querySelector('#list');
+root.addEventListener('input', event => {
+  const el = event.target;
+  const id = el.dataset.p; if (!id) return;
+  const data = input(id);
+  if (el.dataset.k === 'lead') data.lead = el.value;
+  else if (el.dataset.k === 'people') data.people = el.value;
+  else data.partners[el.dataset.k] = el.value;
+  save(); refresh(id);
+});
+root.addEventListener('click', async event => {
+  const el = event.target.closest('button'); if (!el) return;
+  if (el.dataset.view) { input(el.dataset.p).view = el.dataset.view; save(); const id = el.dataset.p; render(); return; }
+  if (el.dataset.copy) { const text = document.querySelector(`#out-${el.dataset.copy}`).textContent; try { await navigator.clipboard.writeText(text); el.textContent = '복사됨'; setTimeout(() => { el.textContent = '복사'; }, 1500); } catch { el.textContent = '복사 실패'; } return; }
+  if (el.dataset.print) window.print();
+});
+root.addEventListener('toggle', event => {
+  const d = event.target; if (!d.dataset?.id) return;
+  if (d.open) openIds.add(d.dataset.id); else openIds.delete(d.dataset.id);
+}, true);
+render();
+</script>
+</body>
+</html>
