@@ -1,128 +1,185 @@
-// 제출용 상세본(10-06). plan.js의 뼈대를 신청서 칸에 옮겨 쓸 만큼 구체적으로 늘린다.
-// 숫자는 요강 기준(15명·연 35회)과 입력값(인원·한도)에서 계산한다. 기관만 아는 값은 `[확인 필요]`로 둔다.
-// 단가는 재단 「서식 5」를 아직 못 봤으므로 한도를 비목에 나눈 뒤 거꾸로 계산한 값이다 — 상한을 넘으면 비목을 옮겨 맞춘다.
-import { FUND, STAGE_SESSIONS, STAGE_TIMES, budgetRows, capOf, leadName, people, slotName, unionSize } from './plan.js';
-import { SESSIONS } from './sessions.js';
+// 제출용 상세본 (10-06 → 10-07에서 재단 양식 순서로 다시 짬).
+// 재단 공개 신청서 양식의 서식 1~5 순서와 항목 이름을 그대로 따른다. 유형별 양식이 다르다:
+//  · 미래형(인문·사회 탐구, 문화예술 창작)  · 맞춤형(이주배경 잇다, 진로설계)  · 연결형(지역공동체)
+// 기관만 아는 값은 `[확인 필요]`로 둔다. 숫자는 programs.js의 프로그램표와 산출식에서 온다.
+import { FUND, budgetPlan, capOf, leadName, minSessionsOf, people, slotName, unionSize } from './plan.js';
+import { PROGRAMS, RULES, classesOf, sessionTotal } from './programs.js';
 
-const won = n => `${Math.round(n / 10_000).toLocaleString('ko-KR')}만 원`;
-const KPI = {
-  humanities: [['독서역량 사전·사후 진단 점수', '참여자 80% 이상 향상', '같은 도구로 3월과 1월 두 번 측정'], ['토론·발표 참여', '전원 1회 이상 발표', '회차 기록과 관찰 일지'], ['탐구노트·이야기책', '1인 1권 완성', '산출물 확인']],
-  culture: [['완성 동화', '참여자 90% 이상이 1인 1권 완성', '산출물 확인과 작품집 수록'], ['표현 자신감(5점 척도)', '사후 평균 0.5점 이상 상승', '3월과 1월 자기평가'], ['낭독회 참여', '전원 낭독 1회', '낭독회 기록']],
-  migrant: [['진로 로드맵', '전원 1인 1부 완성·발표', '로드맵 평가표'], ['자기이해·진로성숙도', '사후 점수 향상', '사전·사후 검사'], ['지역·또래 관계 활동', '한국 친구 초대 활동 전원 참여', '참여 기록']],
-  career: [['진로성숙도', '사후 점수 향상', '사전·사후 검사'], ['갈등 대처·자기조절', '자기평가 향상, 교사 관찰 기록 일치', '3월과 1월 두 번 측정'], ['실천 계획 이행', '전원 계획서 작성, 6개월 뒤 이행 점검', '사후 연락 기록(동의 받은 경우)']],
-  community: [['우리 고장 이해', '사후 이해도 점수 향상', '사전·사후 문답'], ['기관 간 협력', '참여기관 협의회 연 4회 이상', '회의록'], ['문화지도·탐방일지', '1인 1권 완성', '산출물 확인']]
+const FORM = { humanities: '미래형', culture: '미래형', migrant: '맞춤형', career: '맞춤형', community: '연결형' };
+const GOALS = {
+  humanities: [['읽은 것을 자기 생각과 근거로 설명하고 다른 의견과 견주어 고친다', '3월·12월 같은 기준의 토론·글쓰기 과제를 비교'], ['학생이 정한 마을 질문을 직접 조사해 신문으로 완성한다', '팀별 신문 1호 완성과 취재·수정 기록'], ['배운 것을 어린 동생과 지역에 나누는 경험을 한다', '봉사활동 2회 참여 기록과 성찰문']],
+  culture: [['자신의 경험을 이야기로 표현하고 친구와 고쳐 완성한다', '개인 원고의 초안·수정본 비교'], ['공동 주제를 정하고 역할을 나누어 팀 그림책을 낸다', '팀별 그림책 1권과 역할 분담 기록'], ['AI를 창작의 도구로 안전하게 쓰는 태도를 갖춘다', 'AI 사용 약속 이행 점검표와 자기평가']],
+  migrant: [['자신의 정체성과 강점을 말과 글로 설명한다', '강점 발표와 포트폴리오 첫 장 평가'], ['진로·진학 정보를 찾아 자기 로드맵을 만든다', '로드맵 초안과 최종본, 직업인 인터뷰 기록'], ['지역 기관·또래와 관계를 넓히고 청소년은 ITQ에 도전한다', '지역 연계 활동 기록과 ITQ 응시 결과']],
+  career: [['자신의 강점·흥미와 지난 경험(관계 경험 포함)을 돌아보고 말한다', '검사 해석 면담과 성찰 기록'], ['관심 직업을 직접 조사하고 현장에서 확인한다', '직업인 인터뷰·체험 기록'], ['실천 가능한 진로 계획을 세우고 발표한다', '진로설계 포트폴리오와 발표 평가']],
+  community: [['학생이 인접 기관 친구들과 함께 지역 문화를 기획·탐방·기록한다', '연합동아리 활동 기록과 문화지도'], ['세 기관이 공동 교육과정으로 운영하는 체계를 만든다', '공동 교재, 협의회 회의록'], ['지역 자원(도서관·문화유산·가족센터)을 학생 교육에 연결한다', '연계 기관 목록과 협약 현황']]
+};
+const EXPERIENCE = {
+  humanities: '독서·토론 교육 경험은 마인드스토리의 2026년 전주고 진로독서 프로젝트(독서역량 진단), 2025년 여수 시립환경도서관 독해력지도사 양성 등으로 확인된다. 참여 예정 학생 개인의 유사 프로그램 참여 경험은 모집 후 확인한다.',
+  culture: '참여 예정 학생 중 일부는 2026년 벧엘지역아동센터에서 마인드스토리와 함께한 「미래설계 AI진로동화 프로젝트」에 참여했다. [확인 필요: 참여 학생 수, 당시 교육 기간과 횟수, 남은 아쉬움] 이번 사업은 그 경험 위에서 교육 기간을 늘리고, 개인 창작에서 공동 창작과 수정 과정, 지역 공유로 확장한다는 점을 쓴다. 다른 기관 지원 사업이었다면 재단의 지속 사업이 아니라 신규 사업으로 표시한다.',
+  migrant: '이주배경 학생을 대상으로 한 진로 교육은 2020·2023년 북구다문화센터, 2025년 광산구·무안군가족센터, 2026년 영광 가족센터와 동성고 다문화 학습역량강화로 이어져 왔다. [확인 필요: 참여 예정 학생 개인의 참여 경험]',
+  career: '학교폭력 특별교육을 7년째 운영해 왔다(2021년 광주서부교육지원청 위탁 등). 다만 참여 학생의 조치 이력은 사업 서류에 적지 않고 구분하지 않는다. [확인 필요: 위탁 기간 확인서]',
+  community: '인접한 세 기관이 공동 교육과정으로 운영한 경험이 없다면 신규 사업으로 쓴다. [확인 필요: 참여 기관별 기존 협력 경험]'
 };
 
-const MONTH_PLAN = [['2027. 3.', 3], ['2027. 4.', 2], ['2027. 5.', 4], ['2027. 6.', 3], ['2027. 7.', 3], ['2027. 8.', 4], ['2027. 9.', 3], ['2027. 10.', 4], ['2027. 11.', 3], ['2027. 12.', 3], ['2028. 1.', 3], ['2028. 2.', 0]];
-
-function classesOf(count) { return Math.ceil(count / FUND.minPeople); }
-
-// 예산 산출 내역. 인원·회차·반 수로 단가를 거꾸로 계산해 보여 준다.
-function budgetDetail(project, input, count) {
-  const rows = budgetRows(project, input);
-  const classes = classesOf(count);
-  const total = STAGE_SESSIONS.reduce((s, n) => s + n, 0);
-  const hours = total * 2 * classes;
-  const amountOf = name => rows.find(row => row[0].startsWith(name))?.[1] || 0;
-  const lines = [];
-  for (const [name, amount] of rows) {
-    let how = '';
-    if (/^강사/.test(name)) how = `연 ${total}회 × 2시간 × ${classes}개 반 = ${hours}시간, 시간당 약 ${(amount / hours / 10_000).toFixed(1)}만 원 [재단 강사비 상한 확인 필요]`;
-    else if (name === '학습재료비') how = `${count}명 기준 1인당 약 ${Math.round(amount / count / 10_000)}만 원 (교재·활동 재료·도서)`;
-    else if (/식비/.test(name)) how = `${count}명 × ${total}회 기준 1인·1회당 약 ${Math.round(amount / count / total / 100) * 100}원 (간식·교통)`;
-    else if (/프로젝트/.test(name)) how = `성과공유회 1회 ${won(amount * 0.4)}, 산출물 제작 ${won(amount * 0.6)}`;
-    else if (/봉사/.test(name)) how = `봉사활동 2회, 회당 ${won(amount / 2)} (재료·이동·보험)`;
-    else how = `교강사 회의 월 1회, 보호자 교육 연 3회, 협의회 분기 1회`;
-    lines.push(`- ${name} ${won(amount)}: ${how}`);
+// "3월~11월" · "10월, 1월" · "12월~1월" → [3..11] · [10,1] · [12,1]
+export function monthsOf(text) {
+  const nums = [...String(text).matchAll(/(\d+)월/g)].map(m => Number(m[1]));
+  if (/~/.test(text) && nums.length === 2) {
+    const out = [nums[0]];
+    while (out[out.length - 1] !== nums[1] && out.length < 13) out.push(out[out.length - 1] % 12 + 1);
+    return out;
   }
-  return { lines, check: amountOf('강사') };
+  return nums;
+}
+// 회차 주제를 월에 순서대로 나눈다. 회차가 월보다 적으면 앞 달부터 하나씩 받는다.
+export function monthlyThemes(program) {
+  const months = monthsOf(program.months).slice(0, program.themes.length);
+  const base = Math.floor(program.themes.length / months.length);
+  let extra = program.themes.length % months.length;
+  let at = 0;
+  return months.map(month => {
+    const take = base + (extra-- > 0 ? 1 : 0);
+    const part = program.themes.slice(at, at + take);
+    at += take;
+    return [month, part];
+  });
+}
+
+const groupsText = (program, count) => program.groups === 'classes' ? `전체 ${count}명을 ${classesOf(count)}개 반(반당 15명 이하)으로 운영` : program.groups === 1 ? `전체 ${count}명 함께` : `전체 ${count}명을 ${program.groups}개 소그룹으로 운영`;
+
+function programSection(project, count) {
+  const programs = PROGRAMS[project.id];
+  const lines = ['1) 프로젝트 및 교육프로그램 운영 개요',
+    `프로젝트 주제와 핵심 내용: ${project.title}. ${project.goal}.`,
+    `프로젝트 성과 및 결과물: ${project.outputs.join(', ')}. 봉사활동${project.id === 'career' ? ' 없이 발표회로' : ' 2회와 성과공유회로'} 지역과 나눈다.`,
+    `대상 학생: [확인 필요: 학년·연령대] 전체 ${count}명.`,
+    `연간 교육: 학생 1인 기준 ${sessionTotal(project.id)}회(재단 최소 ${minSessionsOf(project)}회). 프로젝트·봉사활동·성과발표회를 포함하고 자치회의는 포함하지 않는다.`,
+    '단계 | 프로그램명 | 참여학생 | 운영 기간 | 핵심 활동 및 교육 규모 | 운영 회기/회당 시간'];
+  for (const program of programs) lines.push(`${program.stage} | ${program.name} | ${groupsText(program, count)} | ${program.months} | ${program.core} | ${program.sessions}회/${program.hours}시간`);
+  lines.push(`합계: 학생 1인 ${sessionTotal(project.id)}회`, '', '2) 프로젝트 및 교육프로그램별 핵심 교육내용 (월별)');
+  programs.forEach((program, index) => {
+    lines.push(`${index + 1}. ${program.name} (운영방식: ${groupsText(program, count)}${program.assistant ? ', 주강사+보조강사' : ', 주강사'} / 교육 장소: ${program.place})`);
+    for (const [month, themes] of monthlyThemes(program)) lines.push(`  ${month}월: ${themes.join(' → ')}`);
+  });
+  return lines;
+}
+
+function recruit(project, input, count) {
+  const slots = project.slots.map(slot => slotName(slot, input)).join(', ');
+  return [
+    '1) 모집 계획',
+    `□ 기관 내 아동·청소년 대상: 사업 참여 전체 ${count}명 중 (60)% [확인 필요: 실제 비율]`,
+    `□ 지역 내 타 기관 협조(지역아동센터, 학교, 교육청 등): 전체 중 (30)%. 협조 기관명: ${slots}. 협의 여부: [확인 필요]`,
+    '□ 기타(공개모집 등): 전체 중 (10)%. 배움터 소속이 아닌 지역 아동·청소년도 참여할 수 있다.',
+    '2) 선발기준',
+    '○ 교육적 지원이 우선 필요한 학생을 먼저 받는다: 저소득층(기초생활수급·차상위·중위소득 75% 내외), 농어촌(면 단위) 거주, 이주배경.',
+    '○ 같은 순위에서는 참여 의지(본인 면담), 보호자 동의, 지속 참여 가능성(결석 대응에 동의)을 본다.',
+    '○ 기관 내 학생도 같은 기준으로 선발하고, 정원이 넘으면 사회경제적 필요가 큰 학생을 먼저 받는다.',
+    '3) 참여 예정 아동·청소년의 사회경제적 현황',
+    '참여 학생 거주 지역: ○○시 ○○구 ○○동 [확인 필요: 읍면동 단위]',
+    '사회경제적 배경: 거주 지역의 특징(재개발 계획 등), 보호자의 직종, 거주 형태, 경제적 상황, 문화적 배경, 지역의 교육 문제를 쓴다. [확인 필요: 기관이 아는 실제 상황 — 가장 먼저 채워야 할 칸]',
+    '4) 참여 예정 아동·청소년의 유사 프로그램 참여 경험(신규 사업)',
+    EXPERIENCE[project.id]
+  ];
+}
+
+function foundation(project) {
+  const joint = project.id === 'community';
+  return [
+    '구분 | 연간 진행 횟수 | 핵심 논의 사항',
+    `아동·청소년 자치회의 | 11회(월 1회, 교육 횟수에 포함하지 않음) | 다음 달 활동 정하기, ${project.id === 'career' ? '진로 포트폴리오 점검' : '봉사활동 대상·방법'}, 성과공유회 기획, 규칙 점검${joint ? ', 탐방 코스 선정' : ''}`,
+    '보호자와의 소통(보호자 모임·교육 등) | 3회 | 시작 설명회, 중간 소식 나눔과 가정 연계 안내, 성과공유회',
+    '교강사 전체 회의 | 11회(월 1회) | 회차 일지 공유, 다음 달 수업 조정, 학생 상황 공유, 안전 점검',
+    `기타(${joint ? '참여기관 협의회·강사 공동 연수' : '교강사 학습동아리·협력기관 협의'}) | ${joint ? '협의회 분기 1회 이상 + 강사 공동 연수 연 2회' : '분기 1회'} | ${joint ? '공동 교육과정 점검, 기관 간 학생 교류 조정, 사각지대 학생 발굴' : '협력기관 역할 점검과 연계 자원 확인'}`,
+    '출석과 결석 대응: 2회 연속 결석하면 담당자가 보호자와 연락해 사유를 확인하고 보충 참여나 개별 안내를 제공한다. 사업 시작 후 3개월 안에 빠진 자리는 대기자로 채운다.'
+  ];
+}
+
+function personnel(project, input, count) {
+  return [
+    '<서식 4> 담당 인력 정보',
+    `대표자: ${leadName(input)} 대표 [확인 필요: 성명·소속·연령·교육복지 경력]`,
+    '실무책임자: [확인 필요: 성명·경력] — 강사를 겸하면 강사비와 인건비 중 하나만 책정한다.',
+    '강사: 확정되면 이력서와 개인정보 동의서를, 미정이면 아래 모집 계획을 쓴다.',
+    '강사 모집 계획:',
+    ...PROGRAMS[project.id].map(program => `- ${program.name}: 주강사 ${program.groups === 'classes' ? classesOf(count) : 1}명${program.assistant ? ' + 보조강사' : ''} / 모집 방법: 기관 추천과 공개 모집 / 선발 기준: 해당 분야 전문성, 아동·청소년 교육 경험, 아동학대·성범죄 경력 조회 동의`),
+    '강사 채용은 투명한 절차로 하고, 대표자·실무자와 특수관계(가족 등)인 사람은 채용하지 않는다.'
+  ];
+}
+
+export function budgetTable(project, input, count) {
+  const budget = budgetPlan(project, input);
+  const lines = ['<서식 5> 예산서 (단위: 원, 재단 지원금 신청액만)', '구분 | 프로그램명 | 계정과목 | 산출 근거 | 예산'];
+  for (const row of budget.rows) lines.push(`${row.program === '운영' ? '운영비' : row.program === '인건비' ? '인건비' : '직접사업비'} | ${row.program} | ${row.account} | ${row.formula} | ${row.amount.toLocaleString('ko-KR')}`);
+  lines.push(`총계 ${budget.total.toLocaleString('ko-KR')}원 (재단 한도 ${capOf(project, input).toLocaleString('ko-KR')}원 이하)`);
+  const adminCap = project.id === 'community' ? RULES.adminShareCommunity : RULES.adminShare;
+  lines.push(`비율 확인: 인건비+운영비 ${Math.round(budget.shares.admin * 1000) / 10}%(한도 ${adminCap * 100}%), 학습재료비 ${Math.round(budget.shares.materials * 1000) / 10}%(신규 사업 한도 30%), 체험·견학성 지출 ${Math.round(budget.outing / budget.total * 1000) / 10}%(한도 15%)`);
+  lines.push('강사비 기준: 시간당 6만 원 이하, 보조강사는 더 낮은 단가(여기서는 3만 원). 강사 1인 1일 30만 원을 넘기지 않는다.');
+  if (budget.warnings.length) lines.push(...budget.warnings.map(text => `주의: ${text}`));
+  lines.push('기관 자체 투입 자원(인력·교구·연계 자원·자부담): [확인 필요: 사회복무요원 투입, 보유 교구, 무료 사용 공간 등]');
+  return lines;
 }
 
 export function detailedPlan(project, input = {}) {
   const lead = leadName(input);
   const count = people(project, input);
-  const cap = capOf(project, input);
-  const classes = classesOf(count);
-  const total = STAGE_SESSIONS.reduce((s, n) => s + n, 0);
-  const sessions = SESSIONS[project.id];
-  const partnerRows = project.slots.map(slot => `- ${slot.role}: ${slotName(slot, input)} — ${slot.ask}`);
-  let number = 0;
-  const sessionBlocks = sessions.map((stage, index) => [
-    `[${project.stages[index][0]}] ${STAGE_TIMES[index]}, ${stage.length}회`,
-    ...stage.map(theme => `${String(++number).padStart(2, '0')}회 ${theme}`)
-  ].join('\n'));
-  const budget = budgetDetail(project, input, count);
-  const monthLines = MONTH_PLAN.map(([month, n]) => n ? `- ${month} 교육 ${n}회` : `- ${month} 결과보고·정산·다음 해 계획(교육 없음)`);
-  const unionNote = project.capUnion && unionSize(project, input) < project.unionMin
-    ? `현재 연합 ${unionSize(project, input)}곳이다. 5곳 이상이 되면 신청액을 ${won(project.capUnion)}까지 올려 인원과 회차를 함께 늘린다.` : '';
+  const form = FORM[project.id];
+  const places = [...new Set(PROGRAMS[project.id].map(p => p.place))].map(place => `○ ${place}: 위치·크기·수용 인원 [확인 필요]`);
+  const goals = GOALS[project.id].map(([goal, how], i) => `${i + 1}) ${goal} (확인 방법: ${how})`);
+  const out = [];
+  const push = (...lines) => out.push(...lines);
+  push(`${FUND.name} — ${form} 지원사업 신청서(제출용 상세본)`,
+    '※ 재단 공개 양식(서식 1~5)의 순서와 항목 이름을 따랐다. 신청서는 한글 파일에 옮겨 쓰고 PDF로 변환해 제출한다.', '',
+    '<서식 1> 대표기관 및 참여기관 소개',
+    `1. 명단: 대표기관 ${lead}`, ...project.slots.map(slot => `참여기관: ${slotName(slot, input)} (${slot.role})`),
+    '2. 운영 현황: 설립연도, 상근·비상근 인력, 2026년 전체 예산, 학생 1인당 월 이용료, 외부지원 현황(2024~2026) [확인 필요: 기관별 사실 — 강사 파견·대학생 자원봉사자 파견도 포함]',
+    '3. 대표자 자기소개: 교육복지 분야 경력(재단 사업 참여 경력 포함)과 교육철학 중심으로 쓴다. [확인 필요: 대표자 본인 서술]', '',
+    '<서식 2> 배움터 책무성 점검표',
+    '대표기관의 점검표만 제출한다. 최근 5년 이내 회계부정·불법행위나 성폭력·학대 관련 처분 이력이 없는지 사실대로 답한다. [확인 필요]', '',
+    '<서식 3> 교육지원사업 계획서');
 
-  return [
-    `${FUND.name} 사업계획서(제출용 상세본)`,
-    '',
-    '[사업 개요]',
-    `사업명: ${project.title}`,
-    `사업유형: ${project.type}  ·  대표기관: ${lead}  ·  사업기간: ${FUND.period} (교육은 ${FUND.eduEnd}까지)`,
-    `신청액: ${won(cap)}  ·  참여 아동·청소년: ${count}명(${classes}개 반, 반당 15명 이하)  ·  1인당 연 ${total}회`,
-    `한 줄 요약: ${project.goal}.`,
-    '',
-    '1. 배움터 및 담당인력의 교육적 관심과 추진 의지',
-    `1-1. 배움터 소개: ${lead}는 지역 아동·청소년의 교육복지를 위해 이 사업을 직접 기획하고 책임진다. [확인 필요: 대표기관 설립 연도, 이용 아동 수, 주요 사업, 고유번호증]`,
-    `1-2. 추진 조직: 사업책임자 1명(대표기관 기관장), 사업담당자 1명(신청서 작성·정산), 교강사 ${classes}명(반별 1명), 보조 인력 [확인 필요: 인원]. 담당 인력은 모두 아동학대·성범죄 경력 조회에 동의한다.`,
-    `1-3. 전문 지원: 마인드스토리가 교육과정 설계, 교강사 연수, 사전·사후 평가 도구를 지원한다. 근거 실적: ${project.evidence.join(' / ')}. [확인 필요: 지원 형태와 계약 여부]`,
-    `1-4. 운영 체계: 교강사 회의 월 1회, 보호자 교육 연 3회(시작·중간·마무리), 참여기관 협의회 분기 1회 이상을 정례화하고 회의록을 보존한다.`,
-    '',
-    '2. 참여 아동·청소년의 적합성',
-    `2-1. 대상: 저소득층 가정(기초생활수급·차상위·중위소득 75% 내외), 농어촌(면 단위) 거주, 이주배경 아동·청소년 등 교육적 지원이 우선 필요한 아동·청소년 ${count}명.`,
-    '2-2. 선발 기준과 우선순위: ① 위 대상에 해당하고 학교 밖 교육자원이 부족한 아동·청소년 ② 기관 이용 아동 중 참여를 희망하는 아동 ③ 배움터 소속이 아닌 지역 아동·청소년. 같은 순위에서는 신청 순서와 보호자 동의를 본다.',
-    '2-3. 모집·선발 절차: 모집 안내(2027. 2.) → 신청과 보호자 동의서 접수 → 상담과 반 편성 → 시작 설명회. [확인 필요: 실제 대상 구성(수급·차상위·이주배경 인원)]',
-    '2-4. 개인정보와 아동 보호: 참여 정보는 사업 목적에만 쓰고 성과공유회·산출물에는 개인 식별 정보를 싣지 않는다. 사진 촬영과 게시는 별도 동의를 받는다.',
-    '',
-    '3. 교육복지사업의 필요성과 적합성',
-    project.need,
-    '[확인 필요: 지역 현황 수치 — 해당 지역 저소득·이주배경 아동 수, 학교 밖 교육 기관 수 등 공식 통계 한두 개]',
-    `사업 목표: ${project.goal}.`,
-    '성과 지표:',
-    ...KPI[project.id].map(([name, target, method]) => `- ${name}: ${target} (${method})`),
-    '- 출석: 연 28회(80%) 이상 출석한 참여자 85% 이상',
-    '- 자치회의 11회, 봉사활동 2회 전원 참여, 성과공유회 1회',
-    '- 보호자 만족도 5점 척도 4.0 이상',
-    '',
-    '4. 사업 내용과 운영 계획',
-    `4-1. 운영 개요: ${FUND.period.split('~')[0].trim()}부터 ${FUND.eduEnd}까지 주 1~2회, 회당 2시간, 1인당 연 ${total}회(재단 기준 ${FUND.minSessions}회 이상). 2028. 2.은 결과보고와 정산이다.`,
-    '4-2. 회차별 프로그램:',
-    ...sessionBlocks,
-    '4-3. 아동·청소년 주도 운영: 단계마다 아동·청소년이 정하는 몫을 둔다. 첫 단계에서 모임 약속과 자치회의 규칙을 아이들이 직접 정하고, 가운데 단계에서는 다음 달 활동의 주제와 방식을 자치회의에서 투표로 고른다. 교강사는 안내자로서 질문하고 자료를 준비하며, 결정은 아동·청소년이 한다. 마지막 단계의 성과공유회는 기획부터 사회, 발표까지 참여 아동·청소년이 맡는다.',
-    '4-4. 필수 활동 운영: 봉사활동은 학습내용을 활용해 2회 진행하며 대상·장소·역할을 자치회의에서 정한다. 자치회의는 월 1회(11회) 열고 안건·결정·역할을 기록해 남긴다. 교강사 회의는 월 1회, 보호자 교육은 연 3회(시작·중간·마무리)이다.',
-    '4-5. 수업 질 관리: 교강사는 회차마다 수업 일지(출석, 활동 내용, 아동 반응, 다음 회차 준비)를 쓰고, 월 1회 교강사 회의에서 일지를 함께 읽고 다음 달 수업을 고친다. 단계가 끝날 때마다 아동·청소년의 짧은 자기평가를 받아 다음 단계에 반영한다.',
-    '4-6. 결석·중도 탈락 대응: 2회 연속 결석하면 담당자가 보호자와 연락해 사유를 확인하고 보충 회차나 개별 안내를 제공한다. 이사·진학 등으로 빠지는 인원은 시작 후 첫 3개월 안에는 대기자로 채우고, 그 뒤에는 정원 유지보다 남은 아동의 참여 질을 우선한다. 최소 15명 참여를 지키도록 모집 때 여유 인원을 둔다.',
-    `4-7. 산출물: ${project.outputs.join(', ')}.`,
-    '4-8. 월별 추진 일정:',
-    ...monthLines,
-    '',
-    '5. 네트워킹과 협력 체계',
-    '5-1. 기관별 역할:',
-    `- 대표기관 ${lead}: 사업 총괄, 신청·정산·보고, 교강사 운영, 참여 아동 모집`,
-    ...partnerRows,
-    '5-2. 보호자 소통: 시작 설명회, 중간 소식지, 성과공유회, 보호자 교육 3회.',
-    '5-3. 지역 자원 연계: 협력기관의 공간·자료·인력을 활용하고, 사업 후에도 이어 갈 수 있는 연계를 협약서로 남긴다. [확인 필요: 협약 체결 여부]',
-    `5-4. 유의: ${project.lockNote}`,
-    '',
-    '6. 예산편성의 타당성',
-    `총 ${won(cap)}. 요강이 허용한 비목(강사비·학습재료비·식비·교통비, 진행비)에만 편성한다. ${unionNote}`,
-    ...budget.lines,
-    '[확인 필요: 재단 신청서 「서식 5. 예산편성 안내」의 단가·상한에 맞춰 비목 사이를 조정]',
-    '',
-    '7. 평가와 사후 관리',
-    '사전(2027. 3.)·사후(2028. 1.) 진단과 아동·보호자 설문, 출석, 산출물, 자치회의 기록으로 평가한다. 결과는 성과공유회에서 공개하고 중간보고서·자체평가보고서·결산서를 기한 내 제출한다. 평가에서 드러난 개선점은 다음 해 계획에 반영한다.',
-    '',
-    '8. 안전·아동보호·위험 관리',
-    '- 현장 활동은 교사 1명당 아동 10명 이하로 인솔하고 사전 답사와 안전 교육을 한다.',
-    '- 참여자 상해보험에 가입한다. [확인 필요: 보험 상품과 비용 비목]',
-    '- 교강사·봉사자는 아동학대·성범죄 경력 조회에 동의한 사람만 참여하고, 사업 중 확인되면 즉시 배제한다.',
-    '- 사업 중 AI 도구를 쓸 때는 아동의 실명·연락처·사진을 입력하지 않고, 결과는 교강사가 검토한 뒤 쓴다.',
-    '- 종교적·정치적으로 편향된 활동은 하지 않으며, 지원금은 승인된 목적에만 쓴다.',
-    '',
-    '9. 지속 가능성',
-    '이 사업에서 만든 교육과정, 교강사 연수 자료, 평가 도구는 사업 뒤에도 기관이 쓸 수 있게 정리해 남긴다. 협력기관과의 연계는 협약으로 이어 가고, 성과공유회 자료를 지역에 공개한다.'
-  ].join('\n');
+  if (form === '연결형') {
+    push(`1. 사업명: ${project.title}`,
+      '2. 사업의 필요성',
+      '1) 지역 아동·청소년의 현황 및 교육복지 과제',
+      '참여 학생 거주 지역: ○○시 ○○구 ○○동 [확인 필요]',
+      '사회경제적 배경: 거주 지역의 특징, 보호자 직종, 거주 형태, 경제적 상황, 교육·문화 인프라. [확인 필요]',
+      `교육복지 과제: ${project.need}`,
+      '협력사업의 필요성: 한 기관이 혼자 하기 어려운 문화 체험과 학생 교류를 인접한 기관이 공동 교육과정으로 풀어야 하는 이유를 쓴다. 기관별 강사 파견이 아니라 공동 기획·공동 운영임을 분명히 한다.',
+      '2) 지역 교육자원 현황',
+      `① 지역 교육복지 자원지도: 대표기관 ${lead}와 참여기관, 학생이 다니는 학교·복지기관·공공시설·문화유산의 위치를 지도에 표시해 첨부한다. [확인 필요: 지도 자료]`,
+      '② 기관 간 협력·연계 내용:', ...project.slots.map(slot => `- ${slotName(slot, input)}: ${slot.ask}`),
+      `연합 기관 현황: 현재 이름이 정해진 곳은 ${unionSize(project, input)}곳이다. 지역적으로 인접한 3개 이상 기관이어야 하고 그중 학생이 등록된 배움터가 2곳 이상이어야 한다.`,
+      '3) 3년 후 기대하는 변화·성과',
+      '아동·청소년: 1년 차에 지역 문화를 기획·탐방·기록하는 경험을 하고, 3년 차에는 이 연합동아리가 학생 자치로 이어져 후배에게 탐방을 안내한다.',
+      '지역의 교육환경: 지금은 기관마다 따로 가는 체험을, 3년 후에는 공동 교육과정과 공동 교재, 매년 갱신되는 「우리 고장 문화지도」로 정착시킨다.',
+      '기관 간 협력체계: 1년 차 협의회 구축, 2년 차 기관별 역할의 정례화, 3년 차 지역 교육자원이 연합 체계에 상시 참여하는 것을 목표로 한다. [확인 필요: 현재 상황과 비교할 항목]',
+      '3. 교육 기간: 2027년 3월부터 2028년 1월까지(교육), 2028년 2월 결과보고·정산',
+      '4. 참여 예정 아동·청소년', ...recruit(project, input, count).slice(0, 8),
+      '5. 교육목표 【신규 사업】', ...goals,
+      '6. 교육프로그램 및 프로젝트 내용', ...programSection(project, count),
+      '7. 교육 장소', ...places, '전경 사진은 인물이 식별되지 않게 첨부한다.',
+      '8. 효과적인 사업 운영을 위한 기반 활동 계획', ...foundation(project),
+      `9. 사업 운영 조직도: 협의회(대표기관 ${lead}와 참여기관 실무자) → 실무팀(교강사·학생 자치회 대표) → 지역 자원(도서관·문화유산 장소). 이미 조직이 있으면 그대로, 없으면 공란으로 둘 수 있다.`);
+  } else {
+    push(`1. 사업명: ${project.title}`,
+      `2. 신청 사업 유형: ${form} 지원사업 — ${project.type}. 세부 교육 주제 키워드: ${{ humanities: '독서·토론·마을 탐구', culture: 'AI 동화·공동 그림책', migrant: '정체성·진로 포트폴리오·ITQ', career: '자기이해·직업 탐색·진로 포트폴리오' }[project.id]}`,
+      project.id === 'career' ? '3. 교육 기간: 2027년 5월부터 2027년 11월까지(7개월, 재단 기준 4개월 이상 지속 참여)' : '3. 교육 기간: 2027년 3월부터 2028년 1월까지');
+    let n = 4;
+    if (form === '맞춤형') {
+      push('4. 지역 교육자원 현황',
+        `1) 지역 교육복지 자원지도: 대표기관 ${lead}와 참여기관, 학생이 다니는 학교·교육복지기관·공공시설의 위치를 지도에 표시해 첨부한다. [확인 필요: 지도 자료]`,
+        '2) 기관 간 협력·연계 내용:', ...project.slots.map(slot => `- ${slotName(slot, input)}: ${slot.ask}`));
+      n = 5;
+    }
+    push(`${n}. 참여 예정 아동·청소년`, ...recruit(project, input, count),
+      `${n + 1}. 교육목표 【신규 사업】`, ...goals,
+      `${n + 2}. 교육프로그램 및 프로젝트 내용`, ...programSection(project, count),
+      `${n + 3}. 교육 장소`, ...places, '전경 사진은 인물이 식별되지 않게 첨부한다.',
+      `${n + 4}. 효과적인 사업 운영을 위한 기반 활동 계획`, ...foundation(project));
+  }
+  push('', ...personnel(project, input, count), '', ...budgetTable(project, input, count), '',
+    '평가와 환류: 사전·사후 과제 비교, 출석(연 80% 이상 출석 학생 85% 목표), 산출물, 학생 주도성 기록(주제 결정·역할 수행·수정 기록), 지역 공유 기록을 모아 단계마다 수업을 조정한다. 목표치는 기존 자료나 초기 조사로 정하며 실적처럼 미리 쓰지 않는다.',
+    `안전·아동보호: 교강사·봉사자는 아동학대·성범죄 경력 조회에 동의한 사람만 참여한다. 개인 식별 정보는 성과공유회와 산출물에 싣지 않는다. 종교적·정치적으로 편향된 활동은 하지 않는다. ${project.lockNote}`);
+  return out.join('\n');
 }

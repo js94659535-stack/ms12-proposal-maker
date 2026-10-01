@@ -37,7 +37,7 @@
   <div id="list"></div>
 </main>
 <script type="module">
-import { PROJECTS, capOf, people, unionSize, planText, pitchText } from './plan.js';
+import { PROJECTS, budgetPlan, people, unionSize, planText, pitchText, won as wonOf } from './plan.js';
 import { detailedPlan } from './detail.js';
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
 const KEY = 'baeumteo-v1';
@@ -45,7 +45,7 @@ let saved = {};
 try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { saved = {}; }
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch { /* 저장이 막혀도 화면은 된다 */ } };
 const input = id => (saved[id] ||= { lead: '', partners: {}, people: '', view: 'pitch' });
-const won = n => `${Math.round(n / 10_000).toLocaleString('ko-KR')}만 원`;
+const won = wonOf;
 const openIds = new Set();
 
 const bodyOf = (project, data) => data.view === 'pitch' ? pitchText(project, data) : data.view === 'detail' ? detailedPlan(project, data) : planText(project, data);
@@ -53,13 +53,12 @@ const bodyOf = (project, data) => data.view === 'pitch' ? pitchText(project, dat
 function render() {
   document.querySelector('#list').innerHTML = PROJECTS.map(project => {
     const data = input(project.id);
-    const cap = capOf(project, data);
-    const slots = project.slots.map(slot => `<label>${esc(slot.role)}</label>
+        const slots = project.slots.map(slot => `<label>${esc(slot.role)}</label>
       <input data-p="${project.id}" data-k="${slot.key}" value="${esc(data.partners[slot.key] || '')}" placeholder="기관 이름 (비워 두면 섭외 중)">
       <p class="cand">후보: ${esc(slot.candidates)}</p>`).join('');
     const body = bodyOf(project, data);
     return `<details class="p" data-id="${project.id}" ${openIds.has(project.id) ? 'open' : ''}>
-      <summary><span class="n">${project.no}</span><span class="t">${esc(project.type)}</span><span class="s">${won(cap)} · ${people(project, data)}명</span></summary>
+      <summary><span class="n">${project.no}</span><span class="t">${esc(project.type)}</span><span class="s">${won(budgetPlan(project, data).total)} · ${people(project, data)}명</span></summary>
       <div class="box">
         <p class="hint">${esc(project.leadHint)}</p>
         <label>대표기관</label>
@@ -67,7 +66,7 @@ function render() {
         ${slots}
         <label>참여 인원 (최소 15명)</label>
         <input data-p="${project.id}" data-k="people" type="number" min="15" value="${esc(data.people)}" placeholder="${project.people}">
-        ${project.capUnion ? `<p class="cand">연합 ${unionSize(project, data)}곳 · 5곳 이상이면 신청 한도가 ${won(project.capUnion)}로 오릅니다</p>` : ''}
+        ${project.capUnion ? `<p class="cand">연합 ${unionSize(project, data)}곳 · 5곳 이상이면 신청 한도가 ${won(project.capUnion)}로 오릅니다(신청액은 필요한 만큼만)</p>` : ''}
         <div class="row">
           <button data-view="pitch" data-p="${project.id}" class="${data.view === 'pitch' ? 'on' : ''}">섭외용 한 장</button>
           <button data-view="plan" data-p="${project.id}" class="${!data.view || data.view === 'plan' ? 'on' : ''}">계획서 요약</button>
@@ -86,7 +85,7 @@ function refresh(id) {
   const data = input(id);
   document.querySelector(`#out-${id}`).textContent = bodyOf(project, data);
   const summary = document.querySelector(`details[data-id="${id}"] .s`);
-  summary.textContent = `${won(capOf(project, data))} · ${people(project, data)}명`;
+  summary.textContent = `${won(budgetPlan(project, data).total)} · ${people(project, data)}명`;
 }
 
 const root = document.querySelector('#list');
