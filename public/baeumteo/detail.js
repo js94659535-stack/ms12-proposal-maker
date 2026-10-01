@@ -2,8 +2,8 @@
 // 재단 공개 신청서 양식의 서식 1~5 순서와 항목 이름을 그대로 따른다. 유형별 양식이 다르다:
 //  · 미래형(인문·사회 탐구, 문화예술 창작)  · 맞춤형(이주배경 잇다, 진로설계)  · 연결형(지역공동체)
 // 기관만 아는 값은 `[확인 필요]`로 둔다. 숫자는 programs.js의 프로그램표와 산출식에서 온다.
-import { FUND, budgetPlan, capOf, leadName, minSessionsOf, people, slotName, unionSize } from './plan.js';
-import { PROGRAMS, RULES, classesOf, sessionTotal } from './programs.js';
+import { FUND, budgetPlan, capOf, leadName, minSessionsOf, people, slotName, unionSize } from './plan.js?v=1008';
+import { PROGRAMS, RULES, classesOf, sessionTotal } from './programs.js?v=1008';
 
 const FORM = { humanities: '미래형', culture: '미래형', migrant: '맞춤형', career: '맞춤형', community: '연결형' };
 const GOALS = {

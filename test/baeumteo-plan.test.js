@@ -169,3 +169,21 @@ test('★ 가상 최적 조건: 모든 칸이 채워지고 모든 가상 값에 
 test('가상 값은 켠 때만 나온다 — 기본 출력에는 〔가상〕이 없다', () => {
   for (const project of PROJECTS) assert.ok(!detailedPlan(project, {}).includes('〔가상〕'), project.id);
 });
+
+// 같은 주소로 내용이 바뀌는 모듈은 브라우저 캐시에서 옛것과 새것이 섞여 화면이 비었다(10-08).
+// 모듈끼리 부르는 주소에 같은 버전 표시를 붙이고, 캐시를 매번 확인하게 하는 헤더를 둔다.
+import fs from 'node:fs';
+test('단독 화면의 모듈 주소는 같은 버전 표시를 갖고 캐시 헤더가 있다', () => {
+  const dir = new URL('../public/baeumteo/', import.meta.url);
+  const versions = new Set();
+  for (const name of ['index.html', 'plan.js', 'detail.js', 'programs.js']) {
+    const text = fs.readFileSync(new URL(name, dir), 'utf8');
+    for (const match of text.matchAll(/from '\.\/([\w-]+\.js)(\?v=[\w-]+)?'/g)) {
+      assert.ok(match[2], `${name}: ${match[1]}에 버전 표시가 없다`);
+      versions.add(match[2]);
+    }
+  }
+  assert.equal(versions.size, 1, `버전 표시가 여러 가지다: ${[...versions]}`);
+  const headers = fs.readFileSync(new URL('../public/_headers', import.meta.url), 'utf8');
+  assert.match(headers, /\/baeumteo\/\*\s+Cache-Control: no-cache/);
+});

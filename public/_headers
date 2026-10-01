@@ -1,0 +1,6 @@
+# 단독 화면(/radar/, /baeumteo/)의 모듈은 같은 주소로 내용이 바뀐다. 4시간 캐시 때문에 옛 파일과 새 파일이 섞여
+# 화면이 비는 일이 있었다(10-08). 매번 확인하게 한다.
+/baeumteo/*
+  Cache-Control: no-cache
+/radar/*
+  Cache-Control: no-cache
