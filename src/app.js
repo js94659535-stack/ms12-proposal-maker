@@ -3439,7 +3439,9 @@ function toolMenu() {
     ['open-engagement', '의뢰 건', 'engagement'],
     ['open-applicants', '신청기관 정보', 'applicants'],
     ['open-coaching', '계획서 검증·코칭', 'coaching']
-  ].map(([id, label, tool]) => `<button class="topmenu-item" role="menuitem" id="${id}" ${tool ? `aria-pressed="${state.activeTool === tool}"` : ''}>${label}</button>`).join('');
+  ].map(([id, label, tool]) => `<button class="topmenu-item" role="menuitem" id="${id}" ${tool ? `aria-pressed="${state.activeTool === tool}"` : ''}>${label}</button>`).join('')
+    // 따로 만든 한 장짜리 화면(10-02). 앱 안에 얽지 않고 주소로 연결한다.
+    + '<a class="topmenu-item" role="menuitem" href="/radar/" target="_blank" rel="noopener">삼성 공고 레이더 ↗</a>';
   return topMenu('tools', '작업 메뉴', items);
 }
 
