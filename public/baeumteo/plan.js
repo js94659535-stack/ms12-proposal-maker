@@ -5,7 +5,7 @@
 // 기관만 아는 값(실제 대상 구성·연락처·단가)은 `[확인 필요]`로 둔다.
 // 뼈대는 재단 요강의 선정기준 여섯 가지다. 숫자(15명·연 35회·한도)는 요강에서 가져왔다.
 
-import { PROGRAMS, RULES, budgetFor, classesOf, sessionTotal } from './programs.js?v=1009';
+import { PROGRAMS, RULES, budgetFor, classesOf, sessionTotal } from './programs.js?v=1010';
 
 export const FUND = {
   name: '삼성꿈장학재단 2027 배움터 교육지원사업', period: '2027. 3. ~ 2028. 2.', eduEnd: '2028. 1.',
@@ -72,7 +72,7 @@ export const PROJECTS = [
       { key: 'p2', role: '참여기관 ② 중·고등학교', ask: '교육적 지원이 필요한 청소년 연계와 학교 진로 활동 연결', candidates: '진로설계 실적이 있는 학교(예: 영광중학교)' },
       { key: 'p3', role: '협력 ③ 상담·진로 전문 기관', ask: '검사 해석 자문과 멘토 소개', candidates: '청소년상담복지센터, 대학 상담심리 관련 학과' }
     ],
-    leadHint: '학교폭력 특별교육을 7년 운영한 기관이 직접 대표기관을 맡는 것이 가장 강한 근거다. 다만 대표기관이 비영리 기관(단체)이어야 하므로 법인 형태를 확인해야 한다.',
+    leadHint: '학교폭력 특별교육 7년 운영은 **수행 역량**의 근거이고, 이번 참여 청소년이 재단의 지원 대상인지(대상 적합성)를 대신하지 않는다. 대표기관이 비영리 기관(단체)인지 법인 형태와 신청 자격을 먼저 확인하고, 실제 모집 경로를 정해야 한다.',
     lockNote: '이 사업의 대표·참여기관이 되면 2027 배움터의 다른 사업에는 참여할 수 없습니다. 재단의 대상 기준은 저소득·농어촌·이주배경 등 교육적 지원이 우선 필요한 청소년이므로, 가해 조치 학생만으로 구성하면 대상 적합성이 약합니다. 두 집단을 섞는 통합 구성이 안전하며 설명회에서 재단에 확인합니다.'
   },
   {
@@ -109,7 +109,7 @@ export function capOf(project, input = {}) {
 export function people(project, input = {}) { return Math.max(FUND.minPeople, Number(input.people) || project.people); }
 export function budgetPlan(project, input = {}) { return budgetFor(project.id, people(project, input), { cap: capOf(project, input) }); }
 // 「모든 조건이 갖춰졌다」고 가정한 입력(10-08). 모두 〔가상〕 표시가 붙는다. 인원은 한도 안에서 가장 큰 값이다.
-export const OPTIMAL_PEOPLE = { humanities: 42, culture: 45, migrant: 90, career: 50, community: 90 };
+export const OPTIMAL_PEOPLE = { humanities: 40, culture: 45, migrant: 90, career: 50, community: 90 };
 export function optimalInput(project) {
   const partners = {};
   for (const slot of project.slots) partners[slot.key] = `〔가상〕${slot.role.replace(/^참여기관\s*|^협력\s*/, '').replace(/^[①②③④⑤]\s*/, '')}(가칭)`;

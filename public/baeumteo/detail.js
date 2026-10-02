@@ -2,8 +2,8 @@
 // 재단 공개 신청서 양식의 서식 1~5 순서와 항목 이름을 그대로 따른다. 유형별 양식이 다르다:
 //  · 미래형(인문·사회 탐구, 문화예술 창작)  · 맞춤형(이주배경 잇다, 진로설계)  · 연결형(지역공동체)
 // 기관만 아는 값은 `[확인 필요]`로 둔다. 숫자는 programs.js의 프로그램표와 산출식에서 온다.
-import { FUND, budgetPlan, capOf, leadName, minSessionsOf, people, slotName, unionSize } from './plan.js?v=1009';
-import { PROGRAMS, RULES, classesOf, sessionTotal } from './programs.js?v=1009';
+import { FUND, budgetPlan, capOf, leadName, minSessionsOf, people, slotName, unionSize } from './plan.js?v=1010';
+import { PROGRAMS, RULES, classesOf, sessionTotal } from './programs.js?v=1010';
 
 const FORM = { humanities: '미래형', culture: '미래형', migrant: '맞춤형', career: '맞춤형', community: '연결형' };
 const GOALS = {
@@ -78,6 +78,8 @@ function recruit(project, input, count) {
     '3) 참여 예정 아동·청소년의 사회경제적 현황',
     '참여 학생 거주 지역: ○○시 ○○구 ○○동 [확인 필요: 읍면동 단위]',
     '사회경제적 배경: 거주 지역의 특징(재개발 계획 등), 보호자의 직종, 거주 형태, 경제적 상황, 문화적 배경, 지역의 교육 문제를 쓴다. [확인 필요: 기관이 아는 실제 상황 — 가장 먼저 채워야 할 칸]',
+    '※ 위 현황(읍면동, 보호자 직종, 거주 형태)은 교육적 필요를 설명하는 자료이며, 그것만으로 지원 대상 여부가 정해지지 않는다. 대상 해당 여부는 선발 때 기초생활수급·차상위 확인, 중위소득 75% 내외 확인, 면 단위 거주지 확인, 이주배경(모국어) 확인으로 따로 밝힌다.',
+    ...(project.id === 'career' ? ['※ 학교폭력 특별교육 7년 운영은 사업 수행 역량의 근거이며 이번 참여 청소년의 대상 적합성을 대신하지 않는다. 대상 적합성은 위 확인 방법과 모집 경로(교육지원청·학교·기관 의뢰, 공개 모집)로 보인다. 조치 이력은 서류에 적지 않는다.'] : []),
     '4) 참여 예정 아동·청소년의 유사 프로그램 참여 경험(신규 사업)',
     EXPERIENCE[project.id]
   ];
@@ -189,6 +191,7 @@ export function detailedPlan(project, input = {}) {
       '1) 지역 아동·청소년의 현황 및 교육복지 과제',
       '참여 학생 거주 지역: ○○시 ○○구 ○○동 [확인 필요]',
       '사회경제적 배경: 거주 지역의 특징, 보호자 직종, 거주 형태, 경제적 상황, 교육·문화 인프라. [확인 필요]',
+      '※ 위 현황은 교육적 필요를 설명하는 자료이며, 그것만으로 지원 대상 여부가 정해지지 않는다. 대상 해당 여부는 선발 때 수급·차상위·소득 기준, 면 단위 거주지, 이주배경 확인으로 따로 밝힌다.',
       `교육복지 과제: ${project.need}`,
       '협력사업의 필요성: 한 기관이 혼자 하기 어려운 문화 체험과 학생 교류를 인접한 기관이 공동 교육과정으로 풀어야 하는 이유를 쓴다. 기관별 강사 파견이 아니라 공동 기획·공동 운영임을 분명히 한다.',
       '2) 지역 교육자원 현황',

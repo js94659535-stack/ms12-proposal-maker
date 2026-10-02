@@ -201,3 +201,34 @@ test('제출 전 점검표는 여섯 영역이고 각각 완료 조건 문장을
   assert.deepEqual(CHECKLIST.map(([name]) => name), ['기관', '대상 학생', '교육과정', '운영 실적', '예산', '제출 서류']);
   assert.ok(CHECKLIST.every(([, condition]) => condition.length > 15));
 });
+
+test('★ 진행비도 서식 5처럼 단가×수량 산출식이다 — 「1식」이 없고 모든 줄에 두 수가 곱해진다', () => {
+  for (const project of PROJECTS) {
+    for (const row of budgetPlan(project, optimalInput(project)).rows) {
+      assert.ok(!/1식/.test(row.formula), `${project.id}: ${row.formula}`);
+      assert.ok(/[\d,]+원×/.test(row.formula) || /×/.test(row.formula), `${project.id}: ${row.account} ${row.formula}`);
+    }
+  }
+});
+
+test('★ 학생 한 명이 같은 시간에 두 번 강사비가 나가지 않는다 — 프로그램 회차가 서로 겹치지 않는다', () => {
+  for (const project of PROJECTS) {
+    const sessions = PROGRAMS[project.id].reduce((n, p) => n + p.sessions, 0);
+    assert.equal(sessions, sessionTotal(project.id));
+    const seen = new Set();
+    for (const program of PROGRAMS[project.id]) for (const theme of program.themes) {
+      const key = `${program.name}|${theme}`;
+      assert.ok(!seen.has(key), `${project.id}: 같은 회차가 두 번 ${key}`);
+      seen.add(key);
+    }
+  }
+});
+
+test('대상 적합성은 수행 역량과 따로 쓴다 — 읍면동·직종은 필요 설명이지 대상 확정이 아니다', () => {
+  for (const project of PROJECTS) {
+    assert.match(detailedPlan(project, {}), /지원 대상 여부가 정해지지 않는다/);
+  }
+  const career = detailedPlan(byId('career'), {});
+  assert.match(career, /수행 역량의 근거이며 이번 참여 청소년의 대상 적합성을 대신하지 않는다/);
+  assert.match(byId('career').leadHint, /수행 역량/);
+});
