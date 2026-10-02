@@ -19,7 +19,12 @@
   .t { flex:1; }
   .s { flex:none; color:var(--sub); font-size:13px; }
   .box { padding:0 0 18px 32px; }
-  .facts, .review { margin:14px 0 4px; }
+  .facts, .review, .combos { margin:14px 0 4px; }
+  .opt { margin:10px 0; padding:8px 10px; border-left:3px solid var(--line); font-size:14px; }
+  .opt .rate { color:var(--sub); font-size:12px; }
+  .opt .why { color:var(--ink); }
+  .opt .risk { color:var(--warn); }
+  .chg { margin:8px 0; font-size:14px; }
   .facts textarea { width:100%; box-sizing:border-box; min-height:52px; padding:8px 10px; font:inherit; font-size:14px; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:6px; }
   .facts .q { font-size:13px; color:var(--sub); margin:2px 0 3px; }
   .facts .done { color:var(--accent); font-weight:700; }
@@ -50,8 +55,9 @@
   <div id="list"></div>
 </main>
 <script type="module">
-import { PROJECTS, CHECKLIST, optimalInput, budgetPlan, people, unionSize, planText, pitchText, won as wonOf } from './plan.js?v=1011';
-import { detailedPlan, factList, reviewPlan } from './detail.js?v=1011';
+import { PROJECTS, CHECKLIST, optimalInput, budgetPlan, people, unionSize, planText, pitchText, won as wonOf } from './plan.js?v=1012';
+import { detailedPlan, factList, reviewPlan, changeLog } from './detail.js?v=1012';
+import { COMBOS, CRITERIA } from './combos.js?v=1012';
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
 const KEY = 'baeumteo-v1';
 let saved = {};
@@ -62,7 +68,8 @@ const won = wonOf;
 const openIds = new Set();
 
 const factCount = (project, data) => { const list = factList(project, data); return `${list.filter(i => i.answered).length}/${list.length}`; };
-const reviewHtml = (project, data) => `<b>자동 점검</b><ul>${reviewPlan(project, data).map(r => `<li><span class="lv ${r.level === '오류' ? 'err' : r.level === '확인' ? 'chk' : 'inf'}">${r.level}</span> ${esc(r.message)}</li>`).join('')}</ul>`;
+const changeHtml = (project, data) => { const rows = changeLog(project, data); return rows.length ? `<div class="chg"><b>가상 최적 기준에서 달라진 것</b><ul>${rows.map(r => `<li>${esc(r.what)}: ${esc(r.from)} → ${esc(r.to)}</li>`).join('')}</ul></div>` : '<div class="chg"><b>가상 최적 기준과 같다</b></div>'; };
+const reviewHtml = (project, data) => `<b>자동 점검</b><ul>${reviewPlan(project, data).map(r => `<li><span class="lv ${r.level === '오류' ? 'err' : r.level === '확인' ? 'chk' : 'inf'}">${r.level}</span> ${esc(r.message)}</li>`).join('')}</ul>${changeHtml(project, data)}`;
 const checkCount = data => CHECKLIST.filter((_, i) => data.checks?.[i]).length;
 const bodyOf = (project, data) => data.view === 'pitch' ? pitchText(project, data) : data.view === 'detail' ? detailedPlan(project, data) : planText(project, data);
 
@@ -77,6 +84,9 @@ function render() {
       <summary><span class="n">${project.no}</span><span class="t">${esc(project.type)}</span><span class="s">${won(budgetPlan(project, data).total)} · ${people(project, data)}명 · 점검 <span class="ck">${checkCount(data)}/6</span></span></summary>
       <div class="box">
         <p class="hint">${esc(project.leadHint)}</p>
+        <details class="combos"><summary><b>추진 조합 제안</b> — 이상적인 조합 1안과 대안 2안 (모두 후보, 참여 의사 미확인)</summary>
+          ${COMBOS[project.id].map(option => `<div class="opt"><b>${esc(option.name)}</b> <span class="rate">${CRITERIA.map((name, i) => `${esc(name)} ${esc(option.rate[i])}`).join(' · ')}</span><br>대표기관 후보: ${esc(option.lead)}${option.partners.map(line => `<br>· ${esc(line)}`).join('')}<br><span class="why">이유: ${esc(option.why)}</span><br><span class="risk">위험: ${esc(option.risk)}</span></div>`).join('')}
+        </details>
         <label>대표기관</label>
         <input data-p="${project.id}" data-k="lead" value="${esc(data.lead)}" placeholder="대표기관 이름 (비워 두면 선정 중)">
         ${slots}

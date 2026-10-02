@@ -2,8 +2,8 @@
 // 재단 공개 신청서 양식의 서식 1~5 순서와 항목 이름을 그대로 따른다. 유형별 양식이 다르다:
 //  · 미래형(인문·사회 탐구, 문화예술 창작)  · 맞춤형(이주배경 잇다, 진로설계)  · 연결형(지역공동체)
 // 기관만 아는 값은 `[확인 필요]`로 둔다. 숫자는 programs.js의 프로그램표와 산출식에서 온다.
-import { FUND, budgetPlan, capOf, leadName, minSessionsOf, people, slotName, unionSize } from './plan.js?v=1011';
-import { PROGRAMS, RULES, classesOf, sessionTotal } from './programs.js?v=1011';
+import { FUND, budgetPlan, capOf, leadName, minSessionsOf, optimalInput, people, slotName, unionSize, won } from './plan.js?v=1012';
+import { PROGRAMS, RULES, classesOf, sessionTotal } from './programs.js?v=1012';
 
 const FORM = { humanities: '미래형', culture: '미래형', migrant: '맞춤형', career: '맞춤형', community: '연결형' };
 const GOALS = {
@@ -294,6 +294,27 @@ function detailedPlanRaw(project, input = {}) {
     '평가와 환류: 사전·사후 과제 비교, 출석(연 80% 이상 출석 학생 85% 목표), 산출물, 학생 주도성 기록(주제 결정·역할 수행·수정 기록), 지역 공유 기록을 모아 단계마다 수업을 조정한다. 목표치는 기존 자료나 초기 조사로 정하며 실적처럼 미리 쓰지 않는다.',
     `안전·아동보호: 교강사·봉사자는 아동학대·성범죄 경력 조회에 동의한 사람만 참여한다. 개인 식별 정보는 성과공유회와 산출물에 싣지 않는다. 종교적·정치적으로 편향된 활동은 하지 않는다. ${project.lockNote}`);
   return out.join('\n');
+}
+
+
+// 가상 최적 기준과 지금 입력을 견줘 달라진 것을 보여 준다(10-15). 기관 이름만 바뀐 것이 아니라
+// 인원·반 수·신청액·연합 기관 수·산출물·성과 목표가 함께 어떻게 바뀌었는지가 핵심이다.
+export function changeLog(project, input = {}) {
+  const base = optimalInput(project);
+  const rows = [];
+  const diff = (what, from, to) => { if (String(from) !== String(to)) rows.push({ what, from: String(from), to: String(to) }); };
+  const baseCount = people(project, base);
+  const count = people(project, input);
+  diff('참여 인원', `${baseCount}명`, `${count}명`);
+  diff('반 수', `${classesOf(baseCount)}개`, `${classesOf(count)}개`);
+  diff('연합 기관 수(이름이 정해진 곳)', `${unionSize(project, base)}곳`, `${unionSize(project, input)}곳`);
+  diff('신청 한도', won(capOf(project, base)), won(capOf(project, input)));
+  diff('신청액', won(budgetPlan(project, base).total), won(budgetPlan(project, input).total));
+  const baseQ = quantities(project, baseCount);
+  const nowQ = quantities(project, count);
+  diff('산출물 수량', baseQ[0].replace(/^[^:]+: /, ''), nowQ[0].replace(/^[^:]+: /, ''));
+  diff('성과 목표', baseQ[1].replace(/^[^:]+: /, ''), nowQ[1].replace(/^[^:]+: /, ''));
+  return rows;
 }
 
 export function detailedPlan(project, input = {}) {

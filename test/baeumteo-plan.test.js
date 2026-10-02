@@ -301,3 +301,55 @@ test('resolveFacts는 토큰만 바꾸고 나머지 문장은 건드리지 않�
   const out = resolveFacts('앞 {{area}} 뒤', byId('humanities'), { facts: { area: '월곡동' } });
   assert.equal(out, '앞 월곡동 뒤');
 });
+
+// ---------- 추진 조합 제안 · 변경 내역 (10-15) ----------
+import { COMBOS, CRITERIA, comboText } from '../public/baeumteo/combos.js';
+import { changeLog } from '../public/baeumteo/detail.js';
+
+test('★ 사업마다 조합이 1안과 대안 2안이고, 다섯 기준의 상·중·하 비교와 이유·위험을 갖는다', () => {
+  assert.deepEqual(Object.keys(COMBOS).sort(), PROJECTS.map(p => p.id).sort());
+  assert.equal(CRITERIA.length, 5);
+  for (const project of PROJECTS) {
+    const options = COMBOS[project.id];
+    assert.equal(options.length, 3, project.id);
+    assert.match(options[0].name, /^1안/);
+    assert.match(options[1].name, /^대안 A/);
+    assert.match(options[2].name, /^대안 B/);
+    for (const option of options) {
+      assert.equal(option.rate.length, 5);
+      assert.ok(option.rate.every(r => ['상', '중', '하'].includes(r)), `${project.id}/${option.name}`);
+      assert.ok(option.why.length > 15 && option.risk.length > 15, `${project.id}/${option.name}: 이유·위험`);
+      assert.ok(option.partners.length >= 1);
+    }
+    assert.ok(comboText(project.id).includes('위험:'));
+  }
+});
+
+test('조합 제안은 규정과 어긋나는 제안을 하지 않는다 — 지역공동체 종단은 협력, 이주배경 5곳은 선택', () => {
+  const community = COMBOS.community[0];
+  assert.ok(community.partners.some(line => /^협력.*사찰.*교회/.test(line)), '종단은 참여기관이 아니라 협력');
+  assert.ok(community.partners.some(line => /학생 등록 배움터 2곳 이상/.test(line)));
+  assert.match(COMBOS.migrant[1].why, /5곳 연합은 필수가 아니다/);
+  assert.match(COMBOS.migrant[0].risk, /기관 이름 5개만으로는 규모를 정당화하지 못한다/);
+  assert.match(COMBOS.career[0].risk, /대상 적합성을 대신하지 않는다/);
+  for (const project of PROJECTS) for (const option of COMBOS[project.id]) {
+    assert.ok(!/확정|수락했다|참여하기로/.test(option.lead + option.partners.join('')), `${project.id}/${option.name}: 참여 의사를 확정처럼 썼다`);
+  }
+});
+
+test('★ 가상본이 센터 3곳·45명인데 실제는 센터 2곳·30명이면 이름만이 아니라 반·산출물·예산·성과 목표가 바뀐다', () => {
+  const culture = byId('culture');
+  const actual = { lead: '벧엘지역아동센터', partners: { p1: '가나지역아동센터' }, people: '30' };
+  const rows = changeLog(culture, actual);
+  const find = what => rows.find(row => row.what === what);
+  assert.deepEqual([find('참여 인원').from, find('참여 인원').to], ['45명', '30명']);
+  assert.deepEqual([find('반 수').from, find('반 수').to], ['3개', '2개']);
+  assert.ok(find('연합 기관 수(이름이 정해진 곳)'));
+  assert.ok(find('신청액'));
+  assert.ok(find('산출물 수량').to.includes('개인 원고 30편'));
+  assert.ok(find('성과 목표').to.includes('26명'));
+});
+
+test('가상 최적 그대로면 달라진 것이 없다', () => {
+  for (const project of PROJECTS) assert.deepEqual(changeLog(project, optimalInput(project)), [], project.id);
+});
