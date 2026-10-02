@@ -5,7 +5,7 @@
 // 기관만 아는 값(실제 대상 구성·연락처·단가)은 `[확인 필요]`로 둔다.
 // 뼈대는 재단 요강의 선정기준 여섯 가지다. 숫자(15명·연 35회·한도)는 요강에서 가져왔다.
 
-import { PROGRAMS, RULES, budgetFor, classesOf, sessionTotal } from './programs.js?v=1008';
+import { PROGRAMS, RULES, budgetFor, classesOf, sessionTotal } from './programs.js?v=1009';
 
 export const FUND = {
   name: '삼성꿈장학재단 2027 배움터 교육지원사업', period: '2027. 3. ~ 2028. 2.', eduEnd: '2028. 1.',
@@ -30,9 +30,9 @@ export const PROJECTS = [
     lockNote: '이 사업의 참여기관이 되면 2027 배움터의 다른 사업에는 참여할 수 없습니다.'
   },
   {
-    id: 'culture', no: 2, type: '문화예술 창작 프로젝트', cap: 30_000_000, people: 42,
+    id: 'culture', no: 2, type: '문화예술 창작 프로젝트', cap: 30_000_000, people: 45,
     title: '나도 어린이 동화작가 — AI와 함께 쓰고 그리는 우리 이야기',
-    goal: '아동이 자기 이야기를 기획·창작하고 이를 지역사회와 나누며 표현력과 자신감을 기른다. 장기 목표는 지역아동센터 아동 333명이 각자 자기 동화 1권을 완성하는 것이다(이 신청은 그 1차 단계, 42명)',
+    goal: '아동이 자기 이야기를 기획·창작하고 이를 지역사회와 나누며 표현력과 자신감을 기른다. 장기 목표는 지역아동센터 아동 333명이 각자 자기 동화 1권을 완성하는 것이다(이 신청은 그 1차 단계, 45명)',
     need: '자기 이야기를 글과 그림으로 끝까지 완성해 본 경험이 적은 아동에게 「내 책을 만들었다」는 성취는 표현력과 자기효능감의 출발점이 된다. 생성형 AI를 안전하게 쓰는 법을 함께 배우면 쓰기·그리기의 문턱이 낮아지고, 결과물은 지역 도서관과 가족 앞에서 나눌 수 있다.',
     outputs: ['1인 1권 완성 동화', '합본 작품집', '낭독회·전시 기록'],
     evidence: ['2026 벧엘지역아동센터 미래설계 AI진로동화 프로젝트(전문 진로 검사와 AI 스토리텔링)', '2026 광주 송우초등학교 창의융합 AI 교육(내 꿈을 담은 AI동화)', '2026 나주 봉황초등학교 창의융합 AI 교육(나를 닮은 AI 캐릭터와 다이어리툰)', '2026 마인드스토리 AI코스웨어 지도사 양성과정(AI동화 지도법)·동화구연 지도사 양성과정'],
@@ -109,12 +109,21 @@ export function capOf(project, input = {}) {
 export function people(project, input = {}) { return Math.max(FUND.minPeople, Number(input.people) || project.people); }
 export function budgetPlan(project, input = {}) { return budgetFor(project.id, people(project, input), { cap: capOf(project, input) }); }
 // 「모든 조건이 갖춰졌다」고 가정한 입력(10-08). 모두 〔가상〕 표시가 붙는다. 인원은 한도 안에서 가장 큰 값이다.
-export const OPTIMAL_PEOPLE = { humanities: 42, culture: 42, migrant: 90, career: 50, community: 90 };
+export const OPTIMAL_PEOPLE = { humanities: 42, culture: 45, migrant: 90, career: 50, community: 90 };
 export function optimalInput(project) {
   const partners = {};
   for (const slot of project.slots) partners[slot.key] = `〔가상〕${slot.role.replace(/^참여기관\s*|^협력\s*/, '').replace(/^[①②③④⑤]\s*/, '')}(가칭)`;
   return { virtual: true, lead: '〔가상〕대표기관(가칭)', partners, people: String(OPTIMAL_PEOPLE[project.id]), view: 'detail' };
 }
+// 제출 전 점검 영역(10-11). 퍼센트 대신 「완료로 인정할 조건」을 하나씩 확인한다.
+export const CHECKLIST = [
+  ['기관', '대표·참여기관의 참여 의사와 역할을 확인했고, 한 기관이 두 사업에 들어가지 않았다'],
+  ['대상 학생', '실제 모집 경로, 예상 인원, 교육지원이 필요한 근거를 확보했다'],
+  ['교육과정', '학생별 참여 횟수, 장소, 일정, 담당 인력이 서로 이어진다'],
+  ['운영 실적', '기간·인원·성과를 확인할 자료를 확보했다'],
+  ['예산', '실제 운영 규모와 산출식이 맞고 단가·비율을 검토했다'],
+  ['제출 서류', '공식 양식 반영, 필요한 서명·직인·동의서, PDF 검수를 마쳤다']
+];
 export function minSessionsOf(project) { return project.minSessions || FUND.minSessions; }
 
 const programLine = program => `- ${program.name}(${program.stage}, ${program.months}): ${program.sessions}회 × ${program.hours}시간 — ${program.core}`;

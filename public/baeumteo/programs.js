@@ -42,7 +42,7 @@ export const PROGRAMS = {
     { name: 'AI와 함께 쓰는 이야기 교실', stage: '1단계 탐구·학습', months: '5월~8월', sessions: 10, hours: 2, groups: 'classes', assistant: true, matPer: 20_000, place: '대표기관 및 참여기관 활동실',
       core: '개인 이야기를 AI와 대화하며 쓰고 친구에게 읽어 주어 의견을 받고 고친다. 결과는 학생이 선택하고 책임진다.',
       themes: ['주인공 만들기', 'AI와 아이디어 나누기', '줄거리 짜기', '1장 쓰기', '1장 읽어 주고 의견 받기', '2장 쓰기', '2장 고치기', '3장 쓰기', '결말 쓰기', '첫 원고 서로 읽기'] },
-    { name: '공동 그림책 제작 동아리', stage: '2단계 프로젝트 기획·실행', months: '8월~12월', sessions: 12, hours: 2, groups: 3, assistant: true, matPer: 40_000, fee: 2_400_000, place: '대표기관 활동실',
+    { name: '공동 그림책 제작 동아리', stage: '2단계 프로젝트 기획·실행', months: '8월~12월', sessions: 12, hours: 2, groups: 3, assistant: true, matPer: 40_000, fee: 2_100_000, place: '대표기관 활동실',
       core: '학생이 공동 주제를 정하고 글·그림·편집·낭독 역할을 나누어 팀별 그림책 한 권을 완성한다. 서로의 작품에 의견을 주고 수정한다.',
       themes: ['공동 주제 정하기', '역할 나누기(글·그림·편집·낭독)', '그림 생성 입문과 직접 그리기', '장면 그림 만들기①', '장면 그림 만들기②', '팀 원고 합치기', '서로의 작품에 의견 주기', '수정①', '수정②', '편집①', '편집②', '표지 완성'] },
     { name: '봉사활동: 동화 읽어 주기', stage: '3단계 성과 공유', months: '10월, 1월', sessions: 2, hours: 2, groups: 1, assistant: false, matPer: 5_000, fee: 100_000, place: '어린이집·지역 도서관',

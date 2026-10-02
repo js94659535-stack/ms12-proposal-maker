@@ -2,7 +2,7 @@
 // 기관이 하나도 없어도 끝까지 읽히고, 이름이 들어오면 그 자리만 바뀐다.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { FUND, PROJECTS, planText, pitchText, capOf, unionSize, budgetPlan, minSessionsOf, optimalInput } from '../public/baeumteo/plan.js';
+import { FUND, PROJECTS, planText, pitchText, capOf, unionSize, budgetPlan, minSessionsOf, optimalInput, CHECKLIST } from '../public/baeumteo/plan.js';
 import { PROGRAMS, RULES, budgetFor, sessionTotal } from '../public/baeumteo/programs.js';
 import { detailedPlan, monthlyThemes, monthsOf } from '../public/baeumteo/detail.js';
 
@@ -186,4 +186,18 @@ test('단독 화면의 모듈 주소는 같은 버전 표시를 갖고 캐시 �
   assert.equal(versions.size, 1, `버전 표시가 여러 가지다: ${[...versions]}`);
   const headers = fs.readFileSync(new URL('../public/_headers', import.meta.url), 'utf8');
   assert.match(headers, /\/baeumteo\/\*\s+Cache-Control: no-cache/);
+});
+
+test('문화예술 AI동화는 15명씩 3개 반, 45명으로 3천만 원 한도 안에서 나온다', () => {
+  const culture = byId('culture');
+  const budget = budgetPlan(culture, {});
+  assert.match(detailedPlan(culture, {}), /전체 45명을 3개 반/);
+  assert.ok(budget.total <= 30_000_000, `${budget.total}`);
+  assert.deepEqual(budget.warnings, []);
+});
+
+test('제출 전 점검표는 여섯 영역이고 각각 완료 조건 문장을 갖는다', () => {
+  assert.equal(CHECKLIST.length, 6);
+  assert.deepEqual(CHECKLIST.map(([name]) => name), ['기관', '대상 학생', '교육과정', '운영 실적', '예산', '제출 서류']);
+  assert.ok(CHECKLIST.every(([, condition]) => condition.length > 15));
 });
