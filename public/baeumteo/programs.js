@@ -25,7 +25,7 @@ export const PROGRAMS = {
     { name: '동네 탐구 현장 교실', stage: '1단계 탐구·학습', months: '5월~10월', sessions: 6, hours: 2.5, groups: 1, assistant: true, matPer: 8_000, bus: 3, fees: [['체험·입장료', 10_000, 'people', 1]], place: '지역 도서관·시장·마을 역사 공간',
       core: '학생이 정한 마을 질문을 도서관 자료, 어르신 인터뷰, 현장 탐방으로 탐구한다.',
       themes: ['우리 마을 질문 정하기', '인터뷰 질문지 만들기', '도서관 탐방과 사서 인터뷰', '시장·마을 어르신 인터뷰', '동네 역사 공간 탐방', '인터뷰 정리와 탐구노트'] },
-    { name: '마을 탐구신문 제작 동아리', stage: '2단계 프로젝트 기획·실행', months: '8월~12월', sessions: 8, hours: 2, groups: 1, assistant: false, matPer: 20_000, fees: [['신문 인쇄(팀별 1호, 팀당 100부)', 6_000, 'fixed', 300]], place: '대표기관 활동실',
+    { name: '마을 탐구신문 제작 동아리', stage: '2단계 프로젝트 기획·실행', months: '8월~12월', sessions: 8, hours: 2, groups: 1, assistant: false, matPer: 20_000, fees: people => [[`신문 인쇄(${Math.ceil(people / 10)}팀×100부)`, 6_000, 'fixed', Math.ceil(people / 10) * 100]], place: '대표기관 활동실',
       core: '학생이 취재 주제를 정하고 기사를 쓰고 편집해 「마을 탐구신문」을 만든다. 소그룹 3개가 각자 한 호를 맡는다.',
       themes: ['팀 구성과 주제 정하기', '취재 계획 세우기', '기사 쓰기①', '기사 쓰기②', '편집 회의', '편집·디자인①', '편집·디자인②', '시안 점검과 수정'] },
     { name: '봉사활동: 그림책 읽어 주기', stage: '3단계 성과 공유', months: '10월, 1월', sessions: 2, hours: 2, groups: 1, assistant: false, matPer: 5_000, fees: [['봉사 활동 보험·이동', 3_500, 'people', 1]], place: '어린이집·지역 작은도서관',
@@ -42,7 +42,7 @@ export const PROGRAMS = {
     { name: 'AI와 함께 쓰는 이야기 교실', stage: '1단계 탐구·학습', months: '5월~8월', sessions: 10, hours: 2, groups: 'classes', assistant: true, matPer: 20_000, place: '대표기관 및 참여기관 활동실',
       core: '개인 이야기를 AI와 대화하며 쓰고 친구에게 읽어 주어 의견을 받고 고친다. 결과는 학생이 선택하고 책임진다.',
       themes: ['주인공 만들기', 'AI와 아이디어 나누기', '줄거리 짜기', '1장 쓰기', '1장 읽어 주고 의견 받기', '2장 쓰기', '2장 고치기', '3장 쓰기', '결말 쓰기', '첫 원고 서로 읽기'] },
-    { name: '공동 그림책 제작 동아리', stage: '2단계 프로젝트 기획·실행', months: '8월~12월', sessions: 12, hours: 2, groups: 3, assistant: true, matPer: 40_000, fees: [['팀별 그림책 인쇄(9팀×45부)', 5_000, 'fixed', 405]], place: '대표기관 활동실',
+    { name: '공동 그림책 제작 동아리', stage: '2단계 프로젝트 기획·실행', months: '8월~12월', sessions: 12, hours: 2, groups: 3, assistant: true, matPer: 40_000, fees: people => [[`팀별 그림책 인쇄(${Math.ceil(people / 5)}팀×${people}부)`, 5_000, 'fixed', Math.ceil(people / 5) * people]], place: '대표기관 활동실',
       core: '학생이 공동 주제를 정하고 글·그림·편집·낭독 역할을 나누어 팀별 그림책 한 권을 완성한다. 서로의 작품에 의견을 주고 수정한다.',
       themes: ['공동 주제 정하기', '역할 나누기(글·그림·편집·낭독)', '그림 생성 입문과 직접 그리기', '장면 그림 만들기①', '장면 그림 만들기②', '팀 원고 합치기', '서로의 작품에 의견 주기', '수정①', '수정②', '편집①', '편집②', '표지 완성'] },
     { name: '봉사활동: 동화 읽어 주기', stage: '3단계 성과 공유', months: '10월, 1월', sessions: 2, hours: 2, groups: 1, assistant: false, matPer: 5_000, fees: [['봉사 보험·이동', 2_500, 'people', 1]], place: '어린이집·지역 도서관',
@@ -132,7 +132,7 @@ export function budgetFor(id, people, { cap = Infinity, practitionerMonths = 12,
     if (program.matPer) add(program.name, '학습재료비', `재료·교재 ${money(program.matPer)}×${people}명`, program.matPer * people);
     if (program.bus) add(program.name, '교통비', `버스 대여 ${money(300_000)}×${program.bus}대×${program.busTimes || program.sessions}회`, 300_000 * program.bus * (program.busTimes || program.sessions));
     add(program.name, '식비(간식)', `간식 ${money(2_000)}×${people}명×${program.sessions}회`, 2_000 * people * program.sessions);
-    for (const [label, unit, kind, times] of program.fees || []) {
+    for (const [label, unit, kind, times] of typeof program.fees === 'function' ? program.fees(people) : program.fees || []) {
       const qty = kind === 'people' ? people * times : times;
       add(program.name, '진행비', `${label} ${money(unit)}×${kind === 'people' ? `${people}명×${times}회` : `${times}`}`, unit * qty);
     }

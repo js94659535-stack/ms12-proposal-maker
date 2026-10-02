@@ -19,6 +19,15 @@
   .t { flex:1; }
   .s { flex:none; color:var(--sub); font-size:13px; }
   .box { padding:0 0 18px 32px; }
+  .facts, .review { margin:14px 0 4px; }
+  .facts textarea { width:100%; box-sizing:border-box; min-height:52px; padding:8px 10px; font:inherit; font-size:14px; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:6px; }
+  .facts .q { font-size:13px; color:var(--sub); margin:2px 0 3px; }
+  .facts .done { color:var(--accent); font-weight:700; }
+  .review li { margin:3px 0; font-size:14px; }
+  .lv { display:inline-block; min-width:34px; font-weight:700; }
+  .lv.err { color:var(--warn); }
+  .lv.chk { color:#a86b00; }
+  .lv.inf { color:var(--sub); }
   .checks { margin:14px 0 4px; padding:10px 12px; background:var(--soft); border:1px solid var(--line); border-radius:8px; }
   .checks label { display:flex; gap:8px; align-items:flex-start; margin:4px 0; font-size:14px; color:var(--ink); }
   .checks input { width:auto; margin-top:5px; }
@@ -41,8 +50,8 @@
   <div id="list"></div>
 </main>
 <script type="module">
-import { PROJECTS, CHECKLIST, optimalInput, budgetPlan, people, unionSize, planText, pitchText, won as wonOf } from './plan.js?v=1010';
-import { detailedPlan } from './detail.js?v=1010';
+import { PROJECTS, CHECKLIST, optimalInput, budgetPlan, people, unionSize, planText, pitchText, won as wonOf } from './plan.js?v=1011';
+import { detailedPlan, factList, reviewPlan } from './detail.js?v=1011';
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
 const KEY = 'baeumteo-v1';
 let saved = {};
@@ -52,6 +61,8 @@ const input = id => (saved[id] ||= { lead: '', partners: {}, people: '', view: '
 const won = wonOf;
 const openIds = new Set();
 
+const factCount = (project, data) => { const list = factList(project, data); return `${list.filter(i => i.answered).length}/${list.length}`; };
+const reviewHtml = (project, data) => `<b>자동 점검</b><ul>${reviewPlan(project, data).map(r => `<li><span class="lv ${r.level === '오류' ? 'err' : r.level === '확인' ? 'chk' : 'inf'}">${r.level}</span> ${esc(r.message)}</li>`).join('')}</ul>`;
 const checkCount = data => CHECKLIST.filter((_, i) => data.checks?.[i]).length;
 const bodyOf = (project, data) => data.view === 'pitch' ? pitchText(project, data) : data.view === 'detail' ? detailedPlan(project, data) : planText(project, data);
 
@@ -72,6 +83,10 @@ function render() {
         <label>참여 인원 (${project.peopleRange ? `${project.peopleRange[0]}~${project.peopleRange[1]}명 범위 · ` : ''}최소 15명)</label>
         <input data-p="${project.id}" data-k="people" type="number" min="15" value="${esc(data.people)}" placeholder="${project.people}">
         ${project.capUnion ? `<p class="cand">연합 ${unionSize(project, data)}곳 · 5곳 이상이면 신청 한도가 ${won(project.capUnion)}로 오릅니다(신청액은 필요한 만큼만)</p>` : ''}
+        <details class="facts"><summary><b>확인할 사실</b> <span id="fct-${project.id}">${factCount(project, data)}</span> — 알려 주시면 계획서의 빈칸이 이 답으로 바뀝니다</summary>
+          ${factList(project, data).map(item => `<label>${esc(item.label)} <span class="done" data-done="${project.id}:${item.key}">${item.answered ? '✓' : ''}</span></label><p class="q">${esc(item.ask)}</p><textarea data-fact="${project.id}" data-k="${item.key}">${esc(item.answer)}</textarea>`).join('')}
+        </details>
+        <div class="review" id="rev-${project.id}">${reviewHtml(project, data)}</div>
         <div class="checks"><b>제출 전 점검</b> <span id="chk-${project.id}">${checkCount(data)}/6</span>
           ${CHECKLIST.map(([name, cond], i) => `<label><input type="checkbox" data-chk="${project.id}" data-i="${i}" ${data.checks?.[i] ? 'checked' : ''}><span><b>${esc(name)}</b> — ${esc(cond)}</span></label>`).join('')}</div>
         <div class="row">
@@ -93,6 +108,7 @@ function refresh(id) {
   const project = PROJECTS.find(p => p.id === id);
   const data = input(id);
   document.querySelector(`#out-${id}`).textContent = bodyOf(project, data);
+  const rev = document.querySelector(`#rev-${id}`); if (rev) rev.innerHTML = reviewHtml(project, data);
   const summary = document.querySelector(`details[data-id="${id}"] .s`);
   summary.textContent = `${won(budgetPlan(project, data).total)} · ${people(project, data)}명 · 점검 ${checkCount(data)}/6`;
 }
@@ -100,6 +116,7 @@ function refresh(id) {
 const root = document.querySelector('#list');
 root.addEventListener('input', event => {
   const el = event.target;
+  if (el.dataset.fact) { const data = input(el.dataset.fact); (data.facts ||= {})[el.dataset.k] = el.value; save(); const mark = document.querySelector(`[data-done="${el.dataset.fact}:${el.dataset.k}"]`); if (mark) mark.textContent = el.value.trim() ? '✓' : ''; document.querySelector(`#fct-${el.dataset.fact}`).textContent = factCount(PROJECTS.find(p => p.id === el.dataset.fact), data); refresh(el.dataset.fact); return; }
   if (el.dataset.chk) { const data = input(el.dataset.chk); (data.checks ||= {})[el.dataset.i] = el.checked; save(); document.querySelector(`#chk-${el.dataset.chk}`).textContent = `${checkCount(data)}/6`; refresh(el.dataset.chk); return; }
   const id = el.dataset.p; if (!id) return;
   const data = input(id);

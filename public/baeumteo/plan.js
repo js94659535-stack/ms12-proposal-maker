@@ -5,7 +5,7 @@
 // 기관만 아는 값(실제 대상 구성·연락처·단가)은 `[확인 필요]`로 둔다.
 // 뼈대는 재단 요강의 선정기준 여섯 가지다. 숫자(15명·연 35회·한도)는 요강에서 가져왔다.
 
-import { PROGRAMS, RULES, budgetFor, classesOf, sessionTotal } from './programs.js?v=1010';
+import { PROGRAMS, RULES, budgetFor, classesOf, sessionTotal } from './programs.js?v=1011';
 
 export const FUND = {
   name: '삼성꿈장학재단 2027 배움터 교육지원사업', period: '2027. 3. ~ 2028. 2.', eduEnd: '2028. 1.',
@@ -109,7 +109,7 @@ export function capOf(project, input = {}) {
 export function people(project, input = {}) { return Math.max(FUND.minPeople, Number(input.people) || project.people); }
 export function budgetPlan(project, input = {}) { return budgetFor(project.id, people(project, input), { cap: capOf(project, input) }); }
 // 「모든 조건이 갖춰졌다」고 가정한 입력(10-08). 모두 〔가상〕 표시가 붙는다. 인원은 한도 안에서 가장 큰 값이다.
-export const OPTIMAL_PEOPLE = { humanities: 40, culture: 45, migrant: 90, career: 50, community: 90 };
+export const OPTIMAL_PEOPLE = { humanities: 36, culture: 45, migrant: 90, career: 50, community: 90 };
 export function optimalInput(project) {
   const partners = {};
   for (const slot of project.slots) partners[slot.key] = `〔가상〕${slot.role.replace(/^참여기관\s*|^협력\s*/, '').replace(/^[①②③④⑤]\s*/, '')}(가칭)`;

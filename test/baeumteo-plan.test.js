@@ -232,3 +232,72 @@ test('대상 적합성은 수행 역량과 따로 쓴다 — 읍면동·직종�
   assert.match(career, /수행 역량의 근거이며 이번 참여 청소년의 대상 적합성을 대신하지 않는다/);
   assert.match(byId('career').leadHint, /수행 역량/);
 });
+
+// ---------- 사실 질문 · 점검 · 연동 (10-13) ----------
+import { factList, factKeys, reviewPlan, quantities, resolveFacts } from '../public/baeumteo/detail.js';
+
+test('★ 질문 목록은 문서의 빈칸에서 나오고, 답을 넣으면 그 칸만 그 답으로 바뀐다', () => {
+  for (const project of PROJECTS) {
+    const keys = factKeys(project);
+    assert.ok(keys.length >= 10, `${project.id}: 질문 ${keys.length}개`);
+    const before = detailedPlan(project, {});
+    assert.ok(before.includes('[확인 필요: 사회경제적 배경]'), `${project.id}: 사회경제 빈칸`);
+    const after = detailedPlan(project, { facts: { who: '월곡동 임대아파트 거주 학생이 많다.' } });
+    assert.ok(after.includes('월곡동 임대아파트 거주 학생이 많다.'));
+    assert.ok(!after.includes('[확인 필요: 사회경제적 배경]'));
+    assert.ok(after.includes('[확인 필요: 거주 지역(읍면동)]'), '답하지 않은 칸은 그대로 남는다');
+    assert.equal(factList(project, { facts: { who: '답' } }).filter(item => item.answered).length, 1);
+  }
+});
+
+test('모든 사실에 답하면 확인 필요가 하나도 남지 않고, 가상 표시도 붙지 않는다', () => {
+  for (const project of PROJECTS) {
+    const facts = Object.fromEntries(factKeys(project).map(key => [key, `답-${key}`]));
+    const text = detailedPlan(project, { facts });
+    assert.deepEqual(text.match(/\[확인 필요[^\]]*\]/g) || [], [], project.id);
+    assert.ok(!text.includes('〔가상〕'), project.id);
+    assert.ok(!/\{\{\w+\}\}/.test(text), `${project.id}: 풀리지 않은 토큰`);
+  }
+});
+
+test('사용자 답이 가상 값보다 우선한다', () => {
+  const humanities = byId('humanities');
+  const text = detailedPlan(humanities, { ...optimalInput(humanities), facts: { area: '광주 광산구 월곡동' } });
+  assert.ok(text.includes('광주 광산구 월곡동'));
+  assert.ok(!text.includes('광주광역시 광산구 ○○동·○○동(가칭)'));
+  assert.ok(text.includes('〔가상〕'), '답하지 않은 칸은 가상으로 남는다');
+});
+
+test('★ 점검: 인원 미달·한도 초과·가상 잔존·지역공동체 3곳 미만을 오류로 잡는다', () => {
+  const levels = (project, input) => reviewPlan(project, input).filter(item => item.level === '오류').map(item => item.message);
+  assert.ok(levels(byId('humanities'), { people: 10 }).length === 0, '인원은 최소 15명으로 보정된다');
+  assert.ok(levels(byId('humanities'), { people: 120 }).some(text => text.includes('한도')));
+  assert.ok(levels(byId('culture'), optimalInput(byId('culture'))).some(text => text.includes('가상 값')));
+  assert.ok(levels(byId('community'), {}).some(text => text.includes('3개 이상 기관')));
+  const ready = reviewPlan(byId('humanities'), {});
+  assert.ok(ready.some(item => item.level === '확인' && item.message.includes('미확인 사실')));
+  assert.ok(ready.some(item => item.message.includes('한 기관은 한 사업만')));
+});
+
+test('이주배경 점검은 5곳 연합이 필수가 아니라고 알린다', () => {
+  const notes = reviewPlan(byId('migrant'), {}).filter(item => item.level === '안내').map(item => item.message).join(' ');
+  assert.match(notes, /5개 이상 기관이 연합해야 하는 것은 1억 5천만 원까지 키울 때뿐/);
+});
+
+test('★ 학생 수가 바뀌면 반 수·산출물·재료 수량·예산·성과 목표가 함께 바뀐다', () => {
+  const culture = byId('culture');
+  const a = detailedPlan(culture, { people: 30 });
+  const b = detailedPlan(culture, { people: 45 });
+  assert.match(a, /2개 반/); assert.match(b, /3개 반/);
+  assert.match(a, /개인 원고 30편/); assert.match(b, /개인 원고 45편/);
+  assert.match(a, /팀별 그림책 6권\(팀당 30부 인쇄\)/); assert.match(b, /팀별 그림책 9권\(팀당 45부 인쇄\)/);
+  assert.match(a, /\(6팀×30부\)/); assert.match(b, /\(9팀×45부\)/);
+  assert.match(a, /학생 26명 이상/); assert.match(b, /학생 39명 이상/);
+  assert.ok(budgetPlan(culture, { people: 30 }).total < budgetPlan(culture, { people: 45 }).total);
+  assert.deepEqual(quantities(byId('career'), 20).length, 2);
+});
+
+test('resolveFacts는 토큰만 바꾸고 나머지 문장은 건드리지 않는다', () => {
+  const out = resolveFacts('앞 {{area}} 뒤', byId('humanities'), { facts: { area: '월곡동' } });
+  assert.equal(out, '앞 월곡동 뒤');
+});
