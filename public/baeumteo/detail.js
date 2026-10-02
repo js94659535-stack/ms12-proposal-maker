@@ -2,8 +2,8 @@
 // 재단 공개 신청서 양식의 서식 1~5 순서와 항목 이름을 그대로 따른다. 유형별 양식이 다르다:
 //  · 미래형(인문·사회 탐구, 문화예술 창작)  · 맞춤형(이주배경 잇다, 진로설계)  · 연결형(지역공동체)
 // 기관만 아는 값은 `[확인 필요]`로 둔다. 숫자는 programs.js의 프로그램표와 산출식에서 온다.
-import { FUND, budgetPlan, capOf, leadName, minSessionsOf, optimalInput, people, slotName, unionSize, won } from './plan.js?v=1012';
-import { PROGRAMS, RULES, classesOf, sessionTotal } from './programs.js?v=1012';
+import { FUND, budgetPlan, capOf, leadName, minSessionsOf, optimalInput, people, slotName, unionSize, won } from './plan.js?v=1014';
+import { PROGRAMS, RULES, classesOf, sessionTotal } from './programs.js?v=1014';
 
 const FORM = { humanities: '미래형', culture: '미래형', migrant: '맞춤형', career: '맞춤형', community: '연결형' };
 const GOALS = {
@@ -45,10 +45,25 @@ export function monthlyThemes(program) {
   });
 }
 
+// 진로설계 기본 일정은 5월~11월(7개월). 선택한 조합의 운영 가능 기간이 더 짧으면(최소 4개월) 달을 비례해 줄인다.
+export function careerWindow(input = {}) {
+  const months = input.applied?.months;
+  return months ? Math.max(4, Math.min(7, months)) : 7;
+}
+function compressMonths(text, window) {
+  if (window >= 7) return text;
+  const mapped = text.replace(/(\d+)월/g, (_, m) => `${5 + Math.round((Number(m) - 5) * (window - 1) / 6)}월`);
+  return mapped.replace(/(\d+)월~\1월/g, '$1월');
+}
+export function programsOf(project, input = {}) {
+  const window = project.id === 'career' ? careerWindow(input) : 7;
+  return PROGRAMS[project.id].map(program => ({ ...program, months: project.id === 'career' ? compressMonths(program.months, window) : program.months }));
+}
+
 const groupsText = (program, count) => program.groups === 'classes' ? `전체 ${count}명을 ${classesOf(count)}개 반(반당 15명 이하)으로 운영` : program.groups === 1 ? `전체 ${count}명 함께` : `전체 ${count}명을 ${program.groups}개 소그룹으로 운영`;
 
-function programSection(project, count) {
-  const programs = PROGRAMS[project.id];
+function programSection(project, count, input = {}) {
+  const programs = programsOf(project, input);
   const lines = ['1) 프로젝트 및 교육프로그램 운영 개요',
     `프로젝트 주제와 핵심 내용: ${project.title}. ${project.goal}.`,
     `프로젝트 성과 및 결과물: ${project.outputs.join(', ')}. 봉사활동${project.id === 'career' ? ' 없이 발표회로' : ' 2회와 성과공유회로'} 지역과 나눈다.`,
@@ -227,7 +242,7 @@ export function quantities(project, count) {
   }[project.id];
   return [
     `산출물 수량(인원에 따라 자동 계산): ${outputs.join(', ')}`,
-    `성과 목표: 연 ${Math.ceil(minSessionsOf(project) * 0.8)}회 이상 출석하는 학생 ${attend}명 이상(참여 ${count}명의 85%), 반 수 ${classesOf(count)}개`
+    `성과 목표: 연 ${Math.ceil(sessionTotal(project.id) * 0.8)}회 이상 출석하는 학생 ${attend}명 이상(참여 ${count}명의 85%), 반 수 ${classesOf(count)}개`
   ];
 }
 
@@ -242,7 +257,8 @@ function detailedPlanRaw(project, input = {}) {
   push(`${FUND.name} — ${form} 지원사업 신청서(제출용 상세본)`,
     '※ 재단 공개 양식(서식 1~5)의 순서와 항목 이름을 따랐다. 신청서는 한글 파일에 옮겨 쓰고 PDF로 변환해 제출한다.', '',
     '<서식 1> 대표기관 및 참여기관 소개',
-    `1. 명단: 대표기관 ${lead}`, ...project.slots.map(slot => `참여기관: ${slotName(slot, input)} (${slot.role})`),
+    `1. 명단: 대표기관 ${lead}`, ...project.slots.map(slot => input.applied && String(input.partners?.[slot.key] || '').trim() ? `참여기관: ${slotName(slot, input)}` : `참여기관: ${slotName(slot, input)} (${slot.role})`),
+    ...(input.applied ? ['기관별 역할(실제 기관 정보 기준):', ...input.applied.roles.map(line => `- ${line}`), ...(input.applied.extra || []).map(name => `- 추가 참여기관: ${name}`)] : []),
     '2. 운영 현황: 설립연도, 상근·비상근 인력, 2026년 전체 예산, 학생 1인당 월 이용료, 외부지원 현황(2024~2026): {{orgFacts}}',
     '3. 대표자 자기소개: 교육복지 분야 경력(재단 사업 참여 경력 포함)과 교육철학 중심으로 쓴다. {{leaderBio}}', '',
     '<서식 2> 배움터 책무성 점검표',
@@ -260,7 +276,7 @@ function detailedPlanRaw(project, input = {}) {
       '협력사업의 필요성: 한 기관이 혼자 하기 어려운 문화 체험과 학생 교류를 인접한 기관이 공동 교육과정으로 풀어야 하는 이유를 쓴다. 기관별 강사 파견이 아니라 공동 기획·공동 운영임을 분명히 한다.',
       '2) 지역 교육자원 현황',
       `① 지역 교육복지 자원지도: 대표기관 ${lead}와 참여기관, 학생이 다니는 학교·복지기관·공공시설·문화유산의 위치를 지도에 표시해 첨부한다. {{map}}`,
-      '② 기관 간 협력·연계 내용:', ...project.slots.map(slot => `- ${slotName(slot, input)}: ${slot.ask}`),
+      '② 기관 간 협력·연계 내용:', ...project.slots.map(slot => input.applied && String(input.partners?.[slot.key] || '').trim() ? `- ${slotName(slot, input)}: 역할은 서식 1의 「기관별 역할」 참조` : `- ${slotName(slot, input)}: ${slot.ask}`),
       `연합 기관 현황: 현재 이름이 정해진 곳은 ${unionSize(project, input)}곳이다. 지역적으로 인접한 3개 이상 기관이어야 하고 그중 학생이 등록된 배움터가 2곳 이상이어야 한다.`,
       '3) 3년 후 기대하는 변화·성과',
       '아동·청소년: 1년 차에 지역 문화를 기획·탐방·기록하는 경험을 하고, 3년 차에는 이 연합동아리가 학생 자치로 이어져 후배에게 탐방을 안내한다.',
@@ -269,24 +285,24 @@ function detailedPlanRaw(project, input = {}) {
       '3. 교육 기간: 2027년 3월부터 2028년 1월까지(교육), 2028년 2월 결과보고·정산',
       '4. 참여 예정 아동·청소년', ...recruit(project, input, count).slice(0, 8),
       '5. 교육목표 【신규 사업】', ...goals,
-      '6. 교육프로그램 및 프로젝트 내용', ...programSection(project, count),
+      '6. 교육프로그램 및 프로젝트 내용', ...programSection(project, count, input),
       '7. 교육 장소', ...places, '전경 사진은 인물이 식별되지 않게 첨부한다.',
       '8. 효과적인 사업 운영을 위한 기반 활동 계획', ...foundation(project),
       `9. 사업 운영 조직도: 협의회(대표기관 ${lead}와 참여기관 실무자) → 실무팀(교강사·학생 자치회 대표) → 지역 자원(도서관·문화유산 장소). 이미 조직이 있으면 그대로, 없으면 공란으로 둘 수 있다.`);
   } else {
     push(`1. 사업명: ${project.title}`,
       `2. 신청 사업 유형: ${form} 지원사업 — ${project.type}. 세부 교육 주제 키워드: ${{ humanities: '독서·토론·마을 탐구', culture: 'AI 동화·공동 그림책', migrant: '정체성·진로 포트폴리오·ITQ', career: '자기이해·직업 탐색·진로 포트폴리오' }[project.id]}`,
-      project.id === 'career' ? '3. 교육 기간: 2027년 5월부터 2027년 11월까지(7개월, 재단 기준 4개월 이상 지속 참여)' : '3. 교육 기간: 2027년 3월부터 2028년 1월까지');
+      project.id === 'career' ? `3. 교육 기간: 2027년 5월부터 2027년 ${4 + careerWindow(input)}월까지(${careerWindow(input)}개월, 재단 기준 4개월 이상 지속 참여)` : '3. 교육 기간: 2027년 3월부터 2028년 1월까지');
     let n = 4;
     if (form === '맞춤형') {
       push('4. 지역 교육자원 현황',
         `1) 지역 교육복지 자원지도: 대표기관 ${lead}와 참여기관, 학생이 다니는 학교·교육복지기관·공공시설의 위치를 지도에 표시해 첨부한다. {{map}}`,
-        '2) 기관 간 협력·연계 내용:', ...project.slots.map(slot => `- ${slotName(slot, input)}: ${slot.ask}`));
+        '2) 기관 간 협력·연계 내용:', ...project.slots.map(slot => input.applied && String(input.partners?.[slot.key] || '').trim() ? `- ${slotName(slot, input)}: 역할은 서식 1의 「기관별 역할」 참조` : `- ${slotName(slot, input)}: ${slot.ask}`));
       n = 5;
     }
     push(`${n}. 참여 예정 아동·청소년`, ...recruit(project, input, count),
       `${n + 1}. 교육목표 【신규 사업】`, ...goals,
-      `${n + 2}. 교육프로그램 및 프로젝트 내용`, ...programSection(project, count),
+      `${n + 2}. 교육프로그램 및 프로젝트 내용`, ...programSection(project, count, input),
       `${n + 3}. 교육 장소`, ...places, '전경 사진은 인물이 식별되지 않게 첨부한다.',
       `${n + 4}. 효과적인 사업 운영을 위한 기반 활동 계획`, ...foundation(project));
   }
@@ -302,18 +318,21 @@ function detailedPlanRaw(project, input = {}) {
 export function changeLog(project, input = {}) {
   const base = optimalInput(project);
   const rows = [];
-  const diff = (what, from, to) => { if (String(from) !== String(to)) rows.push({ what, from: String(from), to: String(to) }); };
+  const why = input.applied?.why || {};
+  const diff = (what, from, to, reason) => { if (String(from) !== String(to)) rows.push({ what, from: String(from), to: String(to), why: reason || '' }); };
   const baseCount = people(project, base);
   const count = people(project, input);
-  diff('참여 인원', `${baseCount}명`, `${count}명`);
-  diff('반 수', `${classesOf(baseCount)}개`, `${classesOf(count)}개`);
-  diff('연합 기관 수(이름이 정해진 곳)', `${unionSize(project, base)}곳`, `${unionSize(project, input)}곳`);
-  diff('신청 한도', won(capOf(project, base)), won(capOf(project, input)));
-  diff('신청액', won(budgetPlan(project, base).total), won(budgetPlan(project, input).total));
+  diff('참여 인원', `${baseCount}명`, `${count}명`, why.people || '입력한 인원');
+  diff('반 수', `${classesOf(baseCount)}개`, `${classesOf(count)}개`, '반은 15명 단위로 나눈다(인원이 바뀌면 함께 바뀜)');
+  diff('연합 기관 수(이름이 정해진 곳)', `${unionSize(project, base)}곳`, `${unionSize(project, input)}곳`, why.union || '이름을 넣은 기관 수');
+  diff('신청 한도', won(capOf(project, base)), won(capOf(project, input)), '연합 기관 수가 5곳 미만이면 기본 한도');
+  diff('신청액', won(budgetPlan(project, base).total), won(budgetPlan(project, input).total), '인원과 반 수가 바뀌어 강사비·재료비·간식비·진행비가 단가×수량으로 다시 계산됨');
   const baseQ = quantities(project, baseCount);
   const nowQ = quantities(project, count);
-  diff('산출물 수량', baseQ[0].replace(/^[^:]+: /, ''), nowQ[0].replace(/^[^:]+: /, ''));
-  diff('성과 목표', baseQ[1].replace(/^[^:]+: /, ''), nowQ[1].replace(/^[^:]+: /, ''));
+  diff('산출물 수량', baseQ[0].replace(/^[^:]+: /, ''), nowQ[0].replace(/^[^:]+: /, ''), '산출물은 인원에 비례');
+  diff('성과 목표', baseQ[1].replace(/^[^:]+: /, ''), nowQ[1].replace(/^[^:]+: /, ''), '출석 목표는 참여 인원의 85%');
+  if (project.id === 'career') diff('교육 기간', '7개월(5~11월)', `${careerWindow(input)}개월(5~${4 + careerWindow(input)}월)`, why.months || '운영 가능 기간');
+  if (input.applied) diff('기관별 역할', '가상 기준 역할', `${input.applied.roles.length}개 기관의 실제 정보 기준 역할`, `조합 「${input.applied.label}」을 적용함`);
   return rows;
 }
 

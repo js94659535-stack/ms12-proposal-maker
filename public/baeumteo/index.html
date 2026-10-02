@@ -25,6 +25,18 @@
   .opt .why { color:var(--ink); }
   .opt .risk { color:var(--warn); }
   .chg { margin:8px 0; font-size:14px; }
+  .orgs { margin:14px 0 4px; }
+  .org { margin:10px 0; padding:10px; border:1px solid var(--line); border-radius:8px; }
+  .org .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:6px 10px; }
+  .org label { margin:2px 0 0; font-size:12px; }
+  .org select, .org input { padding:6px 8px; font-size:14px; }
+  .org select { width:100%; box-sizing:border-box; font:inherit; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:6px; }
+  .combo-res { margin:8px 0; padding:8px 10px; border-left:3px solid var(--line); font-size:14px; }
+  .st { font-weight:700; }
+  .st.ok { color:var(--accent); } .st.cond { color:#a86b00; } .st.hold { color:var(--sub); } .st.no { color:var(--warn); }
+  .chk-ok { color:var(--accent); } .chk-no { color:var(--warn); } .chk-q { color:var(--sub); }
+  .combo-res ul { margin:4px 0 6px 0; padding-left:18px; }
+  .why-note { color:var(--sub); font-size:12px; }
   .facts textarea { width:100%; box-sizing:border-box; min-height:52px; padding:8px 10px; font:inherit; font-size:14px; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:6px; }
   .facts .q { font-size:13px; color:var(--sub); margin:2px 0 3px; }
   .facts .done { color:var(--accent); font-weight:700; }
@@ -55,9 +67,10 @@
   <div id="list"></div>
 </main>
 <script type="module">
-import { PROJECTS, CHECKLIST, optimalInput, budgetPlan, people, unionSize, planText, pitchText, won as wonOf } from './plan.js?v=1012';
-import { detailedPlan, factList, reviewPlan, changeLog } from './detail.js?v=1012';
-import { COMBOS, CRITERIA } from './combos.js?v=1012';
+import { PROJECTS, CHECKLIST, OPTIMAL_PEOPLE, optimalInput, budgetPlan, people, unionSize, planText, pitchText, won as wonOf } from './plan.js?v=1014';
+import { detailedPlan, factList, reviewPlan, changeLog } from './detail.js?v=1014';
+import { COMBOS, CRITERIA } from './combos.js?v=1014';
+import { FIELD_OPTIONS, SCENARIOS, recommendCombos, applyCombo } from './orgs.js?v=1014';
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
 const KEY = 'baeumteo-v1';
 let saved = {};
@@ -68,8 +81,33 @@ const won = wonOf;
 const openIds = new Set();
 
 const factCount = (project, data) => { const list = factList(project, data); return `${list.filter(i => i.answered).length}/${list.length}`; };
-const changeHtml = (project, data) => { const rows = changeLog(project, data); return rows.length ? `<div class="chg"><b>가상 최적 기준에서 달라진 것</b><ul>${rows.map(r => `<li>${esc(r.what)}: ${esc(r.from)} → ${esc(r.to)}</li>`).join('')}</ul></div>` : '<div class="chg"><b>가상 최적 기준과 같다</b></div>'; };
+const changeHtml = (project, data) => { const rows = changeLog(project, data); return rows.length ? `<div class="chg"><b>가상 최적 기준에서 달라진 것</b><ul>${rows.map(r => `<li>${esc(r.what)}: ${esc(r.from)} → ${esc(r.to)}${r.why ? ` <span class="why-note">— ${esc(r.why)}</span>` : ''}</li>`).join('')}</ul></div>` : '<div class="chg"><b>가상 최적 기준과 같다</b></div>'; };
 const reviewHtml = (project, data) => `<b>자동 점검</b><ul>${reviewPlan(project, data).map(r => `<li><span class="lv ${r.level === '오류' ? 'err' : r.level === '확인' ? 'chk' : 'inf'}">${r.level}</span> ${esc(r.message)}</li>`).join('')}</ul>${changeHtml(project, data)}`;
+const optionHtml = (name, value) => FIELD_OPTIONS[name].map(([v, label]) => `<option value="${v}" ${v === (value || '') ? 'selected' : ''}>${esc(label)}</option>`).join('');
+const orgCard = (project, data, i) => { const o = data.orgs[i]; const f = (key, label, html) => `<div><label>${label}</label>${html}</div>`;
+  return `<div class="org"><div class="grid">
+    ${f('name', '기관 이름', `<input data-org="${project.id}" data-i="${i}" data-f="name" value="${esc(o.name)}" placeholder="기관 이름">`)}
+    ${f('nonprofit', '비영리 기관(단체)?', `<select data-org="${project.id}" data-i="${i}" data-f="nonprofit">${optionHtml('nonprofit', o.nonprofit)}</select>`)}
+    ${f('registered', '법인·고유번호증', `<select data-org="${project.id}" data-i="${i}" data-f="registered">${optionHtml('registered', o.registered)}</select>`)}
+    ${f('students', '모집 가능 학생(명)', `<input type="number" min="0" data-org="${project.id}" data-i="${i}" data-f="students" value="${esc(o.students ?? '')}">`)}
+    ${f('staff', '교강사 가능(명)', `<input type="number" min="0" data-org="${project.id}" data-i="${i}" data-f="staff" value="${esc(o.staff ?? '')}">`)}
+    ${f('venue', '교육 장소', `<select data-org="${project.id}" data-i="${i}" data-f="venue">${optionHtml('venue', o.venue)}</select>`)}
+    ${f('months', '운영 가능 기간(개월)', `<input type="number" min="0" max="12" data-org="${project.id}" data-i="${i}" data-f="months" value="${esc(o.months ?? '')}">`)}
+    ${f('intent', '협력 의사', `<select data-org="${project.id}" data-i="${i}" data-f="intent">${optionHtml('intent', o.intent)}</select>`)}
+    ${f('proof', '실적 증빙', `<select data-org="${project.id}" data-i="${i}" data-f="proof">${optionHtml('proof', o.proof)}</select>`)}
+  </div><button data-org-del="${project.id}" data-i="${i}">이 기관 삭제</button></div>`; };
+const STATUS_CLASS = { '실행 가능': 'ok', '조건부 가능': 'cond', '판단 보류': 'hold', '불가': 'no' };
+const comboHtml = (project, data) => {
+  const orgs = data.orgs || [];
+  if (!orgs.length) return '<p class="why-note">기관을 입력하면 이 자리에서 조합을 다시 평가합니다. 정보가 없는 항목은 「판단 보류」로 남고, 필수 조건을 어기면 추천에서 빠집니다.</p>';
+  const planned = OPTIMAL_PEOPLE[project.id];
+  const { combos, excluded } = recommendCombos(project, orgs, planned);
+  const mark = r => r === '충족' ? '<span class="chk-ok">충족</span>' : r === '미충족' ? '<span class="chk-no">미충족</span>' : r === '안내' ? '<span class="chk-q">안내</span>' : '<span class="chk-q">미확인</span>';
+  return `${excluded.length ? `<p class="why-note">제외: ${excluded.map(e => `${esc(e.name)}(${esc(e.reason)})`).join(' / ')}</p>` : ''}
+    ${combos.map((c, ci) => `<div class="combo-res"><b>${ci === 0 && c.status !== '불가' ? '추천 ' : ''}${esc(c.label)}</b> <span class="st ${STATUS_CLASS[c.status]}">${esc(c.status)}</span> · 학생 ${c.studentsKnownAll ? c.students : `${c.students}+`}명
+      <ul>${c.checks.map(k => `<li>${mark(k.result)} <b>${esc(k.item)}${k.required ? ' (필수)' : ''}</b> — ${esc(k.basis)}</li>`).join('')}</ul>
+      ${c.status === '불가' ? '<span class="why-note">필수 조건을 충족하지 못해 적용할 수 없습니다.</span>' : `<button data-apply="${project.id}" data-ci="${ci}">이 조합 적용</button>`}</div>`).join('')}`;
+};
 const checkCount = data => CHECKLIST.filter((_, i) => data.checks?.[i]).length;
 const bodyOf = (project, data) => data.view === 'pitch' ? pitchText(project, data) : data.view === 'detail' ? detailedPlan(project, data) : planText(project, data);
 
@@ -86,6 +124,12 @@ function render() {
         <p class="hint">${esc(project.leadHint)}</p>
         <details class="combos"><summary><b>추진 조합 제안</b> — 이상적인 조합 1안과 대안 2안 (모두 후보, 참여 의사 미확인)</summary>
           ${COMBOS[project.id].map(option => `<div class="opt"><b>${esc(option.name)}</b> <span class="rate">${CRITERIA.map((name, i) => `${esc(name)} ${esc(option.rate[i])}`).join(' · ')}</span><br>대표기관 후보: ${esc(option.lead)}${option.partners.map(line => `<br>· ${esc(line)}`).join('')}<br><span class="why">이유: ${esc(option.why)}</span><br><span class="risk">위험: ${esc(option.risk)}</span></div>`).join('')}
+        </details>
+        <details class="orgs" ${data.orgs?.length ? 'open' : ''}><summary><b>기관 정보로 조합 재평가</b> <span id="orgn-${project.id}">${(data.orgs || []).length}곳</span> — 자격·모집·인력·장소·기간·의사·증빙을 넣으면 실행 가능한 조합을 다시 추천합니다</summary>
+          <div class="row">${Object.entries(SCENARIOS).map(([k, [label]]) => `<button data-scn="${project.id}" data-k="${k}">시험 데이터: ${esc(label)}</button>`).join('')}<button data-org-add="${project.id}">기관 추가</button>${data.applied ? `<button data-unapply="${project.id}">적용 해제</button>` : ''}</div>
+          ${data.applied ? `<p class="why-note">적용 중: ${esc(data.applied.label)}</p>` : ''}
+          ${(data.orgs || []).map((_, i) => orgCard(project, data, i)).join('')}
+          <div id="combo-res-${project.id}">${comboHtml(project, data)}</div>
         </details>
         <label>대표기관</label>
         <input data-p="${project.id}" data-k="lead" value="${esc(data.lead)}" placeholder="대표기관 이름 (비워 두면 선정 중)">
@@ -126,6 +170,7 @@ function refresh(id) {
 const root = document.querySelector('#list');
 root.addEventListener('input', event => {
   const el = event.target;
+  if (el.dataset.org) { const data = input(el.dataset.org); const org = data.orgs[Number(el.dataset.i)]; org[el.dataset.f] = el.value; save(); const project = PROJECTS.find(p => p.id === el.dataset.org); document.querySelector(`#combo-res-${project.id}`).innerHTML = comboHtml(project, data); return; }
   if (el.dataset.fact) { const data = input(el.dataset.fact); (data.facts ||= {})[el.dataset.k] = el.value; save(); const mark = document.querySelector(`[data-done="${el.dataset.fact}:${el.dataset.k}"]`); if (mark) mark.textContent = el.value.trim() ? '✓' : ''; document.querySelector(`#fct-${el.dataset.fact}`).textContent = factCount(PROJECTS.find(p => p.id === el.dataset.fact), data); refresh(el.dataset.fact); return; }
   if (el.dataset.chk) { const data = input(el.dataset.chk); (data.checks ||= {})[el.dataset.i] = el.checked; save(); document.querySelector(`#chk-${el.dataset.chk}`).textContent = `${checkCount(data)}/6`; refresh(el.dataset.chk); return; }
   const id = el.dataset.p; if (!id) return;
@@ -138,6 +183,16 @@ root.addEventListener('input', event => {
 root.addEventListener('click', async event => {
   const el = event.target.closest('button'); if (!el) return;
   if (el.dataset.view) { input(el.dataset.p).view = el.dataset.view; save(); const id = el.dataset.p; render(); return; }
+  if (el.dataset.scn) { const data = input(el.dataset.scn); data.orgs = SCENARIOS[el.dataset.k][1].map(o => ({ ...o })); save(); render(); return; }
+  if (el.dataset.orgAdd) { const data = input(el.dataset.orgAdd); (data.orgs ||= []).push({ name: '', nonprofit: '', registered: '', students: '', staff: '', venue: '', months: '', intent: '', proof: '' }); save(); render(); return; }
+  if (el.dataset.orgDel) { const data = input(el.dataset.orgDel); data.orgs.splice(Number(el.dataset.i), 1); save(); render(); return; }
+  if (el.dataset.apply) {
+    const project = PROJECTS.find(p => p.id === el.dataset.apply); const data = input(project.id);
+    const { combos } = recommendCombos(project, data.orgs, OPTIMAL_PEOPLE[project.id]);
+    const result = applyCombo(project, combos[Number(el.dataset.ci)], data.orgs, OPTIMAL_PEOPLE[project.id]);
+    Object.assign(data, { lead: result.lead, partners: result.partners, people: result.people, applied: result.applied, view: 'detail' }); save(); render(); return;
+  }
+  if (el.dataset.unapply) { const data = input(el.dataset.unapply); Object.assign(data, { lead: '', partners: {}, people: '', applied: null }); save(); render(); return; }
   if (el.dataset.optimal) { const project = PROJECTS.find(p => p.id === el.dataset.optimal); saved[project.id] = optimalInput(project); save(); render(); return; }
   if (el.dataset.clear) { saved[el.dataset.clear] = { lead: '', partners: {}, people: '', view: 'plan' }; save(); render(); return; }
   if (el.dataset.copy) { const text = document.querySelector(`#out-${el.dataset.copy}`).textContent; try { await navigator.clipboard.writeText(text); el.textContent = '복사됨'; setTimeout(() => { el.textContent = '복사'; }, 1500); } catch { el.textContent = '복사 실패'; } return; }

@@ -353,3 +353,102 @@ test('★ 가상본이 센터 3곳·45명인데 실제는 센터 2곳·30명이�
 test('가상 최적 그대로면 달라진 것이 없다', () => {
   for (const project of PROJECTS) assert.deepEqual(changeLog(project, optimalInput(project)), [], project.id);
 });
+
+// ---------- 실제 기관정보에 따른 조합 재평가 (10-16, 진로설계 기준 사례) ----------
+import { SCENARIOS, recommendCombos, applyCombo, evaluateCombo, normalizeOrg } from '../public/baeumteo/orgs.js';
+import { OPTIMAL_PEOPLE } from '../public/baeumteo/plan.js';
+import { programsOf, careerWindow } from '../public/baeumteo/detail.js';
+
+const career = () => byId('career');
+const planned = OPTIMAL_PEOPLE.career;
+
+test('★ 기관이 충분하면 필수 조건을 모두 채운 조합이 추천되고, 모든 판단에 근거 문장이 붙는다', () => {
+  const { combos } = recommendCombos(career(), SCENARIOS.sufficient[1], planned);
+  const best = combos[0];
+  assert.equal(best.status, '실행 가능');
+  assert.equal(best.students, 42);
+  for (const combo of combos) for (const check of combo.checks) {
+    assert.ok(['충족', '미충족', '미확인', '안내'].includes(check.result));
+    assert.ok(check.basis.length > 8, `${combo.label}/${check.item}: 근거`);
+    assert.ok(!/^(상|중|하)$/.test(check.result), '상·중·하로 확정하지 않는다');
+  }
+  assert.ok(best.checks.some(check => check.item === '모집 가능 학생' && /42명 = /.test(check.basis)), '합계의 산식');
+  assert.ok(combos.some(combo => combo.status === '조건부 가능'), '증빙이 일부뿐인 기관 대표는 조건부');
+});
+
+test('★ 모집 가능 인원이 15명 미만이면 모든 조합이 불가이고 적용할 수 없다', () => {
+  const { combos } = recommendCombos(career(), SCENARIOS.shortage[1], planned);
+  assert.ok(combos.length > 0);
+  assert.ok(combos.every(combo => combo.status === '불가'), combos.map(c => c.status).join());
+  assert.ok(combos.every(combo => combo.checks.some(check => check.required && check.result === '미충족' && check.item === '모집 가능 학생')));
+});
+
+test('★ 자격·의사·기간이 비어 있으면 판단 보류이고 실행 가능으로 추천하지 않는다', () => {
+  const { combos, excluded } = recommendCombos(career(), SCENARIOS.unconfirmed[1], planned);
+  assert.ok(combos.every(combo => combo.status !== '실행 가능'), combos.map(c => c.status).join());
+  assert.ok(combos.some(combo => combo.status === '판단 보류'));
+  assert.ok(excluded.some(e => e.name.includes('E기관') && /참여 의사가 없다/.test(e.reason)), '참여 의사 없음은 제외');
+  assert.ok(excluded.some(e => e.name.includes('D단체') && /대표기관으로는 제외/.test(e.reason)), '비영리가 아니면 대표 제외');
+  assert.ok(combos.every(combo => !combo.lead.includes('D단체')), '비영리 아님이 대표가 되지 않는다');
+  const hold = combos.find(combo => combo.status === '판단 보류');
+  assert.ok(hold.checks.some(check => check.required && check.result === '미확인'));
+});
+
+test('정보가 없는 항목을 지어내지 않는다 — 기관 정보가 없으면 조합도 없다', () => {
+  assert.equal(recommendCombos(career(), [], planned).combos.length, 0);
+  const lone = evaluateCombo(career(), { name: '기관' }, [], planned);
+  assert.equal(lone.status, '판단 보류');
+  assert.ok(lone.checks.filter(check => check.required).every(check => check.result === '미확인'));
+  assert.equal(normalizeOrg({ students: '' }).students, null);
+});
+
+test('진로설계는 운영 가능 기간이 4개월 미만이면 불가다', () => {
+  const orgs = [{ name: 'A', nonprofit: 'yes', students: 20, months: 3, intent: 'confirmed' }];
+  const result = recommendCombos(career(), orgs, planned).combos[0];
+  assert.equal(result.status, '불가');
+  assert.ok(result.checks.some(check => check.item === '운영 가능 기간' && check.result === '미충족'));
+});
+
+test('지역공동체는 3곳 미만이거나 학생이 등록된 배움터가 2곳 미만이면 불가다', () => {
+  const community = byId('community');
+  const two = [{ name: 'A', nonprofit: 'yes', students: 20, intent: 'confirmed', months: 11 }, { name: 'B', nonprofit: 'yes', students: 20, intent: 'confirmed', months: 11 }];
+  assert.equal(recommendCombos(community, two, 90).combos[0].status, '불가');
+  const noStudents = [...two, { name: 'C', nonprofit: 'yes', students: 0, intent: 'confirmed', months: 11 }].map((o, i) => (i === 1 ? { ...o, students: 0 } : o));
+  const bad = recommendCombos(community, noStudents, 90).combos.find(combo => combo.members.length === 3);
+  assert.equal(bad.status, '불가');
+});
+
+test('★ 추천 조합을 적용하면 기관·인원·일정·역할·예산·성과 목표가 함께 바뀌고 이유가 변경 내역에 남는다', () => {
+  const orgs = SCENARIOS.sufficient[1];
+  const { combos } = recommendCombos(career(), orgs, planned);
+  const result = applyCombo(career(), combos[0], orgs, planned);
+  const input = { ...result };
+  assert.equal(input.lead, combos[0].lead);
+  assert.equal(input.people, '42');
+  assert.equal(input.applied.months, 6);
+  const text = detailedPlan(career(), input);
+  assert.match(text, /기관별 역할\(실제 기관 정보 기준\)/);
+  assert.match(text, /학생 \d+명 모집/);
+  assert.match(text, /2027년 5월부터 2027년 10월까지\(6개월/, '일정이 6개월로 줄었다');
+  assert.equal(careerWindow(input), 6);
+  assert.notDeepEqual(programsOf(career(), input).map(p => p.months), PROGRAMS.career.map(p => p.months), '프로그램 달 표시가 줄었다');
+  assert.match(text, /연 16회 이상 출석하는 학생 36명 이상/, '성과 목표가 인원 42명에 맞춰 바뀜');
+  const rows = changeLog(career(), input);
+  const why = what => rows.find(row => row.what === what)?.why || '';
+  assert.match(why('참여 인원'), /확보 가능한 학생 합계 42명/);
+  assert.match(why('연합 기관 수(이름이 정해진 곳)'), /선택한 조합의 기관 수/);
+  assert.match(why('교육 기간'), /6개월/);
+  assert.match(why('신청액'), /단가×수량/);
+  assert.ok(rows.some(row => row.what === '기관별 역할'));
+  assert.ok(budgetPlan(career(), input).total <= capOf(career(), input));
+  assert.ok(reviewPlan(career(), input).some(item => item.level === '오류' && item.message.includes('가상 값')), '가상 기관이므로 제출 전 오류로 잡는다');
+});
+
+test('인원 부족 조합은 적용 때 인원이 확보 가능 인원으로 줄고, 모르는 기관이 있으면 인원을 정하지 않는다', () => {
+  const few = [{ name: 'A', nonprofit: 'yes', students: 18, staff: 2, venue: 'yes', months: 7, intent: 'confirmed', proof: 'yes' }];
+  const combo = recommendCombos(career(), few, planned).combos[0];
+  assert.equal(applyCombo(career(), combo, few, planned).people, '18');
+  const unknown = [{ name: 'A', nonprofit: 'yes', students: '', months: 7, intent: 'confirmed' }];
+  const hold = recommendCombos(career(), unknown, planned).combos[0];
+  assert.equal(applyCombo(career(), hold, unknown, planned).people, '');
+});
