@@ -37,7 +37,7 @@ const TABLE_WIDTH = 42000;
 let tableCounter = 0;
 function cellXml(text, { col, row, width, head }) {
   const value = String(text ?? '').trim();
-  const run = `<hp:run charPrIDRef="${head ? 1 : 0}">${value ? `<hp:t>${escapeXml(value)}</hp:t>` : '<hp:t/>'}</hp:run>`;
+  const run = `<hp:run charPrIDRef="${head ? 2 : 0}">${value ? `<hp:t>${escapeXml(value)}</hp:t>` : '<hp:t/>'}</hp:run>`;
   return '<hp:tc name="" header="' + (head ? 1 : 0) + '" hasMargin="0" protect="0" editable="0" dirty="0" borderFillIDRef="2">'
     + '<hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">'
     + `<hp:p id="0" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">${run}</hp:p>`
@@ -53,9 +53,9 @@ export function realTable(rows, { header = true } = {}) {
   // 열 너비: 먼저 각 열의 가장 긴 낱말이 한 줄에 들어갈 만큼(최소 너비)을 주고, 남는 너비를 글 길이에 비례해 나눈다.
   // 글자 폭은 한글 2, 그 밖 1로 잰다. 최소 너비가 없으면 「운영 기간」 같은 짧은 열 머리가 글자 단위로 세로로 접힌다(10-19 한글 실측).
   const display = text => [...String(text ?? '')].reduce((n, ch) => n + (ch.charCodeAt(0) > 0x2e80 ? 2 : 1), 0);
-  const longestWord = text => Math.max(0, ...String(text ?? '').split(/[\s/·,()]+/).map(display));
+  const longestWord = text => Math.max(0, ...String(text ?? '').split(/[\s/·()]+/).map(display));
   const need = Array.from({ length: cols }, (_, c) => Math.min(16, Math.max(2, ...grid.map(row => longestWord(row[c])))));
-  const minW = need.map(n => n * 500 + 800);
+  const minW = need.map(n => n * 560 + 900);
   const weight = Array.from({ length: cols }, (_, c) => Math.min(44, Math.max(6, ...grid.map(row => display(row[c])))));
   const extra = Math.max(0, TABLE_WIDTH - minW.reduce((a, b) => a + b, 0));
   const totalWeight = weight.reduce((a, b) => a + b, 0);
@@ -125,7 +125,7 @@ function headerXml() {
     + '<hh:borderFill id="2" threeD="0" shadow="0" centerLine="NONE" breakCellSeparateLine="0"><hh:slash type="NONE" Crooked="0" isCounter="0"/><hh:backSlash type="NONE" Crooked="0" isCounter="0"/>'
     + '<hh:leftBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:rightBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:topBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:bottomBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:diagonal type="SOLID" width="0.1 mm" color="#000000"/></hh:borderFill>'
     + '</hh:borderFills>'
-    + '<hh:charProperties itemCnt="2">'
+    + '<hh:charProperties itemCnt="3">'
     + '<hh:charPr id="0" height="1000" textColor="#000000" shadeColor="none" useFontSpace="0" useKerning="0" symMark="NONE" borderFillIDRef="1">'
     + '<hh:fontRef hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>'
     + '<hh:ratio hangul="100" latin="100" hanja="100" japanese="100" other="100" symbol="100" user="100"/>'
@@ -134,6 +134,13 @@ function headerXml() {
     + '<hh:offset hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>'
     + '</hh:charPr>'
     + '<hh:charPr id="1" height="1400" textColor="#000000" shadeColor="none" useFontSpace="0" useKerning="0" symMark="NONE" borderFillIDRef="1"><hh:bold/>'
+    + '<hh:fontRef hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>'
+    + '<hh:ratio hangul="100" latin="100" hanja="100" japanese="100" other="100" symbol="100" user="100"/>'
+    + '<hh:spacing hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>'
+    + '<hh:relSz hangul="100" latin="100" hanja="100" japanese="100" other="100" symbol="100" user="100"/>'
+    + '<hh:offset hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>'
+    + '</hh:charPr>'
+    + '<hh:charPr id="2" height="1000" textColor="#000000" shadeColor="none" useFontSpace="0" useKerning="0" symMark="NONE" borderFillIDRef="1"><hh:bold/>'
     + '<hh:fontRef hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>'
     + '<hh:ratio hangul="100" latin="100" hanja="100" japanese="100" other="100" symbol="100" user="100"/>'
     + '<hh:spacing hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>'

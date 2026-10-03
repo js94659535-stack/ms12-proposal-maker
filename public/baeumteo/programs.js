@@ -128,14 +128,16 @@ export const meetingsOf = id => META[id]?.meetings ?? 11;
 export function budgetFor(id, people, { cap = Infinity, practitionerMonths = 12, practitionerWage = 200_000 } = {}) {
   const rows = []; // { program, account, formula, amount }
   const add = (program, account, formula, amount, outingRow = false) => rows.push({ program, account, formula, amount: Math.round(amount), outing: outingRow });
-  let instructorCount = 0;
+  let mainMax = 0;
+  let assistantMax = 0;
   for (const program of PROGRAMS[id]) {
     const groups = groupsOf(id, program, people);
     const turns = program.sessions * groups;
-    instructorCount += groups;
+    mainMax = Math.max(mainMax, groups);
     add(program.name, '강사비', `주강사 ${money(RULES.hourlyMax)}×${program.hours}시간×${program.sessions}회×${groups}`, RULES.hourlyMax * program.hours * turns);
     if (program.assistant) {
       const assistants = program.assistantCount || groups;
+      assistantMax = Math.max(assistantMax, assistants);
       add(program.name, '보조강사비', `보조강사 ${money(RULES.assistantHourly)}×${program.hours}시간×${program.sessions}회×${assistants}`, RULES.assistantHourly * program.hours * program.sessions * assistants);
     }
     if (program.matPer) add(program.name, '학습재료비', `재료·교재 ${money(program.matPer)}×${people}명`, program.matPer * people);
@@ -146,7 +148,7 @@ export function budgetFor(id, people, { cap = Infinity, practitionerMonths = 12,
       add(program.name, '진행비', `${label} ${money(unit)}×${kind === 'people' ? `${people}명×${times}회` : `${times}`}`, unit * qty, /체험|입장|견학|탐방/.test(label));
     }
   }
-  add('운영', '운영비(식비)', `교강사 회의 식비 ${money(10_000)}×${instructorCount + 1}명×${meetingsOf(id)}회`, 10_000 * (instructorCount + 1) * meetingsOf(id));
+  add('운영', '운영비(식비)', `교강사 회의 식비 ${money(10_000)}×${mainMax + assistantMax + 1}명(주강사 ${mainMax}·보조강사 ${assistantMax}·실무책임자 1)×${meetingsOf(id)}회`, 10_000 * (mainMax + assistantMax + 1) * meetingsOf(id));
   add('운영', '운영비(교통비)', `재단 교육 참여 교통비 ${money(30_000)}×2명×4회`, 30_000 * 2 * 4);
   add('인건비', '수당', `실무자 수당 ${money(practitionerWage)}×${practitionerMonths}개월`, practitionerWage * practitionerMonths);
   const total = rows.reduce((sum, row) => sum + row.amount, 0);

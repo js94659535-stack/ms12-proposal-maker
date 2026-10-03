@@ -146,7 +146,7 @@ test('진로설계는 20~50명 어느 규모든 한도(2천5백만 원)와 비�
     assert.ok(budget.total <= capOf(career, {}), `${count}명: ${budget.total}`);
     assert.deepEqual(budget.warnings, [], `${count}명: ${budget.warnings}`);
   }
-  assert.match(detailedPlan(career, { people: 50 }), /3개 반(반당 17명 이하)/);
+  assert.match(detailedPlan(career, { people: 50 }), /3개 반\(반당 17명 이하\)/);
 });
 
 test('★ 가상 최적 조건: 모든 칸이 채워지고 모든 가상 값에 표시가 붙으며 규정과 한도를 지킨다', () => {

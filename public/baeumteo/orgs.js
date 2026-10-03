@@ -6,7 +6,7 @@
 //  · 상·중·하로 뭉뚱그리지 않는다. 항목마다 충족/미충족/미확인과 그 근거 문장을 보여 준다.
 //  · 협력 의사가 「확정」이 아니면 후보일 뿐이다. 기관 정보가 없는 항목은 지어내지 않는다.
 // 이 모듈은 programs.js의 반 수 계산만 가져다 쓴다.
-import { classesFor } from './programs.js?v=1016';
+import { classesFor } from './programs.js?v=1017';
 
 export const MIN_PEOPLE = 15;
 export const FIELD_OPTIONS = {
