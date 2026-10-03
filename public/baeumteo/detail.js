@@ -2,8 +2,8 @@
 // 재단 공개 신청서 양식의 서식 1~5 순서와 항목 이름을 그대로 따른다. 유형별 양식이 다르다:
 //  · 미래형(인문·사회 탐구, 문화예술 창작)  · 맞춤형(이주배경 잇다, 진로설계)  · 연결형(지역공동체)
 // 기관만 아는 값은 `[확인 필요]`로 둔다. 숫자는 programs.js의 프로그램표와 산출식에서 온다.
-import { FUND, budgetPlan, capOf, leadName, minSessionsOf, optimalInput, people, slotName, unionSize, won } from './plan.js?v=1015';
-import { PROGRAMS, RULES, classesOf, sessionTotal } from './programs.js?v=1015';
+import { FUND, budgetPlan, capOf, leadName, minSessionsOf, optimalInput, people, slotName, unionSize, won } from './plan.js?v=1016';
+import { PROGRAMS, RULES, classSizeOf, classesFor, sessionTotal } from './programs.js?v=1016';
 
 const FORM = { humanities: '미래형', culture: '미래형', migrant: '맞춤형', career: '맞춤형', community: '연결형' };
 const GOALS = {
@@ -60,7 +60,7 @@ export function programsOf(project, input = {}) {
   return PROGRAMS[project.id].map(program => ({ ...program, months: project.id === 'career' ? compressMonths(program.months, window) : program.months }));
 }
 
-const groupsText = (program, count) => program.groups === 'classes' ? `전체 ${count}명을 ${classesOf(count)}개 반(반당 15명 이하)으로 운영` : program.groups === 1 ? `전체 ${count}명 함께` : `전체 ${count}명을 ${program.groups}개 소그룹으로 운영`;
+const groupsText = (program, count, id) => program.groups === 'classes' ? `전체 ${count}명을 ${classesFor(id, count)}개 반(반당 ${classSizeOf(id)}명 이하)으로 운영` : program.groups === 1 ? `전체 ${count}명 함께` : `전체 ${count}명을 ${program.groups}개 소그룹으로 운영`;
 
 function programSection(project, count, input = {}) {
   const programs = programsOf(project, input);
@@ -70,11 +70,11 @@ function programSection(project, count, input = {}) {
     `대상 학생: {{grade}} 전체 ${count}명.`,
     `연간 교육: 학생 1인 기준 ${sessionTotal(project.id)}회(재단 최소 ${minSessionsOf(project)}회). 프로젝트·봉사활동·성과발표회를 포함하고 자치회의는 포함하지 않는다.`,
     '단계 | 프로그램명 | 참여학생 | 운영 기간 | 핵심 활동 및 교육 규모 | 운영 회기/회당 시간'];
-  for (const program of programs) lines.push(`${program.stage} | ${program.name} | ${groupsText(program, count)} | ${program.months} | ${program.core} | ${program.sessions}회/${program.hours}시간`);
+  for (const program of programs) lines.push(`${program.stage} | ${program.name} | ${groupsText(program, count, project.id)} | ${program.months} | ${program.core} | ${program.sessions}회/${program.hours}시간`);
   lines.push(`합계: 학생 1인 ${sessionTotal(project.id)}회`, ...quantities(project, count), '', '2) 프로젝트 및 교육프로그램별 핵심 교육내용 (월별)',
     '▦ 연번 | 프로그램명 | 월 | 핵심 교육내용 | 운영방식 | 교육 장소');
   programs.forEach((program, index) => {
-    const way = `${groupsText(program, count)}${program.assistant ? ', 주강사+보조강사' : ', 주강사'}`;
+    const way = `${groupsText(program, count, project.id)}${program.assistant ? ', 주강사+보조강사' : ', 주강사'}`;
     for (const [month, themes] of monthlyThemes(program)) lines.push(`▦ ${index + 1} | ${program.name} | ${month}월 | ${themes.join(' → ')} | ${way} | ${program.place}`);
   });
   return lines;
@@ -115,7 +115,7 @@ function foundation(project) {
 }
 
 function personnel(project, input, count) {
-  const main = program => (program.groups === 'classes' ? classesOf(count) : 1);
+  const main = program => (program.groups === 'classes' ? classesFor(project.id, count) : 1);
   return [
     '<서식 4> 담당 인력 정보',
     '▦ 연번 | 성명·소속·연령(만) | 담당 역할 | 교육복지 관련 경력 및 자격 현황 | 개인정보 처리 동의 서명 혹은 날인',
@@ -264,7 +264,7 @@ export function quantities(project, count) {
   }[project.id];
   return [
     `산출물 수량(인원에 따라 자동 계산): ${outputs.join(', ')}`,
-    `성과 목표: 연 ${Math.ceil(sessionTotal(project.id) * 0.8)}회 이상 출석하는 학생 ${attend}명 이상(참여 ${count}명의 85%), 반 수 ${classesOf(count)}개`
+    `성과 목표: 연 ${Math.ceil(sessionTotal(project.id) * 0.8)}회 이상 출석하는 학생 ${attend}명 이상(참여 ${count}명의 85%), 반 수 ${classesFor(project.id, count)}개`
   ];
 }
 
@@ -370,7 +370,7 @@ export function changeLog(project, input = {}) {
   const baseCount = people(project, base);
   const count = people(project, input);
   diff('참여 인원', `${baseCount}명`, `${count}명`, why.people || '입력한 인원');
-  diff('반 수', `${classesOf(baseCount)}개`, `${classesOf(count)}개`, '반은 15명 단위로 나눈다(인원이 바뀌면 함께 바뀜)');
+  diff('반 수', `${classesFor(project.id, baseCount)}개`, `${classesFor(project.id, count)}개`, `반은 ${classSizeOf(project.id)}명 단위로 나눈다(인원이 바뀌면 함께 바뀜)`);
   diff('연합 기관 수(이름이 정해진 곳)', `${unionSize(project, base)}곳`, `${unionSize(project, input)}곳`, why.union || '이름을 넣은 기관 수');
   diff('신청 한도', won(capOf(project, base)), won(capOf(project, input)), '연합 기관 수가 5곳 미만이면 기본 한도');
   diff('신청액', won(budgetPlan(project, base).total), won(budgetPlan(project, input).total), '인원과 반 수가 바뀌어 강사비·재료비·간식비·진행비가 단가×수량으로 다시 계산됨');

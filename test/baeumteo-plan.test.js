@@ -46,6 +46,7 @@ test('★ 예산이 재단 규정을 지킨다 — 강사비 6만 원 이하, �
     const adminCap = project.id === 'community' ? RULES.adminShareCommunity : RULES.adminShare;
     assert.ok(budget.shares.admin <= adminCap, `${project.id}: 인건비·운영비 ${budget.shares.admin}`);
     assert.ok(budget.shares.materials <= RULES.materialsShare, `${project.id}: 학습재료비 ${budget.shares.materials}`);
+    assert.ok(budget.shares.outing <= RULES.outingShare, `${project.id}: 체험·견학성 지출 ${budget.shares.outing}`);
     for (const row of budget.rows.filter(r => r.account === '강사비')) {
       const hourly = Number(/주강사 ([\d,]+)원×/.exec(row.formula)[1].replace(/,/g, ''));
       assert.ok(hourly <= RULES.hourlyMax, `${project.id}: 강사비 시간당 ${hourly}`);
@@ -145,7 +146,7 @@ test('진로설계는 20~50명 어느 규모든 한도(2천5백만 원)와 비�
     assert.ok(budget.total <= capOf(career, {}), `${count}명: ${budget.total}`);
     assert.deepEqual(budget.warnings, [], `${count}명: ${budget.warnings}`);
   }
-  assert.match(detailedPlan(career, { people: 50 }), /4개 반/);
+  assert.match(detailedPlan(career, { people: 50 }), /3개 반(반당 17명 이하)/);
 });
 
 test('★ 가상 최적 조건: 모든 칸이 채워지고 모든 가상 값에 표시가 붙으며 규정과 한도를 지킨다', () => {

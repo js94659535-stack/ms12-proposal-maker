@@ -6,7 +6,7 @@
 //  · 상·중·하로 뭉뚱그리지 않는다. 항목마다 충족/미충족/미확인과 그 근거 문장을 보여 준다.
 //  · 협력 의사가 「확정」이 아니면 후보일 뿐이다. 기관 정보가 없는 항목은 지어내지 않는다.
 // 이 모듈은 programs.js의 반 수 계산만 가져다 쓴다.
-import { classesOf } from './programs.js?v=1015';
+import { classesFor } from './programs.js?v=1016';
 
 export const MIN_PEOPLE = 15;
 export const FIELD_OPTIONS = {
@@ -62,7 +62,7 @@ export function evaluateCombo(project, leadInput, participantInputs, planned) {
   if (known.length) checks.push(total >= planned ? mark('충족', '계획 인원 대비', `계획 ${planned}명을 채울 수 있음`) : mark('안내', '계획 인원 대비', `계획 ${planned}명보다 ${planned - total}명 적음 — 적용하면 인원을 ${Math.max(total, MIN_PEOPLE)}명으로 줄여 다시 짠다`));
   // 5) 전문인력(교강사) — 반 수만큼 필요
   const effective = Math.max(MIN_PEOPLE, Math.min(total || planned, planned));
-  const classes = classesOf(effective);
+  const classes = classesFor(project.id, effective);
   const staffKnown = members.filter(m => m.staff !== null);
   const staff = staffKnown.reduce((sum, m) => sum + m.staff, 0);
   if (staffKnown.length < members.length) checks.push(mark('미확인', '전문인력', `교강사 ${classes}명이 필요(반 ${classes}개). 확인된 인력 ${staff}명, 미입력: ${members.filter(m => m.staff === null).map(m => m.name).join(', ')}`));

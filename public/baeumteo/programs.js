@@ -22,7 +22,7 @@ export const PROGRAMS = {
     { name: '책과 토론 교실', stage: '1단계 탐구·학습', months: '3월~11월', sessions: 18, hours: 2, groups: 'classes', assistant: true, matPer: 25_000, place: '대표기관 활동실·참여 도서관 열람실',
       core: '월 1권 함께 읽고 질문을 만들어 토론한다. 읽은 내용을 자기 말과 근거로 설명하고 다른 의견과 비교하는 연습을 한다.',
       themes: ['오리엔테이션과 독서 진단', '내 독서 지도 그리기', '책① 함께 읽기', '책① 질문 만들기', '책① 찬반 토론', '책② 함께 읽기', '책② 역할 토론', '책② 근거 들어 주장하기', '책③ 함께 읽기', '책③ 비판적 글쓰기', '서로 다른 관점으로 바꿔 말하기', '책④ 함께 읽기', '책④ 토론', '사회 이슈 읽기(그림책·뉴스)', '토론 한마당 준비①', '토론 한마당 준비②', '독서 사후 진단', '돌아보기와 탐구 질문 정리'] },
-    { name: '동네 탐구 현장 교실', stage: '1단계 탐구·학습', months: '5월~10월', sessions: 6, hours: 2.5, groups: 1, assistant: true, matPer: 8_000, bus: 3, fees: [['체험·입장료', 10_000, 'people', 1]], place: '지역 도서관·시장·마을 역사 공간',
+    { name: '동네 탐구 현장 교실', stage: '1단계 탐구·학습', months: '5월~10월', sessions: 6, hours: 2.5, groups: 1, assistant: true, matPer: 8_000, bus: 2, busTimes: 2, fees: [['체험·입장료', 10_000, 'people', 1]], place: '지역 도서관·시장·마을 역사 공간',
       core: '학생이 정한 마을 질문을 도서관 자료, 어르신 인터뷰, 현장 탐방으로 탐구한다.',
       themes: ['우리 마을 질문 정하기', '인터뷰 질문지 만들기', '도서관 탐방과 사서 인터뷰', '시장·마을 어르신 인터뷰', '동네 역사 공간 탐방', '인터뷰 정리와 탐구노트'] },
     { name: '마을 탐구신문 제작 동아리', stage: '2단계 프로젝트 기획·실행', months: '8월~12월', sessions: 8, hours: 2, groups: 1, assistant: false, matPer: 20_000, fees: people => [[`신문 인쇄(${Math.ceil(people / 10)}팀×100부)`, 6_000, 'fixed', Math.ceil(people / 10) * 100]], place: '대표기관 활동실',
@@ -56,7 +56,7 @@ export const PROGRAMS = {
     { name: '나의 이야기·강점 찾기', stage: '1단계 탐구·학습', months: '3월~5월', sessions: 7, hours: 2, groups: 'classes', assistant: true, matPer: 15_000, place: '대표기관 활동실',
       core: '두 문화·두 언어의 경험을 자원으로 보고, 흥미·강점 검사를 해석해 자기 이야기를 정리한다. 다국어 안내를 쓴다.',
       themes: ['오리엔테이션(다국어 안내)', '정체성 지도 그리기', '두 문화, 나의 보물', '흥미·강점 검사', '검사 해석', '우리 가족 이야기', '나의 강점 발표'] },
-    { name: '진로·진학 정보 교실', stage: '1단계 탐구·학습', months: '5월~9월', sessions: 8, hours: 2, groups: 'classes', assistant: true, matPer: 15_000, bus: 2, fees: [['견학 입장·체험료', 5_000, 'people', 1]], place: '대표기관 활동실·지역 학교·기관',
+    { name: '진로·진학 정보 교실', stage: '1단계 탐구·학습', months: '5월~9월', sessions: 8, hours: 2, groups: 'classes', assistant: true, matPer: 15_000, bus: 2, busTimes: 2, fees: [['견학 입장·체험료', 5_000, 'people', 1]], place: '대표기관 활동실·지역 학교·기관',
       core: '진로·진학 경로를 알아보고 직업인 인터뷰와 학과·일터 체험으로 진로 정보를 모으며, 한국 친구를 초대해 문화를 소개한다.',
       themes: ['직업 세계 입문', '진학 경로 알아보기', '직업인 인터뷰 준비', '직업인 인터뷰①', '직업인 인터뷰②', '학과·일터 체험', '한국 친구 초대·문화 소개', '진로 로드맵 초안'] },
     { name: 'ITQ 자격 교육(청소년반)', stage: '2단계 프로젝트 기획·실행', months: '6월~11월', sessions: 10, hours: 2, groups: 1, assistant: false, matPer: 25_000, fees: [['ITQ 응시료(청소년반 15명×2과목)', 20_000, 'fixed', 30]], place: '컴퓨터실(대표기관 또는 협력 기관)',
@@ -74,24 +74,26 @@ export const PROGRAMS = {
   ],
   career: [
     { name: '나를 알아가는 진로 교실', stage: '1단계 탐구·학습', months: '5월~6월', sessions: 4, hours: 2, groups: 'classes', assistant: false, matPer: 20_000, place: '대표기관 활동실',
-      core: '흥미·적성 검사와 해석으로 강점을 찾고, 책임과 회복을 다루는 활동으로 자기 행동과 관계를 돌아본다. 서로의 이력은 묻지 않고 비밀을 지킨다.',
-      themes: ['오리엔테이션과 약속(존중·비밀 보장)', '흥미·적성 검사', '검사 해석과 나의 강점', '책임과 회복: 나의 행동 돌아보기'] },
+      core: '흥미·적성 검사를 하고 해석 면담으로 자기 강점을 찾는다. 내 행동과 관계를 돌아보고 앞으로의 약속을 정하는 시간을 함께 가진다. 서로의 사정은 묻지 않고 말한 것은 비밀로 지킨다.',
+      themes: ['첫 모임: 우리의 약속과 나의 진로 이야기', '흥미·적성 검사와 결과 읽기', '나의 강점 지도 만들기', '관계 돌아보기: 갈등을 다시 말해 보기'] },
     { name: '진로 탐색 교실', stage: '1단계 탐구·학습', months: '6월~8월', sessions: 4, hours: 2, groups: 'classes', assistant: false, matPer: 20_000, place: '대표기관 활동실',
-      core: '진로발달 검사와 직업 정보 읽기로 강점에 맞는 직업과 학과·진학 경로를 탐색한다.',
-      themes: ['진로발달 검사', '직업 정보 읽기', '강점 기반 직업 탐색', '학과·진학 경로 탐색'] },
-    { name: '꿈 인터뷰와 현장 탐방 프로젝트', stage: '2단계 프로젝트 기획·실행', months: '8월~10월', sessions: 6, hours: 3, groups: 1, assistant: true, matPer: 15_000, bus: 2, fees: [['현장 체험·입장료', 10_000, 'people', 1]], place: '지역 직업 현장·대학·특성화고',
-      core: '청소년이 주제를 정해 직업인을 인터뷰하고 학과·일터를 체험하며 결과를 정리한다. 직업인·대학·기업·공공기관 등 지역 진로자원과 연계한다.',
-      themes: ['프로젝트 주제와 팀 정하기', '직업인 인터뷰 준비', '직업인 인터뷰', '학과 체험', '일터 체험', '결과 정리'] },
-    { name: '진로설계 포트폴리오 동아리', stage: '2단계 프로젝트 기획·실행', months: '9월~11월', sessions: 4, hours: 2, groups: 1, assistant: false, matPer: 25_000, place: '대표기관 활동실',
-      core: '자기이해, 진로정보, 현장체험, 성찰과 실천 계획을 담은 학생별 진로설계 포트폴리오를 만든다.',
-      themes: ['포트폴리오 구성', '포트폴리오 작성', '실천 계획 세우기', '멘토 피드백'] },
-    { name: '진로설계 발표회', stage: '3단계 성과 공유', months: '11월', sessions: 2, hours: 2.5, groups: 1, assistant: false, matPer: 0, fees: [['현수막·인쇄물', 100_000, 'fixed', 1], ['대관·음향', 100_000, 'fixed', 1], ['다과(보호자 포함)', 5_000, 'people', 2]], place: '대표기관 강당',
-      core: '리허설과 개인별·그룹별 진로설계 발표회(개인 식별 정보 비공개)를 한다.',
+      core: '진로발달 검사로 지금의 고민을 확인하고, 직업 정보를 읽고 비교하는 방법과 학과·진학 경로를 알아본다. 관심 직업 세 가지를 골라 현장에서 확인할 질문을 만든다.',
+      themes: ['진로발달 검사와 고민 나누기', '직업 정보 읽는 법: 하는 일·자격·전망 비교', '강점과 직업 연결하기', '학과·진학 경로 탐색과 인터뷰 질문 만들기'] },
+    { name: '꿈 인터뷰와 현장 탐방 프로젝트', stage: '2단계 프로젝트 기획·실행', months: '8월~10월', sessions: 6, hours: 3, groups: 'classes', assistant: true, matPer: 15_000, bus: 2, busTimes: 2,
+      fees: [['학과·일터 체험 입장·체험료', 5_000, 'people', 2], ['직업인 초청 인터뷰 사례비', 50_000, 'fixed', 12]], place: '대표기관 활동실·대학·지역 사업장',
+      core: '학생이 직업인에게 물을 질문을 직접 만들어 인터뷰하고, 대학 학과와 지역 일터를 찾아가 확인한 것을 비교해 발표한다. 반별로 주강사와 보조강사가 함께 다니며 한 반을 책임진다.',
+      themes: ['프로젝트 주제와 팀 정하기', '직업인 인터뷰 준비: 질문 다듬기와 예절', '직업인 초청 인터뷰(센터)', '학과 체험(대학 방문)', '일터 체험(지역 사업장 방문)', '확인한 것 비교하고 발표 준비하기'] },
+    { name: '진로설계 포트폴리오 동아리', stage: '2단계 프로젝트 기획·실행', months: '9월~11월', sessions: 4, hours: 2, groups: 'classes', assistant: true, matPer: 25_000, place: '대표기관 활동실',
+      core: '자기이해, 진로정보, 현장체험, 성찰과 실천 계획을 담은 학생별 진로설계 포트폴리오를 만든다. 반마다 주강사와 보조강사가 학생과 1:1 면담을 하고, 대학생 멘토가 초안을 읽고 의견을 남긴다.',
+      themes: ['포트폴리오 구성하기와 1차 면담', '포트폴리오 작성하기(멘토 의견 반영)', '실천 계획 세우기: 내일부터 할 일 세 가지', '2차 면담과 최종 정리'] },
+    { name: '진로설계 발표회', stage: '3단계 성과 공유', months: '11월', sessions: 2, hours: 2.5, groups: 1, assistant: false, matPer: 0,
+      fees: [['현수막·인쇄물', 100_000, 'fixed', 1], ['대관·음향', 100_000, 'fixed', 1], ['다과(보호자 포함)', 5_000, 'people', 2]], place: '청소년문화의집 강당',
+      core: '발표 리허설을 한 뒤 보호자와 지역 직업인 앞에서 한 사람씩 자신의 진로설계를 발표한다. 개인을 알아볼 수 있는 정보는 자료에 싣지 않는다.',
       themes: ['발표 리허설', '진로설계 발표회와 사후 평가'] }
   ],
   community: [
-    { name: '연합동아리: 우리 고장 문화탐방단', stage: '2단계 프로젝트 기획·실행', months: '3월~12월', sessions: 14, hours: 3, groups: 1, assistant: true, assistantCount: 3, matPer: 15_000, bus: 3, busTimes: 8, fees: [['탐방 입장·해설료', 5_000, 'people', 8]], place: '생활권 안 문화유산·박물관·전통마을',
-      core: '인접 기관의 학생이 한 팀으로 만나 탐방을 학생 주도로 기획하고 다녀온다. 사찰·교회 등은 건축·역사 유산으로서만 방문하고 의례 참여는 하지 않는다.',
+    { name: '연합동아리: 우리 고장 문화탐방단', stage: '2단계 프로젝트 기획·실행', months: '3월~12월', sessions: 14, hours: 3, groups: 1, assistant: true, assistantCount: 3, matPer: 15_000, bus: 3, busTimes: 4, fees: [['탐방 입장·해설료', 3_000, 'people', 4]], place: '생활권 안 문화유산·박물관·전통마을',
+      core: '인접 기관의 학생이 한 팀으로 만나 탐방을 학생 주도로 기획하고 다녀온다(멀리 가는 4회는 버스, 나머지는 생활권 도보·대중교통). 사찰·교회 등은 건축·역사 유산으로서만 방문하고 의례 참여는 하지 않는다.',
       themes: ['연합동아리 첫 모임', '탐방 코스와 안전 약속', '탐방① 전통마을', '탐방② 박물관', '탐방③ 문화유산(건축·역사)', '탐방④ 지역 역사 공간', '탐방⑤ 마을 이야기 길', '탐방⑥ 사찰·교회 건축과 역사(의례 제외)', '탐방⑦ 전통시장', '탐방⑧ 예술·공예 공간', '중간 나눔', '탐방지도 점검', '다음 탐방 기획(학생 주도)', '탐방 마무리'] },
     { name: '기관별 사전·사후 학습 교실(공동 교육과정)', stage: '1단계 탐구·학습', months: '3월~11월', sessions: 10, hours: 2, groups: 'classes', assistant: false, matPer: 20_000, place: '각 참여 배움터 활동실',
       core: '세 기관이 같은 교재와 같은 주제로, 같은 시기에 탐방 전후 학습을 한다. 강사는 공동 교육과정 연수를 함께 받으며, 한 강사가 기관을 돌며 파견되는 방식이 아니다.',
@@ -108,20 +110,27 @@ export const PROGRAMS = {
   ]
 };
 
-export const classesOf = people => Math.ceil(people / 15);
-const groupsOf = (program, people) => program.groups === 'classes' ? classesOf(people) : program.groups;
+export const classesOf = (people, size = 15) => Math.ceil(people / size);
+export const classesFor = (id, people) => classesOf(people, classSizeOf(id));
+const groupsOf = (id, program, people) => program.groups === 'classes' ? classesFor(id, people) : program.groups;
 
 export function sessionTotal(id) { return PROGRAMS[id].reduce((sum, program) => sum + program.sessions, 0); }
 
 const money = n => `${n.toLocaleString('ko-KR')}원`;
 
 // 서식 5 예산서. 모든 줄이 「단가×수량」 산출식이다. 신청액은 이 합계이며, 한도와 비율 규정을 어기면 warnings에 적는다.
+// 교강사 회의 횟수. 교육 기간 개월 수 + 준비 1회. 진로설계는 5~11월 7개월이라 8회다(자치회의도 교육 기간 개월 수만큼).
+// classSize: 반 하나의 최대 인원. 재단은 분반 방식을 정하지 않아(전체 15명 이상만 요구) 사업별로 둔다. 진로설계는 1:1 면담이 있어 반당 17명까지.
+export const META = { career: { meetings: 8, educationMonths: 7, classSize: 17 } };
+export const classSizeOf = id => META[id]?.classSize ?? 15;
+export const meetingsOf = id => META[id]?.meetings ?? 11;
+
 export function budgetFor(id, people, { cap = Infinity, practitionerMonths = 12, practitionerWage = 200_000 } = {}) {
   const rows = []; // { program, account, formula, amount }
-  const add = (program, account, formula, amount) => rows.push({ program, account, formula, amount: Math.round(amount) });
+  const add = (program, account, formula, amount, outingRow = false) => rows.push({ program, account, formula, amount: Math.round(amount), outing: outingRow });
   let instructorCount = 0;
   for (const program of PROGRAMS[id]) {
-    const groups = groupsOf(program, people);
+    const groups = groupsOf(id, program, people);
     const turns = program.sessions * groups;
     instructorCount += groups;
     add(program.name, '강사비', `주강사 ${money(RULES.hourlyMax)}×${program.hours}시간×${program.sessions}회×${groups}`, RULES.hourlyMax * program.hours * turns);
@@ -130,25 +139,26 @@ export function budgetFor(id, people, { cap = Infinity, practitionerMonths = 12,
       add(program.name, '보조강사비', `보조강사 ${money(RULES.assistantHourly)}×${program.hours}시간×${program.sessions}회×${assistants}`, RULES.assistantHourly * program.hours * program.sessions * assistants);
     }
     if (program.matPer) add(program.name, '학습재료비', `재료·교재 ${money(program.matPer)}×${people}명`, program.matPer * people);
-    if (program.bus) add(program.name, '교통비', `버스 대여 ${money(300_000)}×${program.bus}대×${program.busTimes || program.sessions}회`, 300_000 * program.bus * (program.busTimes || program.sessions));
+    if (program.bus) add(program.name, '교통비', `버스 대여 ${money(300_000)}×${program.bus}대×${program.busTimes || program.sessions}회`, 300_000 * program.bus * (program.busTimes || program.sessions), true);
     add(program.name, '식비(간식)', `간식 ${money(2_000)}×${people}명×${program.sessions}회`, 2_000 * people * program.sessions);
     for (const [label, unit, kind, times] of typeof program.fees === 'function' ? program.fees(people) : program.fees || []) {
       const qty = kind === 'people' ? people * times : times;
-      add(program.name, '진행비', `${label} ${money(unit)}×${kind === 'people' ? `${people}명×${times}회` : `${times}`}`, unit * qty);
+      add(program.name, '진행비', `${label} ${money(unit)}×${kind === 'people' ? `${people}명×${times}회` : `${times}`}`, unit * qty, /체험|입장|견학|탐방/.test(label));
     }
   }
-  add('운영', '운영비(식비)', `교강사 회의 식비 ${money(10_000)}×${instructorCount + 1}명×11회`, 10_000 * (instructorCount + 1) * 11);
+  add('운영', '운영비(식비)', `교강사 회의 식비 ${money(10_000)}×${instructorCount + 1}명×${meetingsOf(id)}회`, 10_000 * (instructorCount + 1) * meetingsOf(id));
   add('운영', '운영비(교통비)', `재단 교육 참여 교통비 ${money(30_000)}×2명×4회`, 30_000 * 2 * 4);
   add('인건비', '수당', `실무자 수당 ${money(practitionerWage)}×${practitionerMonths}개월`, practitionerWage * practitionerMonths);
   const total = rows.reduce((sum, row) => sum + row.amount, 0);
   const sum = test => rows.filter(row => test(row)).reduce((s, row) => s + row.amount, 0);
   const admin = sum(row => row.program === '운영' || row.program === '인건비');
   const materials = sum(row => row.account === '학습재료비');
-  const outing = sum(row => row.account === '교통비' || row.account === '진행비');
+  const outing = sum(row => row.outing);
   const warnings = [];
   if (total > cap) warnings.push(`산출액 ${money(total)}이 한도 ${money(cap)}를 넘는다. 인원이나 회차를 줄이거나 항목을 덜어 낸다.`);
   const adminCap = id === 'community' ? RULES.adminShareCommunity : RULES.adminShare;
   if (admin > total * adminCap) warnings.push(`인건비·운영비가 총액의 ${Math.round(admin / total * 100)}%로 한도 ${adminCap * 100}%를 넘는다.`);
+  if (outing > total * RULES.outingShare) warnings.push(`체험·견학성 지출(버스·입장·체험료)이 총액의 ${Math.round(outing / total * 100)}%로 한도 15%를 넘는다.`);
   if (materials > total * RULES.materialsShare) warnings.push(`학습재료비가 총액의 ${Math.round(materials / total * 100)}%로 한도 30%를 넘는다.`);
-  return { rows, total, admin, materials, outing, warnings, shares: { admin: admin / total, materials: materials / total } };
+  return { rows, total, admin, materials, outing, warnings, shares: { admin: admin / total, materials: materials / total, outing: outing / total } };
 }

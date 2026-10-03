@@ -5,7 +5,7 @@
 // 기관만 아는 값(실제 대상 구성·연락처·단가)은 `[확인 필요]`로 둔다.
 // 뼈대는 재단 요강의 선정기준 여섯 가지다. 숫자(15명·연 35회·한도)는 요강에서 가져왔다.
 
-import { PROGRAMS, RULES, budgetFor, classesOf, sessionTotal } from './programs.js?v=1015';
+import { PROGRAMS, RULES, budgetFor, classesFor, sessionTotal } from './programs.js?v=1016';
 
 export const FUND = {
   name: '삼성꿈장학재단 2027 배움터 교육지원사업', period: '2027. 3. ~ 2028. 2.', eduEnd: '2028. 1.',
