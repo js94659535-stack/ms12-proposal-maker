@@ -3,16 +3,20 @@
 // 실행: node tools/baeumteo-flow-demo.mjs   (재단 사이트에서 양식·요강·FAQ를 실제로 내려받는다)
 // 결과: reports/10-17-flow-demo.md 와 reports/10-17-flow-demo/ 폴더의 출력 파일(txt·html·hwpx).
 import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { readZipFiles, extractHwpxText } from '../src/files.js';
 import { extractHwpDocument } from '../src/hwp-text.js';
 import { zipBytes } from '../src/submission-zip.js';
+import { handleNoticeRequest } from '../functions/api/notices.js';
+import { extractFormItems, formItemSkeleton, formSources } from '../src/form-spec.js';
 import { buildHwpxFiles } from '../src/hwpx-export.js';
 import { FUND, PROJECTS, optimalInput, OPTIMAL_PEOPLE, budgetPlan, capOf } from '../public/baeumteo/plan.js';
 import { PROGRAMS, RULES } from '../public/baeumteo/programs.js';
 import { detailedPlan, changeLog, reviewPlan, factList } from '../public/baeumteo/detail.js';
 import { SCENARIOS, recommendCombos, applyCombo } from '../public/baeumteo/orgs.js';
+import { planSections } from '../public/baeumteo/blocks.js';
 
 const root = new URL('..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 const outDir = path.join(root, 'reports', '10-17-flow-demo');
@@ -150,32 +154,111 @@ say('', `적용 후 상세본 ${finalText.length.toLocaleString('ko-KR')}자. �
   `막힌 경우 확인: 모집 부족 데이터의 추천 가능 조합 ${results.shortage.combos.filter(c => c.status !== '불가').length}개(모두 불가여야 정상), 미확인 데이터의 「실행 가능」 조합 ${results.unconfirmed.combos.filter(c => c.status === '실행 가능').length}개(0이어야 정상).`, '');
 
 // ⑥
-say('## ⑥ 출력 — 파일로 내보내고 다시 읽어 본문이 그대로인지 확인한다');
+say('## ⑥ 출력 — 파일로 내보내고, 한글에서 열어 보고, 공식 양식과 대조한다');
 const title = `${career.title}`;
-const sections = finalText.split(/\n(?=<서식 \d>)/).map((chunk, index) => ({ title: index === 0 ? '표지와 안내' : chunk.split('\n')[0], content: index === 0 ? chunk : chunk.split('\n').slice(1).join('\n') }));
+const sections = planSections(finalText);
 fs.writeFileSync(path.join(outDir, 'plan.txt'), finalText);
 const esc = value => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-fs.writeFileSync(path.join(outDir, 'plan.html'), `<!doctype html><meta charset="utf-8"><title>${esc(title)}</title><style>body{font:14px/1.7 "Malgun Gothic",sans-serif;max-width:780px;margin:24px auto;padding:0 16px}h2{font-size:16px;margin-top:22px}p{margin:2px 0}@media print{body{margin:0}}</style><h1>${esc(title)}</h1>${sections.map(s => `<h2>${esc(s.title)}</h2>${s.content.split('\n').map(line => `<p>${esc(line)}</p>`).join('')}`).join('')}`);
-const hwpxBytes = zipBytes(buildHwpxFiles({ project: { title, issuer: FUND.name, deadline: FUND.deadline }, sections }, new Date().toISOString()), new Date().toISOString());
+const htmlBody = section => `<h2>${esc(section.title)}</h2>` + section.blocks.map(block => block.rows
+  ? `<table>${block.rows.map((row, r) => `<tr>${row.map(cell => `<${r ? 'td' : 'th'}>${esc(cell)}</${r ? 'td' : 'th'}>`).join('')}</tr>`).join('')}</table>`
+  : `<p>${esc(block.text)}</p>`).join('');
+fs.writeFileSync(path.join(outDir, 'plan.html'), `<!doctype html><meta charset="utf-8"><title>${esc(title)}</title><style>body{font:14px/1.7 "Malgun Gothic",sans-serif;max-width:780px;margin:24px auto;padding:0 16px}h2{font-size:16px;margin-top:22px}p{margin:2px 0}table{border-collapse:collapse;width:100%;margin:6px 0}td,th{border:1px solid #444;padding:3px 6px;font-size:12px;vertical-align:top}th{background:#eee}@media print{body{margin:0}}</style><h1>${esc(title)}</h1>${sections.map(htmlBody).join('')}`);
+const generatedAt = new Date().toISOString();
+const hwpxBytes = zipBytes(buildHwpxFiles({ project: { title, issuer: FUND.name, deadline: FUND.deadline }, sections }, generatedAt), generatedAt);
 fs.writeFileSync(path.join(outDir, 'plan.hwpx'), hwpxBytes);
-const zipNames = (await readZipFiles(hwpxBytes.buffer.slice(hwpxBytes.byteOffset, hwpxBytes.byteOffset + hwpxBytes.byteLength))).map(file => file.name);
-const readBack = await extractHwpxText(hwpxBytes.buffer.slice(hwpxBytes.byteOffset, hwpxBytes.byteOffset + hwpxBytes.byteLength));
-const sample = finalText.split('\n').filter(line => line.trim().length > 20);
+const ab = bytes => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+const zipNames = (await readZipFiles(ab(hwpxBytes))).map(file => file.name);
+const readBack = await extractHwpxText(ab(hwpxBytes));
+const sample = finalText.split('\n').filter(line => line.trim().length > 20 && !line.includes(' | '));
 const kept = sample.filter(line => readBack.replace(/\s+/g, ' ').includes(line.trim().slice(0, 30).replace(/\s+/g, ' '))).length;
-say(`- plan.txt ${fs.statSync(path.join(outDir, 'plan.txt')).size.toLocaleString('ko-KR')}바이트 (본문 그대로)`,
-  `- plan.html ${fs.statSync(path.join(outDir, 'plan.html')).size.toLocaleString('ko-KR')}바이트 (브라우저에서 열어 인쇄·PDF 저장)`,
-  `- plan.hwpx ${hwpxBytes.length.toLocaleString('ko-KR')}바이트, 압축 안 파일 ${zipNames.length}개(${zipNames[0]}가 맨 앞)`,
-  `- HWPX를 다시 읽어 본 결과: 본문 ${readBack.length.toLocaleString('ko-KR')}자, 원문 ${sample.length}줄 중 ${kept}줄이 앞 30자 기준으로 그대로 들어 있음(${Math.round(kept / sample.length * 100)}%)`,
-  '', '**한계:** 이 출력은 「본문을 담은 새 문서」다. 재단이 준 `.hwp` 양식 파일 자체의 칸에 값을 채워 넣는 것은 아직 없다. HWPX가 한글에서 실제로 열리는지는 이 시연에서 한글 프로그램으로 확인하지 못했고, 우리 읽기 코드로 되읽은 것까지만 확인했다. 또 가상 기관이 들어 있어 점검에서 오류(가상 값 잔존)가 나는 것이 정상이며, 제출은 실제 값으로 바꾼 뒤에 가능하다.', '');
+const tableCount = sections.reduce((n, section) => n + section.blocks.filter(block => block.rows).length, 0);
+say(`- plan.txt ${fs.statSync(path.join(outDir, 'plan.txt')).size.toLocaleString('ko-KR')}바이트 · plan.html ${fs.statSync(path.join(outDir, 'plan.html')).size.toLocaleString('ko-KR')}바이트(표 포함, 브라우저에서 인쇄·PDF 저장)`,
+  `- plan.hwpx ${hwpxBytes.length.toLocaleString('ko-KR')}바이트, 구성 파일 ${zipNames.length}개, 진짜 표 ${tableCount}개(서식 3 기반 활동·개요표, 서식 5 예산서 등)`,
+  `- 우리 코드로 되읽기: 문단 ${sample.length}줄 중 ${kept}줄 그대로 (${Math.round(kept / sample.length * 100)}%)`, '');
+
+// 한글 프로그램으로 외부 검증 (Windows + 한글 2020 이상)
+let hangul = { tried: false };
+const checker = path.join(root, 'tools', 'hangul-check.ps1');
+if (process.platform === 'win32' && fs.existsSync(checker)) {
+  const pdfOut = path.join(outDir, 'plan_from_hangul.pdf');
+  const run = spawnSync('powershell', ['-NoProfile', '-File', checker, '-In', path.join(outDir, 'plan.hwpx'), '-Pdf', pdfOut], { encoding: 'utf8', timeout: 120000 });
+  try { hangul = { tried: true, ...JSON.parse(run.stdout.trim().split('\n').pop()) }; } catch { hangul = { tried: true, opened: false, error: (run.stderr || run.stdout || '').slice(0, 120) }; }
+  if (hangul.pdf && fs.existsSync(pdfOut)) {
+    const pdf = flat(await pdfText(fs.readFileSync(pdfOut)));
+    hangul.headings = ['<서식 1>', '<서식 2>', '<서식 3>', '<서식 4>', '<서식 5>'].filter(h => pdf.includes(h)).length;
+    hangul.columns = ['산출 근거', '프로그램명', '계정과목', '핵심 논의 사항', '연간 진행 횟수'].filter(c => pdf.includes(c.replace(/\s/g, '')) || pdf.includes(c)).length;
+    hangul.pdfChars = pdf.length;
+  }
+}
+if (hangul.tried) {
+  say('**한글 프로그램으로 열기 (외부 검증)**',
+    `- 한글에서 열림: ${hangul.opened ? '예' : '**아니오**'} · 쪽 수 ${hangul.pages ?? '?'}쪽(A4) · PDF 변환 ${hangul.pdf ? '성공' : '**실패**'}${hangul.error ? ` · 오류 ${hangul.error}` : ''}`,
+    hangul.pdf ? `- 한글이 만든 PDF에서 서식 1~5 제목 ${hangul.headings}/5개, 표 머리 칸 이름 ${hangul.columns}/5개가 글자로 읽힘 (plan_from_hangul.pdf)` : '- PDF가 없어 글자 대조는 못 함', '');
+} else say('**한글 프로그램으로 열기:** 이 환경에서는 시도하지 못함(한글 미설치 또는 Windows가 아님)', '');
+
+// 공식 양식과 대조: 항목 번호·제목, 필수 활동, 표 머리 칸
+const customText = pick(texts, /맞춤형/);
+const officialHeads = req.sections['맞춤형'];
+const ours = finalText;
+const headCover = officialHeads.map(head => ({ head, has: ours.includes(head) || ours.includes(head.replace(/^\d+\.\s*/, '')) }));
+const careerBlock = (/진로설계\s*프로젝트\s*구분\s*내용[\s\S]*?필수활동([\s\S]*?)지원금액/.exec(customText) || [])[1] || '';
+const required = careerBlock.split(/[◯○]/).map(t => t.replace(/\s+/g, ' ').trim()).filter(t => t.length > 6).map(t => t.replace(/^-\s*/, ''));
+const requiredKeys = [[/지역사회와의 상호작용/, /지역사회|진로자원/], [/주도의 프로젝트/, /프로젝트/], [/포트폴리오 제작/, /진로설계 포트폴리오/], [/자치회의/, /자치회의/], [/기반 활동/, /교강사 전체 회의|보호자/]];
+const requiredCover = requiredKeys.map(([official, mine]) => ({ official: (required.find(t => official.test(t)) || '').slice(0, 40), has: mine.test(ours), found: required.some(t => official.test(t)) }));
+const tableHeads = [['6-1 개요표', ['단계', '프로그램명', '참여학생', '운영 기간', '운영 회기']], ['8 기반 활동', ['구분', '연간 진행 횟수', '핵심 논의 사항']], ['서식 5 예산서', ['구분', '프로그램명', '계정과목', '산출 근거', '예산']]];
+const tableCover = tableHeads.map(([name, cols]) => ({ name, official: cols.filter(c => flat(customText).includes(c)).length, mine: cols.filter(c => sections.some(s => s.blocks.some(b => b.rows && b.rows[0].some(cell => cell.replace(/\s/g, '').includes(c.replace(/\s/g, '')))))).length, total: cols.length }));
+say('**공식 신청서(맞춤형 양식)와 대조**',
+  `- 서식 3 항목 번호·제목: ${headCover.filter(h => h.has).length}/${headCover.length} 일치 (${headCover.filter(h => !h.has).map(h => h.head).join(', ') || '빠진 것 없음'})`,
+  `- 진로설계 필수활동 ${requiredCover.filter(r => r.found).length}개 중 계획서에 반영된 것 ${requiredCover.filter(r => r.found && r.has).length}개: ${requiredCover.map(r => `${r.found ? (r.has ? '○' : '×') : '?'} ${r.official || '(못 찾음)'}`).join(' / ')}`,
+  ...tableCover.map(t => `- 표 머리 칸 ${t.name}: 공식 양식에 ${t.official}/${t.total}개 있음 → 우리 표에 ${t.mine}/${t.total}개`),
+  `- 공식 양식은 표가 많은 한글 서식(.hwp)이고, 우리 출력은 같은 항목 순서와 핵심 표를 갖춘 **새 문서**다. 양식 파일의 칸에 값을 직접 채운 것이 아니므로 「공식 양식 완전 일치」가 아니다.`, '');
+const unverified = ['재단 .hwp 양식의 서식 1·2 표 칸(대표기관 명단·책무성 점검표 등), 교육 장소 전경 사진 첨부, 직인·서명·동의서', '한글에서 직접 열어 눈으로 확인하는 쪽 나눔·글꼴(위 쪽 수는 한글이 센 값)', '큰 표(서식 5)가 새 쪽에서 시작해 앞 쪽 아래가 비는 현상은 고치지 못함'];
+say('**확인하지 못한 부분 (「출력 완료」와 구분):**', ...unverified.map(t => `- ${t}`), '');
+
+// ⑦ 다른 공모 한 건을 기존 코드 수정 없이 처리할 수 있는가
+say('## ⑦ 다른 공모 한 건 — 기존 코드를 고치지 않고 어디까지 되는가');
+let other = { ok: false };
+try {
+  const post = body => handleNoticeRequest(new Request('https://l.test/api/notices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }));
+  const H = { Referer: 'https://proposal.chest.or.kr/', Accept: 'text/html,*/*', 'Accept-Language': 'ko-KR,ko;q=0.9' };
+  const page = await (await fetch('https://proposal.chest.or.kr/mobile/mobileMainBsnsDetail.do?dstbBsnsCode=20260800100057&appnDocNo=', { headers: H })).text();
+  const handles = [...page.matchAll(/fn_fileDownload\('([^']+)'\s*,\s*'([^']+)'\s*,\s*'([^']+)'\s*,\s*'([^']+)'\)[^>]*>([\s\S]*?)<\/a>/gi)].map(m => ({ fileSeCode: m[1], dstbBsnsCode: m[2], sn: m[3], fileSn: m[4], name: m[5].replace(/<[^>]+>|\s+/g, ' ').trim() }));
+  const zipHandle = handles.find(h => /zip/i.test(h.name));
+  const response = await post({ action: 'downloadAttachment', attachment: zipHandle });
+  const entries = await readZipFiles(new Uint8Array(await response.arrayBuffer()).buffer);
+  const form = entries.find(e => /배분신청서.*\.hwp$/.test(e.name));
+  const doc = await extractHwpDocument(ab(form.bytes));
+  const formItems = extractFormItems(formSources([{ id: 'f', fileName: form.name, sourceType: '사업계획서 서식', extractionStatus: 'success', extractedText: doc.text, guides: doc.guides }]));
+  const matched = formItems.map(item => ({ name: item.name.slice(0, 28), key: formItemSkeleton({ items: [item] }, [])[0].key }));
+  other = { ok: true, doc0Text: doc.text, title: '2026 한국수출입은행 다문화 차량 공모사업(사랑의열매 중앙회)', files: entries.length, tables: doc.tables, guides: doc.guides.length, items: formItems.length, matched };
+} catch (error) { other = { ok: false, error: String(error.message || error).slice(0, 100) }; }
+if (other.ok) {
+  const otherText = flat(other.doc0Text);
+  const otherRules = requirementTable({ FAQ: otherText, 미래형: otherText, 맞춤형: otherText, 연결형: otherText, 공모요강: otherText });
+  say(`대상: ${other.title}. 첨부 ZIP ${other.files}개 파일, 배분신청서 .hwp에 표 ${other.tables}개·안내 박스 ${other.guides}개.`, '',
+    '단계 | 기존 코드를 그대로 쓴 결과',
+    `① 요구조건 추출 | 배움터용 규정 패턴 ${otherRules.rows.length}개 중 이 문서에서 찾은 것 ${otherRules.rows.filter(r => r.found).length}개(범용 추출이 아님). 서식 항목은 서식의 번호 줄에서 ${other.items}개가 서식 이름 그대로 나옴(24-04의 항목 추출, 안내 박스는 번호 줄이 못 채운 갈래만 메움)`,
+    `② 가상본 | **불가** — 계획서 내용(프로그램표·예산 단가)이 배움터 다섯 사업에 손으로 들어 있어 새 공모의 계획서는 만들지 못함`,
+    `③~⑤ 조합·재설계 | **불가** — 사업 유형·한도·규정이 배움터 전용(programs.js) 상수`,
+    `⑥ 출력 | 가능(문서 틀은 공용) — 다만 채울 내용이 없음`, '',
+    `항목 추출 결과: ${other.matched.map(m => `「${m.name}」→${m.key || '안 걸림'}`).join(' / ')}`, '',
+    '**범용화의 다음 과제(이 시연이 보여 준 순서):**',
+    '1. 공모 정의를 코드에서 데이터로 분리 — 지금은 `PROJECTS`·`RULES`·`PROGRAMS`·`FACTS`가 배움터 상수다. 이것을 「공모 정의 파일」(유형, 한도, 규정, 서식 항목, 질문)로 빼고 엔진은 읽기만 하게 해야 한다.',
+    '2. 규정 추출을 패턴 목록에서 일반 규칙으로 — 숫자+단위+조건 문장(「N회 이상」「N% 이하」「N개 이상 기관」)을 문서에서 뽑아 사람이 확인하는 표를 만든다. 지금은 문구마다 패턴을 손으로 썼다.',
+    `3. 서식 항목 → 계획서 갈래 연결 — 항목 이름은 서식의 번호 줄 그대로 ${other.items}개가 나오고 그중 ${other.matched.filter(m => m.key).length}개가 우리 갈래(필요성·대상·일정 등)에 걸린다. 걸리지 않는 항목(${other.matched.filter(m => !m.key).map(m => `「${m.name}」`).join(', ') || '없음'})은 낱말 목록에 없어서이므로, 낱말 추가 대신 공모 정의 파일에서 항목→갈래를 사람이 확인하는 표로 바꾼다.`,
+    '4. 교육 설계는 공모마다 다르므로 **템플릿 + 사용자 입력**으로 시작하고, AI 초안은 규정 검증을 통과한 뒤에만 쓴다.', '');
+} else say(`다른 공모(2026 한국수출입은행 다문화 차량 공모사업)를 내려받지 못해 시험하지 못함: ${other.error}`, '');
 
 // 결론
 say('## 전체 판정');
-const step = (name, ok, note, partial = false) => `- ${ok ? (partial ? '일부 작동' : '작동') : '미완'} · ${name} — ${note}`;
-say(step('① 요구조건 추출', found >= req.rows.length - 2 && mismatch.length === 0, `이 재단 문서에서 규정 ${found}/${req.rows.length}개 추출, 코드와 불일치 ${mismatch.length}. 다른 공모를 읽는 범용 추출은 미구현`, true),
-  step('② 가상본', virtualText.length > 5000 && (virtualText.match(/\[확인 필요/g) || []).length === 0, '〔가상〕 표시와 경고 문구가 붙은 완성본'),
-  step('③ 기관 입력', true, '화면의 기관 카드와 시험 데이터 3종'),
-  step('④ 조합 재추천', results.sufficient.combos[0].status === '실행 가능' && results.shortage.combos.every(c => c.status === '불가') && results.unconfirmed.combos.every(c => c.status !== '실행 가능'), '충분·부족·미확인 세 경우가 각각 기대한 판정'),
-  step('⑤ 재설계', changes.length >= 6 && changes.every(row => row.why), `${changes.length}개 항목이 바뀌고 모두 이유가 붙음`),
-  step('⑥ 출력', kept / sample.length > 0.9, 'txt·html·hwpx 생성과 되읽기. 재단 양식 파일 채우기는 미구현', true));
+const step = (name, state, note) => `- ${state} · ${name} — ${note}`;
+const hangulOk = hangul.tried && hangul.opened && hangul.pdf;
+say(step('① 요구조건 추출', '일부 작동', `이 재단 문서에서 규정 ${found}/${req.rows.length}개 추출, 코드와 불일치 ${mismatch.length}. 다른 공모를 읽는 범용 추출은 미구현`),
+  step('② 가상본', virtualText.length > 5000 && (virtualText.match(/\[확인 필요/g) || []).length === 0 ? '작동' : '미완', '〔가상〕 표시와 경고 문구가 붙은 완성본'),
+  step('③ 기관 입력', '작동', '화면의 기관 카드와 시험 데이터 3종'),
+  step('④ 조합 재추천', results.sufficient.combos[0].status === '실행 가능' && results.shortage.combos.every(c => c.status === '불가') && results.unconfirmed.combos.every(c => c.status !== '실행 가능') ? '작동' : '미완', '충분·부족·미확인 세 경우가 각각 기대한 판정'),
+  step('⑤ 재설계', changes.length >= 6 && changes.every(row => row.why) ? '작동' : '미완', `${changes.length}개 항목이 바뀌고 모두 이유가 붙음`),
+  step('⑥ 출력', hangulOk ? '일부 작동' : '미완', `hwpx를 한글이 ${hangulOk ? '열고 PDF로 변환함(진짜 표 포함)' : '열었는지 확인 못 함'}. 재단 .hwp 양식 파일의 칸을 채우는 것은 미구현`),
+  step('⑦ 다른 공모', '미완', '계획서 생성·재설계는 배움터 전용 상수에 묶여 있어 다른 공모를 코드 수정 없이 처리하지 못함 — 범용화 과제 4가지는 ⑦ 참조'));
 fs.writeFileSync(path.join(root, 'reports', '10-17-flow-demo.md'), log.join('\n') + '\n');
 console.log(log.join('\n'));

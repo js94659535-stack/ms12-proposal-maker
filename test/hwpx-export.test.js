@@ -118,3 +118,38 @@ test('화면에 한글 파일 받기 단추가 있고 표 안내를 함께 적�
   // 표 서식이 그대로 필요하면 DOCX를 쓰라고 그 자리에서 알려 준다.
   assert.match(app, /표 서식이 그대로 필요하면 DOCX를 쓰세요/);
 });
+
+// ---------- 진짜 표 (10-18) ----------
+import { realTable } from '../src/hwpx-export.js';
+import { planSections } from '../public/baeumteo/blocks.js';
+
+test('realTable은 행·열 수와 테두리 정의가 맞는 hp:tbl을 만들고 글자를 이스케이프한다', () => {
+  const xml = realTable([['구분', '금액'], ['A & B', '<1,000>'], ['C', '2,000']]);
+  assert.match(xml, /<hp:tbl [^>]*rowCnt="3" colCnt="2"/);
+  assert.equal((xml.match(/<hp:tr>/g) || []).length, 3);
+  assert.equal((xml.match(/<hp:tc /g) || []).length, 6);
+  assert.ok(xml.includes('A &amp; B') && xml.includes('&lt;1,000&gt;'));
+  const widths = [...xml.matchAll(/<hp:cellSz width="(\d+)"/g)].map(m => Number(m[1]));
+  assert.equal(widths[0] + widths[1], 42000, '열 너비 합이 표 너비');
+  assert.match(xml, /borderFillIDRef="2"/);
+  assert.equal(realTable([]), '');
+});
+
+test('header.xml은 표가 쓰는 borderFill 2번과 줄 간격 100% 문단(2번)을 정의한다', () => {
+  const header = new TextDecoder().decode(buildHwpxFiles({ project: { title: 't' }, sections: [] }).find(file => file.name === 'Contents/header.xml').bytes);
+  assert.match(header, /<hh:borderFill id="2"/);
+  assert.match(header, /<hh:paraPr id="2"[\s\S]*?value="100"/);
+  assert.match(header, /<hh:paraProperties itemCnt="3">/);
+});
+
+test('section.blocks는 문단과 표를 순서대로 낸다', () => {
+  const xml = buildSectionXml({ project: { title: 't' }, sections: [{ title: '제목', blocks: [{ text: '앞 문단' }, { rows: [['가', '나'], ['1', '2']] }, { text: '뒤 문단' }] }] });
+  assert.ok(xml.indexOf('앞 문단') < xml.indexOf('<hp:tbl') && xml.indexOf('<hp:tbl') < xml.indexOf('뒤 문단'));
+});
+
+test('planSections는 | 로 나뉜 연속 줄을 표로, 서식 제목마다 구역을 나눈다', () => {
+  const sections = planSections(['표지', '<서식 3> 계획서', '문단', '가 | 나 | 다', '1 | 2 | 3', '끝 문단', '<서식 5> 예산서', '구분 | 항목 | 금액', 'a | b | c'].join('\n'));
+  assert.deepEqual(sections.map(s => s.title), ['표지와 안내', '<서식 3> 계획서', '<서식 5> 예산서']);
+  assert.deepEqual(sections[1].blocks.map(b => (b.rows ? `표${b.rows.length}` : '문단')), ['문단', '표2', '문단']);
+  assert.equal(sections[2].blocks[0].rows[0].length, 3);
+});

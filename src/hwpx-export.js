@@ -30,6 +30,41 @@ function paragraph(text, { style = 0, char = 0 } = {}) {
     + '</hp:p>';
 }
 
+
+// 진짜 표. 열 너비는 글 길이에 비례해 나누고, 머리 줄은 굵게 한다. borderFill 2번(실선)을 header.xml에 정의해 둔다.
+const TABLE_WIDTH = 42000;
+let tableCounter = 0;
+function cellXml(text, { col, row, width, head }) {
+  const value = String(text ?? '').trim();
+  const run = `<hp:run charPrIDRef="${head ? 1 : 0}">${value ? `<hp:t>${escapeXml(value)}</hp:t>` : '<hp:t/>'}</hp:run>`;
+  return '<hp:tc name="" header="' + (head ? 1 : 0) + '" hasMargin="0" protect="0" editable="0" dirty="0" borderFillIDRef="2">'
+    + '<hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">'
+    + `<hp:p id="0" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">${run}</hp:p>`
+    + '</hp:subList>'
+    + `<hp:cellAddr colAddr="${col}" rowAddr="${row}"/><hp:cellSpan colSpan="1" rowSpan="1"/>`
+    + `<hp:cellSz width="${width}" height="2000"/><hp:cellMargin left="283" right="283" top="141" bottom="141"/>`
+    + '</hp:tc>';
+}
+export function realTable(rows) {
+  const grid = (rows || []).map(row => (Array.isArray(row) ? row : [row]));
+  if (!grid.length) return '';
+  const cols = Math.max(...grid.map(row => row.length));
+  // 열 너비는 글자 폭(한글 2, 그 밖 1)으로 잰다. 짧은 열이 세로로 접히지 않게 아래를 6으로 막는다.
+  const display = text => [...String(text ?? '')].reduce((n, ch) => n + (ch.charCodeAt(0) > 0x2e80 ? 2 : 1), 0);
+  const weight = Array.from({ length: cols }, (_, c) => Math.min(44, Math.max(8, ...grid.map(row => display(row[c]) + 2))));
+  const total = weight.reduce((a, b) => a + b, 0);
+  const widths = weight.map(w => Math.floor(TABLE_WIDTH * w / total));
+  widths[cols - 1] += TABLE_WIDTH - widths.reduce((a, b) => a + b, 0);
+  const trs = grid.map((row, r) => '<hp:tr>' + Array.from({ length: cols }, (_, c) => cellXml(row[c], { col: c, row: r, width: widths[c], head: r === 0 })).join('') + '</hp:tr>').join('');
+  tableCounter += 1;
+  const tbl = `<hp:tbl id="${tableCounter}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="CELL" repeatHeader="1" rowCnt="${grid.length}" colCnt="${cols}" cellSpacing="0" borderFillIDRef="2" noAdjust="0">`
+    + `<hp:sz width="${TABLE_WIDTH}" widthRelTo="ABSOLUTE" height="2000" heightRelTo="ABSOLUTE" protect="0"/>`
+    + '<hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/>'
+    + '<hp:outMargin left="0" right="0" top="0" bottom="0"/><hp:inMargin left="283" right="283" top="141" bottom="141"/>'
+    + trs + '</hp:tbl>';
+  return `<hp:p id="0" paraPrIDRef="2" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0">${tbl}</hp:run></hp:p>`;
+}
+
 // 표는 칸을 전각 공백으로 맞춰 문단으로 적는다.
 // 한글이 열지 못하는 표 구조를 만들어 파일 전체를 못 열게 하는 것보다, 내용이 남는 쪽을 고른다.
 // 표 서식 그대로가 필요하면 DOCX·PDF를 쓴다. 화면에도 그렇게 적어 둔다.
@@ -52,6 +87,10 @@ export function buildSectionXml({ project = {}, sections = [], tables = [] } = {
 
   const body = sections.map(section => {
     const heading = paragraph(section.title || '', { style: 1, char: 1 });
+    if (Array.isArray(section.blocks)) {
+      const blocks = section.blocks.map(block => (block.rows ? realTable(block.rows) + paragraph('') : paragraph(block.text))).join('');
+      return heading + (blocks || paragraph('')) + paragraph('');
+    }
     const lines = String(section.content || '').split(/\n+/).filter(line => line.trim());
     return heading + (lines.length ? lines.map(line => paragraph(line)).join('') : paragraph('')) + paragraph('');
   }).join('');
@@ -72,6 +111,12 @@ function headerXml() {
     + '<hh:fontfaces itemCnt="1"><hh:fontface lang="HANGUL" fontCnt="1">'
     + '<hh:font id="0" face="함초롬바탕" type="TTF" isEmbedded="0"><hh:typeInfo familyType="FCAT_GOTHIC" weight="0" proportion="0" contrast="0" strokeVariation="0" armStyle="0" letterform="0" midline="0" xHeight="0"/></hh:font>'
     + '</hh:fontface></hh:fontfaces>'
+    + '<hh:borderFills itemCnt="2">'
+    + '<hh:borderFill id="1" threeD="0" shadow="0" centerLine="NONE" breakCellSeparateLine="0"><hh:slash type="NONE" Crooked="0" isCounter="0"/><hh:backSlash type="NONE" Crooked="0" isCounter="0"/>'
+    + '<hh:leftBorder type="NONE" width="0.1 mm" color="#000000"/><hh:rightBorder type="NONE" width="0.1 mm" color="#000000"/><hh:topBorder type="NONE" width="0.1 mm" color="#000000"/><hh:bottomBorder type="NONE" width="0.1 mm" color="#000000"/><hh:diagonal type="SOLID" width="0.1 mm" color="#000000"/></hh:borderFill>'
+    + '<hh:borderFill id="2" threeD="0" shadow="0" centerLine="NONE" breakCellSeparateLine="0"><hh:slash type="NONE" Crooked="0" isCounter="0"/><hh:backSlash type="NONE" Crooked="0" isCounter="0"/>'
+    + '<hh:leftBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:rightBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:topBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:bottomBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:diagonal type="SOLID" width="0.1 mm" color="#000000"/></hh:borderFill>'
+    + '</hh:borderFills>'
     + '<hh:charProperties itemCnt="2">'
     + '<hh:charPr id="0" height="1000" textColor="#000000" shadeColor="none" useFontSpace="0" useKerning="0" symMark="NONE" borderFillIDRef="1">'
     + '<hh:fontRef hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>'
@@ -88,7 +133,7 @@ function headerXml() {
     + '<hh:offset hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>'
     + '</hh:charPr>'
     + '</hh:charProperties>'
-    + '<hh:paraProperties itemCnt="2">'
+    + '<hh:paraProperties itemCnt="3">'
     + '<hh:paraPr id="0" tabPrIDRef="0" condense="0" fontLineHeight="0" snapToGrid="1" suppressLineNumbers="0" checked="0">'
     + '<hh:align horizontal="JUSTIFY" vertical="BASELINE"/><hh:heading type="NONE" idRef="0" level="0"/>'
     + '<hh:breakSetting breakLatinWord="KEEP_WORD" breakNonLatinWord="KEEP_WORD" widowOrphan="0" keepWithNext="0" keepLines="0" pageBreakBefore="0" lineWrap="BREAK"/>'
@@ -100,6 +145,12 @@ function headerXml() {
     + '<hh:breakSetting breakLatinWord="KEEP_WORD" breakNonLatinWord="KEEP_WORD" widowOrphan="0" keepWithNext="1" keepLines="0" pageBreakBefore="0" lineWrap="BREAK"/>'
     + '<hh:margin><hc:intent value="0" unit="HWPUNIT"/><hc:left value="0" unit="HWPUNIT"/><hc:right value="0" unit="HWPUNIT"/><hc:prev value="400" unit="HWPUNIT"/><hc:next value="200" unit="HWPUNIT"/></hh:margin>'
     + '<hh:lineSpacing type="PERCENT" value="160" unit="HWPUNIT"/><hh:border borderFillIDRef="1" offsetLeft="0" offsetRight="0" offsetTop="0" offsetBottom="0" connect="0" ignoreMargin="0"/>'
+    + '</hh:paraPr>'
+    + '<hh:paraPr id="2" tabPrIDRef="0" condense="0" fontLineHeight="0" snapToGrid="0" suppressLineNumbers="0" checked="0">'
+    + '<hh:align horizontal="LEFT" vertical="BASELINE"/><hh:heading type="NONE" idRef="0" level="0"/>'
+    + '<hh:breakSetting breakLatinWord="KEEP_WORD" breakNonLatinWord="KEEP_WORD" widowOrphan="0" keepWithNext="0" keepLines="0" pageBreakBefore="0" lineWrap="BREAK"/>'
+    + '<hh:margin><hc:intent value="0" unit="HWPUNIT"/><hc:left value="0" unit="HWPUNIT"/><hc:right value="0" unit="HWPUNIT"/><hc:prev value="0" unit="HWPUNIT"/><hc:next value="0" unit="HWPUNIT"/></hh:margin>'
+    + '<hh:lineSpacing type="PERCENT" value="100" unit="HWPUNIT"/><hh:border borderFillIDRef="1" offsetLeft="0" offsetRight="0" offsetTop="0" offsetBottom="0" connect="0" ignoreMargin="0"/>'
     + '</hh:paraPr>'
     + '</hh:paraProperties>'
     + '<hh:styles itemCnt="2">'
