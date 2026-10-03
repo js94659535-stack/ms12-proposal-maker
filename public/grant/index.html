@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>공모 작업대</title>
+<style>
+  :root { --bg:#fff; --ink:#1b1f23; --sub:#5b636b; --line:#e3e6ea; --accent:#0b6b3a; --soft:#f3f6f4; --warn:#b4231b; --amber:#a86b00; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14171a; --ink:#eceff2; --sub:#9aa3ab; --line:#2b3238; --accent:#4fd18b; --soft:#1c2125; --warn:#ff8a80; --amber:#e0b24c; } }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 system-ui,"Malgun Gothic",sans-serif; }
+  main { max-width:820px; margin:0 auto; padding:24px 16px 64px; }
+  h1 { font-size:20px; margin:0 0 4px; } .sub { color:var(--sub); font-size:14px; margin:0 0 16px; }
+  details.step { border-top:1px solid var(--line); } details.step:last-of-type { border-bottom:1px solid var(--line); }
+  summary { display:flex; gap:10px; align-items:baseline; padding:12px 0; cursor:pointer; list-style:none; } summary::-webkit-details-marker { display:none; }
+  .n { flex:none; width:22px; font-weight:700; color:var(--accent); } .t { flex:1; } .s { flex:none; color:var(--sub); font-size:13px; }
+  .box { padding:0 0 18px 32px; font-size:14px; }
+  table { border-collapse:collapse; width:100%; margin:6px 0; } td, th { border:1px solid var(--line); padding:4px 8px; vertical-align:top; text-align:left; font-size:13px; } th { background:var(--soft); }
+  button { font:inherit; font-size:14px; padding:6px 11px; color:var(--ink); background:var(--soft); border:1px solid var(--line); border-radius:6px; cursor:pointer; margin:2px 4px 2px 0; }
+  button.on { color:var(--accent); border-color:var(--accent); font-weight:700; }
+  input, select, textarea { font:inherit; font-size:14px; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:5px 8px; box-sizing:border-box; }
+  textarea { width:100%; min-height:48px; }
+  pre { white-space:pre-wrap; word-break:keep-all; font:inherit; font-size:13px; background:var(--soft); border:1px solid var(--line); border-radius:8px; padding:12px; max-height:420px; overflow:auto; }
+  .ok { color:var(--accent); font-weight:700; } .no { color:var(--warn); font-weight:700; } .hold { color:var(--amber); font-weight:700; } .mute { color:var(--sub); }
+  .org { margin:8px 0; padding:8px; border:1px solid var(--line); border-radius:8px; } .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:4px 10px; } .grid label { font-size:12px; color:var(--sub); display:block; }
+  .q { color:var(--sub); font-size:12px; margin:2px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>공모 작업대</h1>
+  <p class="sub">공모 정의(데이터)를 읽어 요구조건 확인 → 가상본 → 기관 입력 → 추천·재설계 → 점검·출력을 돌립니다. 지금 정의: <b id="defname"></b>. <span id="status" class="mute"></span></p>
+  <div id="app"></div>
+</main>
+<script type="module">
+import def from './defs/vehicle.js?v=1022';
+import { generate, preCheck, postCheck, checkApplicant, rankApplicants, evaluateChoices, changeLog, factKeysOf, linkInfo } from './engine.js?v=1022';
+import { planSections } from '../baeumteo/blocks.js?v=1022';
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+const KEY = 'grant-vehicle-v1';
+let st = { virtual: false, facts: {}, values: {}, choices: {}, confirmed: {}, applicants: [], applied: null };
+try { st = { ...st, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; } catch { /* 저장이 막혀도 화면은 된다 */ }
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch { /* ignore */ } };
+const inputOf = () => ({ virtual: st.virtual, facts: st.facts, values: st.values, choices: st.choices, applicant: st.applied?.facts || {} });
+const baseInput = () => ({ virtual: true });
+const cls = r => r === '충족' || r === '적격' || r === '통과' ? 'ok' : r === '미충족' || r === '부적격' || r === '오류' ? 'no' : 'hold';
+
+function ruleTable() {
+  return `<table><tr><th>규정</th><th>원문 문장(공고문)</th><th>필수</th><th>확인</th></tr>${def.requirements.map(r => `<tr><td>${esc(r.label)}</td><td>${r.quote ? esc(r.quote) : `<span class="mute">원문 없음 — ${esc(r.file)}</span>`}</td><td>${r.required ? '필수' : r.assumed ? '가정' : '권고'}</td><td><label><input type="checkbox" data-conf="${r.id}" ${st.confirmed[r.id] ? 'checked' : ''}> 확인함</label></td></tr>`).join('')}</table>`;
+}
+function candidateTable() {
+  const rows = def.candidates.map(c => ({ c, link: linkInfo(def, c) }));
+  const unlinked = rows.filter(r => !r.link);
+  return `<p>추출한 조건 후보 <b>${rows.length}</b>개 중 규칙·구현에 연결된 것 <b>${rows.length - unlinked.length}</b>개, <b class="hold">미연결 ${unlinked.length}개</b>는 아래에 남아 있으며 사용자가 확인합니다.</p>
+    <details><summary class="mute">연결된 후보 보기 (연결 방식 포함)</summary><table><tr><th>원문 문장</th><th>연결</th></tr>${rows.filter(r => r.link).map(({ c, link }) => `<tr><td>${esc(c.quote)}</td><td>${esc(link.via)} — ${esc(link.by)}</td></tr>`).join('')}</table></details>
+    <details><summary class="mute">미연결 후보 보기</summary><table><tr><th>종류</th><th>숫자·날짜</th><th>원문 문장</th><th>출처</th></tr>${unlinked.map(({ c }) => `<tr><td>${esc(c.kinds.join(', '))}</td><td>${esc(c.numbers.join(' '))}</td><td>${esc(c.quote)}</td><td>${esc(c.file)}</td></tr>`).join('')}</table></details>`;
+}
+function itemTable() {
+  const covered = new Set(def.parts.map(p => p.item).filter(Boolean));
+  return `<table><tr><th>#</th><th>원문 항목</th><th>정의의 연결</th></tr>${def.sourceItems.map(i => `<tr><td>${i.no}</td><td>${esc(i.name)}</td><td>${covered.has(i.name) ? '<span class="ok">연결됨</span>' : '<span class="hold">연결 없음 → 보존 칸으로 계획서에 남김(사용자 작성)</span>'}</td></tr>`).join('')}</table>`;
+}
+function factInputs() {
+  const keys = factKeysOf(def);
+  return keys.map(k => `<div><b>${esc(def.facts[k][0])}</b> <span class="ok" data-d="${k}">${st.facts[k] ? '✓' : ''}</span><p class="q">${esc(def.facts[k][1])}</p><textarea data-fact="${k}">${esc(st.facts[k] || '')}</textarea></div>`).join('')
+    + def.sourceItems.filter(i => !def.parts.some(p => p.item === i.name)).map(i => `<div><b>원문 항목 「${esc(i.name)}」 (직접 작성)</b><p class="q">${esc(i.quote)}</p><textarea data-fact="preserved.${esc(i.name)}">${esc(st.facts['preserved.' + i.name] || '')}</textarea></div>`).join('');
+}
+function orgCards() {
+  return st.applicants.map((o, i) => `<div class="org"><div class="grid"><div><label>기관 이름</label><input data-ap="${i}" data-f="name" value="${esc(o.name)}"></div>${def.applicantFields.map(([key, label, type]) => `<div><label>${esc(label)}</label>${Array.isArray(type) ? `<select data-ap="${i}" data-ff="${key}">${type.map(([v, l]) => `<option value="${v}" ${v === (o.facts[key] || '') ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>` : `<input data-ap="${i}" data-ff="${key}" value="${esc(o.facts[key] || '')}">`}</div>`).join('')}</div><button data-del="${i}">삭제</button></div>`).join('');
+}
+function rankHtml() {
+  if (!st.applicants.length) return '<p class="mute">기관을 입력하면 자격을 판정하고 순위를 매깁니다.</p>';
+  const ranked = rankApplicants(def, st.applicants.map(o => ({ ...o, users: Number(o.facts.users) || 0 })));
+  return ranked.map((r, i) => {
+    const choices = evaluateChoices(def, 'car', { values: { users: Number(r.facts.users) || 1, under13: Number(r.facts.under13) || 0 } });
+    const best = choices.find(c => c.feasible);
+    return `<div class="org"><b>${i === 0 && r.check.status !== '부적격' ? '추천 ' : ''}${esc(r.name)}</b> <span class="${cls(r.check.status)}">${esc(r.check.status)}</span> · 이용자 ${esc(r.facts.users || '?')}명${best ? ` · 추천 차종 <b>${esc(best.label)}</b>` : ''}
+      <table>${r.check.rows.filter(x => x.result !== '충족').map(x => `<tr><td>${esc(x.label)}${x.required ? ' (필수)' : ''}</td><td class="${cls(x.result)}">${esc(x.result)}</td><td>${esc(x.basis)}</td></tr>`).join('') || '<tr><td colspan="3" class="ok">모든 조건 충족</td></tr>'}</table>
+      ${choices.map(c => `<div class="q">${c.feasible ? '○' : '×'} ${esc(c.reason)}</div>`).join('')}
+      ${r.check.status === '부적격' ? '<span class="mute">필수 조건 미충족 — 적용할 수 없음</span>' : `<button data-apply="${esc(r.name)}">이 기관으로 재설계</button>`}</div>`;
+  }).join('');
+}
+function changeHtml() {
+  if (!st.applied) return '<p class="mute">기관을 골라 재설계하면 가상 기준에서 달라진 것이 이유와 함께 나옵니다.</p>';
+  const rows = changeLog(def, baseInput(), { ...inputOf(), virtual: true });
+  return `<p>적용 중: <b>${esc(st.applied.name)}</b></p><table><tr><th>항목</th><th>가상 기준</th><th>적용 후</th><th>이유</th></tr>${rows.map(r => `<tr><td>${esc(r.what)}</td><td>${esc(r.from)}</td><td>${esc(r.to)}</td><td>${esc(r.why)}</td></tr>`).join('')}</table>`;
+}
+function checkHtml() {
+  const input = inputOf();
+  const pre = preCheck(def, { ...input, applicant: st.applied?.facts || {} });
+  const gen = generate(def, input);
+  const post = postCheck(def, input, gen);
+  const li = i => `<li><span class="${cls(i.level)}">${esc(i.level)}</span> ${esc(i.message)}</li>`;
+  return `<p><b>생성 전 확인</b> (요구조건·기관정보) — 기관 자격 <span class="${cls(pre.status)}">${esc(pre.status)}</span></p><ul>${pre.items.map(li).join('')}</ul>
+    <p><b>생성 후 검증</b> (규정·일관성) — 오류 ${post.errors}건</p><ul>${post.items.filter(i => i.level !== '통과').map(li).join('')}</ul><details><summary class="mute">통과한 검사 ${post.items.filter(i => i.level === '통과').length}건</summary><ul>${post.items.filter(i => i.level === '통과').map(li).join('')}</ul></details>`;
+}
+function planHtml() { return `<pre id="plan">${esc(generate(def, inputOf()).text)}</pre>`; }
+
+function render(open) {
+  document.querySelector('#app').innerHTML = [
+    ['1', '요구조건 확인', `규정 ${def.requirements.length} · 후보 ${def.candidates.length} · 원문 항목 ${def.sourceItems.length}`, `<p>공고문·양식에서 뽑은 조건입니다. 원문 문장과 함께 보고 하나씩 확인하세요.</p>${ruleTable()}${candidateTable()}<p><b>원문 항목</b> (제안요청서 양식의 순서)</p>${itemTable()}`],
+    ['2', '가상본', st.virtual ? '가상 값 켬' : '가상 값 끔', `<div><button data-virtual="1" class="${st.virtual ? 'on' : ''}">가상 값으로 채워 보기</button><button data-virtual="0">가상 값 끄기</button><button data-print="1">표 포함 인쇄본 열기</button><button data-copy="1">복사</button></div><details><summary><b>확인할 사실</b> — 답을 넣으면 그 칸이 이 답으로 바뀝니다</summary>${factInputs()}</details><div id="planbox">${planHtml()}</div>`],
+    ['3', '신청기관 입력', `${st.applicants.length}곳`, `<div>${Object.entries(def.scenarios).map(([k, [l]]) => `<button data-scn="${k}">시험 데이터: ${esc(l)}</button>`).join('')}<button data-add="1">기관 추가</button></div>${orgCards()}`],
+    ['4', '추천과 재설계', st.applied ? `적용: ${st.applied.name}` : '미적용', `<div id="rank">${rankHtml()}</div><div id="chg">${changeHtml()}</div>`],
+    ['5', '점검 (생성 전·후)', '', `<div id="chk">${checkHtml()}</div>`]
+  ].map(([n, t, s, body], i) => `<details class="step" data-s="${n}" ${open.has(n) ? 'open' : ''}><summary><span class="n">${n}</span><span class="t">${t}</span><span class="s">${esc(s)}</span></summary><div class="box">${body}</div></details>`).join('');
+}
+const openSet = new Set(['1']);
+document.querySelector('#defname').textContent = def.name;
+document.querySelector('#status').textContent = def.status;
+render(openSet);
+const refresh = () => { document.querySelector('#planbox').innerHTML = planHtml(); document.querySelector('#chk').innerHTML = checkHtml(); document.querySelector('#rank').innerHTML = rankHtml(); document.querySelector('#chg').innerHTML = changeHtml(); };
+const app = document.querySelector('#app');
+app.addEventListener('toggle', e => { const d = e.target; if (d.dataset?.s) { d.open ? openSet.add(d.dataset.s) : openSet.delete(d.dataset.s); } }, true);
+app.addEventListener('input', e => {
+  const el = e.target;
+  if (el.dataset.conf) { st.confirmed[el.dataset.conf] = el.checked; save(); return; }
+  if (el.dataset.fact) { st.facts[el.dataset.fact] = el.value; save(); const m = document.querySelector(`[data-d="${el.dataset.fact}"]`); if (m) m.textContent = el.value.trim() ? '✓' : ''; refresh(); return; }
+  if (el.dataset.ap !== undefined) { const o = st.applicants[Number(el.dataset.ap)]; if (el.dataset.f) o[el.dataset.f] = el.value; else { o.facts[el.dataset.ff] = el.value; if (el.dataset.ff === 'users') o.users = Number(el.value) || 0; } save(); document.querySelector('#rank').innerHTML = rankHtml(); }
+});
+app.addEventListener('click', e => {
+  const el = e.target.closest('button'); if (!el) return;
+  const d = el.dataset;
+  if (d.virtual !== undefined) { st.virtual = d.virtual === '1'; save(); render(openSet); }
+  else if (d.scn) { st.applicants = def.scenarios[d.scn][1].map(o => JSON.parse(JSON.stringify(o))); st.applied = null; save(); render(openSet); }
+  else if (d.add) { st.applicants.push({ name: '', users: 0, facts: {} }); save(); render(openSet); }
+  else if (d.del !== undefined) { st.applicants.splice(Number(d.del), 1); st.applied = null; save(); render(openSet); }
+  else if (d.apply) {
+    const org = st.applicants.find(o => o.name === d.apply);
+    const users = Number(org.facts.users) || 1;
+    const under13 = Number(org.facts.under13) || 0;
+    const best = evaluateChoices(def, 'car', { values: { users, under13 } }).find(c => c.feasible);
+    st.applied = { name: org.name, facts: org.facts };
+    st.values = { ...st.values, users, under13 }; st.choices = { ...st.choices, car: best ? best.key : 'stariah' };
+    st.facts = { ...st.facts, agency: org.name }; st.virtual = true; save(); render(new Set([...openSet, '4']));
+  }
+  else if (d.print) { const w = window.open('', '_blank'); const sections = planSections(generate(def, inputOf()).text); w.document.write(`<!doctype html><meta charset="utf-8"><title>${esc(def.name)}</title><style>body{font:14px/1.7 "Malgun Gothic",sans-serif;max-width:780px;margin:24px auto}table{border-collapse:collapse;width:100%}td,th{border:1px solid #444;padding:3px 6px;font-size:12px;vertical-align:top}th{background:#eee}h2{font-size:16px;margin-top:20px}</style>${sections.map(s => `<h2>${esc(s.title)}</h2>${s.blocks.map(b => b.rows ? `<table>${b.rows.map((r, i) => `<tr>${r.map(c => `<${i ? 'td' : 'th'}>${esc(c)}</${i ? 'td' : 'th'}>`).join('')}</tr>`).join('')}</table>` : `<p>${esc(b.text)}</p>`).join('')}`).join('')}`); w.document.close(); }
+  else if (d.copy) { navigator.clipboard?.writeText(generate(def, inputOf()).text).then(() => { el.textContent = '복사됨'; setTimeout(() => { el.textContent = '복사'; }, 1500); }); }
+});
+</script>
+</body>
+</html>

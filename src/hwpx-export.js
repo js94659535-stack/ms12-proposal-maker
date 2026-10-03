@@ -31,7 +31,8 @@ function paragraph(text, { style = 0, char = 0, para } = {}) {
 }
 
 
-// 진짜 표. 열 너비는 글 길이에 비례해 나누고, 머리 줄은 굵게 한다. borderFill 2번(실선)을 header.xml에 정의해 둔다.
+// 진짜 표. 열 너비는 글 길이에 비례해 나누고, 머리 줄은 굵게 한다(header:false면 첫 줄도 보통 칸).
+// treatAsChar="0"(자리 차지 표)로 둔다: 글자처럼 취급하는 표는 남은 쪽에 안 들어가면 통째로 다음 쪽으로 밀려 앞 쪽이 크게 비었다(10-19 한글 실측). borderFill 2번(실선)을 header.xml에 정의해 둔다.
 const TABLE_WIDTH = 42000;
 let tableCounter = 0;
 function cellXml(text, { col, row, width, head }) {
@@ -45,21 +46,28 @@ function cellXml(text, { col, row, width, head }) {
     + `<hp:cellSz width="${width}" height="2000"/><hp:cellMargin left="283" right="283" top="141" bottom="141"/>`
     + '</hp:tc>';
 }
-export function realTable(rows) {
+export function realTable(rows, { header = true } = {}) {
   const grid = (rows || []).map(row => (Array.isArray(row) ? row : [row]));
   if (!grid.length) return '';
   const cols = Math.max(...grid.map(row => row.length));
-  // 열 너비는 글자 폭(한글 2, 그 밖 1)으로 잰다. 짧은 열이 세로로 접히지 않게 아래를 6으로 막는다.
+  // 열 너비: 먼저 각 열의 가장 긴 낱말이 한 줄에 들어갈 만큼(최소 너비)을 주고, 남는 너비를 글 길이에 비례해 나눈다.
+  // 글자 폭은 한글 2, 그 밖 1로 잰다. 최소 너비가 없으면 「운영 기간」 같은 짧은 열 머리가 글자 단위로 세로로 접힌다(10-19 한글 실측).
   const display = text => [...String(text ?? '')].reduce((n, ch) => n + (ch.charCodeAt(0) > 0x2e80 ? 2 : 1), 0);
-  const weight = Array.from({ length: cols }, (_, c) => Math.min(44, Math.max(8, ...grid.map(row => display(row[c]) + 4))));
-  const total = weight.reduce((a, b) => a + b, 0);
-  const widths = weight.map(w => Math.floor(TABLE_WIDTH * w / total));
+  const longestWord = text => Math.max(0, ...String(text ?? '').split(/[\s/·,()]+/).map(display));
+  const need = Array.from({ length: cols }, (_, c) => Math.min(16, Math.max(2, ...grid.map(row => longestWord(row[c])))));
+  const minW = need.map(n => n * 500 + 800);
+  const weight = Array.from({ length: cols }, (_, c) => Math.min(44, Math.max(6, ...grid.map(row => display(row[c])))));
+  const extra = Math.max(0, TABLE_WIDTH - minW.reduce((a, b) => a + b, 0));
+  const totalWeight = weight.reduce((a, b) => a + b, 0);
+  let widths = minW.map((w, c) => Math.floor(w + extra * weight[c] / totalWeight));
+  const sum = widths.reduce((a, b) => a + b, 0);
+  if (sum > TABLE_WIDTH) widths = widths.map(w => Math.floor(w * TABLE_WIDTH / sum));
   widths[cols - 1] += TABLE_WIDTH - widths.reduce((a, b) => a + b, 0);
-  const trs = grid.map((row, r) => '<hp:tr>' + Array.from({ length: cols }, (_, c) => cellXml(row[c], { col: c, row: r, width: widths[c], head: r === 0 })).join('') + '</hp:tr>').join('');
+  const trs = grid.map((row, r) => '<hp:tr>' + Array.from({ length: cols }, (_, c) => cellXml(row[c], { col: c, row: r, width: widths[c], head: header && r === 0 })).join('') + '</hp:tr>').join('');
   tableCounter += 1;
-  const tbl = `<hp:tbl id="${tableCounter}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="CELL" repeatHeader="1" rowCnt="${grid.length}" colCnt="${cols}" cellSpacing="0" borderFillIDRef="2" noAdjust="0">`
+  const tbl = `<hp:tbl id="${tableCounter}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="CELL" repeatHeader="${header ? 1 : 0}" rowCnt="${grid.length}" colCnt="${cols}" cellSpacing="0" borderFillIDRef="2" noAdjust="0">`
     + `<hp:sz width="${TABLE_WIDTH}" widthRelTo="ABSOLUTE" height="2000" heightRelTo="ABSOLUTE" protect="0"/>`
-    + '<hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/>'
+    + '<hp:pos treatAsChar="0" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/>'
     + '<hp:outMargin left="0" right="0" top="0" bottom="0"/><hp:inMargin left="283" right="283" top="141" bottom="141"/>'
     + trs + '</hp:tbl>';
   return `<hp:p id="0" paraPrIDRef="2" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0">${tbl}</hp:run></hp:p>`;
@@ -88,7 +96,7 @@ export function buildSectionXml({ project = {}, sections = [], tables = [] } = {
   const body = sections.map(section => {
     const heading = paragraph(section.title || '', { style: 1, char: 1 });
     if (Array.isArray(section.blocks)) {
-      const blocks = section.blocks.map((block, at) => (block.rows ? realTable(block.rows) + paragraph('') : paragraph(block.text, section.blocks[at + 1]?.rows ? { para: 3 } : {}))).join('');
+      const blocks = section.blocks.map((block, at) => (block.rows ? realTable(block.rows, { header: block.header !== false }) + paragraph('') : paragraph(block.text, section.blocks[at + 1]?.rows ? { para: 3 } : {}))).join('');
       return heading + (blocks || paragraph('')) + paragraph('');
     }
     const lines = String(section.content || '').split(/\n+/).filter(line => line.trim());

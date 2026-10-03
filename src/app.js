@@ -3442,7 +3442,8 @@ function toolMenu() {
   ].map(([id, label, tool]) => `<button class="topmenu-item" role="menuitem" id="${id}" ${tool ? `aria-pressed="${state.activeTool === tool}"` : ''}>${label}</button>`).join('')
     // 따로 만든 한 장짜리 화면(10-02). 앱 안에 얽지 않고 주소로 연결한다.
     + '<a class="topmenu-item" role="menuitem" href="/radar/" target="_blank" rel="noopener">삼성 공고 레이더 ↗</a>'
-    + '<a class="topmenu-item" role="menuitem" href="/baeumteo/" target="_blank" rel="noopener">배움터 협력 계획서 ↗</a>';
+    + '<a class="topmenu-item" role="menuitem" href="/baeumteo/" target="_blank" rel="noopener">배움터 협력 계획서 ↗</a>'
+    + '<a class="topmenu-item" role="menuitem" href="/grant/" target="_blank" rel="noopener">공모 작업대(범용) ↗</a>';
   return topMenu('tools', '작업 메뉴', items);
 }
 

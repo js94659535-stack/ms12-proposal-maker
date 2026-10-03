@@ -154,3 +154,19 @@ test('planSections는 | 로 나뉜 연속 줄을 표로, 서식 제목마다 구
   assert.deepEqual(sections[1].blocks.map(b => (b.rows ? `표${b.rows.length}` : '문단')), ['문단', '표2', '문단']);
   assert.equal(sections[2].blocks[0].rows[0].length, 3);
 });
+
+test('realTable: 자리 차지 표이고 header:false면 첫 줄도 보통 칸이다', () => {
+  const xml = realTable([['이름', '값'], ['a', 'b']], { header: false });
+  assert.match(xml, /treatAsChar="0"/);
+  assert.match(xml, /repeatHeader="0"/);
+  assert.ok(!/<hp:tc name="" header="1"/.test(xml), '머리 칸이 없다');
+  assert.match(realTable([['이름', '값'], ['a', 'b']]), /repeatHeader="1"/);
+});
+
+test('planSections: ▦- 로 시작한 표는 header:false 블록이 된다', () => {
+  const sections = planSections(['## 구역', '▦- 기부자명 | 한국수출입은행', '▦ 기관명 | 센터', '문단', '▦ 항목 | 값', '▦ a | b'].join('\n'));
+  const blocks = sections[0].blocks;
+  assert.equal(blocks[0].header, false);
+  assert.equal(blocks[0].rows.length, 2);
+  assert.equal(blocks[2].header, undefined);
+});
