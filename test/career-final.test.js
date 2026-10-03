@@ -139,3 +139,16 @@ test('안내서는 가상 설정, 바꿀 곳, 확인할 사실(번호), 규정 �
   for (const [, label] of SETTING_FIELDS) assert.ok(guide.includes(label), `바꿀 곳: ${label}`);
   assert.ok(META.career.meetings === 8);
 });
+
+test('★ 근거자료 등록부: 출처를 밝힌 항목만 인용되고, 본문의 지역 통계는 참여자 수와 구분되어 있으며, 안내서는 같은 등록부에서 나온다', async () => {
+  const { EVIDENCE } = await import('../public/baeumteo/evidence.js');
+  for (const e of EVIDENCE.filter(x => x.status === '공공자료 인용')) {
+    assert.ok(e.source && e.url && e.year && e.value, `${e.id}: 출처·주소·기준연도·값`);
+  }
+  const quoted = EVIDENCE.filter(x => x.status === '공공자료 인용' && x.id === 'youth-pop')[0];
+  assert.ok(body.includes(`${quoted.value.toLocaleString('ko-KR')}명`) && body.includes(quoted.year));
+  assert.match(body, /지역 전체 수이고, 이번 사업의 참여 청소년은 이 가운데 42명/);
+  for (const e of EVIDENCE.filter(x => x.status !== '공공자료 인용' && x.value)) assert.fail(`${e.id}: 확인 안 된 값이 있다`);
+  const guide = careerGuide({});
+  for (const e of EVIDENCE) assert.ok(guide.includes(e.title), `안내서에 ${e.id}`);
+});
