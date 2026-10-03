@@ -433,7 +433,7 @@ test('★ 추천 조합을 적용하면 기관·인원·일정·역할·예산·
   assert.match(text, /2027년 5월부터 2027년 10월까지\(6개월/, '일정이 6개월로 줄었다');
   assert.equal(careerWindow(input), 6);
   assert.notDeepEqual(programsOf(career(), input).map(p => p.months), PROGRAMS.career.map(p => p.months), '프로그램 달 표시가 줄었다');
-  assert.match(text, /연 16회 이상 출석하는 학생 36명 이상/, '성과 목표가 인원 42명에 맞춰 바뀜');
+  assert.match(text, /연 18회 이상 출석하는 학생 36명 이상/, '성과 목표가 인원 42명에 맞춰 바뀜');
   const rows = changeLog(career(), input);
   const why = what => rows.find(row => row.what === what)?.why || '';
   assert.match(why('참여 인원'), /확보 가능한 학생 합계 42명/);

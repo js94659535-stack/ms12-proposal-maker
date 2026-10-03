@@ -40,7 +40,7 @@ test('★ 학생의 유사 프로그램 경험에는 학생 경험만 있고 기
   assert.ok(!experience.includes('7년'), '학생 경험 칸에 기관 경력');
   assert.match(experience, /마음쉼터/);
   assert.match(section(body, '3. 대표자 자기소개서', '<서식 2>'), /7년째 운영/);
-  assert.match(section(body, '2. 대표기관 및 참여기관 운영 현황', '2026년 핵심 교육과정'), /학교폭력 특별교육 위탁 운영\(7년\)/);
+  assert.match(section(body, '2. 대표기관 및 참여기관 운영 현황', '외부지원 현황'), /학교폭력 특별교육 위탁 운영\(7년\)/);
 });
 
 test('★ 인원 구성이 모집표·반 구성·사회경제 현황·학년 표에서 모두 같은 합이다', () => {
@@ -76,7 +76,9 @@ test('★ 회의 횟수는 교육 기간에 맞는다 — 자치회의 7회, 교
 test('★ 예산: 표의 줄 합 = 총계 = 신청액이고, 재단 규정(한도·비율)을 모두 지킨다', () => {
   const d = derive({});
   const lines = tableLines(section(body, '<서식 5>', '※ 아래는'));
-  const amounts = lines.slice(1, -1).map(l => Number(cells(l).at(-1).replace(/,/g, '')));
+  const detail = lines.slice(1, -1).filter(l => !['소계', '합계'].includes(cells(l)[2]));
+  const amounts = detail.map(l => Number(cells(l).at(-1).replace(/,/g, '')));
+  assert.ok(lines.filter(l => cells(l)[2] === '소계').length >= 5 && lines.some(l => cells(l)[2] === '합계'), '원본 서식 5의 소계·합계 줄');
   const total = Number(cells(lines.at(-1)).at(-1).replace(/,/g, ''));
   assert.equal(amounts.reduce((a, b) => a + b, 0), total);
   assert.equal(total, d.budget.total);
@@ -98,7 +100,7 @@ test('★ 42명의 포트폴리오는 반별 주강사 1명, 보조강사 1명, 
   assert.match(people, /주강사 1명, 보조강사 1명, 멘토 1명이 연결된다/);
   const budgetRows = tableLines(section(body, '<서식 5>', '※ 아래는')).filter(l => l.includes('포트폴리오 동아리'));
   assert.ok(budgetRows.some(l => l.includes('보조강사')), '예산에도 보조강사비');
-  assert.equal(sessionTotal('career'), 20);
+  assert.equal(sessionTotal('career'), 22);
 });
 
 test('★ 기본정보만 바꾸면 문서 전체의 같은 이름이 함께 바뀌고 옛 이름은 남지 않는다', () => {
@@ -133,7 +135,7 @@ test('★ 인원을 30명으로 바꾸면 반·멘토·모집·사회경제 표�
 test('안내서는 가상 설정, 바꿀 곳, 확인할 사실(번호), 규정 점검을 갖는다', () => {
   const guide = careerGuide({});
   for (const part of ['## 1. 가상 설정 한눈에', '## 2. 대표님이 바꿀 곳', '## 3. 달라지는 점', '## 4. 실제 사실을 확인해야 하는 것', '## 5. 제출 전 규정 점검']) assert.ok(guide.includes(part), part);
-  assert.equal((guide.match(/^\d+\. /gm) || []).length, 14, '확인할 사실 14건');
+  assert.equal((guide.match(/^\d+\. /gm) || []).length, 15, '확인할 사실 15건');
   for (const [, label] of SETTING_FIELDS) assert.ok(guide.includes(label), `바꿀 곳: ${label}`);
   assert.ok(META.career.meetings === 8);
 });

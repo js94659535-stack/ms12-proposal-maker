@@ -4,13 +4,13 @@
 # 문서 폴더 경로의 파일을 열면 한글이 「파일 접근을 허용하겠습니까」 보안 확인창을 띄워 자동화가 멈춘다(10-19 실측).
 # 그래서 임시 폴더(%TEMP%)에 복사해서 열고 PDF도 거기에 저장한 뒤 원하는 위치로 옮긴다.
 # 이 스크립트가 띄운 한글만 정리하고 한 번 다시 시도한다. 원래 열려 있던 한글(창 제목이 있는 것)은 건드리지 않는다.
-param([Parameter(Mandatory = $true)][string]$In, [Parameter(Mandatory = $true)][string]$Pdf)
+param([Parameter(Mandatory = $true)][string]$In, [Parameter(Mandatory = $true)][string]$Pdf, [string]$Format = 'HWPX')
 $ErrorActionPreference = 'Stop'
 $srcPath = (Resolve-Path $In).Path
 $pdfDest = [IO.Path]::GetFullPath($Pdf)
 $work = Join-Path $env:TEMP 'hwpcheck'
 New-Item -ItemType Directory -Force $work | Out-Null
-$inPath = Join-Path $work 'in.hwpx'
+$inPath = Join-Path $work ('in.' + $Format.ToLower())
 $pdfPath = Join-Path $work 'out.pdf'
 Copy-Item $srcPath $inPath -Force
 Remove-Item $pdfPath -Force -ErrorAction SilentlyContinue
@@ -21,7 +21,7 @@ function Invoke-Once {
   try {
     $hwp = New-Object -ComObject HWPFrame.HwpObject
     try { $hwp.XHwpWindows.Item(0).Visible = $false } catch {}
-    $r.opened = [bool]$hwp.Open($inPath, 'HWPX', '')
+    $r.opened = [bool]$hwp.Open($inPath, $Format, '')
     try { $r.pages = [int]$hwp.PageCount } catch {}
     $r.pdf = [bool]$hwp.SaveAs($pdfPath, 'PDF', '')
     $hwp.Quit()
