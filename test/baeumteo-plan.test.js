@@ -79,7 +79,7 @@ test('이주배경은 연합 5곳 이상이어야 한도가 1억 5천만 원으�
 
 test('이름이 들어오면 그 자리만 바뀌고 나머지는 섭외 중으로 남는다', () => {
   const text = detailedPlan(byId('culture'), { lead: '벧엘지역아동센터', partners: { p1: '가나지역아동센터' } });
-  assert.ok(text.includes('대표기관 벧엘지역아동센터'));
+  assert.ok(text.includes('대표기관 | 벧엘지역아동센터'), '서식 1 명단 표의 대표기관 행');
   assert.ok(text.includes('가나지역아동센터'));
   assert.ok(!text.includes('〔대표기관 선정 중〕'));
   assert.ok(text.includes('섭외 중'));

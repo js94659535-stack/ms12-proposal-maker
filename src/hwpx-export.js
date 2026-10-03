@@ -23,9 +23,9 @@ export function escapeXml(value) {
 }
 
 // 문단 하나. charPrIDRef 0은 본문, 1은 제목이다.
-function paragraph(text, { style = 0, char = 0 } = {}) {
+function paragraph(text, { style = 0, char = 0, para } = {}) {
   const value = String(text ?? '').trim();
-  return `<hp:p id="0" paraPrIDRef="${style}" styleIDRef="${style}" pageBreak="0" columnBreak="0" merged="0">`
+  return `<hp:p id="0" paraPrIDRef="${para ?? style}" styleIDRef="${style}" pageBreak="0" columnBreak="0" merged="0">`
     + `<hp:run charPrIDRef="${char}">${value ? `<hp:t>${escapeXml(value)}</hp:t>` : '<hp:t/>'}</hp:run>`
     + '</hp:p>';
 }
@@ -51,7 +51,7 @@ export function realTable(rows) {
   const cols = Math.max(...grid.map(row => row.length));
   // 열 너비는 글자 폭(한글 2, 그 밖 1)으로 잰다. 짧은 열이 세로로 접히지 않게 아래를 6으로 막는다.
   const display = text => [...String(text ?? '')].reduce((n, ch) => n + (ch.charCodeAt(0) > 0x2e80 ? 2 : 1), 0);
-  const weight = Array.from({ length: cols }, (_, c) => Math.min(44, Math.max(8, ...grid.map(row => display(row[c]) + 2))));
+  const weight = Array.from({ length: cols }, (_, c) => Math.min(44, Math.max(8, ...grid.map(row => display(row[c]) + 4))));
   const total = weight.reduce((a, b) => a + b, 0);
   const widths = weight.map(w => Math.floor(TABLE_WIDTH * w / total));
   widths[cols - 1] += TABLE_WIDTH - widths.reduce((a, b) => a + b, 0);
@@ -88,7 +88,7 @@ export function buildSectionXml({ project = {}, sections = [], tables = [] } = {
   const body = sections.map(section => {
     const heading = paragraph(section.title || '', { style: 1, char: 1 });
     if (Array.isArray(section.blocks)) {
-      const blocks = section.blocks.map(block => (block.rows ? realTable(block.rows) + paragraph('') : paragraph(block.text))).join('');
+      const blocks = section.blocks.map((block, at) => (block.rows ? realTable(block.rows) + paragraph('') : paragraph(block.text, section.blocks[at + 1]?.rows ? { para: 3 } : {}))).join('');
       return heading + (blocks || paragraph('')) + paragraph('');
     }
     const lines = String(section.content || '').split(/\n+/).filter(line => line.trim());
@@ -133,7 +133,7 @@ function headerXml() {
     + '<hh:offset hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>'
     + '</hh:charPr>'
     + '</hh:charProperties>'
-    + '<hh:paraProperties itemCnt="3">'
+    + '<hh:paraProperties itemCnt="4">'
     + '<hh:paraPr id="0" tabPrIDRef="0" condense="0" fontLineHeight="0" snapToGrid="1" suppressLineNumbers="0" checked="0">'
     + '<hh:align horizontal="JUSTIFY" vertical="BASELINE"/><hh:heading type="NONE" idRef="0" level="0"/>'
     + '<hh:breakSetting breakLatinWord="KEEP_WORD" breakNonLatinWord="KEEP_WORD" widowOrphan="0" keepWithNext="0" keepLines="0" pageBreakBefore="0" lineWrap="BREAK"/>'
@@ -151,6 +151,12 @@ function headerXml() {
     + '<hh:breakSetting breakLatinWord="KEEP_WORD" breakNonLatinWord="KEEP_WORD" widowOrphan="0" keepWithNext="0" keepLines="0" pageBreakBefore="0" lineWrap="BREAK"/>'
     + '<hh:margin><hc:intent value="0" unit="HWPUNIT"/><hc:left value="0" unit="HWPUNIT"/><hc:right value="0" unit="HWPUNIT"/><hc:prev value="0" unit="HWPUNIT"/><hc:next value="0" unit="HWPUNIT"/></hh:margin>'
     + '<hh:lineSpacing type="PERCENT" value="100" unit="HWPUNIT"/><hh:border borderFillIDRef="1" offsetLeft="0" offsetRight="0" offsetTop="0" offsetBottom="0" connect="0" ignoreMargin="0"/>'
+    + '</hh:paraPr>'
+    + '<hh:paraPr id="3" tabPrIDRef="0" condense="0" fontLineHeight="0" snapToGrid="1" suppressLineNumbers="0" checked="0">'
+    + '<hh:align horizontal="JUSTIFY" vertical="BASELINE"/><hh:heading type="NONE" idRef="0" level="0"/>'
+    + '<hh:breakSetting breakLatinWord="KEEP_WORD" breakNonLatinWord="KEEP_WORD" widowOrphan="0" keepWithNext="1" keepLines="0" pageBreakBefore="0" lineWrap="BREAK"/>'
+    + '<hh:margin><hc:intent value="0" unit="HWPUNIT"/><hc:left value="0" unit="HWPUNIT"/><hc:right value="0" unit="HWPUNIT"/><hc:prev value="0" unit="HWPUNIT"/><hc:next value="0" unit="HWPUNIT"/></hh:margin>'
+    + '<hh:lineSpacing type="PERCENT" value="160" unit="HWPUNIT"/><hh:border borderFillIDRef="1" offsetLeft="0" offsetRight="0" offsetTop="0" offsetBottom="0" connect="0" ignoreMargin="0"/>'
     + '</hh:paraPr>'
     + '</hh:paraProperties>'
     + '<hh:styles itemCnt="2">'

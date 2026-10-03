@@ -2,8 +2,8 @@
 // 재단 공개 신청서 양식의 서식 1~5 순서와 항목 이름을 그대로 따른다. 유형별 양식이 다르다:
 //  · 미래형(인문·사회 탐구, 문화예술 창작)  · 맞춤형(이주배경 잇다, 진로설계)  · 연결형(지역공동체)
 // 기관만 아는 값은 `[확인 필요]`로 둔다. 숫자는 programs.js의 프로그램표와 산출식에서 온다.
-import { FUND, budgetPlan, capOf, leadName, minSessionsOf, optimalInput, people, slotName, unionSize, won } from './plan.js?v=1014';
-import { PROGRAMS, RULES, classesOf, sessionTotal } from './programs.js?v=1014';
+import { FUND, budgetPlan, capOf, leadName, minSessionsOf, optimalInput, people, slotName, unionSize, won } from './plan.js?v=1015';
+import { PROGRAMS, RULES, classesOf, sessionTotal } from './programs.js?v=1015';
 
 const FORM = { humanities: '미래형', culture: '미래형', migrant: '맞춤형', career: '맞춤형', community: '연결형' };
 const GOALS = {
@@ -71,10 +71,11 @@ function programSection(project, count, input = {}) {
     `연간 교육: 학생 1인 기준 ${sessionTotal(project.id)}회(재단 최소 ${minSessionsOf(project)}회). 프로젝트·봉사활동·성과발표회를 포함하고 자치회의는 포함하지 않는다.`,
     '단계 | 프로그램명 | 참여학생 | 운영 기간 | 핵심 활동 및 교육 규모 | 운영 회기/회당 시간'];
   for (const program of programs) lines.push(`${program.stage} | ${program.name} | ${groupsText(program, count)} | ${program.months} | ${program.core} | ${program.sessions}회/${program.hours}시간`);
-  lines.push(`합계: 학생 1인 ${sessionTotal(project.id)}회`, ...quantities(project, count), '', '2) 프로젝트 및 교육프로그램별 핵심 교육내용 (월별)');
+  lines.push(`합계: 학생 1인 ${sessionTotal(project.id)}회`, ...quantities(project, count), '', '2) 프로젝트 및 교육프로그램별 핵심 교육내용 (월별)',
+    '▦ 연번 | 프로그램명 | 월 | 핵심 교육내용 | 운영방식 | 교육 장소');
   programs.forEach((program, index) => {
-    lines.push(`${index + 1}. ${program.name} (운영방식: ${groupsText(program, count)}${program.assistant ? ', 주강사+보조강사' : ', 주강사'} / 교육 장소: ${program.place})`);
-    for (const [month, themes] of monthlyThemes(program)) lines.push(`  ${month}월: ${themes.join(' → ')}`);
+    const way = `${groupsText(program, count)}${program.assistant ? ', 주강사+보조강사' : ', 주강사'}`;
+    for (const [month, themes] of monthlyThemes(program)) lines.push(`▦ ${index + 1} | ${program.name} | ${month}월 | ${themes.join(' → ')} | ${way} | ${program.place}`);
   });
   return lines;
 }
@@ -83,9 +84,10 @@ function recruit(project, input, count) {
   const slots = project.slots.map(slot => slotName(slot, input)).join(', ');
   return [
     '1) 모집 계획',
-    `□ 기관 내 아동·청소년 대상: 사업 참여 전체 ${count}명 중 (60)% {{ratio}}`,
-    `□ 지역 내 타 기관 협조(지역아동센터, 학교, 교육청 등): 전체 중 (30)%. 협조 기관명: ${slots}. 협의 여부: {{consult}}`,
-    '□ 기타(공개모집 등): 전체 중 (10)%. 배움터 소속이 아닌 지역 아동·청소년도 참여할 수 있다.',
+    '▦ 모집방법 | 내용',
+    `▦ 기관 내 아동·청소년 대상 | 사업 참여 전체 ${count}명 중 (60)% {{ratio}}`,
+    `▦ 지역 내 타 기관 협조(지역아동센터, 학교, 교육청 등) | 전체 중 (30)% · 협조 기관명: ${slots} · 협의 여부: {{consult}}`,
+    '▦ 기타(공개모집 등) | 전체 중 (10)% · 배움터 소속이 아닌 지역 아동·청소년도 참여할 수 있다.',
     '2) 선발기준',
     '○ 교육적 지원이 우선 필요한 학생을 먼저 받는다: 저소득층(기초생활수급·차상위·중위소득 75% 내외), 농어촌(면 단위) 거주, 이주배경.',
     '○ 같은 순위에서는 참여 의지(본인 면담), 보호자 동의, 지속 참여 가능성(결석 대응에 동의)을 본다.',
@@ -113,13 +115,17 @@ function foundation(project) {
 }
 
 function personnel(project, input, count) {
+  const main = program => (program.groups === 'classes' ? classesOf(count) : 1);
   return [
     '<서식 4> 담당 인력 정보',
-    `대표자: ${leadName(input)} 대표 — {{leader}}`,
-    '실무책임자: {{practitioner}} (강사를 겸하면 강사비와 인건비 중 하나만 책정한다)',
-    '강사: 확정되면 이력서와 개인정보 동의서를, 미정이면 아래 모집 계획을 쓴다.',
+    '▦ 연번 | 성명·소속·연령(만) | 담당 역할 | 교육복지 관련 경력 및 자격 현황 | 개인정보 처리 동의 서명 혹은 날인',
+    `▦ 1 | {{leaderName}} (${leadName(input)}, 만 {{leaderAge}}세) | 대표자 | {{leaderCareer}} | (서명 또는 날인)`,
+    '▦ 2 | {{practitioner}} | 실무책임자(강사를 겸하면 강사비와 인건비 중 하나만 책정) | {{practCareer}} | (서명 또는 날인)',
+    `▦ 3 | 강사(확정되면 성명) | 주강사 ${Math.max(...PROGRAMS[project.id].map(main))}명 이상 | 확정되면 이력서를 첨부 | (서명 또는 날인)`,
+    '강사가 확정되면 이력서와 개인정보 수집·이용 동의서를 쓰고, 미정이면 아래 강사 모집 계획을 쓴다.',
     '강사 모집 계획:',
-    ...PROGRAMS[project.id].map(program => `- ${program.name}: 주강사 ${program.groups === 'classes' ? classesOf(count) : 1}명${program.assistant ? ' + 보조강사' : ''} / 모집 방법: 기관 추천과 공개 모집 / 선발 기준: 해당 분야 전문성, 아동·청소년 교육 경험, 아동학대·성범죄 경력 조회 동의`),
+    '▦ 연번 | 담당 프로그램 | 모집 인원(명) | 모집 방법 | 선발 기준',
+    ...PROGRAMS[project.id].map((program, i) => `▦ ${i + 1} | ${program.name} | 주강사 ${main(program)}명${program.assistant ? ' + 보조강사' : ''} | 기관 추천과 공개 모집 | 해당 분야 전문성, 아동·청소년 교육 경험, 아동학대·성범죄 경력 조회 동의`),
     '강사 채용은 투명한 절차로 하고, 대표자·실무자와 특수관계(가족 등)인 사람은 채용하지 않는다.'
   ];
 }
@@ -153,10 +159,22 @@ export const FACTS = {
   expMigrant: ['학생의 유사 프로그램 경험', '참여 예정 학생이 이전에 비슷한 프로그램에 참여한 경험이 있습니까?'],
   expCommunity: ['기관별 기존 협력 경험', '참여 기관끼리 지금까지 함께한 활동이 있습니까?'],
   entrust: ['학교폭력 특별교육 위탁 증빙', '위탁 기간과 교육지원청 확인서가 있습니까? (기관명·기간)'],
-  leader: ['대표자 정보', '대표자 성명, 소속, 만 나이, 교육복지 경력은?'],
-  practitioner: ['실무책임자', '실무책임자 성명과 경력은?'],
+  leaderName: ['대표자 성명', '대표자 성명은?'],
+  leaderAge: ['대표자 만 나이', '대표자의 만 나이는?'],
+  leaderRole: ['대표자의 기관 내 역할', '기관 안에서 어떤 역할입니까? (대표자, 센터장 등)'],
+  leaderCareer: ['대표자 교육복지 경력·자격', '교육복지 관련 경력과 자격 현황은?'],
+  practitioner: ['실무책임자 성명·나이', '실무책임자 성명과 만 나이는?'],
+  practCareer: ['실무책임자 경력·자격', '실무책임자의 교육복지 관련 경력과 자격은?'],
   leaderBio: ['대표자 자기소개', '대표자의 교육복지 경력(재단 사업 경력 포함)과 교육철학을 직접 적어 주세요.'],
-  orgFacts: ['기관 운영 현황', '설립연도, 상근·비상근 인력, 2026년 기관 예산, 학생 1인당 월 이용료, 최근 3년 외부지원은?'],
+  founded: ['설립연도', '기관 설립연도는?'],
+  staffing: ['상근·비상근 인력', '상근 인력과 비상근 인력(사회복무요원 등)은 각각 몇 명입니까?'],
+  budget2026: ['2026년 기관 전체 예산', '2026년 기관 전체 예산(원)은?'],
+  tuition: ['학생 1인당 월 이용료', '학생 1인당 월 이용료(원)는? (없으면 0원)'],
+  enrolled: ['등록 아동·청소년 수(학년별)', '초등·중등·고등·기타 학년별 등록 학생 수와 합계는?'],
+  socio: ['등록 학생 사회경제적 현황', '법정저소득·한부모·조손·맞벌이·장애·시설거주·국제결혼가정·외국인가정 학생 수는? (중복 응답)'],
+  operator: ['운영법인·단체와 운영주체 성격', '운영법인 또는 단체명, 대표자명, 운영주체 성격(사회복지법인·사단법인·협동조합 등)은?'],
+  schedule2026: ['2026년 핵심 교육과정 운영 현황', '지금 기관에서 진행하는 교육과정의 주간 일정은? (별도 일정표를 첨부해도 됩니다)'],
+  external: ['외부지원 현황(2024~2026)', '최근 3년 외부지원 기관, 기간, 내용, 금액은? (강사·자원봉사자 파견 포함)'],
   accountability: ['책무성 점검 답변', '최근 5년 내 회계부정·불법행위나 성폭력·학대 관련 처분 이력이 있습니까?'],
   placeInfo: ['교육 장소 정보', '교육 장소의 위치, 크기(평수), 수용 인원은?'],
   selfResources: ['기관 자체 투입 자원', '사회복무요원 투입, 보유 교구, 무료로 쓸 공간, 자부담이 있습니까?']
@@ -176,10 +194,14 @@ const VIRTUAL_COMMON = {
   expCulture: '2026년 하반기 12회기 참여, 기간이 짧아 작품을 끝까지 다듬고 나누지 못한 점이 아쉬움으로 남음',
   expMigrant: '일부 학생이 가족센터 진로 프로그램에 짧게 참여한 경험이 있음',
   expCommunity: '세 기관은 연 1~2회 행사 때 협력한 경험이 있으나 공동 교육과정 운영은 처음임',
-  entrust: '위탁 증빙은 별도 제출', leader: '○○○(가명), 지역아동센터 센터장, 만 4○세, 교육복지 7년',
-  practitioner: '○○○(가명), 사회복지사 1급, 지역아동센터 근무 5년',
+  entrust: '위탁 증빙은 별도 제출', leaderName: '○○○(가명)', leaderAge: '4○', leaderRole: '대표자', leaderCareer: '지역아동센터 센터장 7년, 사회복지사 1급',
+  practitioner: '○○○(가명), 만 3○세', practCareer: '사회복지사 1급, 지역아동센터 근무 5년',
   leaderBio: '지역아동센터 센터장으로 7년 일했고 지역 아동·청소년 단체와 도서관 단체에서 활동했다. 아이들이 스스로 질문하고 결과물을 만들어 나누는 경험이 교육복지의 핵심이라는 철학으로 사업을 이끈다.',
-  orgFacts: '설립 2015년, 상근 3명·비상근 2명, 2026년 기관 예산 1억 8천만 원, 학생 1인당 월 이용료 0원, 외부지원은 지역 재단 1건',
+  founded: '2015년', staffing: '상근 3명 · 비상근 2명(사회복무요원 1명 포함)', budget2026: '180,000,000원', tuition: '0원(이용료 없음)',
+  enrolled: '초등학생 38명 · 중학생 12명 · 고등학생 5명 · 합계 55명',
+  socio: '법정저소득 22명 · 한부모 14명 · 조손 5명 · 맞벌이 20명 · 장애 2명 (중복 응답)',
+  operator: '② 사단법인 (법인명·대표자명은 서식에 기재)', schedule2026: '평일 13:00~19:00 방과 후 돌봄·학습·특기 활동, 토요일 문화체험(주간 일정표 별도 첨부)',
+  external: '2024~2026 지역 재단 지원 1건(가상)',
   accountability: '해당 이력 없음', placeInfo: '○○동 소재, 약 12평, 최대 20명',
   selfResources: '사회복무요원 1인 보조 투입, 기존 도서·교구 보유, 협력 도서관 강당 무료 사용'
 };
@@ -250,20 +272,45 @@ function detailedPlanRaw(project, input = {}) {
   const lead = leadName(input);
   const count = people(project, input);
   const form = FORM[project.id];
-  const places = [...new Set(PROGRAMS[project.id].map(p => p.place))].map(place => `○ ${place}: 위치·크기·수용 인원: {{placeInfo}}`);
+  const places = ['▦ 교육 장소 | 위치·크기·수용 인원 | 전경 사진(인물이 식별되지 않게)', ...[...new Set(PROGRAMS[project.id].map(p => p.place))].map(place => `▦ ${place} | {{placeInfo}} | [사진 붙임]`)];
   const goals = GOALS[project.id].map(([goal, how], i) => `${i + 1}) ${goal} (확인 방법: ${how})`);
   const out = [];
   const push = (...lines) => out.push(...lines);
   push(`${FUND.name} — ${form} 지원사업 신청서(제출용 상세본)`,
     '※ 재단 공개 양식(서식 1~5)의 순서와 항목 이름을 따랐다. 신청서는 한글 파일에 옮겨 쓰고 PDF로 변환해 제출한다.', '',
     '<서식 1> 대표기관 및 참여기관 소개',
-    `1. 명단: 대표기관 ${lead}`, ...project.slots.map(slot => input.applied && String(input.partners?.[slot.key] || '').trim() ? `참여기관: ${slotName(slot, input)}` : `참여기관: ${slotName(slot, input)} (${slot.role})`),
+    '1. 대표기관 및 참여기관 명단',
+    `제출하는 모든 신청서류의 내용이 사실임을 확인하며, 귀 재단의 「2027년 배움터 교육지원사업」에 대한 안내 및 유의사항을 인지하였으며, 이에 동의합니다. 또한 신청서 내용이 허위로 밝혀질 경우, 선정이 확정된 사업이라도 취소될 수 있음을 확인합니다.`,
+    '2026년    월    일',
+    '▦ 구분 | 기관명 | 대표자명 | 기관 직인 혹은 대표자 서명',
+    `▦ 대표기관 | ${lead} | {{leaderName}} | (직인 또는 서명)`,
+    ...project.slots.map(slot => `▦ 참여기관 | ${slotName(slot, input)}${input.applied && String(input.partners?.[slot.key] || '').trim() ? '' : ` (${slot.role})`} | (대표자명 기재) | `),
     ...(input.applied ? ['기관별 역할(실제 기관 정보 기준):', ...input.applied.roles.map(line => `- ${line}`), ...(input.applied.extra || []).map(name => `- 추가 참여기관: ${name}`)] : []),
-    '2. 운영 현황: 설립연도, 상근·비상근 인력, 2026년 전체 예산, 학생 1인당 월 이용료, 외부지원 현황(2024~2026): {{orgFacts}}',
-    '3. 대표자 자기소개: 교육복지 분야 경력(재단 사업 참여 경력 포함)과 교육철학 중심으로 쓴다. {{leaderBio}}', '',
+    '(재)삼성꿈장학재단 이사장 귀중',
+    '2. 대표기관 및 참여기관 운영 현황 — 대표기관',
+    '▦ 항목 | 작성 내용',
+    `▦ 대표기관명 | ${lead}`,
+    '▦ 설립연도 | {{founded}}',
+    '▦ 상근·비상근 인력 수 | {{staffing}}',
+    '▦ 2026년 기관 전체 예산 | {{budget2026}}',
+    '▦ 학생 1인당 월 이용료 | {{tuition}}',
+    '▦ 기관 전체 등록 아동·청소년 수(학년별) | {{enrolled}}',
+    '▦ 사회경제적 현황(중복 응답) | {{socio}}',
+    '▦ 운영법인 또는 단체 · 운영주체 성격 | {{operator}}',
+    '▦ 2026년 핵심 교육과정 운영 현황(주간 일정) | {{schedule2026}}',
+    '▦ 외부지원 현황(2024~2026) | {{external}}',
+    '참여기관은 참여기관마다 같은 표를 작성한다(대표기관 외 참여기관이 함께 신청하는 경우에만).',
+    '3. 대표자(혹은 실무책임자) 자기소개서 — 교육복지 분야 경력(재단 사업 참여 경력 포함)과 교육철학 중심. 기관 소개가 아니라 본인 소개를 쓴다.',
+    '▦ 작성자 명 | 기관 내 역할(예: 대표자, 센터장, 생활복지사)',
+    '▦ {{leaderName}} | {{leaderRole}}',
+    '{{leaderBio}}', '',
     '<서식 2> 배움터 책무성 점검표',
-    '대표기관의 점검표만 제출한다. 최근 5년 이내 회계부정·불법행위나 성폭력·학대 관련 처분 이력이 없는지 사실대로 답한다. {{accountability}}', '',
-    '<서식 3> 교육지원사업 계획서');
+    '대표기관의 점검표만 제출한다.',
+    '▦ 문항 | 응답(해당없음 / 해당있음)',
+    '▦ 1. 최근 5년 이내(신청일 기준) 사회복지사업법 제40조 제1항 제4호의 회계부정·불법행위·부당행위, 또는 같은 항 제9호의 성폭력범죄·학대 관련 범죄로 정부·지방자치단체 등으로부터 처분을 받은 사실 | {{accountability}}',
+    '▦ 2. 1번이 「해당있음」인 경우: 발생 시기/기간 · 사건 종류(회계부정, 인권침해 등) · 진행 상황(조사/수사/재판, 처분 확정 여부) | (해당없음이면 미기재)',
+    '▦ 3. 2번과 관련한 기관의 의견(특정 개인이 식별되는 이름·직위는 쓰지 않는다) | (필요 시 기재)',
+    '',     '<서식 3> 교육지원사업 계획서');
 
   if (form === '연결형') {
     push(`1. 사업명: ${project.title}`,
@@ -286,7 +333,7 @@ function detailedPlanRaw(project, input = {}) {
       '4. 참여 예정 아동·청소년', ...recruit(project, input, count).slice(0, 8),
       '5. 교육목표 【신규 사업】', ...goals,
       '6. 교육프로그램 및 프로젝트 내용', ...programSection(project, count, input),
-      '7. 교육 장소', ...places, '전경 사진은 인물이 식별되지 않게 첨부한다.',
+      '7. 교육 장소', ...places, '장소가 아직 확정되지 않았으면 공간 확보 계획을 쓴다.',
       '8. 효과적인 사업 운영을 위한 기반 활동 계획', ...foundation(project),
       `9. 사업 운영 조직도: 협의회(대표기관 ${lead}와 참여기관 실무자) → 실무팀(교강사·학생 자치회 대표) → 지역 자원(도서관·문화유산 장소). 이미 조직이 있으면 그대로, 없으면 공란으로 둘 수 있다.`);
   } else {
@@ -303,7 +350,7 @@ function detailedPlanRaw(project, input = {}) {
     push(`${n}. 참여 예정 아동·청소년`, ...recruit(project, input, count),
       `${n + 1}. 교육목표 【신규 사업】`, ...goals,
       `${n + 2}. 교육프로그램 및 프로젝트 내용`, ...programSection(project, count, input),
-      `${n + 3}. 교육 장소`, ...places, '전경 사진은 인물이 식별되지 않게 첨부한다.',
+      `${n + 3}. 교육 장소`, ...places, '장소가 아직 확정되지 않았으면 공간 확보 계획을 쓴다.',
       `${n + 4}. 효과적인 사업 운영을 위한 기반 활동 계획`, ...foundation(project));
   }
   push('', ...personnel(project, input, count), '', ...budgetTable(project, input, count), '',

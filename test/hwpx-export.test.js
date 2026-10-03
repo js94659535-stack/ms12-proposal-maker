@@ -139,7 +139,8 @@ test('header.xml은 표가 쓰는 borderFill 2번과 줄 간격 100% 문단(2번
   const header = new TextDecoder().decode(buildHwpxFiles({ project: { title: 't' }, sections: [] }).find(file => file.name === 'Contents/header.xml').bytes);
   assert.match(header, /<hh:borderFill id="2"/);
   assert.match(header, /<hh:paraPr id="2"[\s\S]*?value="100"/);
-  assert.match(header, /<hh:paraProperties itemCnt="3">/);
+  assert.match(header, /<hh:paraProperties itemCnt="4">/);
+  assert.match(header, /<hh:paraPr id="3"[\s\S]*?keepWithNext="1"/);
 });
 
 test('section.blocks는 문단과 표를 순서대로 낸다', () => {
