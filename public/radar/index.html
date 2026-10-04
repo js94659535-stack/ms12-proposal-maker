@@ -29,6 +29,7 @@
 <body>
 <main>
   <h1>삼성 공고 레이더</h1>
+  <p class="sub"><a href="/">← 배움터 협력 계획서</a></p>
   <p class="sub">삼성꿈장학재단 등 삼성 계열 공고 중 아동·청소년 교육, 문해력, 상담·정서에 맞는 것을 마감이 열린 순서로 보여 줍니다.</p>
   <div id="list"><p id="msg">불러오는 중입니다…</p></div>
 </main>
@@ -36,7 +37,7 @@
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
 const list = document.querySelector('#list');
 fetch('/api/radar', { credentials: 'same-origin' }).then(async r => {
-  if (r.status === 401) { list.innerHTML = '<p id="msg">로그인한 뒤에 볼 수 있습니다. <a href="/">로그인하러 가기</a></p>'; return; }
+  if (r.status === 401) { list.innerHTML = '<p id="msg">공고를 불러오지 못했습니다.</p>'; return; }
   const data = await r.json();
   if (!r.ok) throw new Error(data.error || '불러오지 못했습니다.');
   list.innerHTML = data.items.map(item => {
