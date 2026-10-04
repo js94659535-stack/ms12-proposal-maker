@@ -159,3 +159,19 @@ test('★ 근거자료 등록부: 출처가 있다는 것과 원문을 확인했
   for (const e of EVIDENCE) assert.ok(guide.includes(e.title), `안내서에 ${e.id}`);
   assert.ok(guide.includes('원문 확인 전'), '임시 사용 안내');
 });
+
+test('★ 제출 게이트: 임시 근거·미확인 사실·미첨부가 있으면 「최종 제출본」을 만들 수 없고, 다른 모드는 허용된다', async () => {
+  const { MODES, modeAllowed, submissionGate, crossChecks, reviewList } = await import('../public/baeumteo/gate.js');
+  const { CLAIMS, ATTACHMENTS } = await import('../public/baeumteo/evidence.js');
+  for (const m of ['예시본', '작업 초안', '검토본']) assert.equal(modeAllowed(m).ok, true, m);
+  const final = modeAllowed('최종 제출본');
+  assert.equal(final.ok, false);
+  const text = final.blockers.join('\n');
+  for (const part of ['본문 임시 사용 1건', '사실 주장', '미첨부 4건']) assert.ok(text.includes(part), part);
+  assert.ok(crossChecks({}).every(c => c.ok), '교차검증은 현재 설정에서 모두 통과');
+  for (const n of [20, 30, 50]) assert.ok(crossChecks({ people: n }).every(c => c.ok), `${n}명`);
+  assert.equal(MODES.length, 4);
+  assert.ok(CLAIMS.length >= 7 && ATTACHMENTS.length === 4);
+  assert.ok(reviewList().some(l => l.startsWith('- [사실]') && l.includes('협력 합의서')));
+  assert.equal(submissionGate({}).pass, false);
+});

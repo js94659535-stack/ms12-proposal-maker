@@ -22,3 +22,22 @@ export const EVIDENCE = [
 export const REQUIRED_FOR_VALUE = ['publisher', 'dataset', 'url', 'year', 'table', 'checkedOn', 'checkedBy', 'method', 'unit', 'target', 'insertedAs'];
 export const cited = id => EVIDENCE.find(e => e.id === id);
 export const evidenceLines = () => EVIDENCE.map(e => `- [${e.kind}] ${e.title} — 검증: ${e.verification} · 사용: ${e.usage}${e.year ? ` · 기준 ${e.year}` : ''}${e.dataset ? ` · 자료: ${e.publisher || ''} ${e.dataset}` : ''}${e.url ? ` (${e.url})` : ''}${e.checkedOn ? ` · 확인일 ${e.checkedOn}, ${e.method}` : ''} · 적용: ${e.applies}${e.note ? ` · 교체 메모: ${e.note}` : ''}`);
+
+// 숫자가 없어도 심사에 영향을 주는 사실 주장(10-27). 상태: 증빙 확인 · 담당자 확인 · 확인 필요 · 작성 예시
+export const CLAIMS = [
+  { id: 'mou', text: '참여기관 두 곳과 2026년 10월 협력 합의서를 체결했다', applies: '서식 3-4-2', status: '작성 예시', proof: '합의서 사본', note: '실제 체결 여부와 날짜' },
+  { id: 'interviewees', text: '직업인 12명(사업장 4곳)을 섭외했다', applies: '서식 3-4, 3-7', status: '작성 예시', proof: '섭외 확인서 또는 연락 기록', note: '실제 섭외 상태' },
+  { id: 'school-hours', text: '참여 청소년 학교의 진로교육은 연 8~10시간에 그친다', applies: '서식 3-5-3', status: '작성 예시', proof: '학교 확인 또는 교육과정 자료', note: '학교별 실제 시수' },
+  { id: 'seven-years', text: '학교폭력 특별교육을 7년간 운영했다', applies: '서식 1, 서식 3-5-4', status: '확인 필요', proof: '위탁 기간 확인서', note: '대표님 이력 메모와 위탁 서류 대조' },
+  { id: 'hall', text: '참여기관 강당의 수용 인원이 40명이다(25평)', applies: '서식 3-8', status: '작성 예시', proof: '시설 확인과 사진', note: '실제 평수·수용 인원' },
+  { id: 'followup-budget', text: '2028년 3월부터 자체 예산 연 1,200,000원을 편성한다', applies: '서식 3-9, 서식 5', status: '작성 예시', proof: '기관 예산 결의 또는 대표자 확인', note: '실제 편성 여부' },
+  { id: 'people-real', text: '강사·보조강사·체험처(전문대학, 사업장)가 참여하기로 했다', applies: '서식 3-4, 서식 4', status: '작성 예시', proof: '참여 확인서, 이력서·동의서', note: '가상 이름 교체' },
+  { id: 'org-facts', text: '대표기관·참여기관의 설립연도, 인력, 예산, 등록 청소년 수, 외부지원 3건', applies: '서식 1', status: '작성 예시', proof: '법인 서류, 결산서, 지원 확인서', note: '실제 값으로 교체' }
+];
+// 직접 붙이거나 받아야 하는 것
+export const ATTACHMENTS = [
+  { id: 'map', text: '지역 교육복지 자원지도 이미지(서식 3-4-1)', done: false },
+  { id: 'photos', text: '교육 장소 전경 사진(서식 3-8)', done: false },
+  { id: 'seal', text: '대표기관 직인 또는 대표자 서명(서식 1)', done: false },
+  { id: 'consents', text: '담당 인력 개인정보 수집·이용 동의 서명 또는 날인(서식 4)', done: false }
+];
