@@ -4,8 +4,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { zipBytes } from '../src/submission-zip.js';
-import { buildHwpxFiles } from '../src/hwpx-export.js';
+import { zipBytes } from '../public/baeumteo/lib/submission-zip.js';
+import { buildHwpxFiles } from '../public/baeumteo/lib/hwpx-export.js';
 import { extractHwpxText } from '../src/files.js';
 import { planSections } from '../public/baeumteo/blocks.js';
 import { careerBody, careerGuide, derive } from '../public/baeumteo/career-final.js';

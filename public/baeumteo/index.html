@@ -58,6 +58,11 @@
   button.on { color:var(--accent); border-color:var(--accent); font-weight:700; }
   pre { white-space:pre-wrap; word-break:keep-all; font:inherit; font-size:15px; background:var(--soft); border:1px solid var(--line); border-radius:8px; padding:14px; margin:8px 0 0; }
   @media print { details.p:not([open]), .row, label, input, .cand, .hint, h1, .sub, summary { display:none !important; } details.p[open] { border:0; } .box { padding:0; } pre { border:0; background:none; } }
+  .final { margin:14px 0 4px; padding:10px 12px; border:2px solid var(--accent); border-radius:8px; }
+  .final .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:4px 10px; }
+  .final label { font-size:12px; margin:2px 0 0; display:block; }
+  .final input { width:100%; }
+  .dl { margin:6px 0 0; }
 </style>
 </head>
 <body>
@@ -72,11 +77,31 @@ import { PROJECTS, CHECKLIST, OPTIMAL_PEOPLE, optimalInput, budgetPlan, people, 
 import { detailedPlan, factList, reviewPlan, changeLog } from './detail.js?v=1017';
 import { COMBOS, CRITERIA } from './combos.js?v=1017';
 import { FIELD_OPTIONS, SCENARIOS, recommendCombos, applyCombo } from './orgs.js?v=1017';
+import { careerBody, careerGuide, SETTING_FIELDS, DEFAULT_SETTING } from './career-final.js?v=1017';
+import { planSections } from './blocks.js?v=1017';
+import { buildHwpxBlob } from './lib/hwpx-export.js?v=1017';
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
 const KEY = 'baeumteo-v1';
 let saved = {};
 try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { saved = {}; }
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch { /* 저장이 막혀도 화면은 된다 */ } };
+// 내려받기: 지금 보이는 글을 한글(HWPX)이나 텍스트로 저장한다. 파일은 이 기기에서 만들며 어디로도 보내지 않는다.
+const fileStem = title => String(title || '계획서').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 60);
+const saveBlob = (blob, name) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); };
+const downloadText = (text, title) => saveBlob(new Blob([text], { type: 'text/plain;charset=utf-8' }), fileStem(title) + '.txt');
+const downloadHwpx = (text, title) => saveBlob(buildHwpxBlob({ project: { title, issuer: '삼성꿈장학재단 2027 배움터 교육지원사업', deadline: '2026-11-11' }, sections: planSections(text) }), fileStem(title) + '.hwpx');
+const finalSetting = data => ({ ...DEFAULT_SETTING, ...(data.setting || {}) });
+const finalText = data => (data.finView === 'guide' ? careerGuide(finalSetting(data)) : careerBody(finalSetting(data)));
+const finalPanel = (project, data) => {
+  if (project.id !== 'career') return '';
+  const set = finalSetting(data);
+  return `<details class="final" ${data.finalOpen ? 'open' : ''} data-final="1"><summary><b>완성된 가상 사업계획서</b> — 기본정보만 바꾸면 제출본이 됩니다 (가상 설정 예시본)</summary>
+    <p class="hint">필요성부터 후속 운영, 예산까지 끝까지 쓴 한 편입니다. 아래 기본정보와 인원만 알려 주시면 문서 전체가 함께 바뀝니다. 사실 확인이 필요한 것은 「작성자 안내서」에 모았습니다. 제출용이 아닙니다.</p>
+    <div class="grid">${SETTING_FIELDS.map(([key, label]) => `<div><label>${esc(label)}</label><input data-set="${key}" value="${esc(set[key])}"></div>`).join('')}</div>
+    <div class="row"><button data-fin="body" class="${data.finView !== 'guide' ? 'on' : ''}">사업계획서 본문</button><button data-fin="guide" class="${data.finView === 'guide' ? 'on' : ''}">작성자 안내서</button><button data-fin="reset">기본값으로</button></div>
+    <div class="row dl"><button data-fin="hwpx">한글(HWPX) 내려받기</button><button data-fin="txt">텍스트(.txt) 내려받기</button><button data-fin="copy">복사</button><button data-print="1">인쇄·PDF</button></div>
+    <pre id="fin-out">${esc(finalText(data))}</pre></details>`;
+};
 const input = id => (saved[id] ||= { lead: '', partners: {}, people: '', view: 'pitch', checks: {} });
 const won = wonOf;
 const openIds = new Set();
@@ -153,7 +178,9 @@ function render() {
           <button data-copy="${project.id}">복사</button>
           <button data-print="1">인쇄·PDF</button>
         </div>
+        <div class="row dl"><button data-dl="hwpx" data-p="${project.id}">한글(HWPX) 내려받기</button><button data-dl="txt" data-p="${project.id}">텍스트(.txt) 내려받기</button> <span class="cand">지금 보이는 글을 파일로 저장합니다</span></div>
         <pre id="out-${project.id}">${esc(body)}</pre>
+        ${finalPanel(project, data)}
       </div></details>`;
   }).join('');
 }
@@ -171,6 +198,7 @@ function refresh(id) {
 const root = document.querySelector('#list');
 root.addEventListener('input', event => {
   const el = event.target;
+  if (el.dataset.set) { const data = input('career'); (data.setting ||= {})[el.dataset.set] = el.value; data.finalOpen = true; save(); const out = document.querySelector('#fin-out'); if (out) out.textContent = finalText(data); return; }
   if (el.dataset.org) { const data = input(el.dataset.org); const org = data.orgs[Number(el.dataset.i)]; org[el.dataset.f] = el.value; save(); const project = PROJECTS.find(p => p.id === el.dataset.org); document.querySelector(`#combo-res-${project.id}`).innerHTML = comboHtml(project, data); return; }
   if (el.dataset.fact) { const data = input(el.dataset.fact); (data.facts ||= {})[el.dataset.k] = el.value; save(); const mark = document.querySelector(`[data-done="${el.dataset.fact}:${el.dataset.k}"]`); if (mark) mark.textContent = el.value.trim() ? '✓' : ''; document.querySelector(`#fct-${el.dataset.fact}`).textContent = factCount(PROJECTS.find(p => p.id === el.dataset.fact), data); refresh(el.dataset.fact); return; }
   if (el.dataset.chk) { const data = input(el.dataset.chk); (data.checks ||= {})[el.dataset.i] = el.checked; save(); document.querySelector(`#chk-${el.dataset.chk}`).textContent = `${checkCount(data)}/6`; refresh(el.dataset.chk); return; }
@@ -198,6 +226,23 @@ root.addEventListener('click', async event => {
   if (el.dataset.clear) { saved[el.dataset.clear] = { lead: '', partners: {}, people: '', view: 'plan' }; save(); render(); return; }
   if (el.dataset.copy) { const text = document.querySelector(`#out-${el.dataset.copy}`).textContent; try { await navigator.clipboard.writeText(text); el.textContent = '복사됨'; setTimeout(() => { el.textContent = '복사'; }, 1500); } catch { el.textContent = '복사 실패'; } return; }
   if (el.dataset.print) window.print();
+  if (el.dataset.dl) {
+    const project = PROJECTS.find(p => p.id === el.dataset.p);
+    const text = document.querySelector(`#out-${project.id}`).textContent;
+    const title = `${project.type}_${{ pitch: '섭외용 한 장', plan: '계획서 요약', detail: '제출용 상세본' }[input(project.id).view || 'plan'] || '계획서'}`;
+    if (el.dataset.dl === 'hwpx') downloadHwpx(text, title); else downloadText(text, title);
+    return;
+  }
+  if (el.dataset.fin) {
+    const data = input('career'); data.finalOpen = true;
+    const guide = data.finView === 'guide';
+    const title = `${finalSetting(data).agency}_진로설계_${guide ? '작성자안내서' : '사업계획서_가상예시'}`;
+    if (el.dataset.fin === 'body' || el.dataset.fin === 'guide') { data.finView = el.dataset.fin; save(); render(); return; }
+    if (el.dataset.fin === 'reset') { data.setting = {}; save(); render(); return; }
+    if (el.dataset.fin === 'hwpx') { downloadHwpx(finalText(data), title); return; }
+    if (el.dataset.fin === 'txt') { downloadText(finalText(data), title); return; }
+    if (el.dataset.fin === 'copy') { try { await navigator.clipboard.writeText(finalText(data)); el.textContent = '복사됨'; setTimeout(() => { el.textContent = '복사'; }, 1500); } catch { el.textContent = '복사 실패'; } return; }
+  }
 });
 root.addEventListener('toggle', event => {
   const d = event.target; if (!d.dataset?.id) return;

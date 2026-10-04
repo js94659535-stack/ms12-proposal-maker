@@ -6,8 +6,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import zlib from 'node:zlib';
-import { buildHwpxFiles, buildSectionXml, escapeXml } from '../src/hwpx-export.js';
-import { zipBytes } from '../src/submission-zip.js';
+import { buildHwpxFiles, buildSectionXml, escapeXml } from '../public/baeumteo/lib/hwpx-export.js';
+import { zipBytes } from '../public/baeumteo/lib/submission-zip.js';
 
 const decoder = new TextDecoder();
 
@@ -108,7 +108,7 @@ test('본문에 든 특수문자가 파일을 깨뜨리지 않는다', () => {
 
 
 // ---------- 진짜 표 (10-18) ----------
-import { realTable } from '../src/hwpx-export.js';
+import { realTable } from '../public/baeumteo/lib/hwpx-export.js';
 import { planSections } from '../public/baeumteo/blocks.js';
 
 test('realTable은 행·열 수와 테두리 정의가 맞는 hp:tbl을 만들고 글자를 이스케이프한다', () => {
