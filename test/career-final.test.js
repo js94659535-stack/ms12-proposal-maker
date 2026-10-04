@@ -236,7 +236,7 @@ test('★ 심사 관점: 한눈에 읽히고, 필요와 대응이 연결되고, 
   assert.deepEqual(long.map(l => l.slice(0, 20)), [], '너무 긴 문단');
   assert.ok(!/구분해 쓴다|쓴다\.$/m.test(section(body, '1) 지역 교육복지 자원지도', '2) 기관 간 협력')), '지역 자원 칸에 작성자 메모');
   // 필요성: 근거가 있는 필요 셋이 각각 실제 프로그램으로 이어진다
-  const need = tableLines(section(body, '이 사업이 해결하려는 필요', '다른 진로체험 프로그램과'));
+  const need = tableLines(section(body, '이 사업이 해결하려는 필요', '프로젝트 주제 및 핵심 내용'));
   assert.equal(need.length, 4);
   const names = PROGRAMS.career.map(p => p.name);
   for (const line of need.slice(1)) {
@@ -245,6 +245,7 @@ test('★ 심사 관점: 한눈에 읽히고, 필요와 대응이 연결되고, 
     assert.ok(names.some(n => response.includes(n.split(':')[0].replace(/ 프로젝트$/, ''))) || /진로 교실|포트폴리오|꿈 인터뷰/.test(response), '대응이 실제 프로그램');
   }
   // 구별성
+  assert.match(body, /운영 방식의 이유와 차별점/);
   assert.match(body, /다른 진로체험 프로그램과 다른 점은 세 가지/);
   // 운영 가능성과 신뢰: 공간·일정 계산, 위험 대응
   assert.match(body, /반별 수업은 한 달에 가장 많아도 반당 4회/);
