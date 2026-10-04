@@ -6,11 +6,11 @@ import fs from 'node:fs';
 const html = fs.readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
 
 test('랜딩 페이지는 제목과 두 링크뿐이고 스크립트·입력칸이 없다', () => {
-  assert.match(html, /<title>공모 사업계획서</title>/);
+  assert.ok(html.includes('<title>공모 사업계획서</title>'));
   assert.deepEqual([...html.matchAll(/href="([^"]+)"/g)].map(m => m[1]), ['/baeumteo/', '/radar/']);
-  assert.ok(!/<script|<input|<form|https?:///.test(html));
-  assert.match(html, /prefers-color-scheme: dark/);
-  assert.match(html, /name="viewport"/);
+  for (const banned of ['<script', '<input', '<form', 'http://', 'https://']) assert.ok(!html.includes(banned), banned);
+  assert.ok(html.includes('prefers-color-scheme: dark'));
+  assert.ok(html.includes('name="viewport"'));
 });
 
 test('링크가 가리키는 화면이 실제로 있다', () => {
