@@ -32,12 +32,12 @@ test('원본 양식이 허용하는 줄 추가·표 복사 외에는 표 모양�
 });
 
 test('22회와 봉사활동 2회, 신청액이 작업 내용에 들어 있다', () => {
-  const text = fills.map(o => o.text).join('\n');
+  const text = ops.map(o => o.text || '').join('\n');
   const d = derive({});
   assert.ok(text.includes('22회'));
   assert.ok(text.includes('봉사활동: 우리가 만든 진로 정보 나누기'));
   assert.ok(text.includes(d.budget.total.toLocaleString('ko-KR')));
-  assert.ok(text.includes('가상 설정으로 작성한 예시본입니다 (제출용이 아님)'));
+  assert.ok(text.includes('가상 설정으로 작성한 예시본 (제출용이 아님)'));
   assert.ok(!text.includes('최종 제출'));
   for (const place of ['자원지도 이미지 자리', '교육 장소 전경 사진 자리', '직인 또는 서명 이미지 자리', '서명 또는 날인 자리']) assert.ok(text.includes(place), place);
 });

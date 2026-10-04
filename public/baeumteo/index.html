@@ -99,7 +99,7 @@ const finalPanel = (project, data) => {
     <p class="hint">필요성부터 후속 운영, 예산까지 끝까지 쓴 한 편입니다. 아래 기본정보와 인원만 알려 주시면 문서 전체가 함께 바뀝니다. 사실 확인이 필요한 것은 「작성자 안내서」에 모았습니다. 제출용이 아닙니다.</p>
     <div class="grid">${SETTING_FIELDS.map(([key, label]) => `<div><label>${esc(label)}</label><input data-set="${key}" value="${esc(set[key])}"></div>`).join('')}</div>
     <div class="row"><button data-fin="body" class="${data.finView !== 'guide' ? 'on' : ''}">사업계획서 본문</button><button data-fin="guide" class="${data.finView === 'guide' ? 'on' : ''}">작성자 안내서</button><button data-fin="reset">기본값으로</button></div>
-    <div class="row dl"><button data-fin="hwpx">한글(HWPX) 내려받기</button><button data-fin="txt">텍스트(.txt) 내려받기</button><button data-fin="copy">복사</button><button data-print="1">인쇄·PDF</button></div>
+    <div class="row dl"><button data-fin="hwpx">본문 한글(HWPX) 내려받기</button><button data-fin="txt">텍스트(.txt) 내려받기</button><button data-fin="copy">복사</button><button data-print="1">인쇄·PDF</button></div>
     <pre id="fin-out">${esc(finalText(data))}</pre></details>`;
 };
 const input = id => (saved[id] ||= { lead: '', partners: {}, people: '', view: 'pitch', checks: {} });
@@ -178,7 +178,7 @@ function render() {
           <button data-copy="${project.id}">복사</button>
           <button data-print="1">인쇄·PDF</button>
         </div>
-        <div class="row dl"><button data-dl="hwpx" data-p="${project.id}">한글(HWPX) 내려받기</button><button data-dl="txt" data-p="${project.id}">텍스트(.txt) 내려받기</button> <span class="cand">지금 보이는 글을 파일로 저장합니다</span></div>
+        <div class="row dl"><button data-dl="hwpx" data-p="${project.id}">본문 한글(HWPX) 내려받기</button><button data-dl="txt" data-p="${project.id}">텍스트(.txt) 내려받기</button> <span class="cand">지금 보이는 글을 본문 문서로 저장합니다(재단 양식 모양 아님). 재단 양식에 채운 파일은 「자료 내려받기」에 있습니다</span></div>
         <pre id="out-${project.id}">${esc(body)}</pre>
         ${finalPanel(project, data)}
       </div></details>`;

@@ -72,7 +72,12 @@ check('빈 쪽 없음', blank.length === 0, blank.length ? `빈 쪽: ${blank.joi
 const flat = out.tables.flatMap(t => t.cells.map(c => c.text)).join('\n') + '\n' + out.outside.join('\n');
 check('청소년 1인 22회 유지', flat.includes(`${sessionTotal('career')}회`) && sessionTotal('career') === 22);
 check('봉사활동 2회 유지', /봉사활동: 우리가 만든 진로 정보 나누기/.test(flat) && /2회\/2시간/.test(flat));
-check('가상 예시본 표시', flat.includes('가상 설정으로 작성한 예시본입니다 (제출용이 아님)'));
+check('가상 예시본 표시(표지)', flat.includes('가상 설정으로 작성한 예시본 (제출용이 아님)'));
+// 원본의 ※ 안내 상자가 하나도 지워지지 않았는가(입력 상자와 안내 상자를 헷갈려 덮어쓰는 실수를 잡는다)
+const notes = orig.tables.filter(t => t.cells.length === 1 && t.cells[0].text.startsWith('※') && t.cells[0].text.length > 20).map(t => t.cells[0].text.slice(0, 18));
+const outCells = out.tables.flatMap(t => t.cells.map(c => c.text));
+const missingNotes = notes.filter(n => !outCells.some(c => c.startsWith(n)));
+check('원본의 ※ 안내 상자가 모두 남아 있음', missingNotes.length === 0, missingNotes.length ? `사라진 안내: ${missingNotes.slice(0, 4).join(' / ')}` : `${notes.length}개`);
 check('지도·사진·직인·서명 자리가 있음', ['자원지도 이미지 자리', '교육 장소 전경 사진 자리', '직인 또는 서명 이미지 자리', '서명 또는 날인 자리'].every(w => flat.includes(w)));
 
 // 7) 예산: 표 안의 소계·합계·총계가 계산과 같은지

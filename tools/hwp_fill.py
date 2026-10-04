@@ -119,6 +119,14 @@ def main():
                 hwp.HAction.Run('MoveSelLineEnd')
                 hwp.HAction.Run('Delete')
                 type_text(op['text'])
+            elif kind == 'page_break_before':
+                # 제목이 쪽 맨 아래에 홀로 남지 않게 제목 앞에서 쪽을 나눈다.
+                hwp.HAction.Run('MoveDocBegin')
+                if not hwp.find(op['find']):
+                    raise RuntimeError('찾지 못함: ' + op['find'])
+                hwp.Cancel()
+                hwp.HAction.Run('MoveLineBegin')
+                hwp.HAction.Run('BreakPage')
             elif kind == 'delete_back':
                 # 찾은 글자가 있는 줄 맨 앞에서 뒤로 지우기를 count 번 한다(예시 표를 지우고 남은 빈 문단 정리).
                 hwp.HAction.Run('MoveDocBegin')

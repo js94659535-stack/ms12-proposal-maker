@@ -18,6 +18,8 @@ if (!orig || !fs.existsSync(orig)) {
 }
 const out = path.resolve(root, opt('out', 'reports/10-36-official-form'));
 const python = opt('python', 'python');
+// --setting <json 파일>: 기관명·대표자·지역 등 기본정보(public/baeumteo/career-final.js 의 SETTING_FIELDS 이름)를 바꿔 채운다
+const setting = opt('setting') ? JSON.parse(fs.readFileSync(path.resolve(opt('setting')), 'utf8')) : {};
 fs.mkdirSync(out, { recursive: true });
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'official-'));
 const run = (cmd, argv, label) => {
@@ -38,7 +40,7 @@ unzip(inspectHwpx, origDir);
 
 // 2) 작업 목록 → 한글로 채움
 const opsFile = path.join(work, 'ops.json');
-fs.writeFileSync(opsFile, JSON.stringify(buildOps({})));
+fs.writeFileSync(opsFile, JSON.stringify(buildOps(setting)));
 const hwpOut = path.join(out, '맞춤형_신청서_진로설계_가상예시본.hwp');
 const pdfOut = path.join(out, '맞춤형_신청서_진로설계_가상예시본.pdf');
 const checkHwpx = path.join(work, 'filled_check.hwpx');

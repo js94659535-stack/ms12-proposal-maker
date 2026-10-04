@@ -1,13 +1,13 @@
 // 근거자료 등록부 (10-25, 10-26에서 상태를 셋으로 나눔). 근거를 한곳에 등록하고, 본문의 인용과 작성자 안내서가 같은 등록부에서 나온다.
 // kind(근거 유형): 공공통계 · 기관기록 · 현장조사 · 학술자료 · 작성예시
-// verification(검증 상태): 원문 확인(사람이 원문 표·쪽을 직접 대조) · 2차 확인(도구가 읽은 요약, 원문 대조 전) · 확인 필요 · 사용 불가
+// verification(검증 상태): 원문 확인(원문을 내려받아 값·기준일·단위를 대조하고 사본을 보존) · 2차 확인(도구가 읽은 요약, 원문 대조 전) · 확인 필요 · 사용 불가
 // usage(사용 상태): 본문 사용 · 본문 임시 사용(원문 확인 전) · 안내서만 · 보류 · 제외
 // 숫자가 있는 항목은 출처와 확인 정보를 모두 갖추어야 하고, 「원문 확인」이 아닌 값이 본문에 들어가면 「임시 사용」으로만 허용한다.
 export const EVIDENCE = [
-  { id: 'youth-pop', kind: '공공통계', verification: '2차 확인', usage: '본문 임시 사용', title: '광산구 청소년(9~24세) 인구 74,592명', value: 74592, unit: '명', target: '9~24세 합계(남 38,782·여 35,810)',
+  { id: 'youth-pop', kind: '공공통계', verification: '원문 확인', usage: '본문 사용', title: '광산구 청소년(9~24세) 인구 74,592명', value: 74592, unit: '명', target: '9~24세 합계(남 38,782·여 35,810)',
     publisher: '광주광역시', dataset: '청소년 인구현황(구별)', source: '광주광역시 청소년 인구현황(구별)', url: 'https://www.gwangju.go.kr/mogef/contentsView.do?pageId=mogef22', year: '2025.12.31.', table: '구별 표, 광산구 행, 합계 열',
-    checkedOn: '2026-10-04', checkedBy: '웹 도구가 페이지를 읽은 요약(Claude)', method: '페이지를 도구로 읽음. 직접 내려받은 원문 없음', archive: '',
-    insertedAs: '광주광역시 공개 자료에 따르면 광산구의 청소년(9~24세) 인구는 74,592명이다', applies: '서식 3-4, 서식 3-5-3', note: '제출 전 원문 표의 광산구 행·합계와 기준일을 직접 대조하고 「원문 확인」으로 올린다' },
+    checkedOn: '2026-10-04', checkedBy: '원문 페이지를 내려받아 표를 프로그램으로 읽음(Claude). 사람의 눈 대조는 아님', method: '원문 HTML을 내려받아 표의 광산구 합계 열(74,592)·기준일(2025.12.31.)·연령(9~24세)을 읽고 사본을 보존', archive: 'reports/10-44-career-polish/근거원문/광주시_청소년인구현황_2025-12-31.html (sha256 1c27b9c7ed735203a42f4e38229a959e55210e5e9bdb287858b496b30c476e81)',
+    insertedAs: '광주광역시 공개 자료에 따르면 광산구의 청소년(9~24세) 인구는 74,592명이다', applies: '서식 3-4, 서식 3-5-3', note: '원문 사본을 보존했다. 제출 전 사람이 한 번 더 눈으로 대조하면 좋다' },
   { id: 'gs-pop', kind: '공공통계', verification: '2차 확인', usage: '안내서만', title: '광산구 인구 405,394명(외국인 15,055명 포함), 172,127세대', value: 405394, unit: '명', target: '전체 주민',
     publisher: '광산구청', dataset: '기본현황', source: '광산구청 기본현황', url: 'https://www.gwangsan.go.kr/contentsView.do?pageId=www485', year: '2025.2.28.', table: '기본현황 본문',
     checkedOn: '2026-10-04', checkedBy: '웹 도구가 페이지를 읽은 요약(Claude)', method: '페이지를 도구로 읽음', archive: '',
@@ -31,7 +31,7 @@ export const evidenceLines = () => EVIDENCE.map(e => `- [${e.kind}] ${e.title} �
 export const CLAIMS = [
   { id: 'mou', text: '참여기관 두 곳과 2026년 10월 협력 합의서를 체결했다', applies: '서식 3-4-2', isExample: true, verification: '확인 필요', proofLevel: '문서', proof: '합의서 사본', proofFile: '', confirmedBy: '', confirmedOn: '', note: '실제 체결 여부와 날짜' },
   { id: 'interviewees', text: '직업인 12명(사업장 4곳)을 섭외했다', applies: '서식 3-4, 3-7', isExample: true, verification: '확인 필요', proofLevel: '담당자', proof: '섭외 확인서 또는 연락 기록', proofFile: '', confirmedBy: '', confirmedOn: '', note: '실제 섭외 상태' },
-  { id: 'school-hours', text: '참여 청소년 학교의 진로교육은 연 8~10시간에 그친다', applies: '서식 3-5-3', isExample: true, verification: '확인 필요', proofLevel: '문서', proof: '학교 교육과정·진로교육 운영계획, 진로교사 확인서, 학교알리미·교육청 공개자료 중 하나', proofFile: '', confirmedBy: '', confirmedOn: '', note: '학교 외부 사실이라 담당자 기억만으로 확정하지 않는다. 자료가 없으면 문장을 「참여 예정 청소년 면담에서 확인한 의견」(현장조사)으로 바꾼다' },
+  { id: 'school-hours', text: '참여 청소년 학교의 진로교육은 교과 중심의 적은 시간에 그치고 개인별 검사 해석 면담이 없다', applies: '서식 3-5-3', isExample: true, verification: '확인 필요', proofLevel: '문서', proof: '학교 교육과정·진로교육 운영계획, 진로교사 확인서, 학교알리미·교육청 공개자료 중 하나', proofFile: '', confirmedBy: '', confirmedOn: '', note: '학교 외부 사실이라 담당자 기억만으로 확정하지 않는다. 자료가 없으면 문장을 「참여 예정 청소년 면담에서 확인한 의견」(현장조사)으로 바꾼다' },
   { id: 'seven-years', text: '학교폭력 특별교육을 7년간 운영했다', applies: '서식 1, 서식 3-5-4', isExample: false, verification: '확인 필요', proofLevel: '문서', proof: '위탁 기간 확인서', proofFile: '', confirmedBy: '', confirmedOn: '', note: '대표님 이력 메모와 위탁 서류 대조' },
   { id: 'hall', text: '참여기관 강당의 수용 인원이 40명이다(25평)', applies: '서식 3-8', isExample: true, verification: '확인 필요', proofLevel: '담당자', proof: '시설 확인과 사진', proofFile: '', confirmedBy: '', confirmedOn: '', note: '실제 평수·수용 인원' },
   { id: 'followup-budget', text: '2028년 3월부터 자체 예산 연 1,200,000원을 편성한다', applies: '서식 3-9, 서식 5', isExample: true, verification: '확인 필요', proofLevel: '문서', proof: '기관 예산 결의 또는 대표자 확인서', proofFile: '', confirmedBy: '', confirmedOn: '', note: '실제 편성 여부' },

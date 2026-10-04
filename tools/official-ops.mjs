@@ -2,8 +2,8 @@
 // 표 번호(t)는 한글이 세는 번호(안쪽 표 포함 문서 순서), 칸은 (행 r, 열 c) 주소다(0부터, 합친 칸은 왼쪽 위 칸의 주소).
 // 작업은 번호가 큰 표부터 한다 — 뒤쪽 표에서 줄을 더하거나 표를 복사해도 앞쪽 표 번호가 밀리지 않는다.
 // 표를 복사하면 복사본이 놓이는 자리는 이 원본 파일에서 실측한 값이다: 예산서 표(70) 복사본은 71·72, 참여기관 표(15) 복사본은 20(안쪽 21·22·23).
-import { careerBody, derive } from '../public/baeumteo/career-final.js';
-import { PROGRAMS } from '../public/baeumteo/programs.js';
+import { careerBody, derive, orgFacts, saturdaysIn, INSTRUCTORS, ASSISTANTS } from '../public/baeumteo/career-final.js';
+import { PROGRAMS, monthlyLoad } from '../public/baeumteo/programs.js';
 
 const num = n => Math.round(n).toLocaleString('ko-KR');
 const cellsOf = l => l.replace(/^▦-? /, '').split(' | ');
@@ -77,6 +77,8 @@ export function buildOps(setting = {}) {
   F(c2, 19, 3, pay.formula); F(c2, 19, 4, pay.amount);
   F(c2, 20, 4, pay.amount);
   F(c2, 21, 4, num(b.total));
+  // 앞의 두 표는 프로그램별 소계까지만 채우므로, 합계가 비어 있는 이유를 총계 칸에 적는다
+  for (const t of [70, c1]) F(t, 21, 4, '마지막 표에 합산');
   fillBlock(c1, blocks[0], programNames[2]);
   fillBlock(c1, blocks[1], programNames[3]);
   fillBlock(70, blocks[0], programNames[0]);
@@ -90,8 +92,8 @@ export function buildOps(setting = {}) {
   for (const col of [1, 2, 3, 4]) F(65, 2, col, '해당 없음');
   const people = [
     [s.rep, s.agency, String(s.repAge), '대표자(사업 총괄)', '청소년 상담 20년, 학교폭력 특별교육 위탁 운영 7년, 상담심리 석사'],
-    [s.manager, s.agency, String(s.managerAge), '실무책임자(신청·정산·보고)', '청소년 교육복지 12년, 사회복지사 1급, 재단 사업 실무 경험 3회'],
-    ...Array.from({ length: d.C }, (_, i) => [INSTR[i % INSTR.length][0], '외부 강사', String(INSTR[i % INSTR.length][1]), `${i + 1}반 주강사`, INSTR[i % INSTR.length][2]]),
+    [s.manager, s.agency, String(s.managerAge), '실무책임자(신청·정산·보고)', '청소년 교육복지 12년, 사회복지사 1급, 외부지원 사업 신청·정산 실무 3회'],
+    ...Array.from({ length: d.C }, (_, i) => [INSTR[i % INSTR.length][0], `${s.agency} 비상근 강사`, String(INSTR[i % INSTR.length][1]), `${i + 1}반 주강사`, INSTR[i % INSTR.length][2]]),
     ...Array.from({ length: d.C }, (_, i) => [ASSIST[i % ASSIST.length][0], ASSIST[i % ASSIST.length][1], '20대', `${i + 1}반 보조강사(면담·현장 인솔)`, '청소년 학습멘토링 1~2년, 아동학대·성범죄 경력 조회 동의'])
   ];
   for (let i = 0; i < people.length - 4; i += 1) below(63, 5, 0);
@@ -113,23 +115,32 @@ export function buildOps(setting = {}) {
   const r2 = tableRow('보호자와의 소통(보호자 모임·교육 등)');
   const r3 = tableRow('교강사 전체 회의');
   const r4 = tableRow('기타(협력기관 협의회 · 멘토 모임)');
-  const quality = chunk('수업 질 관리와 결석 대응', '평가와 환류').join('\n');
-  const space = line('공간과 일정:');
+  // 결석 대응 문장은 「예상되는 어려움」에 같은 내용이 있어 이 칸에서는 뺀다(쪽 넘침 방지)
+  const quality = chunk('수업 질 관리와 결석 대응', '평가와 환류').join('\n').replace(/ 2회 연속 결석하면[^.]*\./, '');
+  // 공간과 일정은 칸이 좁아 두 줄로 줄인다(같은 계산 값)
+  const loadMax = Math.max(...Object.values(monthlyLoad('career')));
+  const loadMonths = Object.entries(monthlyLoad('career')).filter(([, n]) => n === loadMax).map(([m]) => `${m}월`).join('·');
+  const sat = saturdaysIn('2027-08-01', '2027-10-31');
+  const space = `공간과 일정: 반별 수업은 한 달 최대 ${loadMax}회(${loadMonths}). 평일 2시간 수업은 반마다 요일이 달라 겹치지 않고, 토요일 3시간 수업 ${d.C * (PROGRAMS.career[2].sessions - 2)}회는 8~10월 토요일 ${sat}번×활동실 2곳=${sat * 2}칸 안에 든다.`;
   const safety = chunk('안전과 아동보호', '후속 운영 계획').join('\n');
-  const risks = body.filter(l => /^▦ (출석이|직업인이나|강사가|이동 중)/.test(l)).map(cellsOf).map(([a, c]) => `- ${a}: ${c}`).join('\n');
+  const risks = body.filter(l => /^▦ (출석이|직업인이나|강사가|이동 중)/.test(l)).map(cellsOf).slice(0, 3).map(([a, c]) => `- ${a}: ${c}`).join('\n'); // 이동 중 안전은 바로 위 「안전과 아동보호」에 있다
   below(60, 3, 0);
-  F(60, 4, 2, r4[2]);
-  F(60, 4, 1, r4[1]);
+  F(60, 4, 2, [r4[2], '예상되는 어려움과 대응', risks].join('\n'));
+  F(60, 4, 1, '3회+월 1회');
   F(60, 4, 0, r4[0]);
-  F(60, 3, 2, [r3[2], space, quality].join('\n'));
-  F(60, 3, 1, r3[1]);
-  F(60, 2, 2, r2[2]);
-  F(60, 2, 1, r2[1]);
-  F(60, 1, 2, r1[2]);
-  F(60, 1, 1, r1[1]);
+  F(60, 3, 2, [`${r3[1]}. ${r3[2]}`, space, quality].join('\n'));
+  F(60, 3, 1, `${d.meetings}회`);
+  F(60, 2, 2, `${r2[1]}. ${r2[2]}`);
+  F(60, 2, 1, '3회');
+  F(60, 1, 2, `${r1[1]}. ${r1[2]}`);
+  F(60, 1, 1, `${d.months}회`);
 
   // 8. 교육 장소(표 58)
-  F(58, 0, 1, chunk('대표기관의 활동실 2곳', '## 9.').join('\n'));
+  // 원본에 안전·아동보호 칸이 없어, 이동·현장 안전을 다루는 이 칸에 함께 쓴다
+  // 쪽 넘침을 막으려고 이동식 탁자 문장과 안전 문단의 뒷부분은 웹 본문에만 둔다
+  const placeText = chunk('대표기관의 활동실 2곳', '## 9.').join('\n').replace(/ 센터는 학년이 다른 청소년이[^.]*\./, '');
+  const safetyShort = safety.split('\n').map(par => par.split(/(?<=다\.) /).slice(0, 2).join(' ')).join('\n');
+  F(58, 0, 1, [placeText, safetyShort].join('\n'));
   F(58, 1, 1, '[교육 장소 전경 사진 자리 — 인물이 식별되지 않는 사진]');
 
   // 7-2 월별 핵심 교육내용(표 56)
@@ -141,7 +152,7 @@ export function buildOps(setting = {}) {
     const m = monthly[4]; // 봉사활동: 두 달을 한 줄로
     F(56, 24, 5, place(m, prog[4])); F(56, 24, 4, m.way);
     F(56, 24, 3, '학생이 만든 직업 비교표와 인터뷰 기록으로 후배 청소년(지역 아동센터·청소년시설)에게 직업 정보 부스를 운영하고(10월), 후배와 진로 이야기를 나눈 뒤 소감을 기록한다(11월).');
-    F(56, 24, 2, m.rows.map(r => r.month).join('·')); F(56, 24, 1, prog[4].name); F(56, 24, 0, '5');
+    F(56, 24, 2, `${m.rows.map(r => r.month.replace(/\(\d회\)/, '')).join('·')}(${m.rows.length}회)`); F(56, 24, 1, prog[4].name); F(56, 24, 0, '5');
   }
   {
     const m = monthly[3]; // 포트폴리오 동아리: 원본 2줄 + 줄 추가 1
@@ -176,7 +187,7 @@ export function buildOps(setting = {}) {
   }
   F(53, 2, 1, line('대상 학생:'));
   F(53, 1, 1, [line('프로젝트 성과 및 결과물:'), line('연간 교육:'), ...chunk('후속 운영 계획', '<서식 4>')].join('\n'));
-  F(53, 0, 1, [overviewText(body, line, chunk), safety, '[예상되는 어려움과 대응]', risks].join('\n'));
+  F(53, 0, 1, overviewText(body, line, chunk));
 
   // 6. 교육목표
   F(51, 0, 0, '해당 없음(신규 사업)');
@@ -185,8 +196,8 @@ export function buildOps(setting = {}) {
 
   // 5. 참여 예정 아동·청소년
   F(44, 0, 0, chunk('참여 예정 청소년 ', '## 6.').join('\n'));
-  F(42, 1, 1, chunk('참여 청소년은 광산구 월곡동', '4) 참여 예정').join('\n'));
-  F(42, 0, 1, `광주광역시 광산구 월곡동 ${d.region[0]}명, 우산동 ${d.region[1]}명, 신창동 ${d.region[2]}명`);
+  F(42, 1, 1, chunk(`참여 청소년은 ${s.district} ${s.dong1}`, '4) 참여 예정').join('\n'));
+  F(42, 0, 1, `광주광역시 ${s.district} ${s.dong1} ${d.region[0]}명, ${s.dong2} ${d.region[1]}명, ${s.dong3} ${d.region[2]}명`);
   F(40, 0, 0, line('참여 청소년은 교육적 지원이'));
   const pctOwn = Math.round(d.own / N * 100), pct1 = Math.round(d.p1 / N * 100), pct2 = 100 - pctOwn - pct1;
   F(38, 5, 1, '사업 참여 전체 아동‧청소년 중 (0)% — 0명');
@@ -198,9 +209,12 @@ export function buildOps(setting = {}) {
   F(38, 1, 0, '☑ 기관 내 아동·청소년 대상');
 
   // 4. 지역 교육자원 현황
-  F(35, 0, 0, chunk(s.partner1, '## 5.').join('\n'));
-  const resources = body.filter(l => l.startsWith('▦ ')).map(cellsOf).filter(c => c.length === 3 && /(대표기관|참여기관|도보|버스)/.test(c[0] + c[1])).map(([a, loc, use]) => `- ${a} (${loc}): ${use}`);
-  F(33, 0, 0, ['[지역 교육복지 자원지도 이미지 자리 — 대표기관·참여기관·학교·교육복지기관 위치 표시]', ...resources, line('광주광역시 공개 자료에 따르면')].join('\n'));
+  // 표 33·35는 원본의 ※ 안내 상자이고, 입력 상자는 바로 뒤의 34(자원지도)·36(기관 간 협력·연계)이다
+  F(36, 0, 0, chunk(s.partner1, '## 5.').join('\n'));
+  const from = body.findIndex(l => l.startsWith('## 4.'));
+  const to = body.findIndex((l, i) => i > from && l.startsWith('[지역 교육복지 자원지도 이미지]'));
+  const resources = body.slice(from, to).filter(l => l.startsWith('▦ ')).map(cellsOf).slice(1).map(([a, loc, use]) => `- ${a} (${loc}): ${use}`);
+  F(34, 0, 0, ['[지역 교육복지 자원지도 이미지 자리 — 대표기관·참여기관·학교·교육복지기관 위치 표시]', ...resources, ...body.filter(l => l.startsWith('광주광역시 공개 자료에 따르면'))].join('\n'));
 
   // 1~3
   F(31, 2, 2, '자기이해 · 직업 탐색 · 현장 확인 · 진로설계 포트폴리오');
@@ -236,7 +250,7 @@ export function buildOps(setting = {}) {
     for (const [r, c, text] of cells.reverse()) F(tm, r, c, text);
     o.support.forEach((row, i) => { F(t, 10 + i, 8, row[3]); F(t, 10 + i, 5, row[2]); F(t, 10 + i, 3, row[1]); F(t, 10 + i, 1, row[0]); });
   };
-  const orgs = orgData(s);
+  const orgs = orgFacts(s);
   // 참여기관 표 15(안쪽 16·17·18)를 복사해 참여기관 ② 표(20, 안쪽 21·22·23)로 쓴다
   ops.push({ op: 'table_copy_after', t: 15, times: 1 });
   org(PARTNER_COPY, [PARTNER_COPY + 1, PARTNER_COPY + 2, PARTNER_COPY + 3], orgs.partner2);
@@ -246,7 +260,7 @@ export function buildOps(setting = {}) {
   F(10, 5, 2, s.partner1Rep); F(10, 5, 0, s.partner1);
   F(10, 2, 3, '(직인 또는 서명 이미지 자리)');
   F(10, 2, 1, s.rep); F(10, 2, 0, s.agency);
-  F(0, 2, 0, '※ 가상 설정으로 작성한 예시본입니다 (제출용이 아님)');
+  ops.push({ op: 'find_append', find: '<신청서 양식>', text: ' — 가상 설정으로 작성한 예시본 (제출용이 아님)' });
 
   // 「<작성 예시>」 글자: 문서에 네 곳(대표기관·참여기관 ①·참여기관 ②의 주간 일정표 머리, 7-1 개요 표 앞)이 있다.
   // 앞의 셋은 주간 일정표 이름으로 바꾸고, 7-1 앞의 것(마지막)은 예시 표를 지웠으므로 지운다.
@@ -254,20 +268,17 @@ export function buildOps(setting = {}) {
   ops.push({ op: 'find_delete_line', find: '<작성 예시>' });
   // 7-1 예시 표를 지우고 남은 빈 문단 둘이 빈 쪽을 만들므로 7-2 제목 앞에서 두 번 지운다(실측: 두 번에 빈 쪽이 사라진다)
   ops.push({ op: 'delete_back', find: '2) 프로젝트 및 교육프로그램별 핵심 교육내용', count: 2 });
+  // 「5. 참여 예정 아동·청소년」 제목이 앞 쪽 맨 아래에 홀로 남아서 제목 앞에서 쪽을 나눈다
+  ops.push({ op: 'page_break_before', find: '5. 참여 예정 아동·청소년' });
+  ops.push({ op: 'page_break_before', find: '4) 참여 예정 아동·청소년의 유사 프로그램 참여 경험' });
   // 표 밖 문단
   ops.push({ op: 'find_replace_line', find: '202 년', text: '2027년 5월 1일부터 ～ 2027년 11월 30일까지' });
   ops.push({ op: 'find_append', find: '1. 사업명 :', text: ` ${line('「').trim()}` });
   return ops;
 }
 
-const INSTR = [
-  ['최민서', 38, '청소년 진로·상담 강사 8년. 진로 검사 해석 자격(진로상담 전문가 과정 이수), 학교 연계 집단상담 150회기 운영'],
-  ['한지우', 35, '직업·진학 교육 강사 6년. 지역 직업체험 프로그램 기획, 특성화고·전문대학 진학 설명회 진행'],
-  ['오하윤', 33, '글쓰기·포트폴리오 지도 5년. 청소년 자서전·진로 포트폴리오 수업 40회 운영'],
-  ['윤서준', 37, '청소년 상담·집단활동 지도 7년'],
-  ['강예린', 34, '진로 코칭·면담 기법 지도 5년']
-];
-const ASSIST = [['장유나', '대학원 상담심리학 석사과정'], ['임도윤', '교육학 전공 4학년'], ['송하린', '청소년지도학 전공 4학년'], ['배지호', '사회복지학 전공 4학년'], ['문채원', '심리학 전공 4학년']];
+const INSTR = INSTRUCTORS;
+const ASSIST = ASSISTANTS;
 
 function overviewText(body, line, chunk) {
   void 0;
@@ -282,29 +293,9 @@ function overviewText(body, line, chunk) {
 }
 
 function monthlyOf(body, prog) {
-  const rows = body.filter(l => l.startsWith('▦ ')).map(cellsOf).filter(c => c.length === 6 && /^\d$/.test(c[0]) && /월$/.test(c[2]));
+  const rows = body.filter(l => l.startsWith('▦ ')).map(cellsOf).filter(c => c.length === 6 && /^\d$/.test(c[0]) && /월\(\d회\)$/.test(c[2]));
   return prog.map((p, i) => {
     const mine = rows.filter(r => Number(r[0]) === i + 1);
     return { rows: mine.map(r => ({ month: r[2], content: r[3] })), way: mine[0]?.[4] || '', place: mine[0]?.[5] || p.place };
   });
-}
-
-// 대표기관·참여기관의 운영 현황 가상 값(career-final 의 서식 1 값과 같다)
-function orgData(s) {
-  const main = {
-    name: s.agency, year: 2016, full: 5, part: 6, budget: '342,000,000', fee: '0', grade: [0, 31, 23], soc1: [17, 15, 4, 21, 2], soc2: [0, 3, 0, 0], corp: s.agency, corpRep: s.rep, kind: 2,
-    schedule: [['15:00~15:30', '등원, 간식, 자유 학습', '격주 토요일 문화·체험활동(09:00~12:00)'], ['15:30~17:00', '학습 멘토링(대학생)', '집단상담 「마음쉼터」', '진로·직업 탐색', '독서·글쓰기', '체육·문화활동'], ['17:00~18:30', '집단상담 「마음쉼터」', '진로 검사·상담', '독서·글쓰기', '동아리'], ['18:30~19:30', '저녁 식사와 휴식'], ['19:30~21:00', '개별 학습 지도·상담']],
-    support: [['빛고을지역복지재단', '2024. 3. ~ 2025. 2.', '청소년 학습멘토링(대학생 멘토 10명 파견 포함)', '18,000,000'], ['빛고을지역복지재단', '2025. 3. ~ 2026. 2.', '청소년 집단상담 「마음쉼터」 운영', '21,000,000'], ['광산구청', '2026. 1. ~ 2026. 12.', '방과후 청소년 급식 지원', '9,600,000']]
-  };
-  const partner1 = {
-    name: s.partner1, year: 2012, full: 4, part: 3, budget: '268,000,000', fee: '0', grade: [0, 52, 68], soc1: [21, 19, 6, 24, 3], soc2: [0, 4, 0, 0], corp: '광산구 (공공 위탁 운영)', corpRep: s.partner1Rep, kind: 6,
-    schedule: [['15:00~15:30', '개방 공간 이용, 간식', '토요일 동아리·체험활동(10:00~13:00)'], ['15:30~17:00', '청소년 동아리', '진로 체험 프로그램', '학습 도움방', '청소년 상담', '문화예술 활동'], ['17:00~18:30', '진로 체험 프로그램', '학습 도움방', '청소년 상담', '문화예술 활동'], ['18:30~19:30', '저녁 식사와 휴식'], ['19:30~21:00', '자율 활동']],
-    support: [['광산구청', '2024. 1. ~ 2024. 12.', '청소년 동아리 운영 지원', '12,000,000'], ['광주광역시', '2025. 1. ~ 2025. 12.', '청소년 문화예술 활동 지원', '15,000,000'], ['광산구청', '2026. 1. ~ 2026. 12.', '청소년 진로 체험 지원', '10,000,000']]
-  };
-  const partner2 = {
-    name: s.partner2, year: 1998, full: 62, part: 14, budget: '5,120,000,000', fee: '0', grade: [0, 0, 640], soc1: [58, 40, 11, 150, 9], soc2: [0, 6, 0, 0], corp: '학교법인 신창학원', corpRep: s.partner2Rep, kind: 4,
-    schedule: [['08:30~09:00', '등교, 아침 활동', '토요일 휴업(일부 동아리 활동)'], ['15:30~17:00', '방과후학교 교과', '방과후학교 교과', '방과후학교 진로 동아리', '방과후학교 교과', '방과후학교 교과'], ['17:00~18:30', '자율 학습', '자율 학습', '자율 학습', '자율 학습'], ['18:30~19:30', '저녁 식사'], ['19:30~21:00', '자율 학습']],
-    support: [['광주광역시교육청', '2024. 3. ~ 2025. 2.', '진로체험 지원', '6,000,000'], ['광주광역시교육청', '2025. 3. ~ 2026. 2.', '고교학점제 선택과목 운영 지원', '8,500,000'], ['광산구청', '2026. 3. ~ 2026. 12.', '학교 밖 연계 진로 프로그램', '4,000,000']]
-  };
-  return { main, partner1, partner2 };
 }

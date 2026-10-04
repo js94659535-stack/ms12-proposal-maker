@@ -14,7 +14,7 @@ test('★ 본문에는 작성 안내·검토 메모·빈칸·가상 표시가 �
   const banned = ['[확인 필요', '〔가상〕', '{{', '}}', '사용자가', '작성한다', '첨부한다', '붙인다', '안전하다', '권한다', '검토', 'undefined', 'NaN', '- 가상', '이 줄은'];
   const found = banned.filter(word => body.replace('(이 줄은 제출 전에 지웁니다.)', '').includes(word));
   assert.deepEqual(found, [], `본문에 남은 말: ${found}`);
-  assert.ok(body.includes('이 문서는 가상 설정으로 쓴 예시본'), '가상 설정이라는 사실은 첫머리 한 줄로만 밝힌다');
+  assert.ok(body.includes('이 문서는 가상 설정으로 쓴 완성 예시본'), '가상 설정이라는 사실은 첫머리 한 줄로만 밝힌다');
   assert.ok(careerGuide({}).includes('제출하지 않는 문서'));
 });
 
@@ -149,7 +149,9 @@ test('★ 근거자료 등록부: 출처가 있다는 것과 원문을 확인했
   }
   for (const e of EVIDENCE.filter(x => !x.value)) assert.ok(!/^본문 사용$/.test(e.usage) || e.kind === '작성예시', `${e.id}: 값 없는 근거가 본문 사용`);
   const quoted = cited('youth-pop');
-  assert.equal(quoted.usage, '본문 임시 사용');
+  assert.equal(quoted.usage, '본문 사용');
+  assert.equal(quoted.verification, '원문 확인');
+  assert.ok(quoted.archive.includes('근거원문') && /sha256 [0-9a-f]{64}/.test(quoted.archive), '원문 사본과 해시');
   assert.ok(body.includes(quoted.insertedAs.replace('이다', '')) || body.includes(`${quoted.value.toLocaleString('ko-KR')}명`));
   assert.ok(body.includes(quoted.year));
   assert.match(body, /지역 전체 수이고, 이번 사업의 참여 청소년은 이 가운데 42명/);
@@ -157,7 +159,7 @@ test('★ 근거자료 등록부: 출처가 있다는 것과 원문을 확인했
   for (const e of used) assert.ok(e.usage.startsWith('본문'), `${e.id}: 본문에 쓰였는데 사용 상태가 ${e.usage}`);
   const guide = careerGuide({});
   for (const e of EVIDENCE) assert.ok(guide.includes(e.title), `안내서에 ${e.id}`);
-  assert.ok(guide.includes('원문 확인 전'), '임시 사용 안내');
+  assert.ok(guide.includes('원문 확인'), '근거 상태 안내');
 });
 
 test('★ 제출 게이트: 임시 근거·미확인 사실·미첨부가 있으면 「최종 제출본」을 만들 수 없고, 다른 모드는 허용된다', async () => {
@@ -167,11 +169,11 @@ test('★ 제출 게이트: 임시 근거·미확인 사실·미첨부가 있으
   const final = modeAllowed('최종 제출본');
   assert.equal(final.ok, false);
   const text = final.blockers.join('\n');
-  for (const part of ['본문 임시 사용 1건', '사실 주장 8건', '미첨부 4건']) assert.ok(text.includes(part), part);
+  for (const part of ['본문에 쓰인 확인 필요 1건', '사실 주장 8건', '미첨부 4건']) assert.ok(text.includes(part), part);
   const g = submissionGate({});
-  assert.equal(g.categories, 5);
-  assert.equal(g.violations, 15, '규칙 위반: 통계 1 + 사례 2(확인 필요·작성 예시) + 사실 주장 8 + 첨부 4');
-  assert.equal(g.targets, 14, '고유한 미해결 대상: 마음쉼터 사례는 한 대상');
+  assert.equal(g.categories, 4);
+  assert.equal(g.violations, 14, '규칙 위반: 사례 2(확인 필요·작성 예시) + 사실 주장 8 + 첨부 4');
+  assert.equal(g.targets, 13, '고유한 미해결 대상: 마음쉼터 사례는 한 대상');
   assert.ok(crossChecks({}).every(c => c.ok), '교차검증은 현재 설정에서 모두 통과');
   for (const n of [20, 30, 50]) assert.ok(crossChecks({ people: n }).every(c => c.ok), `${n}명`);
   assert.equal(MODES.length, 4);

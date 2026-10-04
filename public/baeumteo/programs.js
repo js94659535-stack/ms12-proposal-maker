@@ -74,23 +74,29 @@ export const PROGRAMS = {
   ],
   career: [
     { name: '나를 알아가는 진로 교실', stage: '1단계 탐구·학습', months: '5월~6월', sessions: 4, hours: 2, groups: 'classes', assistant: false, matPer: 20_000, place: '대표기관 활동실',
+      schedule: { 5: 2, 6: 2 }, tracks: ['self', 'self', 'self', 'self'],
       core: '흥미·적성 검사를 하고 해석 면담으로 자기 강점을 찾는다. 내 행동과 관계를 돌아보고 앞으로의 약속을 정하는 시간을 함께 가진다. 서로의 사정은 묻지 않고 말한 것은 비밀로 지킨다.',
       themes: ['첫 모임: 우리의 약속과 나의 진로 이야기', '흥미·적성 검사와 결과 읽기', '나의 강점 지도 만들기', '관계 돌아보기: 갈등을 다시 말해 보기'] },
     { name: '진로 탐색 교실', stage: '1단계 탐구·학습', months: '6월~8월', sessions: 4, hours: 2, groups: 'classes', assistant: false, matPer: 20_000, place: '대표기관 활동실',
+      schedule: { 6: 1, 7: 2, 8: 1 }, tracks: ['self', 'explore', 'explore', 'explore'],
       core: '진로발달 검사로 지금의 고민을 확인하고, 직업 정보를 읽고 비교하는 방법과 학과·진학 경로를 알아본다. 관심 직업 세 가지를 골라 현장에서 확인할 질문을 만든다.',
       themes: ['진로발달 검사와 고민 나누기', '직업 정보 읽는 법: 하는 일·자격·전망 비교', '강점과 직업 연결하기', '학과·진학 경로 탐색과 인터뷰 질문 만들기'] },
-    { name: '꿈 인터뷰와 현장 탐방 프로젝트', stage: '2단계 프로젝트 기획·실행', months: '8월~10월', sessions: 6, hours: 3, groups: 'classes', assistant: true, matPer: 15_000, bus: 2, busTimes: 2,
+    { name: '꿈 인터뷰와 현장 탐방 프로젝트', stage: '2단계 프로젝트 기획·실행', months: '8월~10월', sessions: 6, hours: 3, groups: 'classes', assistant: true, matPer: 15_000, bus: 1, busVisits: 2, busPerClass: true,
+      schedule: { 8: 2, 9: 2, 10: 2 }, tracks: ['field', 'field', 'field', 'field', 'field', 'field'],
       fees: [['학과·일터 체험 입장·체험료', 5_000, 'people', 2], ['직업인 초청 인터뷰 사례비', 50_000, 'fixed', 12]], place: '대표기관 활동실·대학·지역 사업장',
       core: '학생이 직업인에게 물을 질문을 직접 만들어 인터뷰하고, 대학 학과와 지역 일터를 찾아가 확인한 것을 비교해 발표한다. 반별로 주강사와 보조강사가 함께 다니며 한 반을 책임진다.',
       themes: ['프로젝트 주제와 팀 정하기', '직업인 인터뷰 준비: 질문 다듬기와 예절', '직업인 초청 인터뷰(센터)', '학과 체험(대학 방문)', '일터 체험(지역 사업장 방문)', '확인한 것 비교하고 발표 준비하기'] },
     { name: '진로설계 포트폴리오 동아리', stage: '2단계 프로젝트 기획·실행', months: '9월~11월', sessions: 4, hours: 2, groups: 'classes', assistant: true, matPer: 25_000, place: '대표기관 활동실',
+      schedule: { 9: 2, 10: 1, 11: 1 }, tracks: ['plan', 'plan', 'plan', 'plan'],
       core: '자기이해, 진로정보, 현장체험, 성찰과 실천 계획을 담은 학생별 진로설계 포트폴리오를 만든다. 반마다 주강사와 보조강사가 학생과 1:1 면담을 하고, 대학생 멘토가 초안을 읽고 의견을 남긴다.',
       themes: ['포트폴리오 구성하기와 1차 면담', '포트폴리오 작성하기(멘토 의견 반영)', '실천 계획 세우기: 내일부터 할 일 세 가지', '2차 면담과 최종 정리'] },
-    { name: '봉사활동: 우리가 만든 진로 정보 나누기', stage: '3단계 성과 공유', months: '10월, 11월', sessions: 2, hours: 2, groups: 1, assistant: false, matPer: 5_000, fees: [['봉사 보험·활동 도구', 2_000, 'people', 1]], place: '지역 아동센터·청소년시설·학교',
+    { name: '봉사활동: 우리가 만든 진로 정보 나누기', stage: '3단계 성과 공유', months: '10월, 11월', sessions: 2, hours: 2, groups: 'classes',
+      schedule: { 10: 1, 11: 1 }, tracks: ['service', 'service'], assistant: false, matPer: 5_000, fees: [['봉사 보험·활동 도구', 2_000, 'people', 1]], place: '지역 아동센터·청소년시설·학교',
       core: '학생이 직접 만든 직업 비교표와 인터뷰 기록으로 후배 청소년에게 진로 정보를 나누는 봉사활동을 2회 한다(10월 후배 대상 직업 부스, 11월 진로 이야기 나눔). 배운 내용을 지역에 돌려주는 경험으로 한다.',
       themes: ['후배 청소년을 위한 직업 정보 부스', '후배와 나누는 진로 이야기'] },
     { name: '진로설계 발표회', stage: '3단계 성과 공유', months: '11월', sessions: 2, hours: 2.5, groups: 1, assistant: false, matPer: 0,
-      fees: [['현수막·인쇄물', 100_000, 'fixed', 1], ['대관·음향', 100_000, 'fixed', 1], ['다과(보호자 포함)', 5_000, 'people', 2]], place: '청소년문화의집 강당',
+      schedule: { 11: 2 }, tracks: ['plan', 'plan'],
+      fees: [['현수막·인쇄물', 100_000, 'fixed', 1], ['음향·영상 장비 임차', 100_000, 'fixed', 1], ['다과(보호자 포함)', 5_000, 'people', 2]], place: '청소년문화의집 강당',
       core: '발표 리허설을 한 뒤 보호자와 지역 직업인 앞에서 한 사람씩 자신의 진로설계를 발표한다. 개인을 알아볼 수 있는 정보는 자료에 싣지 않는다.',
       themes: ['발표 리허설', '진로설계 발표회와 사후 평가'] }
   ],
@@ -113,6 +119,14 @@ export const PROGRAMS = {
   ]
 };
 
+// 회차가 기여하는 영역(진로설계 프로젝트)과 한 달 수업 수
+export const TRACKS = Object.freeze({ self: '자기이해', explore: '직업탐색', field: '현장확인', plan: '진로계획', service: '봉사활동' });
+// 반 하나가 한 달에 받는 수업 수: 프로그램별 schedule 을 더한다(발표회처럼 전체가 함께하는 것도 한 반의 수업으로 센다)
+export function monthlyLoad(id) {
+  const load = {};
+  for (const program of PROGRAMS[id]) for (const [month, count] of Object.entries(program.schedule || {})) load[month] = (load[month] || 0) + count;
+  return load;
+}
 export const classesOf = (people, size = 15) => Math.ceil(people / size);
 export const classesFor = (id, people) => classesOf(people, classSizeOf(id));
 const groupsOf = (id, program, people) => program.groups === 'classes' ? classesFor(id, people) : program.groups;
@@ -144,7 +158,9 @@ export function budgetFor(id, people, { cap = Infinity, practitionerMonths = 12,
       add(program.name, '보조강사비', `보조강사 ${money(RULES.assistantHourly)}×${program.hours}시간×${program.sessions}회×${assistants}`, RULES.assistantHourly * program.hours * program.sessions * assistants);
     }
     if (program.matPer) add(program.name, '학습재료비', `재료·교재 ${money(program.matPer)}×${people}명`, program.matPer * people);
-    if (program.bus) add(program.name, '교통비', `버스 대여 ${money(300_000)}×${program.bus}대×${program.busTimes || program.sessions}회`, 300_000 * program.bus * (program.busTimes || program.sessions), true);
+    // busPerClass: 반마다 따로 다녀오는 현장 방문(반 수 × 방문 횟수)
+    const busTrips = program.busPerClass ? program.busVisits * groups : program.busTimes || program.sessions;
+    if (program.bus) add(program.name, '교통비', `버스 대여 ${money(300_000)}×${program.bus}대×${busTrips}회${program.busPerClass ? `(${groups}개 반×방문 ${program.busVisits}회)` : ''}`, 300_000 * program.bus * busTrips, true);
     add(program.name, '식비(간식)', `간식 ${money(2_000)}×${people}명×${program.sessions}회`, 2_000 * people * program.sessions);
     for (const [label, unit, kind, times] of typeof program.fees === 'function' ? program.fees(people) : program.fees || []) {
       const qty = kind === 'people' ? people * times : times;
