@@ -223,3 +223,31 @@ test('★ 증빙 파일 검사: 없는 경로·빈 파일·허용 안 된 형식
   assert.match(check(rec), /바뀌었다/);
   fsm.rmSync(dir, { recursive: true });
 });
+
+test('★ 심사 관점: 한눈에 읽히고, 필요와 대응이 연결되고, 다른 사업과 구별되고, 운영 가능성과 위험 대응이 있다', async () => {
+  const { MAX_PARAGRAPH } = await import('../public/baeumteo/career-final.js');
+  const { PROGRAMS } = await import('../public/baeumteo/programs.js');
+  // 읽기 쉬움: 첫머리 요약 표, 문단 길이 한도, 작성자 메모 문장 없음
+  const glance = section(body, '사업 한눈에', '이 사업이 해결하려는 필요');
+  for (const key of ['대상', '기간과 횟수', '흐름', '결과물', '재단 지원금']) assert.ok(glance.includes('▦- ' + key), key);
+  const long = body.split('\n').filter(l => !/^(▦|<서식|#)/.test(l) && l.length > MAX_PARAGRAPH + 60);
+  assert.deepEqual(long.map(l => l.slice(0, 20)), [], '너무 긴 문단');
+  assert.ok(!/구분해 쓴다|쓴다\.$/m.test(section(body, '1) 지역 교육복지 자원지도', '2) 기관 간 협력')), '지역 자원 칸에 작성자 메모');
+  // 필요성: 근거가 있는 필요 셋이 각각 실제 프로그램으로 이어진다
+  const need = tableLines(section(body, '이 사업이 해결하려는 필요', '다른 진로체험 프로그램과'));
+  assert.equal(need.length, 4);
+  const names = PROGRAMS.career.map(p => p.name);
+  for (const line of need.slice(1)) {
+    const [, basis, response] = cells(line);
+    assert.match(basis, /\(5-[34]\)/, '근거가 본문 어디인지');
+    assert.ok(names.some(n => response.includes(n.split(':')[0].replace(/ 프로젝트$/, ''))) || /진로 교실|포트폴리오|꿈 인터뷰/.test(response), '대응이 실제 프로그램');
+  }
+  // 구별성
+  assert.match(body, /다른 진로체험 프로그램과 다른 점은 세 가지/);
+  // 운영 가능성과 신뢰: 공간·일정 계산, 위험 대응
+  assert.match(body, /반별 수업은 한 달에 가장 많아도 반당 4회/);
+  const risk = tableLines(section(body, '예상되는 어려움과 대응', '수업 질 관리'));
+  assert.ok(risk.length >= 5, '어려움과 대응 표');
+  assert.ok(body.includes('[지역 교육복지 자원지도 이미지]'));
+  assert.ok(!body.includes('간호사'), '5개 직업 영역에 없는 사례');
+});
