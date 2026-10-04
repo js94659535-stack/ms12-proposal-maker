@@ -18,6 +18,12 @@
   a.f b { color:var(--accent); }
   a.f span { display:block; font-size:13px; color:var(--sub); }
   .back a { color:var(--accent); }
+  details.pj { margin:0 0 8px; border:1px solid var(--line); border-radius:8px; padding:0 12px; }
+  details.pj summary { cursor:pointer; padding:10px 0; list-style:none; }
+  details.pj summary::-webkit-details-marker { display:none; }
+  details.pj summary b { color:var(--ink); }
+  details.pj summary span { display:block; font-size:13px; color:var(--sub); }
+  details.pj[open] { padding-bottom:6px; }
 </style>
 </head>
 <body>
@@ -25,10 +31,34 @@
   <p class="back"><a href="/">← 처음</a></p>
   <h1>자료 내려받기</h1>
 
-  <h2>만든 파일 (가상 설정 예시본)</h2>
-  <p>재단 원본 맞춤형 양식에 진로설계 계획서를 채운 것입니다. 기관·인물·실적·통계가 모두 가상이며 제출용이 아닙니다.</p>
-  <a class="f" href="/files/career-form-virtual-example.pdf" target="_blank" rel="noopener"><b>PDF 미리보기</b> — 맞춤형 신청서 진로설계 가상예시본<span>브라우저에서 바로 열립니다 · 34쪽</span></a>
-  <a class="f" href="/files/career-form-virtual-example.hwp" download><b>한글(.hwp) 내려받기</b> — 같은 내용<span>한글에서 열어 가상 값을 실제 값으로 바꿉니다</span></a>
+  <h2>사업을 고르세요</h2>
+  <p>사업마다 만든 파일이 다릅니다. 눌러서 펼치세요. 모두 가상 설정 예시본이며 제출용이 아닙니다.</p>
+  <details class="pj" open>
+    <summary><b>진로설계 프로젝트</b> <span>재단 원본 양식에 채운 파일 있음</span></summary>
+    <p>재단 원본 맞춤형 양식에 진로설계 계획서를 채운 것입니다. 기관·인물·실적·통계가 모두 가상입니다.</p>
+    <a class="f" href="/files/career-form-virtual-example.pdf" target="_blank" rel="noopener"><b>PDF 미리보기</b> — 맞춤형 신청서 진로설계 가상예시본<span>브라우저에서 바로 열립니다 · 34쪽</span></a>
+    <a class="f" href="/files/career-form-virtual-example.hwp" download><b>한글(.hwp) 내려받기</b> — 같은 내용<span>한글에서 열어 가상 값을 실제 값으로 바꿉니다</span></a>
+  </details>
+  <details class="pj">
+    <summary><b>인문·사회 탐구 프로젝트</b> <span>아직 파일 없음</span></summary>
+    <p>재단 양식에 채운 파일은 아직 만들지 못했습니다. 계획서 본문은 배움터 화면에서 보고 복사할 수 있습니다.</p>
+    <a class="f" href="/baeumteo/"><b>배움터 협력 계획서 화면으로</b><span>사업을 고르면 계획서 본문과 협력 기관 조합이 나옵니다</span></a>
+  </details>
+  <details class="pj">
+    <summary><b>문화예술 AI동화 프로젝트</b> <span>아직 파일 없음</span></summary>
+    <p>재단 양식에 채운 파일은 아직 만들지 못했습니다. 계획서 본문은 배움터 화면에서 보고 복사할 수 있습니다.</p>
+    <a class="f" href="/baeumteo/"><b>배움터 협력 계획서 화면으로</b><span>사업을 고르면 계획서 본문과 협력 기관 조합이 나옵니다</span></a>
+  </details>
+  <details class="pj">
+    <summary><b>이주배경 잇다 프로젝트</b> <span>아직 파일 없음</span></summary>
+    <p>재단 양식에 채운 파일은 아직 만들지 못했습니다. 계획서 본문은 배움터 화면에서 보고 복사할 수 있습니다.</p>
+    <a class="f" href="/baeumteo/"><b>배움터 협력 계획서 화면으로</b><span>사업을 고르면 계획서 본문과 협력 기관 조합이 나옵니다</span></a>
+  </details>
+  <details class="pj">
+    <summary><b>지역공동체 프로젝트</b> <span>아직 파일 없음</span></summary>
+    <p>재단 양식에 채운 파일은 아직 만들지 못했습니다. 계획서 본문은 배움터 화면에서 보고 복사할 수 있습니다.</p>
+    <a class="f" href="/baeumteo/"><b>배움터 협력 계획서 화면으로</b><span>사업을 고르면 계획서 본문과 협력 기관 조합이 나옵니다</span></a>
+  </details>
 
   <h2>재단 공식 자료 — 2027년 (이번 공모)</h2>
   <p>마감 2026년 11월 11일 17:00. 재단 서버로 바로 연결됩니다.</p>

@@ -27,3 +27,15 @@ test('가상 예시본이라는 표시가 있고 제출용이라고 하지 않�
   assert.ok(html.includes('가상') && html.includes('제출용이 아닙니다'));
   assert.ok(!html.includes('최종 제출본'));
 });
+
+test('사업을 고르는 목록이 있다: 진로설계는 파일이 있고 나머지 넷은 아직 없다고 솔직히 적는다', () => {
+  const names = ['진로설계 프로젝트', '인문·사회 탐구 프로젝트', '문화예술 AI동화 프로젝트', '이주배경 잇다 프로젝트', '지역공동체 프로젝트'];
+  const blocks = [...html.matchAll(/<details class="pj"[^>]*>([\s\S]*?)<\/details>/g)].map(m => m[1]);
+  assert.equal(blocks.length, 5);
+  for (const [i, name] of names.entries()) assert.ok(blocks.some(b => b.includes(name)), name);
+  const career = blocks.find(b => b.includes('진로설계 프로젝트'));
+  assert.ok(career.includes('career-form-virtual-example.pdf') && career.includes('career-form-virtual-example.hwp'));
+  const others = blocks.filter(b => !b.includes('진로설계 프로젝트'));
+  assert.equal(others.length, 4);
+  for (const b of others) assert.ok(b.includes('아직 파일 없음') && !b.includes('.hwp') && b.includes('/baeumteo/'));
+});
