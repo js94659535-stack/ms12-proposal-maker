@@ -167,11 +167,32 @@ test('★ 제출 게이트: 임시 근거·미확인 사실·미첨부가 있으
   const final = modeAllowed('최종 제출본');
   assert.equal(final.ok, false);
   const text = final.blockers.join('\n');
-  for (const part of ['본문 임시 사용 1건', '사실 주장', '미첨부 4건']) assert.ok(text.includes(part), part);
+  for (const part of ['본문 임시 사용 1건', '사실 주장 8건', '미첨부 4건']) assert.ok(text.includes(part), part);
+  const g = submissionGate({});
+  assert.equal(g.categories, 5);
+  assert.equal(g.items, 15, '통계 1 + 사례 확인필요 1 + 사례 작성예시 1 + 사실 주장 8 + 첨부 4');
   assert.ok(crossChecks({}).every(c => c.ok), '교차검증은 현재 설정에서 모두 통과');
   for (const n of [20, 30, 50]) assert.ok(crossChecks({ people: n }).every(c => c.ok), `${n}명`);
   assert.equal(MODES.length, 4);
   assert.ok(CLAIMS.length >= 7 && ATTACHMENTS.length === 4);
   assert.ok(reviewList().some(l => l.startsWith('- [사실]') && l.includes('협력 합의서')));
   assert.equal(submissionGate({}).pass, false);
+});
+
+test('★ 문서 증빙이 필요한 주장은 담당자 확인만으로 최종 통과하지 못하고, 증빙 파일·확인자·확인일이 있어야 통과한다', async () => {
+  const { submissionGate } = await import('../public/baeumteo/gate.js');
+  const { CLAIMS, ATTACHMENTS, claimBlocker } = await import('../public/baeumteo/evidence.js');
+  const clean = { evidence: [], attachments: ATTACHMENTS.map(a => ({ ...a, done: true })) };
+  const make = over => CLAIMS.map(c => ({ ...c, isExample: false, verification: '증빙 확인', proofFile: 'proof/' + c.id + '.pdf', confirmedBy: '대표', confirmedOn: '2026-10-05', ...over }));
+  assert.equal(submissionGate({}, { ...clean, claimList: make({}) }).pass, true, '모두 갖추면 통과');
+  const documentOnes = CLAIMS.filter(c => c.proofLevel === '문서').map(c => c.id);
+  assert.ok(['mou', 'seven-years', 'followup-budget', 'people-real'].every(id => documentOnes.includes(id)), '중요한 주장은 문서 수준');
+  const staffOnly = make({ verification: '담당자 확인' });
+  const g = submissionGate({}, { ...clean, claimList: staffOnly });
+  assert.equal(g.pass, false);
+  for (const id of documentOnes) assert.match(claimBlocker(staffOnly.find(c => c.id === id)), /문서 증빙이 필요한데 담당자 확인뿐/, id);
+  for (const c of staffOnly.filter(c => c.proofLevel === '담당자')) assert.equal(claimBlocker(c), '', `${c.id}: 담당자 수준은 담당자 확인으로 통과`);
+  assert.match(claimBlocker({ ...make({})[0], proofFile: '' }), /증빙 파일 위치 없음/);
+  assert.match(claimBlocker({ ...make({})[0], confirmedBy: '' }), /확인자·확인일 없음/);
+  assert.match(claimBlocker({ ...make({})[0], isExample: true }), /가상 설정 문장/);
 });

@@ -19,8 +19,9 @@ if (!MODES.includes(mode)) { console.error(`--mode는 ${MODES.join(' · ')} 중 
 const setting = {};
 for (const key of ['people', 'agency', 'rep', 'manager', 'partner1', 'partner2']) if (opt(key)) setting[key] = opt(key);
 const allowed = modeAllowed(mode, setting);
+const gateNow = submissionGate(setting);
 if (!allowed.ok) {
-  console.error(`[최종 제출본 차단] 아래를 채워야 제출본 표시를 붙일 수 있다:\n- ${allowed.blockers.join('\n- ')}`);
+  console.error(`[최종 제출본 차단] 범주 ${gateNow.categories}개, 항목 ${gateNow.items}개. 아래를 채워야 제출본 표시를 붙일 수 있다:\n- ${allowed.blockers.join('\n- ')}`);
   process.exit(1);
 }
 const outDir = path.resolve(root, opt('out') || 'reports/10-20-career-final');
@@ -34,7 +35,7 @@ const sections = planSections(text);
 fs.writeFileSync(path.join(outDir, '사업계획서.txt'), text);
 fs.writeFileSync(path.join(outDir, '작성자안내.md'), guide);
 const gate = submissionGate(setting);
-const check = [`# 제출 준비 점검 (출력 모드: ${mode})`, '', `최종 제출본 가능: ${gate.pass ? '예' : '아니오'}`, '', '## 막는 조건', ...(gate.blockers.length ? gate.blockers.map(b => `- ${b}`) : ['- 없음']), '', '## 교차검증', ...gate.checks.map(c => `- ${c.ok ? '통과' : '실패'}: ${c.name} (${c.detail})`), '', '## 미확인 목록', ...reviewList(), ''];
+const check = [`# 제출 준비 점검 (출력 모드: ${mode})`, '', `최종 제출본 가능: ${gate.pass ? '예' : '아니오'} (막는 범주 ${gate.categories}개, 항목 ${gate.items}개)`, '', '## 막는 조건', ...(gate.blockers.length ? gate.blockers.map(b => `- ${b}`) : ['- 없음']), '', '## 교차검증', ...gate.checks.map(c => `- ${c.ok ? '통과' : '실패'}: ${c.name} (${c.detail})`), '', '## 미확인 목록', ...reviewList(), ''];
 fs.writeFileSync(path.join(outDir, '제출준비점검.md'), check.join('\n'));
 const esc = v => v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 fs.writeFileSync(path.join(outDir, '사업계획서.html'), `<!doctype html><meta charset="utf-8"><title>${esc(title)}</title><style>body{font:14px/1.75 "Malgun Gothic",sans-serif;max-width:800px;margin:24px auto;padding:0 16px}h2{font-size:16px;margin-top:22px}p{margin:3px 0}table{border-collapse:collapse;width:100%;margin:6px 0}td,th{border:1px solid #444;padding:3px 6px;font-size:12px;vertical-align:top}th{background:#eee}@media print{body{margin:0}}</style><h1>${esc(title)}</h1>${sections.map(s => `<h2>${esc(s.title)}</h2>${s.blocks.map(b => b.rows ? `<table>${b.rows.map((r, i) => `<tr>${r.map(c => `<${i && b.header !== false ? 'td' : i ? 'td' : 'th'}>${esc(c)}</${i ? 'td' : 'th'}>`).join('')}</tr>`).join('')}</table>` : `<p>${esc(b.text)}</p>`).join('')}`).join('')}`);

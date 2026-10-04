@@ -1,6 +1,6 @@
 // 출력 모드와 최종 제출 게이트 (10-27).
 // 예시본: 작성 예시·확인 필요 허용 · 작업 초안: 2차 확인·임시 사용 허용 · 검토본: 미확인 목록을 함께 출력 · 최종 제출본: 아래 조건을 모두 통과해야 한다.
-import { EVIDENCE, CLAIMS, ATTACHMENTS } from './evidence.js?v=1017';
+import { EVIDENCE, CLAIMS, ATTACHMENTS, claimBlocker } from './evidence.js?v=1017';
 import { derive } from './career-final.js?v=1017';
 import { RULES, sessionTotal, META } from './programs.js?v=1017';
 
@@ -23,21 +23,25 @@ export function crossChecks(setting = {}) {
 }
 
 // 제출 게이트. blockers가 하나라도 있으면 「최종 제출본」 표시를 붙일 수 없다.
-export function submissionGate(setting = {}) {
+// 차단은 「범주」와 그 안의 「항목」으로 센다(범주 수·항목 수를 함께 보고). data로 근거·주장·첨부를 바꿔 검사할 수 있다.
+export function submissionGate(setting = {}, data = {}) {
+  const { evidence = EVIDENCE, claimList = CLAIMS, attachments = ATTACHMENTS } = data;
   const blockers = [];
-  const temp = EVIDENCE.filter(e => e.usage === '본문 임시 사용');
-  if (temp.length) blockers.push(`본문 임시 사용 ${temp.length}건: ${temp.map(e => e.title).join('; ')}`);
-  const needed = EVIDENCE.filter(e => e.verification === '확인 필요' && e.usage.startsWith('본문'));
-  if (needed.length) blockers.push(`본문에 쓰인 확인 필요 ${needed.length}건: ${needed.map(e => e.title).join('; ')}`);
-  const example = EVIDENCE.filter(e => e.kind === '작성예시' && e.usage.startsWith('본문'));
-  if (example.length) blockers.push(`작성 예시 사실값 ${example.length}건: ${example.map(e => e.title).join('; ')}`);
-  const claims = CLAIMS.filter(c => !['증빙 확인', '담당자 확인'].includes(c.status));
-  if (claims.length) blockers.push(`증빙·담당자 확인이 안 된 사실 주장 ${claims.length}건: ${claims.map(c => c.text).join('; ')}`);
-  const att = ATTACHMENTS.filter(a => !a.done);
-  if (att.length) blockers.push(`미첨부 ${att.length}건: ${att.map(a => a.text).join('; ')}`);
+  let items = 0;
+  const count = n => { items += n; return n; };
+  const temp = evidence.filter(e => e.usage === '본문 임시 사용');
+  if (count(temp.length)) blockers.push(`본문 임시 사용 ${temp.length}건: ${temp.map(e => e.title).join('; ')}`);
+  const needed = evidence.filter(e => e.verification === '확인 필요' && e.usage.startsWith('본문'));
+  if (count(needed.length)) blockers.push(`본문에 쓰인 확인 필요 ${needed.length}건: ${needed.map(e => e.title).join('; ')}`);
+  const example = evidence.filter(e => e.kind === '작성예시' && e.usage.startsWith('본문'));
+  if (count(example.length)) blockers.push(`작성 예시 사실값 ${example.length}건: ${example.map(e => e.title).join('; ')}`);
+  const claims = claimList.map(c => ({ c, why: claimBlocker(c) })).filter(x => x.why);
+  if (count(claims.length)) blockers.push(`최종 통과 못 하는 사실 주장 ${claims.length}건: ${claims.map(x => `${x.c.text} [${x.why}]`).join('; ')}`);
+  const att = attachments.filter(a => !a.done);
+  if (count(att.length)) blockers.push(`미첨부 ${att.length}건: ${att.map(a => a.text).join('; ')}`);
   const bad = crossChecks(setting).filter(c => !c.ok);
-  if (bad.length) blockers.push(`교차검증 실패 ${bad.length}건: ${bad.map(c => c.name).join('; ')}`);
-  return { pass: blockers.length === 0, blockers, checks: crossChecks(setting) };
+  if (count(bad.length)) blockers.push(`교차검증 실패 ${bad.length}건: ${bad.map(c => c.name).join('; ')}`);
+  return { pass: blockers.length === 0, blockers, categories: blockers.length, items, checks: crossChecks(setting) };
 }
 
 // 모드별 허용 여부
@@ -51,7 +55,7 @@ export function modeAllowed(mode, setting = {}) {
 export function reviewList() {
   const lines = [];
   for (const e of EVIDENCE.filter(x => x.verification !== '원문 확인')) lines.push(`- [근거] ${e.title} — 검증: ${e.verification}, 사용: ${e.usage}; ${e.note || ''}`);
-  for (const c of CLAIMS) lines.push(`- [사실] ${c.text} — 상태: ${c.status}; 증빙: ${c.proof}`);
+  for (const c of CLAIMS) lines.push(`- [사실] ${c.text} — ${c.isExample ? '작성 예시' : '실제 주장'}, 검증: ${c.verification}, 증빙 수준: ${c.proofLevel}(${c.proof})`);
   for (const a of ATTACHMENTS) lines.push(`- [첨부] ${a.text} — ${a.done ? '완료' : '미완료'}`);
   return lines;
 }
