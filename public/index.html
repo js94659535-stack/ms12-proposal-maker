@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>공모 사업계획서</title>
+<meta name="description" content="공고를 고르면 읽고 판단할 수 있는 완성된 가상 계획서부터 보여 줍니다.">
+<style>
+  :root { --bg:#fff; --ink:#1b1f23; --sub:#5b636b; --line:#e3e6ea; --accent:#0b6b3a; --soft:#f3f6f4; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14171a; --ink:#eceff2; --sub:#9aa3ab; --line:#2b3238; --accent:#4fd18b; --soft:#1c2125; } }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; background:var(--bg); color:var(--ink); font:16px/1.7 system-ui,"Malgun Gothic",sans-serif; }
+  main { width:100%; max-width:560px; margin:0 auto; padding:32px 16px; }
+  h1 { font-size:28px; line-height:1.3; margin:0 0 12px; }
+  p { margin:0 0 28px; color:var(--sub); }
+  a.go { display:block; padding:16px 18px; margin:0 0 10px; color:var(--ink); text-decoration:none; background:var(--soft); border:1px solid var(--line); border-radius:10px; }
+  a.go:hover, a.go:focus-visible { border-color:var(--accent); outline:none; }
+  a.go b { display:block; color:var(--accent); font-size:17px; }
+  a.go span { font-size:14px; color:var(--sub); }
+</style>
+</head>
+<body>
+<main>
+  <h1>공모 사업계획서</h1>
+  <p>공고를 고르면, 읽고 판단할 수 있는 완성된 가상 계획서부터 보여 드립니다. 사실만 채우면 제출본이 됩니다.</p>
+  <a class="go" href="/baeumteo/"><b>배움터 협력 계획서</b><span>삼성꿈장학재단 2027 배움터 교육지원사업 · 마감 11월 11일 17:00</span></a>
+  <a class="go" href="/radar/"><b>삼성 공고 레이더</b><span>지금 열려 있는 삼성 공고와 남은 날짜</span></a>
+</main>
+</body>
+</html>
