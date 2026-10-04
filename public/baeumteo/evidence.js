@@ -26,11 +26,12 @@ export const evidenceLines = () => EVIDENCE.map(e => `- [${e.kind}] ${e.title} �
 // 숫자가 없어도 심사에 영향을 주는 사실 주장(10-27, 10-28에서 분리).
 // isExample: 지금 본문의 문장이 가상 설정인가(성격). verification: 증빙 확인 · 담당자 확인 · 확인 필요(검증 상태).
 // proofLevel: 문서 = 증빙 문서가 있어야 최종 통과(담당자 확인만으로 통과 불가) · 담당자 = 담당자 확인으로도 통과.
-// 최종 통과: 문서 수준은 verification 「증빙 확인」 + proofFile(보존 파일 위치) + confirmedBy + confirmedOn 이 모두 있어야 한다.
+// 최종 통과: 문서 수준은 verification 「증빙 확인」 + proofFile(아래 기록) + confirmedBy + confirmedOn 이 모두 있어야 하고, 실제 파일 검사(존재·형식·크기·sha256·연결 주장)를 통과해야 한다.
+// proofFile 기록: { evidencePath, fileName, fileSize, sha256, linkedClaimId, verifiedBy, verifiedAt }
 export const CLAIMS = [
   { id: 'mou', text: '참여기관 두 곳과 2026년 10월 협력 합의서를 체결했다', applies: '서식 3-4-2', isExample: true, verification: '확인 필요', proofLevel: '문서', proof: '합의서 사본', proofFile: '', confirmedBy: '', confirmedOn: '', note: '실제 체결 여부와 날짜' },
   { id: 'interviewees', text: '직업인 12명(사업장 4곳)을 섭외했다', applies: '서식 3-4, 3-7', isExample: true, verification: '확인 필요', proofLevel: '담당자', proof: '섭외 확인서 또는 연락 기록', proofFile: '', confirmedBy: '', confirmedOn: '', note: '실제 섭외 상태' },
-  { id: 'school-hours', text: '참여 청소년 학교의 진로교육은 연 8~10시간에 그친다', applies: '서식 3-5-3', isExample: true, verification: '확인 필요', proofLevel: '담당자', proof: '학교 확인 또는 교육과정 자료', proofFile: '', confirmedBy: '', confirmedOn: '', note: '학교별 실제 시수' },
+  { id: 'school-hours', text: '참여 청소년 학교의 진로교육은 연 8~10시간에 그친다', applies: '서식 3-5-3', isExample: true, verification: '확인 필요', proofLevel: '문서', proof: '학교 교육과정·진로교육 운영계획, 진로교사 확인서, 학교알리미·교육청 공개자료 중 하나', proofFile: '', confirmedBy: '', confirmedOn: '', note: '학교 외부 사실이라 담당자 기억만으로 확정하지 않는다. 자료가 없으면 문장을 「참여 예정 청소년 면담에서 확인한 의견」(현장조사)으로 바꾼다' },
   { id: 'seven-years', text: '학교폭력 특별교육을 7년간 운영했다', applies: '서식 1, 서식 3-5-4', isExample: false, verification: '확인 필요', proofLevel: '문서', proof: '위탁 기간 확인서', proofFile: '', confirmedBy: '', confirmedOn: '', note: '대표님 이력 메모와 위탁 서류 대조' },
   { id: 'hall', text: '참여기관 강당의 수용 인원이 40명이다(25평)', applies: '서식 3-8', isExample: true, verification: '확인 필요', proofLevel: '담당자', proof: '시설 확인과 사진', proofFile: '', confirmedBy: '', confirmedOn: '', note: '실제 평수·수용 인원' },
   { id: 'followup-budget', text: '2028년 3월부터 자체 예산 연 1,200,000원을 편성한다', applies: '서식 3-9, 서식 5', isExample: true, verification: '확인 필요', proofLevel: '문서', proof: '기관 예산 결의 또는 대표자 확인서', proofFile: '', confirmedBy: '', confirmedOn: '', note: '실제 편성 여부' },
@@ -38,12 +39,18 @@ export const CLAIMS = [
   { id: 'org-facts', text: '대표기관·참여기관의 설립연도, 인력, 예산, 등록 청소년 수, 외부지원 3건', applies: '서식 1', isExample: true, verification: '확인 필요', proofLevel: '문서', proof: '법인 서류, 결산서, 지원 확인서', proofFile: '', confirmedBy: '', confirmedOn: '', note: '실제 값으로 교체' }
 ];
 // 이 주장이 최종 제출본을 통과하는가. 통과하지 못하면 이유를 돌려준다.
-export function claimBlocker(c) {
+export const PROOF_EXTENSIONS = ['.pdf', '.png', '.jpg', '.jpeg', '.hwp', '.hwpx', '.docx', '.xlsx', '.csv'];
+// fileCheck(record, claim) → 문제가 있으면 이유 문자열, 없으면 ''. 파일 시스템이 있는 곳(명령줄)에서만 넘겨 준다.
+export function claimBlocker(c, fileCheck) {
   if (c.isExample) return '가상 설정 문장(실제 값으로 교체 전)';
   if (!['증빙 확인', '담당자 확인'].includes(c.verification)) return `검증 상태 ${c.verification}`;
   if (c.proofLevel === '문서') {
     if (c.verification !== '증빙 확인') return '문서 증빙이 필요한데 담당자 확인뿐';
-    if (!c.proofFile) return '증빙 파일 위치 없음';
+    if (!c.proofFile || !c.proofFile.evidencePath) return '증빙 파일 위치 없음';
+    if (c.proofFile.linkedClaimId !== c.id) return '증빙 파일이 이 주장에 연결되어 있지 않음';
+    if (!fileCheck) return '증빙 파일 검사 불가(명령줄에서 최종 제출본을 만들 때만 검사한다)';
+    const problem = fileCheck(c.proofFile, c);
+    if (problem) return `증빙 파일 문제: ${problem}`;
   }
   if (!c.confirmedBy || !c.confirmedOn) return '확인자·확인일 없음';
   return '';
