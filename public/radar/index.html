@@ -3,51 +3,105 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>삼성 공고 레이더</title>
+<title>공고 레이더</title>
 <style>
-  :root { --bg:#fff; --ink:#1b1f23; --sub:#5b636b; --line:#e3e6ea; --accent:#0b6b3a; --warn:#b4231b; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#14171a; --ink:#eceff2; --sub:#9aa3ab; --line:#2b3238; --accent:#4fd18b; --warn:#ff8a80; } }
+  :root { --bg:#fff; --ink:#1b1f23; --sub:#5b636b; --line:#e3e6ea; --accent:#0b6b3a; --warn:#b4231b; --soft:#f3f6f4; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14171a; --ink:#eceff2; --sub:#9aa3ab; --line:#2b3238; --accent:#4fd18b; --warn:#ff8a80; --soft:#1c2125; } }
   body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 system-ui,"Malgun Gothic",sans-serif; }
   main { max-width:720px; margin:0 auto; padding:24px 16px 64px; }
   h1 { font-size:20px; margin:0 0 4px; }
-  .sub { color:var(--sub); font-size:14px; margin:0 0 20px; }
-  details { border-top:1px solid var(--line); }
-  details:last-of-type { border-bottom:1px solid var(--line); }
+  .sub { color:var(--sub); font-size:14px; margin:0 0 12px; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 14px; }
+  .chips button { font:inherit; font-size:13px; padding:4px 10px; color:var(--ink); background:var(--soft); border:1px solid var(--line); border-radius:999px; cursor:pointer; }
+  .chips button.on { color:var(--accent); border-color:var(--accent); font-weight:700; }
+  .row { display:block; }
+  details.n { border-top:1px solid var(--line); }
+  details.n:last-of-type { border-bottom:1px solid var(--line); }
   summary { display:flex; gap:10px; align-items:baseline; padding:12px 0; cursor:pointer; list-style:none; }
   summary::-webkit-details-marker { display:none; }
   .d { flex:none; min-width:56px; font-weight:700; color:var(--accent); }
   .d.late { color:var(--sub); font-weight:400; }
   .d.soon { color:var(--warn); }
   .t { flex:1; }
-  .s { flex:none; color:var(--sub); font-size:13px; }
+  .s { flex:none; color:var(--sub); font-size:13px; text-align:right; }
   .body { padding:0 0 14px 66px; color:var(--sub); font-size:14px; }
   .body p { margin:2px 0; }
   a { color:var(--accent); }
   #msg { color:var(--sub); }
+  .status { margin-top:28px; padding:12px 14px; background:var(--soft); border:1px solid var(--line); border-radius:8px; font-size:13px; color:var(--sub); }
+  .status b { color:var(--ink); }
+  .status ul { margin:6px 0 0; padding-left:18px; }
+  .bad { color:var(--warn); }
 </style>
 </head>
 <body>
 <main>
-  <h1>삼성 공고 레이더</h1>
+  <h1>공고 레이더</h1>
   <p class="sub"><a href="/">← 처음</a> · <a href="/baeumteo/">배움터 협력 계획서</a></p>
-  <p class="sub">삼성꿈장학재단 등 삼성 계열 공고 중 아동·청소년 교육, 문해력, 상담·정서에 맞는 것을 마감이 열린 순서로 보여 줍니다.</p>
+  <p class="sub">삼성 공고(열 때마다 재단에서 읽어 옴)와 공고 수집 시스템이 하루 두 번(08:00·18:00) 모아 둔 공고를 마감이 가까운 순서로 보여 줍니다.</p>
+  <div class="chips" id="chips"></div>
   <div id="list"><p id="msg">불러오는 중입니다…</p></div>
+  <div class="status" id="status" hidden></div>
 </main>
 <script>
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
 const list = document.querySelector('#list');
-fetch('/api/radar', { credentials: 'same-origin' }).then(async r => {
-  if (r.status === 401) { list.innerHTML = '<p id="msg">공고를 불러오지 못했습니다.</p>'; return; }
-  const data = await r.json();
-  if (!r.ok) throw new Error(data.error || '불러오지 못했습니다.');
-  list.innerHTML = data.items.map(item => {
+const chips = document.querySelector('#chips');
+const statusBox = document.querySelector('#status');
+let all = [];
+let group = '전체';
+let openOnly = true;
+
+const fetchJson = async url => {
+  try { const r = await fetch(url, { credentials: 'same-origin' }); const data = await r.json(); return r.ok ? { data } : { error: data.error || '불러오지 못했습니다.' }; }
+  catch { return { error: '연결하지 못했습니다.' }; }
+};
+
+function draw() {
+  const groups = ['전체', ...new Set(all.map(i => i.groupLabel))];
+  chips.innerHTML = groups.map(g => `<button data-g="${esc(g)}" class="${g === group ? 'on' : ''}">${esc(g)}</button>`).join('') + `<button data-open="1" class="${openOnly ? 'on' : ''}">마감 안 지난 것만</button>`;
+  const shown = all.filter(i => (group === '전체' || i.groupLabel === group) && (!openOnly || i.daysLeft === null || i.daysLeft >= 0));
+  list.innerHTML = shown.map(item => {
     const open = item.daysLeft !== null && item.daysLeft >= 0;
-    const d = item.daysLeft === null ? '' : open ? `D-${item.daysLeft}` : '마감';
-    const cls = !open ? 'late' : item.daysLeft <= 14 ? 'soon' : '';
-    return `<details><summary><span class="d ${cls}">${esc(d)}</span><span class="t">${esc(item.title)}</span><span class="s">${esc(item.source)}</span></summary>
-      <div class="body">${item.period ? `<p>신청기간 ${esc(item.period)}</p>` : ''}${item.eligibility ? `<p>신청자격 ${esc(item.eligibility)}</p>` : ''}${item.files?.length ? `<p>첨부 ${esc(item.files.join(' / '))}</p>` : ''}<p><a href="${esc(item.url)}" target="_blank" rel="noopener">공고 열기</a></p></div></details>`;
-  }).join('') || '<p id="msg">지금 가져올 공고가 없습니다.</p>';
-}).catch(e => { list.innerHTML = `<p id="msg">${esc(e.message)}</p>`; });
+    const d = item.daysLeft === null ? '기한 미상' : open ? `D-${item.daysLeft}` : '마감';
+    const cls = !open && item.daysLeft !== null ? 'late' : item.daysLeft !== null && item.daysLeft <= 14 ? 'soon' : '';
+    const rows = [item.period ? `<p>신청기간 ${esc(item.period)}</p>` : '', item.eligibility ? `<p>신청자격 ${esc(item.eligibility)}</p>` : '', item.supportLimit ? `<p>지원한도 ${esc(item.supportLimit)}</p>` : '', item.summary ? `<p>${esc(item.summary)}</p>` : '', item.files?.length ? `<p>첨부 ${esc(item.files.join(' / '))}</p>` : '', item.url ? `<p><a href="${esc(item.url)}" target="_blank" rel="noopener">공고 열기</a></p>` : ''].join('');
+    return `<details class="n"><summary><span class="d ${cls}">${esc(d)}</span><span class="t">${esc(item.title)}</span><span class="s">${esc(item.groupLabel)}</span></summary><div class="body">${rows || '<p>원문에서 확인하세요.</p>'}</div></details>`;
+  }).join('') || '<p id="msg">보여 줄 공고가 없습니다.</p>';
+}
+
+chips.addEventListener('click', event => {
+  const b = event.target.closest('button'); if (!b) return;
+  if (b.dataset.open) openOnly = !openOnly; else group = b.dataset.g;
+  draw();
+});
+
+function drawStatus(crawl, samsung) {
+  const lines = [];
+  if (samsung.error) lines.push(`<li class="bad">삼성 공고: ${esc(samsung.error)}</li>`); else lines.push(`<li>삼성 공고: ${samsung.data.items.length}건 (방금 재단에서 읽음)</li>`);
+  if (crawl.error) lines.push(`<li class="bad">수집 시스템: ${esc(crawl.error)}</li>`);
+  else {
+    const run = crawl.data.run;
+    if (run) {
+      const when = new Date(run.startedAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+      const word = { ok: '정상', partial: '일부 통로 실패', empty: '공고 0건', failed: '모두 실패' }[run.status] || run.status;
+      lines.push(`<li class="${run.status === 'ok' ? '' : 'bad'}">수집 시스템: 마지막 실행 ${esc(when)} — ${esc(word)}, 새로 받은 공고 ${run.collected}건</li>`);
+      for (const c of run.channels.filter(c => c.status === 'failed')) lines.push(`<li class="bad">　${esc(c.label)}: 받아오지 못함${c.reason ? ` (${esc(c.reason)})` : ''}</li>`);
+    } else lines.push('<li>수집 시스템: 실행 기록이 없습니다.</li>');
+    if (crawl.data.consecutiveFailures) lines.push(`<li class="bad">연속 실패 ${crawl.data.consecutiveFailures}회</li>`);
+  }
+  statusBox.hidden = false;
+  statusBox.innerHTML = `<b>수집 상태</b><ul>${lines.join('')}</ul><p style="margin:8px 0 0">받아오지 못한 것을 「공고 없음」으로 적지 않습니다. 교육청 누리집 두 곳은 봇 검사 때문에 연결하지 않았습니다.</p>`;
+}
+
+Promise.all([fetchJson('/api/radar'), fetchJson('/api/crawl')]).then(([samsung, crawl]) => {
+  const fromSamsung = (samsung.data?.items || []).map(i => ({ groupLabel: '삼성', title: i.title, daysLeft: i.daysLeft, period: i.period, eligibility: i.eligibility, files: i.files, url: i.url }));
+  const fromCrawl = (crawl.data?.items || []).map(i => ({ groupLabel: i.groupLabel, title: i.title, daysLeft: i.daysLeft, period: i.period, summary: i.summary, supportLimit: i.supportLimit, url: i.url }));
+  const rank = i => (i.daysLeft === null ? 1 : i.daysLeft >= 0 ? 0 : 2);
+  all = [...fromSamsung, ...fromCrawl].sort((a, b) => rank(a) - rank(b) || (rank(a) === 2 ? b.daysLeft - a.daysLeft : (a.daysLeft ?? 0) - (b.daysLeft ?? 0)));
+  draw();
+  drawStatus(crawl, samsung);
+});
 </script>
 </body>
 </html>
