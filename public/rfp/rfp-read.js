@@ -6,6 +6,8 @@
 
 const squash = value => String(value ?? '').replace(/\s+/g, '');
 const cellsOf = line => line.split('\t').map(cell => cell.trim());
+// 윈도에서 붙여 넣은 글은 줄끝이 \r\n이다. 줄을 나누기 전에 맞춘다.
+const linesOf = text => String(text || '').replace(/\r\n?/g, '\n').split('\n');
 
 // 「평가항목 · 배점」처럼 항목 칸과 배점 칸이 함께 있는 줄이 평가표의 머리다.
 const ITEM_HEAD = /^(평가|심사|세부)?(항목|지표)$|^평가요소$/;
@@ -75,7 +77,7 @@ const sameItem = (left, right) => {
 
 // 글자 전체에서 평가표를 모두 찾아 항목·배점·평가내용·묶음(정량/정성 등)을 합친다.
 export function readEvaluation(text) {
-  const lines = String(text || '').split('\n');
+  const lines = linesOf(text);
   const tables = [];
   for (let index = 0; index < lines.length; index += 1) {
     if (!lines[index].includes('\t') || !isHeader(cellsOf(lines[index]))) continue;
@@ -180,7 +182,7 @@ const dates = text => [...String(text).matchAll(DATE)].map(m => `${m[1]}-${m[2].
 // 한 줄을 「조각」으로 나눈다. 표 칸, 그리고 한 칸 안에 ◯·※로 이어 붙은 안내문을 따로 본다.
 function clausesOf(text) {
   const out = [];
-  for (const line of String(text || '').split('\n')) {
+  for (const line of linesOf(text)) {
     if (!line.trim()) continue;
     const cells = cellsOf(line);
     let topic = null;

@@ -107,6 +107,12 @@ test('배움터: 운영비+인건비 25% 한도를 넘으면 걸리고, 유형�
   assert.match(support.what, /한도가 여럿/);
 });
 
+test('줄끝이 \\r\\n인 글(윈도에서 붙여 넣기)도 같게 읽는다', () => {
+  const crlf = readRfp(unification.replace(/\r?\n/g, '\r\n'));
+  assert.equal(crlf.outline.total, 70);
+  assert.deepEqual(crlf.constraints.pageCaps.map(cap => cap.subject), readRfp(unification).constraints.pageCaps.map(cap => cap.subject));
+});
+
 test('평가표 읽기는 공고 글자 밖의 이름·숫자를 쓰지 않는다', () => {
   // 같은 모양의 다른 평가표를 넣으면 그 이름과 배점이 그대로 나온다.
   const text = [
