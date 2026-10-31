@@ -114,7 +114,10 @@ test('통일부 RFP + project.json(10-07): 70점이 모두 절에 실리고 Ⅱ.
   assert.deepEqual(['Ⅰ.1', 'Ⅰ.2', 'Ⅰ.3', 'Ⅰ.4'].map(key => at(key).pages.value), [0.5, 0.5, 1, 2]);
   // 자유분량(10-08): 수준 51.67점 ÷ 16쪽 = 3.23점/쪽 → Ⅱ.1 3.33점 1쪽, Ⅱ.2 15점 4.5쪽. 12쪽 중 5.5쪽, 6.5쪽 남김.
   assert.deepEqual([decided.pages.level, at('Ⅱ.1').pages.value, at('Ⅱ.2').pages.value, decided.pages.used, decided.pages.unused], [3.23, 1, 4.5, 5.5, 6.5]);
-  assert.deepEqual(decided.decided.length, 3);
+  // 「비상대책의 적절성」(10-10): 목차표가 「비상상황 대책」을 Ⅳ.1에 두므로 Ⅳ.1 본진. 글자 비교는 Ⅳ.1·Ⅳ.2에 반씩 붙였다.
+  assert.deepEqual(['Ⅳ.1', 'Ⅳ.2'].map(key => [at(key).score, at(key).density]), [[6.67, 3.33], [3.33, 3.33]]);
+  assert.ok(!at('Ⅳ.2').scoring.some(entry => /비상대책의 적절성/.test(entry.point)));
+  assert.deepEqual(decided.decided.length, 4);
 });
 
 test('통일부 RFP: 동점 우선순위는 순서만 읽어 표시하고 분량 계산에 쓰지 않는다', () => {
