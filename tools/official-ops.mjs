@@ -141,7 +141,7 @@ export function buildOps(setting = {}) {
   const placeText = chunk('대표기관의 활동실 2곳', '## 9.').join('\n').replace(/ 센터는 학년이 다른 청소년이[^.]*\./, '');
   const safetyShort = safety.split('\n').map(par => par.split(/(?<=다\.) /).slice(0, 2).join(' ')).join('\n');
   F(58, 0, 1, [placeText, safetyShort].join('\n'));
-  F(58, 1, 1, '[교육 장소 전경 사진 자리 — 인물이 식별되지 않는 사진]');
+  F(58, 1, 1, '[교체 필요: 실제 교육 장소 전경 사진(인물이 식별되지 않는 사진). 가상 예시본이라 사진을 넣지 않았다]');
 
   // 7-2 월별 핵심 교육내용(표 56)
   const monthly = monthlyOf(body, prog);
@@ -214,7 +214,8 @@ export function buildOps(setting = {}) {
   const from = body.findIndex(l => l.startsWith('## 4.'));
   const to = body.findIndex((l, i) => i > from && l.startsWith('[지역 교육복지 자원지도 이미지]'));
   const resources = body.slice(from, to).filter(l => l.startsWith('▦ ')).map(cellsOf).slice(1).map(([a, loc, use]) => `- ${a} (${loc}): ${use}`);
-  F(34, 0, 0, ['[지역 교육복지 자원지도 이미지 자리 — 대표기관·참여기관·학교·교육복지기관 위치 표시]', ...resources, ...body.filter(l => l.startsWith('광주광역시 공개 자료에 따르면'))].join('\n'));
+  F(34, 0, 0, ['▲ 지역 교육복지 자원지도(가상 개략도, 실제 지도로 교체 필요)', ...resources, ...body.filter(l => l.startsWith('광주광역시 공개 자료에 따르면'))].join('\n'));
+  ops.push({ op: 'picture', t: 34, r: 0, c: 0, path: 'reports/10-36-official-form/자원지도_가상개략도.png', width: 140, height: 52 });
 
   // 1~3
   F(31, 2, 2, '자기이해 · 직업 탐색 · 현장 확인 · 진로설계 포트폴리오');
@@ -283,11 +284,11 @@ const ASSIST = ASSISTANTS;
 function overviewText(body, line, chunk) {
   void 0;
   const glance = body.filter(l => l.startsWith('▦- ')).map(cellsOf).filter(c => ['대상', '기간과 횟수', '흐름', '결과물', '재단 지원금'].includes(c[0])).map(c => `▪ ${c[0]}: ${c[1]}`);
-  const need = body.filter(l => l.startsWith('▦ ') && l.includes('(5-')).map(cellsOf).map(c => `▪ 필요: ${c[0]} (근거: ${c[1]}) → 대응: ${c[2]}`);
+  const need = body.filter(l => l.startsWith('▦ ') && l.includes('(5-')).map(cellsOf).map(c => `▪ 필요: ${c[0]} (근거: ${c[1]}) → 대응: ${c[2].replace(/\([^)]*\)/g, '')}`);
   return [
     // 「사업 한눈에」의 대상·기간·흐름·결과물·지원금은 원본 양식의 대상 학생, 성과 및 결과물, 단계별 표 칸에 이미 들어가므로 이 칸에서는 뺀다(쪽 넘침 방지)
     '[이 사업이 해결하려는 필요와 사업의 대응]', ...need,
-    line('프로젝트 주제 및 핵심 내용:'), line('운영 방식의 이유와 차별점:'), line('수업 장면 ①'), line('수업 장면 ②')
+    line('프로젝트 주제 및 핵심 내용:'), line('운영 방식의 이유와 차별점:'), line('수업 장면 ①')
   ].join('\n');
 }
 

@@ -39,7 +39,7 @@ test('22회와 봉사활동 2회, 신청액이 작업 내용에 들어 있다', 
   assert.ok(text.includes(d.budget.total.toLocaleString('ko-KR')));
   assert.ok(text.includes('가상 설정으로 작성한 예시본 (제출용이 아님)'));
   assert.ok(!text.includes('최종 제출'));
-  for (const place of ['자원지도 이미지 자리', '교육 장소 전경 사진 자리', '직인 또는 서명 이미지 자리', '서명 또는 날인 자리']) assert.ok(text.includes(place), place);
+  for (const place of ['자원지도', '교체 필요: 실제 교육 장소 전경 사진', '직인 또는 서명 이미지 자리', '서명 또는 날인 자리']) assert.ok(text.includes(place), place);
 });
 
 test('모든 채움 칸에 글자가 있고 주소가 정수다', () => {

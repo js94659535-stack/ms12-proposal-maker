@@ -77,6 +77,12 @@ def main():
             kind = op['op']
             if kind == 'fill':
                 fill(op['t'], op['r'], op['c'], op.get('mode', 'replace'), op['text'])
+            elif kind == 'picture':
+                # 칸 맨 앞에 그림을 글자처럼 넣고 문단을 나눠 뒤의 글이 아래에 오게 한다
+                goto_cell(op['t'], op['r'], op['c'])
+                hwp.HAction.Run('MoveLineBegin')
+                hwp.insert_picture(os.path.abspath(op['path']), treat_as_char=True, sizeoption=2, width=op['width'], height=op['height'])
+                hwp.HAction.Run('BreakPara')
             elif kind == 'row_below':
                 goto_cell(op['t'], op['r'], op['c'])
                 hwp.HAction.Run('TableInsertLowerRow')

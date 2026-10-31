@@ -78,7 +78,7 @@ const notes = orig.tables.filter(t => t.cells.length === 1 && t.cells[0].text.st
 const outCells = out.tables.flatMap(t => t.cells.map(c => c.text));
 const missingNotes = notes.filter(n => !outCells.some(c => c.startsWith(n)));
 check('원본의 ※ 안내 상자가 모두 남아 있음', missingNotes.length === 0, missingNotes.length ? `사라진 안내: ${missingNotes.slice(0, 4).join(' / ')}` : `${notes.length}개`);
-check('지도·사진·직인·서명 자리가 있음', ['자원지도 이미지 자리', '교육 장소 전경 사진 자리', '직인 또는 서명 이미지 자리', '서명 또는 날인 자리'].every(w => flat.includes(w)));
+check('지도·사진·직인·서명 자리가 있음', ['지역 교육복지 자원지도(가상 개략도', '교체 필요: 실제 교육 장소 전경 사진', '직인 또는 서명 이미지 자리', '서명 또는 날인 자리'].every(w => flat.includes(w)));
 
 // 7) 예산: 표 안의 소계·합계·총계가 계산과 같은지
 const budgets = out.tables.filter(t => t.rows === 22 && t.cols === 5);
