@@ -1,0 +1,71 @@
+/* 화면 공통 모양(10-12). 홈과 작업대가 같은 글꼴·색·머리 메뉴·카드·버튼을 쓴다 — 화면마다 다르면 「연습용」처럼 보인다.
+   색 규칙(22-52)은 그대로: 초록(--go)은 화면에 하나뿐인 「지금 할 일」에만 쓴다. */
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css");
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400..800&family=Instrument+Serif&family=Noto+Serif+KR:wght@400;500&display=swap");
+
+:root {
+  --bg:#ffffff; --page:#f6f7f9; --ink:#111418; --sub:#5d6670; --muted:#8a939c; --line:#e6e9ed; --card:#ffffff;
+  --brand:#0a1628; --brand-ink:#ffffff; --brand-soft:#eef1f6; --gold:#f6b91a; --gold-ink:#0a1628; --gold-soft:#fff6dc;
+  --serif:"Instrument Serif", "Noto Serif KR", Georgia, serif;
+  --go:#03c75a; --go-ink:#ffffff; --go-soft:#e9f9f0; --go-text:#087a3c;
+  --warn:#c62828; --hold:#9a6400; --hold-soft:#fff6e0;
+  --shadow:0 1px 2px rgba(17,20,24,.04), 0 4px 16px rgba(17,20,24,.06);
+  --radius:12px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#0f1216; --page:#0b0e11; --ink:#eef1f4; --sub:#a3acb6; --muted:#7c858f; --line:#232a31; --card:#151a20;
+    --brand:#cfe0f5; --brand-ink:#0f1216; --brand-soft:#17202a; --gold:#f6b91a; --gold-ink:#0a1628; --gold-soft:#2a2310;
+    --go:#2fd27a; --go-ink:#06140c; --go-soft:#10251a; --go-text:#6fe3a4;
+    --warn:#ff8a80; --hold:#f2c14e; --hold-soft:#2a2310;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.35);
+  }
+}
+* { box-sizing:border-box; }
+html { -webkit-text-size-adjust:100%; }
+body { margin:0; background:var(--page); color:var(--ink); font:16px/1.65 "DM Sans", "Pretendard Variable", Pretendard, system-ui, "Malgun Gothic", sans-serif; letter-spacing:-0.01em; }
+a { color:inherit; }
+
+/* 머리 메뉴 */
+.site-top { position:sticky; top:0; z-index:5; background:color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter:saturate(1.4) blur(8px); border-bottom:1px solid var(--line); }
+.site-top .in { display:flex; align-items:center; justify-content:space-between; gap:16px; max-width:1180px; margin:0 auto; padding:12px 20px; }
+.logo { display:flex; align-items:center; gap:8px; font-weight:800; font-size:17px; text-decoration:none; color:var(--ink); }
+.logo i { display:grid; place-items:center; width:28px; height:28px; border-radius:8px; background:var(--brand); color:var(--brand-ink); font-style:normal; font-size:14px; font-weight:800; }
+.site-top nav { display:flex; gap:4px; flex-wrap:wrap; }
+.site-top nav a { padding:6px 10px; border-radius:8px; color:var(--sub); text-decoration:none; font-size:14px; font-weight:500; }
+.site-top nav a:hover { background:var(--brand-soft); color:var(--ink); }
+.site-top nav a.here { color:var(--ink); font-weight:700; background:var(--brand-soft); }
+
+/* 버튼·카드·작은 표 */
+.btn { display:inline-flex; align-items:center; gap:6px; padding:10px 18px; font:inherit; font-size:15px; font-weight:700; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; text-decoration:none; }
+.btn:hover { border-color:var(--sub); }
+.btn.go { background:var(--go); color:var(--go-ink); border-color:transparent; }
+.btn.go:hover { filter:brightness(.95); }
+.btn.gold { background:var(--gold); color:var(--gold-ink); border-color:transparent; }
+.btn.gold:hover { filter:brightness(.96); }
+.btn.sm { padding:5px 10px; font-size:13px; font-weight:600; border-radius:8px; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); }
+.chip { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:600; background:var(--brand-soft); color:var(--sub); }
+.chip.ok { background:var(--go-soft); color:var(--go-text); }
+.chip.hold { background:var(--hold-soft); color:var(--hold); }
+.muted { color:var(--sub); }
+.bad { color:var(--warn); }
+.hold { color:var(--hold); }
+
+/* 움직임(10-12). 뜻이 있는 것만: 처음 보일 때 떠오름, 누를 수 있는 카드는 올리면 뜸, 막대는 차오름.
+   움직임을 꺼 둔 사용자에게는 움직이지 않는다. */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes rise { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:none; } }
+  @keyframes fill { from { transform:scaleX(0); } to { transform:scaleX(1); } }
+  .rise { animation:rise .7s cubic-bezier(.2,.7,.2,1) both; }
+  .rise.d1 { animation-delay:.08s; } .rise.d2 { animation-delay:.16s; } .rise.d3 { animation-delay:.24s; } .rise.d4 { animation-delay:.32s; }
+  .fill { transform-origin:left; animation:fill 1.2s .4s cubic-bezier(.2,.7,.2,1) both; }
+  a.card, .lift { transition:transform .2s ease, box-shadow .2s ease, border-color .2s ease; }
+  a.card:hover, .lift:hover { transform:translateY(-3px); box-shadow:0 2px 4px rgba(17,20,24,.05), 0 12px 28px rgba(17,20,24,.10); }
+  .btn { transition:filter .15s ease, transform .15s ease, border-color .15s ease; }
+  .btn:active { transform:scale(.98); }
+}
+.search { transition:box-shadow .2s ease; }
+.search:focus-within { box-shadow:0 0 0 4px color-mix(in srgb, var(--gold) 45%, transparent); }
+
+.site-foot { max-width:1180px; margin:0 auto; padding:32px 20px 48px; color:var(--muted); font-size:13px; border-top:1px solid var(--line); }

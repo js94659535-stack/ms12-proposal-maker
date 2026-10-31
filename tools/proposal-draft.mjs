@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { extractFile } from '../src/files.js';
 import { readPlan, writingUnits } from '../public/rfp/rfp-plan.js';
+import { draftFileLabel } from '../public/plan/workspace.js';
 import { draftSection, systemPrompt, userContent, preferenceLines, choiceSheet, stripMarks } from '../src/proposal-draft.js';
 
 const args = process.argv.slice(2);
@@ -30,7 +31,7 @@ fs.mkdirSync(out, { recursive: true });
 const rfpText = (await Promise.all(rfpFiles.map(readText))).join('\n\n');
 const facts = await Promise.all(factFiles.map(async file => ({ source: path.basename(file), text: await readText(file) })));
 const project = opt('project') ? JSON.parse(fs.readFileSync(opt('project'), 'utf8')) : {};
-// project.json을 통째로 넘긴다 — 화면(/rfp/)도 같은 파일을 받아 같은 표를 본다(10-08).
+// project.json을 통째로 넘긴다 — 화면(/plan/ 작업대)도 같은 파일을 받아 같은 표를 본다(10-08).
 const { plan, fallback, constraints } = readPlan(rfpText, { project });
 if (!plan) { console.error(`목차를 만들지 못했다: ${fallback.reason}. 이 공고는 양식 기반으로 쓴다.`); process.exit(2); }
 const units = writingUnits(plan);
@@ -48,7 +49,7 @@ console.log(`목차: ${plan.from} · 쓸 장 ${sections.map(unit => unit.title).
 const model = opt('model', 'claude-opus-5-5');
 const effort = opt('effort', 'high');
 const krwPerUsd = Number(opt('krw', 1400));
-const fileName = title => title.replace(/[\\/:*?"<>|\s]+/g, '_');
+const fileName = draftFileLabel; // 작업대(/plan/)가 같은 이름으로 장을 찾는다
 
 if (flag('dry-run')) {
   for (const section of sections) {

@@ -5,9 +5,10 @@
 // 쓴 글은 검사가 다시 본다: 금액 금지, 출처 없는 숫자, 문단 길이, 평가내용을 빠짐없이 다뤘는지, 역할분장을 지어냈는지.
 import { checkPlan } from '../public/rfp/rfp-read.js';
 import { LAYOUT, estimatePages } from './page-estimate.js';
+import { PENDING } from '../public/plan/workspace.js';
 
 export const MAX_PARAGRAPH = 300;
-export const PENDING = '[확인 필요';
+export { PENDING };
 // 줄마다 붙이는 출처 표시(10-07). 사장이 「고를 것(제안)」과 「확인된 것(사실)」을 가려 보게 한다. 제출본에서는 지운다.
 export const MARK_PROPOSAL = '[제안]';
 export const MARK_FACT = '[사실:';

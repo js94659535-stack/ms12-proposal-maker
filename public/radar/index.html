@@ -51,6 +51,9 @@ const statusBox = document.querySelector('#status');
 let all = [];
 let group = '전체';
 let openOnly = true;
+// 홈 검색창(?q=)에서 왔으면 제목에 그 글자가 든 공고만 보인다. 띄어쓰기는 보지 않는다.
+const query = new URLSearchParams(location.search).get('q')?.trim() || '';
+const squash = s => String(s ?? '').replace(/\s+/g, '');
 
 const fetchJson = async url => {
   try { const r = await fetch(url, { credentials: 'same-origin' }); const data = await r.json(); return r.ok ? { data } : { error: data.error || '불러오지 못했습니다.' }; }
@@ -60,8 +63,9 @@ const fetchJson = async url => {
 function draw() {
   const groups = ['전체', ...new Set(all.map(i => i.groupLabel))];
   chips.innerHTML = groups.map(g => `<button data-g="${esc(g)}" class="${g === group ? 'on' : ''}">${esc(g)}</button>`).join('') + `<button data-open="1" class="${openOnly ? 'on' : ''}">마감 안 지난 것만</button>`;
-  const shown = all.filter(i => (group === '전체' || i.groupLabel === group) && (!openOnly || i.daysLeft === null || i.daysLeft >= 0));
-  list.innerHTML = shown.map(item => {
+  const shown = all.filter(i => (group === '전체' || i.groupLabel === group) && (!openOnly || i.daysLeft === null || i.daysLeft >= 0) && (!query || squash(i.title).includes(squash(query))));
+  const searched = query ? `<p class="sub">「${esc(query)}」이 제목에 든 공고 ${shown.length}건 · <a href="/radar/">모두 보기</a> · 찾는 공고가 없으면 <a href="/plan/">공고 파일을 바로 올리세요</a></p>` : '';
+  list.innerHTML = searched + shown.map(item => {
     const open = item.daysLeft !== null && item.daysLeft >= 0;
     const d = item.daysLeft === null ? '기한 미상' : open ? `D-${item.daysLeft}` : '마감';
     const cls = !open && item.daysLeft !== null ? 'late' : item.daysLeft !== null && item.daysLeft <= 14 ? 'soon' : '';
