@@ -37,7 +37,7 @@
 <body>
 <main>
   <h1>공고 읽기</h1>
-  <p class="sub">공고를 올리면 평가표에서 제안서 목차를, 본문에서 금액·기간·쪽수·비율 한도를 읽습니다. 파일은 이 브라우저 안에서만 읽고 어디로도 보내지 않습니다.</p>
+  <p class="sub">공고를 올리면 목차표와 평가표에서 절마다 작성지시(쪽수·배점·채점 기준)를, 본문에서 금액·기간·쪽수·비율 한도를 읽습니다. 파일은 이 브라우저 안에서만 읽고 어디로도 보내지 않습니다.</p>
 
   <label class="drop">공고 파일(HWPX·HWP·TXT, 여러 개 가능 — 요강과 신청서 양식을 함께 올리면 같이 읽습니다)
     <input id="file" type="file" accept=".hwpx,.hwp,.txt" multiple>
@@ -54,7 +54,7 @@
 <script type="module">
 import { extractHwpxText } from '../lib/hwpx-text.js';
 import { extractHwpDocument } from '../lib/hwp-text.js';
-import { readRfp } from './rfp-read.js';
+import { readPlan } from './rfp-plan.js';
 
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]);
@@ -97,9 +97,36 @@ function constraintsHtml(c) {
     ${rows.length ? `<div class="wrap"><table>${rows.map(([what, value, quote]) => `<tr><th>${esc(what)}</th><td>${esc(value)}${quote ? `<q>${esc(quote)}</q>` : ''}</td></tr>`).join('')}</table></div>` : '<p class="note">읽은 제약이 없습니다.</p>'}`;
 }
 
+// 목차표가 있으면 그 목차가 제출 목차이고, 평가표 배점은 절마다 붙는 채점 기준이다(10-06).
+function planHtml({ plan }) {
+  if (!plan || plan.from !== '목차표') return '';
+  const pages = plan.pages;
+  const points = list => list.map(point => `<li>${esc(point.point)}${point.details.length ? `<ul>${point.details.map(detail => `<li>${esc(detail)}</li>`).join('')}</ul>` : ''}</li>`).join('');
+  const scoring = section => section.scoring.length
+    ? section.scoring.map(entry => `<li><b>${esc(entry.item)}</b> ${esc(entry.point)} <span class="note">${entry.share.toFixed(1)}점${entry.confident ? '' : ' · <span class="hold">다른 절과 비슷하게 맞음 — 확인</span>'}</span></li>`).join('')
+    : '<li class="note">직접 붙은 평가 항목 없음 — 작성내용을 따른다</li>';
+  return `<h2>제출 목차와 작성지시 <span class="note">(공고 목차표 · 평가표 배점을 절에 붙임)</span></h2>
+    ${pages.total ? `<p class="note">${esc(pages.totalFrom)} ${pages.total}쪽 = 정해진 ${pages.fixed}쪽(표지·목차 ${pages.front}쪽 포함) + 자유분량 ${pages.free ?? 0}쪽. ${esc(pages.assumption)}.</p>` : ''}
+    ${plan.priority ? `<p class="note">동점 우선순위(가중치): ${plan.priority.order.map(entry => `${esc(entry.name)} ×${entry.multiplier}`).join(' → ')}</p>` : ''}
+    <ol class="toc">${plan.sections.map(section => `<li><b>${esc(section.key)} ${esc(section.title)}</b>${section.chapter ? `<span class="note"> · ${esc(section.chapter)}</span>` : ''}
+      <span class="score">${section.pages ? `${section.pages.value}쪽` : '쪽수 미정'} · ${section.score}점 · 가중 ${section.weight}</span>
+      ${section.pages ? `<div class="note">${esc(section.pages.basis)}${section.pages.max ? ' (이내)' : ''}</div>` : ''}
+      <div class="note">작성내용</div><ul>${points(section.writeWhat) || '<li class="note">없음</li>'}</ul>
+      <div class="note">채점 기준</div><ul>${scoring(section)}</ul></li>`).join('')}</ol>
+    ${plan.crossCutting.length ? `<p class="note">전체에 걸친 채점 기준(특정 절에 붙지 않음): ${plan.crossCutting.map(entry => `${esc(entry.item)} — ${esc(entry.point)}`).join(', ')}</p>` : ''}
+    ${formatHtml(plan.format)}`;
+}
+
+function formatHtml(format) {
+  if (!format) return '';
+  const rows = [['용지', [format.paper, format.orientation].filter(Boolean).join(' ')], ['파일', format.fileFormat], ['쪽번호', format.pageNumber], ['표지', format.cover],
+    ...format.styles.map(style => [`글머리 「${style.marker}」`, `${style.size}pt ${style.font}`])].filter(([, value]) => value);
+  return `<h2>출력 규칙 <span class="note">(${esc(format.heading)})</span></h2><div class="wrap"><table>${rows.map(([what, value]) => `<tr><th>${esc(what)}</th><td>${esc(value)}</td></tr>`).join('')}</table></div>`;
+}
+
 function show(text) {
-  const result = readRfp(text);
-  $('out').innerHTML = outlineHtml(result) + constraintsHtml(result.constraints);
+  const result = readPlan(text);
+  $('out').innerHTML = (result.plan?.from === '목차표' ? planHtml(result) : outlineHtml(result)) + constraintsHtml(result.constraints);
 }
 
 $('file').addEventListener('change', async event => {

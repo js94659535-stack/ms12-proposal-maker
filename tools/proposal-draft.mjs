@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { extractFile } from '../src/files.js';
-import { readRfp } from '../public/rfp/rfp-read.js';
+import { readPlan, writingUnits } from '../public/rfp/rfp-plan.js';
 import { draftSection, systemPrompt, userContent, preferenceLines } from '../src/proposal-draft.js';
 
 const args = process.argv.slice(2);
@@ -30,16 +30,19 @@ fs.mkdirSync(out, { recursive: true });
 const rfpText = (await Promise.all(rfpFiles.map(readText))).join('\n\n');
 const facts = await Promise.all(factFiles.map(async file => ({ source: path.basename(file), text: await readText(file) })));
 const project = opt('project') ? JSON.parse(fs.readFileSync(opt('project'), 'utf8')) : {};
-const { outline, fallback, constraints } = readRfp(rfpText);
-if (!outline) { console.error(`평가표로 목차를 만들지 못했다: ${fallback.reason}. 이 공고는 양식 기반으로 쓴다.`); process.exit(2); }
+const { plan, fallback, constraints } = readPlan(rfpText);
+if (!plan) { console.error(`목차를 만들지 못했다: ${fallback.reason}. 이 공고는 양식 기반으로 쓴다.`); process.exit(2); }
+const units = writingUnits(plan);
 
+// --sections 는 장 번호(Ⅰ), 장·절 이름, 또는 평가 항목 이름(그 항목이 붙은 장 전부)을 받는다.
 const wanted = String(opt('sections', '')).split(',').map(name => name.trim()).filter(Boolean);
 const squash = value => value.replace(/\s+/g, '');
-const sections = wanted.length
-  ? wanted.map(name => outline.sections.find(section => [section.title, ...section.aliases].some(title => squash(title) === squash(name))) || name)
-  : outline.sections;
-const missing = sections.filter(section => typeof section === 'string');
-if (missing.length) { console.error(`목차에 없는 절: ${missing.join(', ')}. 있는 절: ${outline.sections.map(section => section.title).join(', ')}`); process.exit(1); }
+const pick = name => units.filter(unit => squash(unit.key) === squash(name) || squash(unit.title).includes(squash(name)) ||
+  unit.parts.some(part => squash(part.title) === squash(name)) || unit.items.some(item => squash(item) === squash(name)));
+const missing = wanted.filter(name => !pick(name).length);
+if (missing.length) { console.error(`목차에 없는 이름: ${missing.join(', ')}. 장: ${units.map(unit => unit.title).join(', ')}`); process.exit(1); }
+const sections = wanted.length ? [...new Set(wanted.flatMap(pick))] : units;
+console.log(`목차: ${plan.from} · 쓸 장 ${sections.map(unit => unit.title).join(', ')}`);
 
 const model = opt('model', 'claude-opus-5-5');
 const effort = opt('effort', 'high');
@@ -48,7 +51,7 @@ const fileName = title => title.replace(/[\\/:*?"<>|\s]+/g, '_');
 
 if (flag('dry-run')) {
   for (const section of sections) {
-    const content = userContent({ rfpText, facts, project, section, constraints, preferences: preferenceLines(rfpText) });
+    const content = userContent({ rfpText, facts, project, section, constraints, plan, preferences: preferenceLines(rfpText) });
     const text = [`# system\n${systemPrompt()}`, ...content.map((block, index) => `# user ${index + 1}${block.cache_control ? ' (캐시)' : ''}\n${block.text}`)].join('\n\n');
     fs.writeFileSync(path.join(out, `prompt_${fileName(section.title)}.txt`), text);
     console.log(`${section.title}: 프롬프트 ${text.length.toLocaleString('ko-KR')}자 → prompt_${fileName(section.title)}.txt`);
@@ -63,7 +66,7 @@ const summary = [];
 for (const section of sections) {
   console.log(`${section.title} 쓰는 중…`);
   const result = await draftSection({
-    client, model, effort, rfpText, facts, project, section, constraints, krwPerUsd,
+    client, model, effort, rfpText, facts, project, section, constraints, plan, krwPerUsd,
     onUsage: record => fs.appendFileSync(usageFile, `${JSON.stringify(record)}\n`)
   });
   const name = fileName(section.title);

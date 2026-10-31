@@ -26,7 +26,7 @@ export function systemPrompt({ maxParagraph = MAX_PARAGRAPH } = {}) {
     '3. 숫자는 「규칙이 정한 숫자」 목록과 공고 원문·기관 자료에 나온 것만 쓴다.',
     '4. 「금지」 목록에 있는 것은 쓰지 않는다. 금액 표기가 금지되어 있으면 금액을 한 번도 적지 않는다.',
     '5. 공동수급체 구성사의 역할분장은 사람이 정한다. 구성사 이름은 적어도 되지만 누가 무엇을 맡는지는 쓰지 말고 비워 둔다.',
-    '6. 평가내용의 큰 줄마다 소제목(### 큰 줄 글자 그대로)을 하나씩 두고, 그 아래에서 그 줄을 채점할 근거를 쓴다. 작은 줄(-)은 그 소제목 안에서 모두 다룬다.',
+    '6. 소제목은 요청에 적힌 대로 둔다(절마다 「### 절 번호와 이름」, 또는 평가내용 큰 줄마다 「### 큰 줄 글자 그대로」). 그 아래에서 작성내용을 모두 다루고 채점 기준에 답한다. 작은 줄(-)도 빠뜨리지 않는다.',
     '7. 활동·프로그램은 한 줄에 「활동 → 하는 일 → 결과물」 형식으로 쓴다. 결과물은 눈으로 확인할 수 있는 것(기록지, 보고서, 설문 결과 등)이다.',
     `8. 한 문단은 ${maxParagraph}자를 넘기지 않는다. 꾸밈말과 일반론(「~가 중요하다」「~에 기여할 것이다」)보다 이 공고·이 기관에만 맞는 내용을 쓴다.`,
     '9. 공고가 평가 우대·필수로 적은 것이 이 절과 관련 있으면 반드시 다룬다.',
@@ -55,8 +55,29 @@ export function prohibitionLines(constraints) {
   return constraints.prohibitions.map(rule => `- 제안서에 금액을 적지 않는다 (공고: 「${rule.quote}」)`);
 }
 
+// 목차표에서 나온 장(절 여럿)의 요청. 절마다 작성내용(목차표)·채점 기준(평가표)·권장 쪽수를 준다.
+function unitRequest(unit, plan) {
+  const points = list => list.map(point => [`- ${point.point}`, ...point.details.map(detail => `  - ${detail}`)].join('\n'));
+  const lines = [
+    `이번에 쓸 장: 「${unit.title}」 (붙은 배점 ${unit.score}점${unit.pages ? `, 권장 ${unit.pages}쪽` : ''})`,
+    '절마다 소제목(### 절 번호와 이름 그대로)을 하나씩 두고, 그 아래에서 작성내용을 모두 다루고 채점 기준에 답한다.'
+  ];
+  for (const part of unit.parts) {
+    lines.push('', `### ${part.key} ${part.title}${part.pages ? ` (권장 ${part.pages.value}쪽)` : ''}`);
+    lines.push('작성내용(공고 목차표):', ...(part.writeWhat.length ? points(part.writeWhat) : ['- (목차표에 적힌 내용 없음)']));
+    lines.push('채점 기준(평가표):', ...(part.scoring.length
+      ? part.scoring.map(entry => `- [${entry.item}] ${entry.point}${entry.details.length ? ` — ${entry.details.join(' / ')}` : ''}`)
+      : ['- (이 절에 직접 붙은 평가 항목 없음 — 작성내용을 따른다)']));
+  }
+  if (plan?.crossCutting?.length) lines.push('', '전체에 걸친 채점 기준(특정 절에 붙지 않음):', ...plan.crossCutting.map(entry => `- [${entry.item}] ${entry.point}`));
+  if (plan?.priority) lines.push('', `동점일 때 우선 보는 항목(공고): ${plan.priority.order.map(entry => entry.name).join(' → ')}`);
+  const styles = plan?.format?.styles || [];
+  if (styles.length) lines.push('', `제출 형식(공고 표준 서식): ${styles.map(style => `「${style.marker}」 ${style.size}pt ${style.font}`).join(', ')}. 본문 글머리는 이 순서(큰 것→작은 것)를 따른다.`);
+  return lines.join('\n');
+}
+
 // 공고 원문과 기관 자료는 절이 바뀌어도 같으므로 앞에 두고 캐시한다. 절마다 바뀌는 요청은 맨 뒤에 둔다.
-export function userContent({ rfpText, facts, project, section, constraints, preferences = [] }) {
+export function userContent({ rfpText, facts, project, section, constraints, preferences = [], plan = null }) {
   const partners = (project?.partners || []).map(partner => partner.name || `${partner.kind || '구성사'}(이름 ${PENDING}])`);
   const shared = [
     '<공고 원문>', rfpText, '</공고 원문>',
@@ -69,10 +90,12 @@ export function userContent({ rfpText, facts, project, section, constraints, pre
     '</기관 자료>'
   ].join('\n');
   const request = [
-    `이번에 쓸 절: 「${section.title}」 (배점 ${section.score}점)`,
-    '',
-    '평가내용(이 절을 채점하는 기준):',
-    ...section.writeWhat.map(point => [`- ${point.point}`, ...point.details.map(detail => `  - ${detail}`)].join('\n')),
+    ...(section.parts ? [unitRequest(section, plan)] : [
+      `이번에 쓸 절: 「${section.title}」 (배점 ${section.score}점)`,
+      '',
+      '평가내용(이 절을 채점하는 기준):',
+      ...section.writeWhat.map(point => [`- ${point.point}`, ...point.details.map(detail => `  - ${detail}`)].join('\n'))
+    ]),
     '',
     '규칙이 정한 숫자:',
     ...(ruleLines(constraints).length ? ruleLines(constraints) : ['- 없음']),
@@ -117,11 +140,13 @@ export function checkDraft(text, { constraints, section, sources, project }) {
     results.push({ level: 'fail', what: '출처 없는 숫자', detail: `「${quantity.raw}」 — 공고·기관 자료·규칙에 없다` });
   }
 
-  // 평가내용의 큰 줄이 소제목으로 모두 있는가
+  // 소제목: 장 단위면 절 이름마다, 평가 항목 단위면 평가내용의 큰 줄마다 하나씩 있어야 한다.
   const headings = text.split('\n').filter(line => /^#{2,4}\s/.test(line)).map(line => line.replace(/^#+\s*/, '').replace(/\s+/g, ''));
-  for (const point of section.writeWhat) {
-    const key = point.point.replace(/\s+/g, '');
-    results.push({ level: headings.some(heading => heading.includes(key)) ? 'pass' : 'fail', what: `평가내용 「${point.point}」 소제목`, detail: '' });
+  const required = section.parts
+    ? section.parts.map(part => ({ key: part.title, label: `절 「${part.key} ${part.title}」 소제목` }))
+    : section.writeWhat.map(point => ({ key: point.point, label: `평가내용 「${point.point}」 소제목` }));
+  for (const need of required) {
+    results.push({ level: headings.some(heading => heading.includes(need.key.replace(/\s+/g, ''))) ? 'pass' : 'fail', what: need.label, detail: '' });
   }
 
   // 문단 길이
@@ -195,7 +220,7 @@ export function textOf(message) {
 }
 
 // 한 절을 쓴다. client는 Anthropic SDK 클라이언트(시험에서는 가짜)다. 호출이 끝나면 곧바로 onUsage로 기록을 넘긴다.
-export async function draftSection({ client, model, effort = 'high', rfpText, facts, project, section, constraints, onUsage, krwPerUsd, now = () => new Date().toISOString() }) {
+export async function draftSection({ client, model, effort = 'high', rfpText, facts, project, section, constraints, plan = null, onUsage, krwPerUsd, now = () => new Date().toISOString() }) {
   const stream = client.beta.messages.stream({
     model,
     max_tokens: 32000,
@@ -203,7 +228,7 @@ export async function draftSection({ client, model, effort = 'high', rfpText, fa
     fallbacks: 'default',
     output_config: { effort },
     system: [{ type: 'text', text: systemPrompt(), cache_control: { type: 'ephemeral' } }],
-    messages: [{ role: 'user', content: userContent({ rfpText, facts, project, section, constraints, preferences: preferenceLines(rfpText) }) }]
+    messages: [{ role: 'user', content: userContent({ rfpText, facts, project, section, constraints, plan, preferences: preferenceLines(rfpText) }) }]
   });
   const message = await stream.finalMessage();
   const record = usageRecord({ at: now(), section: section.title, model, message, krwPerUsd });
