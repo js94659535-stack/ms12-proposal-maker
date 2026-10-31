@@ -4,12 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>공고 레이더</title>
+<link rel="stylesheet" href="/lib/site.css">
 <style>
-  :root { --bg:#fff; --ink:#1b1f23; --sub:#5b636b; --line:#e3e6ea; --accent:#0b6b3a; --warn:#b4231b; --soft:#f3f6f4; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#14171a; --ink:#eceff2; --sub:#9aa3ab; --line:#2b3238; --accent:#4fd18b; --warn:#ff8a80; --soft:#1c2125; } }
-  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 system-ui,"Malgun Gothic",sans-serif; }
-  main { max-width:720px; margin:0 auto; padding:24px 16px 64px; }
-  h1 { font-size:20px; margin:0 0 4px; }
+  :root { --accent:var(--brand); --soft:var(--page); }
   .sub { color:var(--sub); font-size:14px; margin:0 0 12px; }
   .chips { display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 14px; }
   .chips button { font:inherit; font-size:13px; padding:4px 10px; color:var(--ink); background:var(--soft); border:1px solid var(--line); border-radius:999px; cursor:pointer; }
@@ -35,9 +32,12 @@
 </style>
 </head>
 <body>
-<main>
-  <h1>공고 레이더</h1>
-  <p class="sub"><a href="/">← 처음</a> · <a href="/baeumteo/">배움터 협력 계획서</a></p>
+<header class="site-top"><div class="in">
+  <a class="logo" href="/"><i>m</i>ms12 계획서</a>
+  <nav><a class="here" href="/radar/">공고 찾기</a><a href="/plan/">내 계획서</a><a href="/baeumteo/">견본</a><a href="/files/">자료 내려받기</a></nav>
+</div></header>
+<div class="page-head"><div class="in"><p class="kick">공고 찾기</p><h1>공고 레이더</h1><p>재단·기관 공고를 마감이 가까운 순서로 모았습니다. 고른 공고는 계획서 작업대로 이어집니다.</p></div></div>
+<main class="sheet">
   <p class="sub">삼성 공고(열 때마다 재단에서 읽어 옴)와 공고 수집 시스템이 하루 두 번(08:00·18:00) 모아 둔 공고를 마감이 가까운 순서로 보여 줍니다.</p>
   <div class="chips" id="chips"></div>
   <div id="list"><p id="msg">불러오는 중입니다…</p></div>

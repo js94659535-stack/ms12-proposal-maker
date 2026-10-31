@@ -4,13 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>자료 내려받기</title>
+<link rel="stylesheet" href="/lib/site.css">
 <style>
-  :root { --bg:#fff; --ink:#1b1f23; --sub:#5b636b; --line:#e3e6ea; --accent:#0b6b3a; --soft:#f3f6f4; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#14171a; --ink:#eceff2; --sub:#9aa3ab; --line:#2b3238; --accent:#4fd18b; --soft:#1c2125; } }
+  :root { --accent:var(--brand); --soft:var(--page); }
   * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.7 system-ui,"Malgun Gothic",sans-serif; }
-  main { max-width:640px; margin:0 auto; padding:24px 16px 64px; }
-  h1 { font-size:22px; margin:0 0 4px; }
   h2 { font-size:17px; margin:28px 0 6px; }
   p { margin:0 0 10px; color:var(--sub); font-size:14px; }
   a.f { display:block; padding:12px 14px; margin:0 0 8px; color:var(--ink); text-decoration:none; background:var(--soft); border:1px solid var(--line); border-radius:8px; }
@@ -27,9 +24,12 @@
 </style>
 </head>
 <body>
-<main>
-  <p class="back"><a href="/">← 처음</a></p>
-  <h1>자료 내려받기</h1>
+<header class="site-top"><div class="in">
+  <a class="logo" href="/"><i>m</i>ms12 계획서</a>
+  <nav><a href="/radar/">공고 찾기</a><a href="/plan/">내 계획서</a><a href="/baeumteo/">견본</a><a class="here" href="/files/">자료 내려받기</a></nav>
+</div></header>
+<div class="page-head"><div class="in"><p class="kick">자료</p><h1>자료 내려받기</h1><p>만든 신청서 파일(PDF 미리보기·한글)과 재단 공식 서식을 내려받습니다.</p></div></div>
+<main class="sheet">
 
   <h2>사업을 고르세요</h2>
   <p>사업마다 만든 파일이 다릅니다. 눌러서 펼치세요. 모두 가상 설정 예시본이며 제출용이 아닙니다.</p>

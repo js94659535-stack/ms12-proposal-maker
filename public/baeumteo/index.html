@@ -4,12 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>배움터 협력 계획서</title>
+<link rel="stylesheet" href="/lib/site.css">
 <style>
-  :root { --bg:#fff; --ink:#1b1f23; --sub:#5b636b; --line:#e3e6ea; --accent:#0b6b3a; --soft:#f3f6f4; --warn:#b4231b; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#14171a; --ink:#eceff2; --sub:#9aa3ab; --line:#2b3238; --accent:#4fd18b; --soft:#1c2125; --warn:#ff8a80; } }
-  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 system-ui,"Malgun Gothic",sans-serif; }
-  main { max-width:760px; margin:0 auto; padding:24px 16px 64px; }
-  h1 { font-size:20px; margin:0 0 4px; }
+  :root { --accent:var(--go-text); --soft:var(--page); }
   .sub { color:var(--sub); font-size:14px; margin:0 0 20px; }
   details.p { border-top:1px solid var(--line); }
   details.p:last-of-type { border-bottom:1px solid var(--line); }
@@ -66,9 +63,12 @@
 </style>
 </head>
 <body>
-<main>
-  <h1>배움터 협력 계획서</h1>
-  <p class="sub"><a href="/">← 처음</a> · <a href="/radar/">삼성 공고 레이더</a></p>
+<header class="site-top"><div class="in">
+  <a class="logo" href="/"><i>m</i>ms12 계획서</a>
+  <nav><a href="/radar/">공고 찾기</a><a href="/plan/">내 계획서</a><a class="here" href="/baeumteo/">견본</a><a href="/files/">자료 내려받기</a></nav>
+</div></header>
+<div class="page-head"><div class="in"><p class="kick">견본</p><h1>배움터 협력 계획서</h1><p>사람이 다듬은 완성 견본입니다. AI에게는 주지 않고, 결과를 견주는 기준으로만 씁니다.</p></div></div>
+<main class="sheet">
   <p class="sub">삼성꿈장학재단 2027 배움터 교육지원사업(마감 11월 11일). 기관이 정해지지 않아도 계획서는 끝까지 읽힙니다. 이름을 넣으면 그 자리만 바뀝니다. 입력한 이름은 이 브라우저에만 저장됩니다.</p>
   <div id="list"></div>
 </main>
