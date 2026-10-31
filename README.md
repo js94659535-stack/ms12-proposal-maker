@@ -4,6 +4,7 @@
 
 - `/` 랜딩 페이지(`public/index.html`, 링크 둘)
 - `/baeumteo/` 배움터 협력 계획서 — 삼성꿈장학재단 2027 배움터 교육지원사업, 진로설계 완성 가상 계획서
+- `/rfp/` 공고 읽기 — 공고(RFP)의 평가표에서 제안서 목차를, 본문에서 금액·기간·쪽수·비율 한도를 읽는다(`public/rfp/rfp-read.js`)
 - `/radar/` 삼성 공고 레이더 — `functions/api/radar.js` 가 삼성 공개 공고를 읽는다(로그인 없음)
 - `tools/career-final.mjs` 한글(HWPX)·PDF·안내서·제출 준비 점검 파일을 만든다. `--mode "최종 제출본"` 은 게이트를 통과해야 한다
 - `tools/build.mjs` 배포용 빌드(`npm run build`) — public 을 dist 로 복사한다

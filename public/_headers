@@ -10,3 +10,7 @@
   Cache-Control: no-cache
 /files/*
   Cache-Control: no-cache
+/rfp/*
+  Cache-Control: no-cache
+/lib/*
+  Cache-Control: no-cache
