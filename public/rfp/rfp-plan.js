@@ -111,6 +111,7 @@ export function evidenceUnits(point) {
 
 // 사람이 정한 연결(project.json의 attach)이 있으면 그 항목은 글자 비교 대신 그대로 붙인다.
 // { "신규 프로그램": { "main": "Ⅱ.2", "also": ["Ⅲ.1"] } } — 배점은 main에, also에는 배점 없이 「부차」로.
+// main이 배열이면(["Ⅱ.2", "Ⅱ.3"]) 한 줄이 두 절에 걸친다: 배점을 똑같이 나누고 둘 다 「본진」이다(10-07).
 export function attachEvaluation(toc, evaluation, chosen, decided = {}) {
   const leaves = leavesOf(toc);
   const score = scorer(leaves.map(leaf => `${leaf.chapter.title} ${leaf.title} ${leaf.content}`));
@@ -118,19 +119,21 @@ export function attachEvaluation(toc, evaluation, chosen, decided = {}) {
   const attachments = leaves.map(() => []);
   const crossCutting = [];
   const indexOf = key => leaves.findIndex(leaf => squash(leaf.key) === squash(key));
+  const mainsOf = rule => [].concat(rule.main).filter(key => indexOf(key) >= 0);
   for (const item of chosen) {
     const points = item.points.length ? item.points : [{ point: item.name, details: [] }];
     // 키는 「항목 이름」(그 항목 전부) 또는 「항목 이름|줄 일부」(그 글자가 든 줄만).
     const ruleFor = point => {
       const rules = Object.entries(decided).map(([key, rule]) => ({ name: key.split('|')[0], part: key.split('|')[1] || null, rule }))
-        .filter(entry => squash(entry.name) === squash(item.name) && indexOf(entry.rule.main) >= 0);
+        .filter(entry => squash(entry.name) === squash(item.name) && mainsOf(entry.rule).length);
       const text = [point.point, ...point.details].join(' ');
       return (rules.find(entry => entry.part && squash(text).includes(squash(entry.part))) || rules.find(entry => !entry.part))?.rule || null;
     };
     for (const point of points) {
       const rule = ruleFor(point);
       if (rule) {
-        attachments[indexOf(rule.main)].push({ item: item.name, point: point.point, details: point.details, share: item.score / points.length, confident: true, role: '본진', by: '사람' });
+        const mains = mainsOf(rule);
+        for (const key of mains) attachments[indexOf(key)].push({ item: item.name, point: point.point, details: point.details, share: item.score / points.length / mains.length, confident: true, role: '본진', by: '사람' });
         for (const key of rule.also || []) if (indexOf(key) >= 0) attachments[indexOf(key)].push({ item: item.name, point: point.point, details: point.details, share: 0, confident: true, role: '부차', by: '사람' });
         continue;
       }
@@ -211,15 +214,34 @@ export function readFormat(text) {
 
 // ---------- 4) 쪽수 ----------
 // 정해진 쪽수(이내·고정)는 그대로, 자유분량 절은 전체 권장 쪽수에서 정해진 것을 뺀 나머지를 나눈다.
-// 공고가 나누는 방법을 말하지 않으므로 똑같이 나눈다. 배점이나 우선순위로 쪽수를 늘리고 줄이는 숫자를 지어내지 않는다.
-const half = value => Math.round(value * 2) / 2;
-function share(total, count) {
-  const rounded = Array.from({ length: count }, () => Math.max(0.5, half(total / count)));
-  // 반올림 오차를 가장 큰 칸에서 맞춘다.
-  const diff = half(total - rounded.reduce((acc, value) => acc + value, 0));
-  if (diff) rounded[rounded.indexOf(Math.max(...rounded))] += diff;
-  return rounded;
+// 공고가 나누는 방법을 말하지 않으므로 절에 붙은 배점에 비례해 나눈다(10-07 사용자 결정). 0.5쪽 단위, 절마다 최소 0.5쪽.
+// 배수·가중치를 지어내지 않는다: 쓰는 숫자는 평가표 배점뿐이다. 배점이 모두 0이면 똑같이 나눈다.
+export const MIN_PAGES = 0.5;
+export function share(total, weights) {
+  const count = weights.length;
+  const slots = Math.round(total / MIN_PAGES);
+  if (!count) return [];
+  if (slots < count) return weights.map(() => MIN_PAGES); // 최소도 못 채우면 최소만 준다(합이 넘는다)
+  const w = weights.some(value => value > 0) ? weights : weights.map(() => 1);
+  // 비례 몫이 최소(1칸)보다 작은 절은 1칸으로 묶고, 남은 칸을 나머지 절에 다시 비례로 나눈다.
+  const pinned = new Set();
+  for (;;) {
+    const open = w.map((_, index) => index).filter(index => !pinned.has(index));
+    const left = slots - pinned.size;
+    const sum = open.reduce((acc, index) => acc + w[index], 0);
+    const exactOf = index => sum ? left * w[index] / sum : left / open.length;
+    const low = open.filter(index => exactOf(index) < 1);
+    if (low.length && low.length < open.length) { low.forEach(index => pinned.add(index)); continue; }
+    const exact = w.map((_, index) => pinned.has(index) ? 1 : Math.max(1, exactOf(index)));
+    const out = exact.map(Math.floor);
+    // 남는 칸은 소수 부분이 큰 절부터(같으면 배점이 큰 절부터) 하나씩.
+    const order = open.slice().sort((a, b) => (exact[b] - out[b]) - (exact[a] - out[a]) || w[b] - w[a]);
+    let rest = slots - out.reduce((acc, value) => acc + value, 0);
+    for (let i = 0; rest > 0; rest -= 1, i += 1) out[order[i % order.length]] += 1;
+    return out.map(value => value * MIN_PAGES);
+  }
 }
+const ratio = list => list.map(section => `${section.key} ${section.score}점`).join(' · ');
 
 function totalPages(constraints) {
   const caps = constraints.pageCaps.filter(cap => !/PPT|발표|ppt/.test(cap.subject));
@@ -248,7 +270,10 @@ export function writingUnits(plan) {
 }
 
 // ---------- 묶기 ----------
+// options.project = 기관이 정한 것(project.json). 화면과 생성 도구가 같은 project를 넘겨 같은 표를 본다(10-08).
+// 판정에 쓰는 것은 그 안의 attach(평가 항목을 어느 절에 붙일지 사람이 정한 것)뿐이다.
 export function readPlan(text, options = {}) {
+  const decided = options.project?.attach || {};
   const base = readRfp(text);
   const { evaluation, outline, constraints } = base;
   const toc = readToc(text);
@@ -278,7 +303,7 @@ export function readPlan(text, options = {}) {
     };
   }
 
-  const { leaves, attachments, crossCutting } = chosenItems.length ? attachEvaluation(toc, evaluation, chosenItems, options.attach || {}) : { leaves: leavesOf(toc), attachments: leavesOf(toc).map(() => []), crossCutting: [] };
+  const { leaves, attachments, crossCutting } = chosenItems.length ? attachEvaluation(toc, evaluation, chosenItems, decided) : { leaves: leavesOf(toc), attachments: leavesOf(toc).map(() => []), crossCutting: [] };
   const sections = leaves.map((leaf, index) => {
     const scoring = attachments[index];
     return {
@@ -295,38 +320,64 @@ export function readPlan(text, options = {}) {
     };
   });
 
-  // 장에 쪽수가 정해져 있고 절에는 없으면, 장 쪽수를 절에 똑같이 나눈다.
+  // 장에 쪽수가 정해져 있고 절에는 없으면, 장 쪽수를 절에 배점 비례로 나눈다.
   for (const chapter of toc.chapters) {
     const children = sections.filter(section => section._chapter === chapter && section.key !== chapter.key);
     if (!children.length || !chapter.pages || chapter.pages.free) continue;
     const open = children.filter(section => !section.pages);
     const fixed = children.filter(section => section.pages).reduce((acc, section) => acc + section.pages.value, 0);
-    share(chapter.pages.pages - fixed, open.length).forEach((value, index) => { open[index].pages = { value, max: chapter.pages.max, basis: `장 ${chapter.pages.pages}쪽을 절 ${open.length}개에 똑같이 나눔` }; });
+    share(chapter.pages.pages - fixed, open.map(section => section.score)).forEach((value, index) => { open[index].pages = { value, max: chapter.pages.max, basis: `장 ${chapter.pages.pages}쪽을 절 ${open.length}개에 배점 비례로 나눔(${ratio(open)}, 최소 ${MIN_PAGES}쪽)` }; });
   }
 
-  // 자유분량: 전체 권장 쪽수 - 정해진 쪽수(표지·목차 포함).
+  // 자유분량: 전체 권장 쪽수 - 정해진 쪽수(표지·목차 포함)가 쓸 수 있는 몫이다.
+  // 다 쓰지 않는다(10-08 사용자 결정). 쪽수가 정해진 절들의 점/쪽 수준(배점 합 ÷ 쪽수 합)에 맞춰 「배점 ÷ 수준」쪽만 준다.
+  // 공고가 「이내 권장」이라 덜 써도 감점이 없고, 출력이 가장 비싸다. 남는 쪽은 unused로 보인다.
+  // 수준에 맞춘 쪽이 몫을 넘으면 몫을 배점 비례로 나눈다(그때는 남는 쪽이 없다). 정해진 절이 없어 수준을 셀 수 없을 때도 같다.
   const total = totalPages(constraints);
   const frontPages = toc.front.reduce((acc, row) => acc + (row.pages?.pages || 0), 0);
   const free = sections.filter(section => !section.pages);
-  const fixedPages = frontPages + sections.filter(section => section.pages).reduce((acc, section) => acc + section.pages.value, 0);
-  let pages = { total: total?.maxPages ?? null, totalFrom: total?.subject ?? null, front: frontPages, fixed: fixedPages, free: null, assumption: '표지·목차를 전체 쪽수에 넣어 셈' };
+  const fixedBody = sections.filter(section => section.pages);
+  const fixedPages = frontPages + fixedBody.reduce((acc, section) => acc + section.pages.value, 0);
+  const bodyPages = fixedBody.reduce((acc, section) => acc + section.pages.value, 0);
+  const bodyScore = fixedBody.reduce((acc, section) => acc + section.score, 0);
+  const level = bodyPages && bodyScore ? bodyScore / bodyPages : null;
+  let pages = { total: total?.maxPages ?? null, totalFrom: total?.subject ?? null, front: frontPages, fixed: fixedPages, free: null, used: null, unused: null,
+    level: level == null ? null : Number(level.toFixed(2)), levelFrom: level == null ? null : `정해진 절 ${fixedBody.length}개: ${Number(bodyScore.toFixed(2))}점 ÷ ${bodyPages}쪽`, assumption: '표지·목차를 전체 쪽수에 넣어 셈' };
   if (total && free.length) {
     const left = total.maxPages - fixedPages;
     pages.free = left;
-    if (left > 0) share(left, free.length).forEach((value, index) => { free[index].pages = { value, max: true, basis: `자유분량: ${total.maxPages}쪽 - 정해진 ${fixedPages}쪽 = ${left}쪽을 절 ${free.length}개에 똑같이 나눔` }; });
+    if (left > 0) {
+      const half = value => Math.round(value * 2) / 2;
+      const fitted = level ? free.map(section => Math.max(MIN_PAGES, half(section.score / level))) : null;
+      const fits = fitted && fitted.reduce((acc, value) => acc + value, 0) <= left;
+      const values = fits ? fitted : share(left, free.map(section => section.score));
+      values.forEach((value, index) => {
+        const section = free[index];
+        free[index].pages = { value, max: true, basis: fits
+          ? `자유분량: 정해진 절의 수준 ${pages.level}점/쪽(${pages.levelFrom})에 맞춤 — ${section.score}점 ÷ ${pages.level} = ${(section.score / level).toFixed(2)} → ${value}쪽(0.5쪽 단위, 최소 ${MIN_PAGES}쪽)`
+          : `자유분량: ${total.maxPages}쪽 - 정해진 ${fixedPages}쪽 = ${left}쪽을 절 ${free.length}개에 배점 비례로 나눔(${ratio(free)}, 최소 ${MIN_PAGES}쪽)${fitted ? ' — 수준에 맞추면 몫을 넘어서' : ''}` };
+      });
+      pages.used = values.reduce((acc, value) => acc + value, 0);
+      pages.unused = Math.max(0, left - pages.used);
+    }
   }
+  // 절마다 점/쪽: 어디에 힘을 줘야 하는지가 이 숫자로 보인다.
+  for (const section of sections) section.density = section.pages?.value ? Number((section.score / section.pages.value).toFixed(2)) : null;
 
-  // 배점이 어디로 갔는지 남김없이 보인다: 절에 붙은 것 + 전체에 걸친 것 = 평가표의 글로 쓰는 묶음 합계.
+  // 배점이 어디로 갔는지 남김없이 보인다. ok는 「절에 붙은 배점 = 평가표 합계」이고 어느 절에도 안 붙은 것이 없을 때만 참이다.
+  // crossCutting은 따로 보이되, 그것을 더해 ok를 만들지 않는다(10-07: 더하면 ok가 거짓이 된다).
   const inSections = sections.reduce((acc, section) => acc + section.score, 0);
   const inCross = crossCutting.reduce((acc, entry) => acc + entry.share, 0);
   const expected = chosenItems.reduce((acc, item) => acc + item.score, 0);
-  const scoreCheck = { sections: Number(inSections.toFixed(2)), crossCutting: Number(inCross.toFixed(2)), total: expected, ok: Math.abs(inSections + inCross - expected) < 0.01 };
+  const scoreCheck = { sections: Number(inSections.toFixed(2)), crossCutting: Number(inCross.toFixed(2)), total: expected, ok: Math.abs(inSections - expected) < 0.02 && !crossCutting.length };
 
   return {
     ...base,
     toc,
     plan: {
       from: '목차표',
+      // 사람이 정한 연결 몇 건으로 판정했는가(0이면 글자 비교만)
+      decided: Object.keys(decided),
       format,
       priority,
       crossCutting: crossCutting.map(entry => ({ ...entry, share: Number(entry.share.toFixed(2)) })),

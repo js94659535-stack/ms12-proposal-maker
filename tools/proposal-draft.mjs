@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { extractFile } from '../src/files.js';
 import { readPlan, writingUnits } from '../public/rfp/rfp-plan.js';
-import { draftSection, systemPrompt, userContent, preferenceLines } from '../src/proposal-draft.js';
+import { draftSection, systemPrompt, userContent, preferenceLines, choiceSheet, stripMarks } from '../src/proposal-draft.js';
 
 const args = process.argv.slice(2);
 const all = name => args.flatMap((arg, index) => arg === `--${name}` ? [args[index + 1]] : []);
@@ -30,8 +30,8 @@ fs.mkdirSync(out, { recursive: true });
 const rfpText = (await Promise.all(rfpFiles.map(readText))).join('\n\n');
 const facts = await Promise.all(factFiles.map(async file => ({ source: path.basename(file), text: await readText(file) })));
 const project = opt('project') ? JSON.parse(fs.readFileSync(opt('project'), 'utf8')) : {};
-// project.json의 attach: 평가 항목을 어느 절에 붙일지 사람이 정한 것(글자 비교보다 먼저).
-const { plan, fallback, constraints } = readPlan(rfpText, { attach: project.attach || {} });
+// project.json을 통째로 넘긴다 — 화면(/rfp/)도 같은 파일을 받아 같은 표를 본다(10-08).
+const { plan, fallback, constraints } = readPlan(rfpText, { project });
 if (!plan) { console.error(`목차를 만들지 못했다: ${fallback.reason}. 이 공고는 양식 기반으로 쓴다.`); process.exit(2); }
 const units = writingUnits(plan);
 
@@ -71,12 +71,15 @@ for (const section of sections) {
     onUsage: record => fs.appendFileSync(usageFile, `${JSON.stringify(record)}\n`)
   });
   const name = fileName(section.title);
+  // draft_ = 사장이 보는 본(줄마다 [제안]/[사실: 출처]), submit_ = 표시를 지운 제출본(쪽수 검사가 세는 글), choices_ = 고를 [제안] 목록
   fs.writeFileSync(path.join(out, `draft_${name}.md`), `${result.text}\n`);
+  fs.writeFileSync(path.join(out, `submit_${name}.md`), `${stripMarks(result.text)}\n`);
+  fs.writeFileSync(path.join(out, `choices_${name}.md`), `${choiceSheet(result.text, section.title)}\n`);
   fs.writeFileSync(path.join(out, `checks_${name}.json`), JSON.stringify(result.checks, null, 2));
   const fails = result.checks.filter(check => check.level === 'fail');
   const warns = result.checks.filter(check => check.level === 'warn');
   const r = result.record;
-  summary.push(`${section.title}: prompt ${r.prompt_tokens} (캐시 읽기 ${r.cache_read_input_tokens}) · completion ${r.completion_tokens} · ${r.krw ?? '단가 모름'}원 · fail ${fails.length} · warn ${warns.length}`);
+  summary.push(`${section.title}: effort ${effort} · prompt ${r.prompt_tokens} (캐시 읽기 ${r.cache_read_input_tokens}) · completion ${r.completion_tokens} (생각 ${r.thinking_tokens ?? "칸 없음"}, 본문 ${r.text_tokens ?? "?"}) · ${r.krw ?? '단가 모름'}원 · fail ${fails.length} · warn ${warns.length}`);
   console.log(summary.at(-1));
   for (const check of fails) console.log(`  ✖ ${check.what} ${check.detail}`);
 }

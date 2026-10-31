@@ -4,9 +4,15 @@
 // 숫자는 규칙(RFP에서 읽은 값)과 기관 자료에 있는 것만 쓴다. 없으면 [확인 필요]로 비운다.
 // 쓴 글은 검사가 다시 본다: 금액 금지, 출처 없는 숫자, 문단 길이, 평가내용을 빠짐없이 다뤘는지, 역할분장을 지어냈는지.
 import { checkPlan } from '../public/rfp/rfp-read.js';
+import { LAYOUT, estimatePages } from './page-estimate.js';
 
 export const MAX_PARAGRAPH = 300;
 export const PENDING = '[확인 필요';
+// 줄마다 붙이는 출처 표시(10-07). 사장이 「고를 것(제안)」과 「확인된 것(사실)」을 가려 보게 한다. 제출본에서는 지운다.
+export const MARK_PROPOSAL = '[제안]';
+export const MARK_FACT = '[사실:';
+const MARK = /\[(?:제안|사실:[^\]]*)\]\s*/g;
+export const stripMarks = text => String(text).replace(MARK, '');
 
 // 모델별 단가(달러 / 100만 토큰). 출처: Anthropic 가격표(2026-10 기준). 캐시 쓰기는 입력의 1.25배.
 export const PRICES = {
@@ -30,7 +36,12 @@ export function systemPrompt({ maxParagraph = MAX_PARAGRAPH } = {}) {
     '7. 활동·프로그램은 한 줄에 「활동 → 하는 일 → 결과물」 형식으로 쓴다. 결과물은 눈으로 확인할 수 있는 것(기록지, 보고서, 설문 결과 등)이다.',
     `8. 한 문단은 ${maxParagraph}자를 넘기지 않는다. 꾸밈말과 일반론(「~가 중요하다」「~에 기여할 것이다」)보다 이 공고·이 기관에만 맞는 내용을 쓴다.`,
     '9. 공고가 평가 우대·필수로 적은 것이 이 절과 관련 있으면 반드시 다룬다.',
-    '10. 출력은 마크다운 본문만 쓴다. 절 제목(##)으로 시작하고, 앞뒤에 설명이나 인사말을 붙이지 않는다.'
+    '10. 출력은 마크다운 본문만 쓴다. 절 제목(##)으로 시작하고, 앞뒤에 설명이나 인사말을 붙이지 않는다.',
+    `11. 분량: 절마다 적힌 권장 쪽수를 넘기지 않는다. 제출 서식(본문 ${LAYOUT.bodyPt}pt, 줄 간격 160%, A4)에서 한 쪽은 ${LAYOUT.linesPerPage}줄, 한 줄은 한글 ${LAYOUT.perLine}자다. 문단은 끝 줄이 덜 차도 한 줄을 다 먹고, 빈 줄·소제목도 한 줄씩 먹는다. 표는 칸이 좁아 같은 글자가 더 많은 줄을 먹는다. 쪽수 안에 못 담으면 평가에 덜 중요한 것부터 뺀다.`,
+    `12. 「o」「-」「․」「※」로 시작하는 줄과 표의 각 줄(머리 줄 제외)은 맨 앞에 출처 표시를 하나 붙인다.`,
+    `    - 「${MARK_FACT} 기관 자료]」: 기관 자료(연혁 등)에 있는 실적·인력·자격·검사·시설. 「${MARK_FACT} 공고 …]」: 공고 원문이 정한 것(목적, 보고 기한, 조항 등). 출처 칸에 조항이나 자료 이름을 짧게 적는다.`,
+    `    - 「${MARK_PROPOSAL}」: 우리가 새로 내놓는 것 — 비전 문구, 목표와 지표, 전략, 신규 프로그램, 일정 계획, 해석.`,
+    '    - 사실과 제안이 한 줄에 섞이면 두 줄로 나눈다. 표에서는 첫 칸 맨 앞에 붙인다. 소제목(#)에는 붙이지 않는다.'
   ].join('\n');
 }
 
@@ -51,19 +62,26 @@ export function ruleLines(constraints) {
   return lines;
 }
 
-export function prohibitionLines(constraints) {
-  return constraints.prohibitions.map(rule => `- 제안서에 금액을 적지 않는다 (공고: 「${rule.quote}」)`);
+export function prohibitionLines(constraints, project = {}) {
+  return [
+    ...constraints.prohibitions.map(rule => `- 제안서에 금액을 적지 않는다 (공고: 「${rule.quote}」)`),
+    // 사람이 정한 「쓰지 말 것」(project.json의 omit). 공고 규칙이 아니라 기관의 결정이다.
+    ...(project?.omit || []).map(rule => `- 쓰지 않는다: ${rule.what} (기관 결정${rule.why ? `: ${rule.why}` : ''})`)
+  ];
 }
+
+const budget = pages => `권장 ${pages}쪽 = 약 ${Math.round(pages * LAYOUT.linesPerPage)}줄`;
 
 // 목차표에서 나온 장(절 여럿)의 요청. 절마다 작성내용(목차표)·채점 기준(평가표)·권장 쪽수를 준다.
 function unitRequest(unit, plan) {
   const points = list => list.map(point => [`- ${point.point}`, ...point.details.map(detail => `  - ${detail}`)].join('\n'));
   const lines = [
-    `이번에 쓸 장: 「${unit.title}」 (붙은 배점 ${unit.score}점${unit.pages ? `, 권장 ${unit.pages}쪽` : ''})`,
-    '절마다 소제목(### 절 번호와 이름 그대로)을 하나씩 두고, 그 아래에서 작성내용을 모두 다루고 채점 기준에 답한다.'
+    `이번에 쓸 장: 「${unit.title}」 (붙은 배점 ${unit.score}점${unit.pages ? `, ${budget(unit.pages)}` : ''})`,
+    '절마다 소제목(### 절 번호와 이름 그대로)을 하나씩 두고, 그 아래에서 작성내용을 모두 다루고 채점 기준에 답한다.',
+    ...(unit.pages ? [`분량은 검사가 쪽수로 다시 센다. 절마다 적힌 줄 수를 넘기면 그 절은 탈락으로 본다. 장 제목 줄도 장 분량에 든다.`] : [])
   ];
   for (const part of unit.parts) {
-    lines.push('', `### ${part.key} ${part.title}${part.pages ? ` (권장 ${part.pages.value}쪽)` : ''}`);
+    lines.push('', `### ${part.key} ${part.title}${part.pages ? ` (${budget(part.pages.value)})` : ''}`);
     lines.push('작성내용(공고 목차표):', ...(part.writeWhat.length ? points(part.writeWhat) : ['- (목차표에 적힌 내용 없음)']));
     lines.push('채점 기준(평가표):', ...(part.scoring.length
       ? part.scoring.map(entry => `- [${entry.item}${entry.role === '부차' ? ' · 부차(본진은 다른 절 — 여기서는 이 절의 맥락에 걸치는 만큼만)' : ''}] ${entry.point}${entry.details.length ? ` — ${entry.details.join(' / ')}` : ''}`)
@@ -103,7 +121,7 @@ export function userContent({ rfpText, facts, project, section, constraints, pre
     ...(ruleLines(constraints).length ? ruleLines(constraints) : ['- 없음']),
     '',
     '금지:',
-    ...(prohibitionLines(constraints).length ? prohibitionLines(constraints) : ['- 없음']),
+    ...(prohibitionLines(constraints, project).length ? prohibitionLines(constraints, project) : ['- 없음']),
     ...(preferences.length ? ['', '공고가 평가 우대로 적은 것:', ...preferences.map(line => `- ${line}`)] : [])
   ].join('\n');
   return [
@@ -152,7 +170,7 @@ export function checkDraft(text, { constraints, section, sources, project }) {
   }
 
   // 문단 길이
-  for (const paragraph of text.split(/\n\s*\n/).map(part => part.trim()).filter(part => part && !/^#/.test(part))) {
+  for (const paragraph of stripMarks(text).split(/\n\s*\n/).map(part => part.trim()).filter(part => part && !/^#/.test(part))) {
     for (const block of paragraph.split('\n').filter(line => !/^\s*[-*|]/.test(line))) {
       if (block.length > MAX_PARAGRAPH) results.push({ level: 'warn', what: `문단 ${MAX_PARAGRAPH}자 넘음`, detail: `${block.length}자 — 「${block.slice(0, 30)}…」` });
     }
@@ -167,9 +185,89 @@ export function checkDraft(text, { constraints, section, sources, project }) {
     }
   }
 
+  results.push(...checkPages(text, section));
+  results.push(...checkMarks(text));
+
+  // 기관이 「쓰지 말라」고 정한 것(project.json의 omit: { what, pattern })
+  for (const rule of project?.omit || []) {
+    const hits = stripMarks(text).split('\n').filter(line => new RegExp(rule.pattern).test(line));
+    results.push({ level: hits.length ? 'fail' : 'pass', what: `쓰지 말 것: ${rule.what}`, detail: hits.map(line => `「${line.trim().slice(0, 60)}」`).join(' · ') });
+  }
+
   const pending = (text.match(/\[확인 필요[^\]]*\]/g) || []);
   results.push({ level: pending.length ? 'warn' : 'pass', what: `비워 둔 곳 ${pending.length}곳`, detail: pending.slice(0, 20).join(' · ') });
   return results;
+}
+
+// 분량: 출처 표시를 지운 제출본을 한글 실측 셈법(page-estimate.js)으로 쪽수로 바꿔 절·장의 권장 쪽수와 견준다. 넘으면 fail.
+export function checkPages(text, section) {
+  if (!section?.parts) return [];
+  const estimate = estimatePages(stripMarks(text));
+  const squash = value => String(value).replace(/\s+/g, '');
+  const results = [];
+  for (const part of section.parts) {
+    if (!part.pages) continue;
+    const found = estimate.parts.find(entry => entry.heading && squash(entry.heading).includes(squash(part.title)));
+    if (!found) continue; // 소제목이 없으면 소제목 검사가 이미 fail
+    const limit = part.pages.value;
+    results.push({
+      level: found.pages > limit ? 'fail' : 'pass',
+      what: `분량 「${part.key} ${part.title}」 ${found.pages}쪽 / 권장 ${limit}쪽`,
+      detail: `${found.lines}줄 (한 쪽 ${LAYOUT.linesPerPage}줄, 한 줄 한글 ${LAYOUT.perLine}자), 글자 ${found.chars}자`
+    });
+  }
+  if (section.pages) {
+    results.push({
+      level: estimate.pages > section.pages ? 'fail' : 'pass',
+      what: `분량 「${section.title}」 전체 ${estimate.pages}쪽 / 권장 ${section.pages}쪽`,
+      detail: `${estimate.lines}줄, 글자 ${estimate.chars}자 — ${LAYOUT.basis}`
+    });
+  }
+  return results;
+}
+
+// 줄마다 [제안] / [사실: 출처]가 붙었는가. 안 붙은 줄은 사장이 고를 수 없으므로 fail.
+const MARKED_LINE = /^\s*(?:o|-|․|※|\*|·)\s+/;
+export function checkMarks(text) {
+  const lines = String(text).split('\n');
+  const missing = [];
+  let tableRow = 0;
+  for (const line of lines) {
+    if (/^\s*\|/.test(line)) {
+      if (/^\s*\|[\s:|-]+\|\s*$/.test(line)) continue;
+      tableRow += 1;
+      if (tableRow === 1) continue; // 머리 줄
+      const first = line.trim().replace(/^\|/, '').split('|')[0].replace(/\*\*/g, '').trim();
+      if (!/^\[(?:제안|사실:[^\]]*)\]/.test(first)) missing.push(line.trim());
+      continue;
+    }
+    tableRow = 0;
+    if (!MARKED_LINE.test(line)) continue;
+    const rest = line.replace(MARKED_LINE, '').replace(/^\*\*/, '');
+    if (!/^\[(?:제안|사실:[^\]]*)\]/.test(rest)) missing.push(line.trim());
+  }
+  const proposals = (text.match(/\[제안\]/g) || []).length;
+  const facts = (text.match(/\[사실:[^\]]*\]/g) || []).length;
+  return [{
+    level: missing.length ? 'fail' : 'pass',
+    what: `제안·사실 표시 — 제안 ${proposals}줄, 사실 ${facts}줄, 표시 없음 ${missing.length}줄`,
+    detail: missing.slice(0, 10).map(line => `「${line.slice(0, 50)}」`).join(' · ')
+  }];
+}
+
+// 사장이 고를 목록: [제안] 줄을 절마다 모은다. 사실 줄은 출처별로 센다.
+export function choiceSheet(text, title = '') {
+  const out = [`# 고를 것 — ${title}`, '', '「[제안]」은 우리가 새로 내놓는 것이다. 쓸 것에 표시한다. 「[사실]」 줄은 자료에서 온 것이라 목록에 넣지 않았다(초안에서 확인).', ''];
+  let heading = '';
+  for (const line of String(text).split('\n')) {
+    const h = line.match(/^#{2,4}\s+(.*)/);
+    if (h) { heading = h[1]; out.push(`## ${heading}`); continue; }
+    if (line.includes(MARK_PROPOSAL)) {
+      const body = line.trim().replace(/^\|/, '').replace(/\|$/, '').replace(MARKED_LINE, '').replace(/\*\*/g, '').replace('[제안]', '').replace(/\s*\|\s*/g, ' | ').trim();
+      out.push(`- [ ] ${body}`);
+    }
+  }
+  return out.filter((line, index, all) => !(line.startsWith('## ') && (!all[index + 1] || all[index + 1].startsWith('## ')))).join('\n');
 }
 
 // ---------- 비용 ----------
@@ -209,12 +307,34 @@ export function usageRecord({ at, section, model, message, krwPerUsd }) {
     cache_creation_input_tokens: sum('cache_creation_input_tokens'),
     cache_read_input_tokens: sum('cache_read_input_tokens'),
     output_tokens: sum('output_tokens'),
+    // 생각 토큰(10-08). API가 usage.output_tokens_details.thinking_tokens로 따로 준다(출력 토큰 안에 들어 있고 단가도 같다).
+    // 시도마다 있으면 더하고, 어디에도 없으면 null로 둔다(0으로 지어내지 않는다).
+    thinking_tokens: thinkingTokens(usage, parts),
+    // 응답에 온 thinking 블록. Opus 5.5는 기본이 display "omitted"라 블록은 와도 글은 빈 문자열이다 — 길이로는 셀 수 없다.
+    thinking_blocks: (message.content || []).filter(block => block.type === 'thinking').length,
+    thinking_chars: (message.content || []).filter(block => block.type === 'thinking').reduce((acc, block) => acc + (block.thinking || '').length, 0),
     iterations: usage.iterations || null,
     usd: cost.usd,
     krw: cost.krw,
     krw_per_usd: krwPerUsd,
     unknown_price_models: cost.unknownModels
   };
+}
+
+function thinkingTokens(usage, parts) {
+  const of = part => part?.output_tokens_details?.thinking_tokens;
+  if (parts.some(part => typeof of(part) === 'number')) return parts.reduce((acc, part) => acc + (of(part) || 0), 0);
+  return typeof of(usage) === 'number' ? of(usage) : null;
+}
+
+// 본문 글이 몇 토큰인지 토큰 세기 API(무료)로 잰다. 「출력 − 본문」이 생각 토큰의 어림이다 — API 칸과 맞춰 보는 데 쓴다.
+// 빈 메시지는 못 세므로 「.」 하나의 값을 빼서 메시지 틀 몫을 지운다. 세기에 실패해도 초안은 그대로 둔다.
+export async function countTextTokens(client, model, text) {
+  if (!client?.beta?.messages?.countTokens || !text) return null;
+  try {
+    const of = async content => (await client.beta.messages.countTokens({ model, messages: [{ role: 'user', content }] })).input_tokens;
+    return (await of(text)) - (await of('.'));
+  } catch { return null; }
 }
 
 export function textOf(message) {
@@ -234,6 +354,10 @@ export async function draftSection({ client, model, effort = 'high', rfpText, fa
   });
   const message = await stream.finalMessage();
   const record = usageRecord({ at: now(), section: section.title, model, message, krwPerUsd });
+  record.effort = effort;
+  record.text_chars = textOf(message).length;
+  record.text_tokens = await countTextTokens(client, model, textOf(message));
+  record.thinking_estimate = record.text_tokens == null ? null : record.output_tokens - record.text_tokens;
   await onUsage?.(record);
   if (message.stop_reason === 'refusal') return { text: '', record, refused: true, checks: [{ level: 'fail', what: '모델이 쓰기를 거절함', detail: JSON.stringify(message.stop_details || null) }] };
   const text = textOf(message);

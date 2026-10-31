@@ -1,0 +1,23 @@
+{
+    "face":  "휴먼명조",
+    "pt":  15,
+    "line_spacing_percent":  160,
+    "margins":  "machine",
+    "hwp":  "11, 0, 0, 2129",
+    "lines_per_page":  31,
+    "per_line":  {
+                     "hangul":  30,
+                     "digit":  60,
+                     "hangul_with_spaces":  34
+                 },
+    "hangul_per_page":  930,
+    "page_saved":  {
+                       "header_mm":  0,
+                       "footer_mm":  12,
+                       "gutter_mm":  0,
+                       "left_mm":  25,
+                       "right_mm":  25,
+                       "top_mm":  20,
+                       "bottom_mm":  0
+                   }
+}

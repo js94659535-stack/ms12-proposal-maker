@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { readPlan, readToc, readPriority, readFormat, writingUnits } from '../public/rfp/rfp-plan.js';
+import { readPlan, readToc, readPriority, readFormat, writingUnits, share } from '../public/rfp/rfp-plan.js';
 import { readRfp } from '../public/rfp/rfp-read.js';
 import { userContent, checkDraft } from '../src/proposal-draft.js';
 
@@ -34,12 +34,28 @@ test('통일부 RFP: 자유분량 = 본보고서 30쪽 - 정해진 18쪽 = 12쪽
   assert.equal(plan.pages.front, 2);
   assert.equal(plan.pages.fixed, 18);
   assert.equal(plan.pages.free, 12);
-  // 공고가 나누는 법을 말하지 않으므로 똑같이 나눈다: 자유분량 12쪽 → Ⅱ.1·Ⅱ.2 6쪽씩, Ⅰ장 4쪽 → 1쪽씩.
-  assert.equal(byKey('Ⅱ.1').pages.value, 6);
-  assert.equal(byKey('Ⅱ.2').pages.value, 6);
-  assert.match(byKey('Ⅱ.2').pages.basis, /30쪽 - 정해진 18쪽 = 12쪽을 절 2개에 똑같이 나눔/);
-  assert.deepEqual(['Ⅰ.1', 'Ⅰ.2', 'Ⅰ.3', 'Ⅰ.4'].map(key => byKey(key).pages.value), [1, 1, 1, 1]);
-  assert.equal(plan.sections.reduce((acc, section) => acc + section.pages.value, 0) + plan.pages.front, 30);
+  // 자유분량은 다 쓰지 않는다(10-08): 쪽수가 정해진 절의 수준(55.83점 ÷ 16쪽 = 3.49점/쪽)에 맞춰 「배점 ÷ 수준」쪽만.
+  // 사람이 정하기 전 배점으로: Ⅱ.1 3.33점 → 1쪽, Ⅱ.2 7.5점 → 2쪽. 12쪽 중 3쪽만 쓰고 9쪽은 남긴다.
+  // Ⅰ장 4쪽은 장 안에서 배점 비례: 1.25 · 1.25 · 2.5 · 8.33점 → 0.5 · 0.5 · 0.5 · 2.5쪽.
+  assert.equal(plan.pages.level, 3.49);
+  assert.equal(byKey('Ⅱ.1').pages.value, 1);
+  assert.equal(byKey('Ⅱ.2').pages.value, 2);
+  assert.match(byKey('Ⅱ.2').pages.basis, /정해진 절의 수준 3\.49점\/쪽/);
+  assert.deepEqual([plan.pages.used, plan.pages.unused], [3, 9]);
+  assert.deepEqual(['Ⅰ.1', 'Ⅰ.2', 'Ⅰ.3', 'Ⅰ.4'].map(key => byKey(key).pages.value), [0.5, 0.5, 0.5, 2.5]);
+  // RFP가 정한 쪽수는 그대로.
+  assert.deepEqual(['Ⅱ.3', 'Ⅲ.1', 'Ⅲ.2', 'Ⅳ.1', 'Ⅳ.2', 'Ⅴ'].map(key => [byKey(key).pages.value, byKey(key).pages.basis]),
+    [[2, '목차표'], [2, '목차표'], [2, '목차표'], [2, '목차표'], [1, '목차표'], [3, '목차표']]);
+  assert.equal(plan.sections.reduce((acc, section) => acc + section.pages.value, 0) + plan.pages.front + plan.pages.unused, 30);
+  // 절마다 점/쪽
+  assert.deepEqual(['Ⅲ.1', 'Ⅱ.3'].map(key => byKey(key).density), [7.92, 0]);
+});
+
+test('쪽 나누기: 배점 비례, 0.5쪽 단위, 최소 0.5쪽, 합은 그대로', () => {
+  assert.deepEqual(share(4, [1.25, 1.25, 5.83, 8.33]), [0.5, 0.5, 1, 2]);
+  assert.deepEqual(share(4, [0, 0, 0, 0]), [1, 1, 1, 1]);
+  assert.deepEqual(share(2, [0, 10]), [0.5, 1.5]);
+  for (const weights of [[1, 2, 3], [0.1, 0.1, 9], [5, 5, 5, 5, 5]]) assert.equal(share(6, weights).reduce((acc, value) => acc + value, 0), 6);
 });
 
 test('통일부 RFP: 괄호 안 열거를 쪼개 보아 Ⅰ.1 비전·Ⅰ.2 목표에 사업 이해도가 붙는다', () => {
@@ -62,26 +78,43 @@ test('통일부 RFP: 평가표 배점이 절에 붙고, 70점이 어디로 갔�
   assert.ok(items('Ⅱ.2').includes('신규 프로그램') && items('Ⅱ.2').includes('세부추진계획'));
   assert.ok(items('Ⅲ.2').includes('지역협력계획') && items('Ⅲ.2').includes('세부추진계획'));
   assert.deepEqual(items('Ⅴ'), ['홍보방안']);
-  // 절에 붙은 것 + 전체에 걸친 것 = 70점.
+  // 사람이 정하기 전: 한 줄이 어느 절에도 안 붙는다. 그것을 더해 70을 만들지 않으므로 ok는 거짓이다(10-07).
   assert.equal(plan.scoreCheck.total, 70);
-  assert.equal(plan.scoreCheck.ok, true);
-  assert.ok(Math.abs(plan.scoreCheck.sections + plan.scoreCheck.crossCutting - 70) < 0.02, JSON.stringify(plan.scoreCheck));
+  assert.equal(plan.scoreCheck.sections, 66.66);
+  assert.equal(plan.scoreCheck.ok, false);
   assert.deepEqual(plan.crossCutting.map(entry => [entry.item, entry.point, entry.share]), [['기획구성', '제안요청서와 부합성과 종합 추진일정의 합리성', 3.33]]);
   // 두 절이 비슷하게 맞으면 둘 다 붙이고 확인 표시를 남긴다.
   assert.ok(byKey('Ⅱ.2').scoring.some(entry => entry.item === '신규 프로그램' && !entry.confident));
 });
 
 test('사람이 정한 연결(project.json attach)이 글자 비교보다 먼저다', () => {
-  const decided = readPlan(unification, { attach: { '신규 프로그램': { main: 'Ⅱ.2', also: ['Ⅲ.1'] } } }).plan;
+  const decided = readPlan(unification, { project: { attach: { '신규 프로그램': { main: 'Ⅱ.2', also: ['Ⅲ.1'] } } } }).plan;
   const at = key => decided.sections.find(section => section.key === key).scoring.filter(entry => entry.item === '신규 프로그램');
   assert.equal(at('Ⅱ.2').reduce((acc, entry) => acc + entry.share, 0), 10);
   assert.ok(at('Ⅱ.2').every(entry => entry.role === '본진' && entry.by === '사람'));
   assert.ok(at('Ⅲ.1').length && at('Ⅲ.1').every(entry => entry.role === '부차' && entry.share === 0));
-  assert.equal(decided.scoreCheck.ok, true);
+  assert.equal(decided.scoreCheck.ok, false); // 「부합성」 한 줄이 아직 안 붙었다
   // 「항목|줄 일부」로 한 줄만 정할 수도 있다.
-  const one = readPlan(unification, { attach: { '기획구성|설문': { main: 'Ⅱ.3' } } }).plan;
+  const one = readPlan(unification, { project: { attach: { '기획구성|설문': { main: 'Ⅱ.3' } } } }).plan;
   const planning = one.sections.find(section => section.key === 'Ⅱ.3').scoring;
   assert.deepEqual(planning.map(entry => [entry.item, entry.point, Number(entry.share.toFixed(2))]), [['기획구성', '프로그램운영 수요조사 및 설문을 반영한 콘텐츠 개발', 3.33]]);
+});
+
+test('통일부 RFP + project.json(10-07): 70점이 모두 절에 실리고 Ⅱ.3·Ⅰ.3이 배점을 받는다', () => {
+  const project = JSON.parse(fs.readFileSync(new URL('../reports/10-05-unification/project.json', import.meta.url), 'utf8'));
+  const decided = readPlan(unification, { project: { attach: project.attach } }).plan;
+  const at = key => decided.sections.find(section => section.key === key);
+  assert.deepEqual(decided.scoreCheck, { sections: 70, crossCutting: 0, total: 70, ok: true });
+  assert.deepEqual(decided.crossCutting, []);
+  // 「수요조사 및 설문」 한 줄이 Ⅱ.2·Ⅱ.3에 걸친다: 둘 다 본진, 배점은 반씩.
+  const survey = key => at(key).scoring.filter(entry => /수요조사/.test(entry.point));
+  assert.deepEqual(['Ⅱ.2', 'Ⅱ.3'].map(key => survey(key).map(entry => [entry.role, Number(entry.share.toFixed(2))])), [[['본진', 1.67]], [['본진', 1.67]]]);
+  assert.ok(at('Ⅰ.3').scoring.some(entry => /부합성과 종합 추진일정/.test(entry.point) && entry.by === '사람'));
+  assert.deepEqual(['Ⅰ.1', 'Ⅰ.2', 'Ⅰ.3', 'Ⅰ.4', 'Ⅱ.3'].map(key => at(key).score), [1.25, 1.25, 5.83, 8.33, 1.67]);
+  assert.deepEqual(['Ⅰ.1', 'Ⅰ.2', 'Ⅰ.3', 'Ⅰ.4'].map(key => at(key).pages.value), [0.5, 0.5, 1, 2]);
+  // 자유분량(10-08): 수준 51.67점 ÷ 16쪽 = 3.23점/쪽 → Ⅱ.1 3.33점 1쪽, Ⅱ.2 15점 4.5쪽. 12쪽 중 5.5쪽, 6.5쪽 남김.
+  assert.deepEqual([decided.pages.level, at('Ⅱ.1').pages.value, at('Ⅱ.2').pages.value, decided.pages.used, decided.pages.unused], [3.23, 1, 4.5, 5.5, 6.5]);
+  assert.deepEqual(decided.decided.length, 3);
 });
 
 test('통일부 RFP: 동점 우선순위는 순서만 읽어 표시하고 분량 계산에 쓰지 않는다', () => {
@@ -149,7 +182,9 @@ test('같은 모양의 다른 목차표·우선순위 문장이면 그 이름과
   assert.deepEqual(result.plan.sections.map(section => [section.key, section.title]), [['Ⅰ', '현장'], ['Ⅱ.1', '인력']]);
   assert.deepEqual(result.plan.priority.order.map(entry => [entry.item, entry.rank]), [['운영 체계', 1], ['현장 이해', 2]]);
   assert.equal(result.plan.pages.free, 7);
-  assert.equal(result.plan.sections[1].pages.value, 7);
+  // 정해진 절(Ⅰ 3쪽)의 수준에 맞춰 Ⅱ.1을 배정하고 남는 쪽은 쓰지 않는다.
+  assert.equal(result.plan.sections[1].pages.value + result.plan.pages.unused, 7);
+  assert.equal(result.plan.pages.used, result.plan.sections[1].pages.value);
 });
 
 test('장 단위 작성지시가 프롬프트와 검사에 쓰인다', () => {
