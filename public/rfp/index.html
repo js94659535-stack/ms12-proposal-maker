@@ -103,17 +103,20 @@ function planHtml({ plan }) {
   const pages = plan.pages;
   const points = list => list.map(point => `<li>${esc(point.point)}${point.details.length ? `<ul>${point.details.map(detail => `<li>${esc(detail)}</li>`).join('')}</ul>` : ''}</li>`).join('');
   const scoring = section => section.scoring.length
-    ? section.scoring.map(entry => `<li><b>${esc(entry.item)}</b> ${esc(entry.point)} <span class="note">${entry.share.toFixed(1)}점${entry.confident ? '' : ' · <span class="hold">다른 절과 비슷하게 맞음 — 확인</span>'}</span></li>`).join('')
+    ? section.scoring.map(entry => `<li><b>${esc(entry.item)}</b> ${esc(entry.point)} <span class="note">${entry.role === '부차' ? '부차(배점은 본진 절에)' : `${entry.share.toFixed(1)}점`}${entry.by === '사람' ? ' · 사람이 정함' : ''}${entry.confident ? '' : ' · <span class="hold">다른 절과 비슷하게 맞음 — 확인</span>'}</span></li>`).join('')
     : '<li class="note">직접 붙은 평가 항목 없음 — 작성내용을 따른다</li>';
+  const check = plan.scoreCheck;
   return `<h2>제출 목차와 작성지시 <span class="note">(공고 목차표 · 평가표 배점을 절에 붙임)</span></h2>
-    ${pages.total ? `<p class="note">${esc(pages.totalFrom)} ${pages.total}쪽 = 정해진 ${pages.fixed}쪽(표지·목차 ${pages.front}쪽 포함) + 자유분량 ${pages.free ?? 0}쪽. ${esc(pages.assumption)}.</p>` : ''}
-    ${plan.priority ? `<p class="note">동점 우선순위(가중치): ${plan.priority.order.map(entry => `${esc(entry.name)} ×${entry.multiplier}`).join(' → ')}</p>` : ''}
+    ${pages.total ? `<p class="note">${esc(pages.totalFrom)} ${pages.total}쪽 = 정해진 ${pages.fixed}쪽(표지·목차 ${pages.front}쪽 포함) + 자유분량 ${pages.free ?? 0}쪽. 자유분량은 해당 절에 똑같이 나눔.</p>` : ''}
+    ${check ? `<p class="${check.ok ? 'note' : 'bad'}">배점: 절에 붙은 ${check.sections.toFixed(1)}점 + 전체에 걸친 ${check.crossCutting.toFixed(1)}점 = ${(check.sections + check.crossCutting).toFixed(1)}점 / 평가표 ${check.total}점</p>` : ''}
+    ${plan.priority ? `<p class="note">동점 우선순위(공고 순서, 분량 계산에는 쓰지 않음): ${plan.priority.order.map(entry => `${entry.rank}. ${esc(entry.name)}`).join(' → ')}</p>` : ''}
     <ol class="toc">${plan.sections.map(section => `<li><b>${esc(section.key)} ${esc(section.title)}</b>${section.chapter ? `<span class="note"> · ${esc(section.chapter)}</span>` : ''}
-      <span class="score">${section.pages ? `${section.pages.value}쪽` : '쪽수 미정'} · ${section.score}점 · 가중 ${section.weight}</span>
+      <span class="score">${section.pages ? `${section.pages.value}쪽` : '쪽수 미정'} · ${section.score}점</span>
+      ${section.priority.length ? `<div class="hold">동점 시 ${section.priority.map(entry => `${entry.rank}순위 ${esc(entry.item)}`).join(', ')}</div>` : ''}
       ${section.pages ? `<div class="note">${esc(section.pages.basis)}${section.pages.max ? ' (이내)' : ''}</div>` : ''}
       <div class="note">작성내용</div><ul>${points(section.writeWhat) || '<li class="note">없음</li>'}</ul>
       <div class="note">채점 기준</div><ul>${scoring(section)}</ul></li>`).join('')}</ol>
-    ${plan.crossCutting.length ? `<p class="note">전체에 걸친 채점 기준(특정 절에 붙지 않음): ${plan.crossCutting.map(entry => `${esc(entry.item)} — ${esc(entry.point)}`).join(', ')}</p>` : ''}
+    ${plan.crossCutting.length ? `<p class="note">전체에 걸친 채점 기준(특정 절에 붙지 않음): ${plan.crossCutting.map(entry => `${esc(entry.item)} — ${esc(entry.point)} ${entry.share.toFixed(1)}점`).join(', ')}</p>` : ''}
     ${formatHtml(plan.format)}`;
 }
 

@@ -66,8 +66,10 @@ function unitRequest(unit, plan) {
     lines.push('', `### ${part.key} ${part.title}${part.pages ? ` (권장 ${part.pages.value}쪽)` : ''}`);
     lines.push('작성내용(공고 목차표):', ...(part.writeWhat.length ? points(part.writeWhat) : ['- (목차표에 적힌 내용 없음)']));
     lines.push('채점 기준(평가표):', ...(part.scoring.length
-      ? part.scoring.map(entry => `- [${entry.item}] ${entry.point}${entry.details.length ? ` — ${entry.details.join(' / ')}` : ''}`)
+      ? part.scoring.map(entry => `- [${entry.item}${entry.role === '부차' ? ' · 부차(본진은 다른 절 — 여기서는 이 절의 맥락에 걸치는 만큼만)' : ''}] ${entry.point}${entry.details.length ? ` — ${entry.details.join(' / ')}` : ''}`)
       : ['- (이 절에 직접 붙은 평가 항목 없음 — 작성내용을 따른다)']));
+    // 동점 우선순위는 공고에서 온 순서다. 분량을 늘리지 않고, 말로 힘을 더 주게 한다.
+    for (const entry of part.priority || []) lines.push(`※ 이 절에는 동점 시 ${entry.rank}순위로 보는 항목(${entry.item})이 붙어 있다. 권장 쪽수 안에서 이 항목을 가장 구체적으로 쓴다.`);
   }
   if (plan?.crossCutting?.length) lines.push('', '전체에 걸친 채점 기준(특정 절에 붙지 않음):', ...plan.crossCutting.map(entry => `- [${entry.item}] ${entry.point}`));
   if (plan?.priority) lines.push('', `동점일 때 우선 보는 항목(공고): ${plan.priority.order.map(entry => entry.name).join(' → ')}`);

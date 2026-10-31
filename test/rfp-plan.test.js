@@ -34,41 +34,67 @@ test('통일부 RFP: 자유분량 = 본보고서 30쪽 - 정해진 18쪽 = 12쪽
   assert.equal(plan.pages.front, 2);
   assert.equal(plan.pages.fixed, 18);
   assert.equal(plan.pages.free, 12);
-  assert.equal(byKey('Ⅱ.1').pages.value + byKey('Ⅱ.2').pages.value, 12);
-  assert.match(byKey('Ⅱ.2').pages.basis, /30쪽 - 정해진 18쪽 = 12쪽/);
-  // 신규 프로그램이 붙은 Ⅱ.2가 Ⅱ.1보다 쪽수를 더 받는다.
-  assert.ok(byKey('Ⅱ.2').pages.value > byKey('Ⅱ.1').pages.value);
-  // 장 쪽수는 절에 나눠도 합이 같다.
-  assert.equal(['Ⅰ.1', 'Ⅰ.2', 'Ⅰ.3', 'Ⅰ.4'].reduce((acc, key) => acc + byKey(key).pages.value, 0), 4);
+  // 공고가 나누는 법을 말하지 않으므로 똑같이 나눈다: 자유분량 12쪽 → Ⅱ.1·Ⅱ.2 6쪽씩, Ⅰ장 4쪽 → 1쪽씩.
+  assert.equal(byKey('Ⅱ.1').pages.value, 6);
+  assert.equal(byKey('Ⅱ.2').pages.value, 6);
+  assert.match(byKey('Ⅱ.2').pages.basis, /30쪽 - 정해진 18쪽 = 12쪽을 절 2개에 똑같이 나눔/);
+  assert.deepEqual(['Ⅰ.1', 'Ⅰ.2', 'Ⅰ.3', 'Ⅰ.4'].map(key => byKey(key).pages.value), [1, 1, 1, 1]);
   assert.equal(plan.sections.reduce((acc, section) => acc + section.pages.value, 0) + plan.pages.front, 30);
 });
 
-test('통일부 RFP: 평가표 배점이 절에 붙고, 한 절에 둘 이상 붙을 수 있다', () => {
+test('통일부 RFP: 괄호 안 열거를 쪼개 보아 Ⅰ.1 비전·Ⅰ.2 목표에 사업 이해도가 붙는다', () => {
+  // 「사업운영 계획수립(비전, 목표, 연도별 추진방향 등)」 — 10-06 첫 보고에서 Ⅰ.1·Ⅰ.2가 0점이었다.
+  const of = (key, item) => byKey(key).scoring.filter(entry => entry.item === item);
+  assert.ok(of('Ⅰ.1', '사업 이해도').some(entry => /— 비전$/.test(entry.point)), JSON.stringify(byKey('Ⅰ.1').scoring));
+  assert.ok(of('Ⅰ.2', '사업 이해도').some(entry => /— 목표$/.test(entry.point)));
+  assert.ok(of('Ⅰ.3', '사업 이해도').some(entry => /— 연도별 추진방향$/.test(entry.point)));
+  assert.ok(byKey('Ⅰ.1').score > 0 && byKey('Ⅰ.2').score > 0);
+  // 사업 이해도 10점이 Ⅰ장 안에 모두 있다.
+  const understanding = plan.sections.flatMap(section => section.scoring.filter(entry => entry.item === '사업 이해도').map(entry => [section.key, entry.share]));
+  assert.ok(understanding.every(([key]) => key.startsWith('Ⅰ.')), JSON.stringify(understanding));
+  assert.ok(Math.abs(understanding.reduce((acc, [, share]) => acc + share, 0) - 10) < 0.01);
+});
+
+test('통일부 RFP: 평가표 배점이 절에 붙고, 70점이 어디로 갔는지 남김없이 보인다', () => {
   const items = section => [...new Set(byKey(section).scoring.map(entry => entry.item))];
-  assert.deepEqual(items('Ⅰ.3'), ['사업 이해도']);
   assert.deepEqual(items('Ⅰ.4'), ['사업 이해도', '기획구성']);
   assert.deepEqual(items('Ⅱ.1'), ['세부추진계획']);
   assert.ok(items('Ⅱ.2').includes('신규 프로그램') && items('Ⅱ.2').includes('세부추진계획'));
   assert.ok(items('Ⅲ.2').includes('지역협력계획') && items('Ⅲ.2').includes('세부추진계획'));
-  assert.deepEqual(items('Ⅳ.1'), ['안전관리 등 비상대책수립']);
   assert.deepEqual(items('Ⅴ'), ['홍보방안']);
-  // 배점 70점이 절과 「전체」에 빠짐없이 나뉜다.
-  const crossShare = plan.crossCutting.length * (10 / 3);
-  assert.ok(Math.abs(plan.sections.reduce((acc, section) => acc + section.score, 0) + crossShare - 70) < 0.1);
-  // 어느 절과도 잘 맞지 않는 기준은 「전체에 걸친 기준」으로 둔다.
-  assert.deepEqual(plan.crossCutting.map(entry => entry.point), ['제안요청서와 부합성과 종합 추진일정의 합리성']);
+  // 절에 붙은 것 + 전체에 걸친 것 = 70점.
+  assert.equal(plan.scoreCheck.total, 70);
+  assert.equal(plan.scoreCheck.ok, true);
+  assert.ok(Math.abs(plan.scoreCheck.sections + plan.scoreCheck.crossCutting - 70) < 0.02, JSON.stringify(plan.scoreCheck));
+  assert.deepEqual(plan.crossCutting.map(entry => [entry.item, entry.point, entry.share]), [['기획구성', '제안요청서와 부합성과 종합 추진일정의 합리성', 3.33]]);
   // 두 절이 비슷하게 맞으면 둘 다 붙이고 확인 표시를 남긴다.
   assert.ok(byKey('Ⅱ.2').scoring.some(entry => entry.item === '신규 프로그램' && !entry.confident));
 });
 
-test('통일부 RFP: 동점 우선순위 문장을 읽어 가중치로 쓴다', () => {
-  assert.deepEqual(plan.priority.order.map(entry => [entry.item, entry.rank, entry.multiplier]), [
-    ['신규 프로그램', 1, 1.3], ['기획구성', 2, 1.2], ['세부추진계획', 3, 1.1]
-  ]);
+test('사람이 정한 연결(project.json attach)이 글자 비교보다 먼저다', () => {
+  const decided = readPlan(unification, { attach: { '신규 프로그램': { main: 'Ⅱ.2', also: ['Ⅲ.1'] } } }).plan;
+  const at = key => decided.sections.find(section => section.key === key).scoring.filter(entry => entry.item === '신규 프로그램');
+  assert.equal(at('Ⅱ.2').reduce((acc, entry) => acc + entry.share, 0), 10);
+  assert.ok(at('Ⅱ.2').every(entry => entry.role === '본진' && entry.by === '사람'));
+  assert.ok(at('Ⅲ.1').length && at('Ⅲ.1').every(entry => entry.role === '부차' && entry.share === 0));
+  assert.equal(decided.scoreCheck.ok, true);
+  // 「항목|줄 일부」로 한 줄만 정할 수도 있다.
+  const one = readPlan(unification, { attach: { '기획구성|설문': { main: 'Ⅱ.3' } } }).plan;
+  const planning = one.sections.find(section => section.key === 'Ⅱ.3').scoring;
+  assert.deepEqual(planning.map(entry => [entry.item, entry.point, Number(entry.share.toFixed(2))]), [['기획구성', '프로그램운영 수요조사 및 설문을 반영한 콘텐츠 개발', 3.33]]);
+});
+
+test('통일부 RFP: 동점 우선순위는 순서만 읽어 표시하고 분량 계산에 쓰지 않는다', () => {
+  assert.deepEqual(plan.priority.order.map(entry => [entry.item, entry.rank]), [['신규 프로그램', 1], ['기획구성', 2], ['세부추진계획', 3]]);
+  assert.ok(plan.priority.order.every(entry => !('multiplier' in entry)));
   assert.match(plan.priority.quote, /항목순으로 높은 점수를 얻은 자를 우선순위자로 한다/);
-  // 가중치 = 붙은 배점 × 우선순위 배수. Ⅱ.1은 세부추진계획 3.33점 × 1.1
-  assert.equal(byKey('Ⅱ.1').weight, Number(((10 / 3) * 1.1).toFixed(2)));
-  assert.ok(byKey('Ⅴ').weight === byKey('Ⅴ').score);
+  assert.ok(plan.sections.every(section => !('weight' in section)));
+  assert.deepEqual(byKey('Ⅱ.2').priority.map(entry => entry.rank), [1, 2, 3]);
+  assert.deepEqual(byKey('Ⅴ').priority, []);
+  // AI에게는 말로 시킨다.
+  const unit = writingUnits(plan).find(entry => entry.key === 'Ⅱ');
+  const request = userContent({ rfpText: unification, facts: [], project: {}, section: unit, constraints, plan })[1].text;
+  assert.match(request, /동점 시 1순위로 보는 항목\(신규 프로그램\)이 붙어 있다/);
 });
 
 test('통일부 RFP: 서체·규격 문단을 출력 규칙으로 읽는다', () => {
@@ -121,7 +147,7 @@ test('같은 모양의 다른 목차표·우선순위 문장이면 그 이름과
   const result = readPlan(text);
   assert.equal(result.plan.from, '목차표');
   assert.deepEqual(result.plan.sections.map(section => [section.key, section.title]), [['Ⅰ', '현장'], ['Ⅱ.1', '인력']]);
-  assert.deepEqual(result.plan.priority.order.map(entry => [entry.item, entry.multiplier]), [['운영 체계', 1.2], ['현장 이해', 1.1]]);
+  assert.deepEqual(result.plan.priority.order.map(entry => [entry.item, entry.rank]), [['운영 체계', 1], ['현장 이해', 2]]);
   assert.equal(result.plan.pages.free, 7);
   assert.equal(result.plan.sections[1].pages.value, 7);
 });

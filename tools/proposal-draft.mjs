@@ -30,7 +30,8 @@ fs.mkdirSync(out, { recursive: true });
 const rfpText = (await Promise.all(rfpFiles.map(readText))).join('\n\n');
 const facts = await Promise.all(factFiles.map(async file => ({ source: path.basename(file), text: await readText(file) })));
 const project = opt('project') ? JSON.parse(fs.readFileSync(opt('project'), 'utf8')) : {};
-const { plan, fallback, constraints } = readPlan(rfpText);
+// project.json의 attach: 평가 항목을 어느 절에 붙일지 사람이 정한 것(글자 비교보다 먼저).
+const { plan, fallback, constraints } = readPlan(rfpText, { attach: project.attach || {} });
 if (!plan) { console.error(`목차를 만들지 못했다: ${fallback.reason}. 이 공고는 양식 기반으로 쓴다.`); process.exit(2); }
 const units = writingUnits(plan);
 

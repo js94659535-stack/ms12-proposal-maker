@@ -93,33 +93,78 @@ const overlap = (left, right) => {
 
 export const MATCH = { weak: 0.35, close: 0.75, titleBoost: 0.5 };
 
-export function attachEvaluation(toc, evaluation, chosen) {
+// 평가 줄 하나에서 근거 단위를 뽑는다: 줄 전체 하나 + 괄호 안에 쉼표로 열거된 낱낱.
+// 「사업운영 계획수립(비전, 목표, 연도별 추진방향 등)」은 줄 전체와 「비전」「목표」「연도별 추진방향」 넷이다.
+// 열거된 낱말은 그 자체가 절 이름일 때가 많아(Ⅰ.1 사업 비전) 줄 전체에 묻히면 놓친다(10-06 보고에서 Ⅰ.1·Ⅰ.2가 0점).
+// 낱말 목록을 두지 않는다 — 괄호와 쉼표라는 글의 모양만 본다.
+export function evidenceUnits(point) {
+  const lines = [point.point, ...point.details];
+  const units = [{ text: lines.join(' '), whole: true }];
+  for (const line of lines) {
+    for (const group of String(line).matchAll(/\(([^()]*)\)/g)) {
+      const parts = group[1].split(/\s*[,·]\s*/).map(part => part.replace(/\s*등$/, '').trim()).filter(Boolean);
+      if (parts.length > 1) units.push(...parts.map(text => ({ text, whole: false })));
+    }
+  }
+  return units;
+}
+
+// 사람이 정한 연결(project.json의 attach)이 있으면 그 항목은 글자 비교 대신 그대로 붙인다.
+// { "신규 프로그램": { "main": "Ⅱ.2", "also": ["Ⅲ.1"] } } — 배점은 main에, also에는 배점 없이 「부차」로.
+export function attachEvaluation(toc, evaluation, chosen, decided = {}) {
   const leaves = leavesOf(toc);
   const score = scorer(leaves.map(leaf => `${leaf.chapter.title} ${leaf.title} ${leaf.content}`));
+  const titleScore = scorer(leaves.map(leaf => leaf.title));
   const attachments = leaves.map(() => []);
   const crossCutting = [];
+  const indexOf = key => leaves.findIndex(leaf => squash(leaf.key) === squash(key));
   for (const item of chosen) {
     const points = item.points.length ? item.points : [{ point: item.name, details: [] }];
+    // 키는 「항목 이름」(그 항목 전부) 또는 「항목 이름|줄 일부」(그 글자가 든 줄만).
+    const ruleFor = point => {
+      const rules = Object.entries(decided).map(([key, rule]) => ({ name: key.split('|')[0], part: key.split('|')[1] || null, rule }))
+        .filter(entry => squash(entry.name) === squash(item.name) && indexOf(entry.rule.main) >= 0);
+      const text = [point.point, ...point.details].join(' ');
+      return (rules.find(entry => entry.part && squash(text).includes(squash(entry.part))) || rules.find(entry => !entry.part))?.rule || null;
+    };
     for (const point of points) {
-      const query = [point.point, ...point.details].join(' ');
-      const ranked = leaves
-        .map((leaf, index) => ({ index, value: score(query, index) + MATCH.titleBoost * overlap(item.name, `${leaf.chapter.title} ${leaf.title}`) }))
-        .sort((a, b) => b.value - a.value);
-      const [best, second] = ranked;
-      if (!best || best.value < MATCH.weak) { crossCutting.push({ item: item.name, point: point.point, best: best ? leaves[best.index].key : null, value: best?.value ?? 0 }); continue; }
-      const targets = second && second.value >= best.value * MATCH.close ? [best, second] : [best];
-      const share = item.score / points.length / targets.length;
-      for (const target of targets) {
-        attachments[target.index].push({ item: item.name, point: point.point, details: point.details, share, confident: targets.length === 1, value: Number(target.value.toFixed(2)) });
+      const rule = ruleFor(point);
+      if (rule) {
+        attachments[indexOf(rule.main)].push({ item: item.name, point: point.point, details: point.details, share: item.score / points.length, confident: true, role: '본진', by: '사람' });
+        for (const key of rule.also || []) if (indexOf(key) >= 0) attachments[indexOf(key)].push({ item: item.name, point: point.point, details: point.details, share: 0, confident: true, role: '부차', by: '사람' });
+        continue;
+      }
+      const units = evidenceUnits(point);
+      for (const unit of units) {
+        // 열거된 낱말은 절 제목과의 겹침도 함께 본다(줄 전체는 지금까지처럼 본문 겹침 + 항목 이름).
+        const ranked = leaves
+          .map((leaf, index) => ({ index, value: score(unit.text, index) + MATCH.titleBoost * overlap(item.name, `${leaf.chapter.title} ${leaf.title}`) + (unit.whole ? 0 : titleScore(unit.text, index)) }))
+          .sort((a, b) => b.value - a.value);
+        const [best, second] = ranked;
+        const share = item.score / points.length / units.length;
+        if (!best || best.value < MATCH.weak) { crossCutting.push({ item: item.name, point: unit.whole ? point.point : `${point.point} — ${unit.text}`, share, best: best ? leaves[best.index].key : null, value: best?.value ?? 0 }); continue; }
+        const targets = second && second.value >= best.value * MATCH.close ? [best, second] : [best];
+        for (const target of targets) {
+          attachments[target.index].push({ item: item.name, point: unit.whole ? point.point : `${point.point} — ${unit.text}`, details: unit.whole ? point.details : [], share: share / targets.length, confident: targets.length === 1, by: '글자', value: Number(target.value.toFixed(2)) });
+        }
       }
     }
   }
-  return { leaves, attachments, crossCutting };
+  // 같은 절에 같은 줄이 여러 단위로 붙으면 한 줄로 합친다(배점은 더한다).
+  const merged = attachments.map(list => {
+    const out = [];
+    for (const entry of list) {
+      const known = out.find(other => other.item === entry.item && other.point === entry.point && other.role === entry.role);
+      if (known) { known.share += entry.share; known.confident = known.confident && entry.confident; } else out.push({ ...entry });
+    }
+    return out;
+  });
+  return { leaves, attachments: merged, crossCutting };
 }
 
 // ---------- 3) 동점 우선순위 ----------
 // 「…동일한 경우에는 기술능력평가 항목중 1. 가 2. 나 3. 다 항목순으로…」에서 순서를 읽는다.
-export const PRIORITY_STEP = 0.1;
+// 순서만 쓴다. 순서를 배수로 바꾸는 숫자는 공고에 없으므로 쪽수·배점 계산에 넣지 않는다(10-06 보고 뒤 고침).
 export function readPriority(text, items) {
   // 「1. 신규 프로그램」의 마침표에서 자르지 않도록 「…다.」「…함.」「…음.」에서만 문장을 나눈다.
   for (const sentence of linesOf(text).join(' ').split(/(?<=다\.|함\.|음\.)\s+/)) {
@@ -131,7 +176,7 @@ export function readPriority(text, items) {
     const found = names.map(name => items.find(item => squash(item.name) === squash(name) || squash(item.name).includes(squash(name)) || squash(name).includes(squash(item.name)))?.name || null);
     return {
       quote: tidy(sentence),
-      order: names.map((name, index) => ({ name, item: found[index], rank: index + 1, multiplier: Number((1 + PRIORITY_STEP * (names.length - index)).toFixed(2)) }))
+      order: names.map((name, index) => ({ name, item: found[index], rank: index + 1 }))
     };
   }
   return null;
@@ -166,12 +211,10 @@ export function readFormat(text) {
 
 // ---------- 4) 쪽수 ----------
 // 정해진 쪽수(이내·고정)는 그대로, 자유분량 절은 전체 권장 쪽수에서 정해진 것을 뺀 나머지를 나눈다.
-// 나눌 때 절반은 똑같이, 절반은 가중치대로 준다 — 배점이 직접 붙지 않은 절도 써야 하므로 0쪽이 되면 안 된다.
+// 공고가 나누는 방법을 말하지 않으므로 똑같이 나눈다. 배점이나 우선순위로 쪽수를 늘리고 줄이는 숫자를 지어내지 않는다.
 const half = value => Math.round(value * 2) / 2;
-function share(total, weights) {
-  const sum = weights.reduce((acc, value) => acc + value, 0);
-  const raw = weights.map(value => total / weights.length / 2 + (sum ? total * value / sum / 2 : total / weights.length / 2));
-  const rounded = raw.map(value => Math.max(0.5, half(value)));
+function share(total, count) {
+  const rounded = Array.from({ length: count }, () => Math.max(0.5, half(total / count)));
   // 반올림 오차를 가장 큰 칸에서 맞춘다.
   const diff = half(total - rounded.reduce((acc, value) => acc + value, 0));
   if (diff) rounded[rounded.indexOf(Math.max(...rounded))] += diff;
@@ -199,21 +242,21 @@ export function writingUnits(plan) {
   return units.map(unit => ({
     ...unit,
     score: Number(unit.parts.reduce((acc, part) => acc + part.score, 0).toFixed(2)),
-    weight: Number(unit.parts.reduce((acc, part) => acc + part.weight, 0).toFixed(2)),
     pages: unit.parts.every(part => part.pages) ? unit.parts.reduce((acc, part) => acc + part.pages.value, 0) : null,
     items: [...new Set(unit.parts.flatMap(part => part.scoring.map(entry => entry.item)))]
   }));
 }
 
 // ---------- 묶기 ----------
-export function readPlan(text) {
+export function readPlan(text, options = {}) {
   const base = readRfp(text);
   const { evaluation, outline, constraints } = base;
   const toc = readToc(text);
   const format = readFormat(text);
   const chosenItems = outline ? evaluation.items.filter(item => outline.sections.some(section => section.title === item.name)) : [];
   const priority = readPriority(text, chosenItems);
-  const multiplier = name => priority?.order.find(entry => entry.item === name)?.multiplier ?? 1;
+  // 절에 붙은 항목 가운데 동점 우선순위에 든 것: 「이 절은 동점 시 1순위」로 표시만 한다.
+  const ranksOf = names => (priority?.order || []).filter(entry => names.includes(entry.item)).map(entry => ({ item: entry.item, rank: entry.rank }));
 
   if (!toc) {
     if (!outline) return { ...base, plan: null };
@@ -229,38 +272,36 @@ export function readPlan(text) {
         sections: outline.sections.map(section => ({
           key: String(section.no), chapter: null, title: section.title, writeWhat: section.writeWhat,
           scoring: [{ item: section.title, point: null, details: [], share: section.score, confident: true }],
-          score: section.score, weight: Number((section.score * multiplier(section.title)).toFixed(2)), pages: null
+          score: section.score, priority: ranksOf([section.title]), pages: null
         }))
       }
     };
   }
 
-  const { leaves, attachments, crossCutting } = chosenItems.length ? attachEvaluation(toc, evaluation, chosenItems) : { leaves: leavesOf(toc), attachments: leavesOf(toc).map(() => []), crossCutting: [] };
+  const { leaves, attachments, crossCutting } = chosenItems.length ? attachEvaluation(toc, evaluation, chosenItems, options.attach || {}) : { leaves: leavesOf(toc), attachments: leavesOf(toc).map(() => []), crossCutting: [] };
   const sections = leaves.map((leaf, index) => {
     const scoring = attachments[index];
-    const scoreSum = scoring.reduce((acc, entry) => acc + entry.share, 0);
-    const weight = scoring.reduce((acc, entry) => acc + entry.share * multiplier(entry.item), 0);
     return {
       key: leaf.key,
       chapter: leaf.chapter.children.length ? `${leaf.chapter.mark}. ${leaf.chapter.title}` : null,
       title: leaf.title,
       writeWhat: contentPoints(leaf.content),
       scoring,
-      score: Number(scoreSum.toFixed(2)),
-      weight: Number(weight.toFixed(2)),
+      score: Number(scoring.reduce((acc, entry) => acc + entry.share, 0).toFixed(2)),
+      priority: ranksOf([...new Set(scoring.filter(entry => entry.share > 0).map(entry => entry.item))]),
       pages: leaf.pages && !leaf.pages.free ? { value: leaf.pages.pages, max: leaf.pages.max, basis: '목차표' } : null,
       quote: leaf.quote,
       _chapter: leaf.chapter
     };
   });
 
-  // 장에 쪽수가 정해져 있고 절에는 없으면, 장 쪽수를 절에 가중치대로 나눈다.
+  // 장에 쪽수가 정해져 있고 절에는 없으면, 장 쪽수를 절에 똑같이 나눈다.
   for (const chapter of toc.chapters) {
     const children = sections.filter(section => section._chapter === chapter && section.key !== chapter.key);
     if (!children.length || !chapter.pages || chapter.pages.free) continue;
     const open = children.filter(section => !section.pages);
     const fixed = children.filter(section => section.pages).reduce((acc, section) => acc + section.pages.value, 0);
-    share(chapter.pages.pages - fixed, open.map(section => section.weight)).forEach((value, index) => { open[index].pages = { value, max: chapter.pages.max, basis: `장 ${chapter.pages.pages}쪽을 가중치로 나눔` }; });
+    share(chapter.pages.pages - fixed, open.length).forEach((value, index) => { open[index].pages = { value, max: chapter.pages.max, basis: `장 ${chapter.pages.pages}쪽을 절 ${open.length}개에 똑같이 나눔` }; });
   }
 
   // 자유분량: 전체 권장 쪽수 - 정해진 쪽수(표지·목차 포함).
@@ -272,8 +313,14 @@ export function readPlan(text) {
   if (total && free.length) {
     const left = total.maxPages - fixedPages;
     pages.free = left;
-    if (left > 0) share(left, free.map(section => section.weight)).forEach((value, index) => { free[index].pages = { value, max: true, basis: `자유분량: ${total.maxPages}쪽 - 정해진 ${fixedPages}쪽 = ${left}쪽을 가중치로 나눔` }; });
+    if (left > 0) share(left, free.length).forEach((value, index) => { free[index].pages = { value, max: true, basis: `자유분량: ${total.maxPages}쪽 - 정해진 ${fixedPages}쪽 = ${left}쪽을 절 ${free.length}개에 똑같이 나눔` }; });
   }
+
+  // 배점이 어디로 갔는지 남김없이 보인다: 절에 붙은 것 + 전체에 걸친 것 = 평가표의 글로 쓰는 묶음 합계.
+  const inSections = sections.reduce((acc, section) => acc + section.score, 0);
+  const inCross = crossCutting.reduce((acc, entry) => acc + entry.share, 0);
+  const expected = chosenItems.reduce((acc, item) => acc + item.score, 0);
+  const scoreCheck = { sections: Number(inSections.toFixed(2)), crossCutting: Number(inCross.toFixed(2)), total: expected, ok: Math.abs(inSections + inCross - expected) < 0.01 };
 
   return {
     ...base,
@@ -282,8 +329,9 @@ export function readPlan(text) {
       from: '목차표',
       format,
       priority,
-      crossCutting,
+      crossCutting: crossCutting.map(entry => ({ ...entry, share: Number(entry.share.toFixed(2)) })),
       pages,
+      scoreCheck,
       sections: sections.map(({ _chapter, ...section }) => section)
     }
   };
