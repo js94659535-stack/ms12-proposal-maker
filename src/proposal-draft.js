@@ -106,7 +106,8 @@ function unitRequest(unit, plan) {
 }
 
 // 공고 원문과 기관 자료는 절이 바뀌어도 같으므로 앞에 두고 캐시한다. 절마다 바뀌는 요청은 맨 뒤에 둔다.
-export function userContent({ rfpText, facts, project, section, constraints, preferences = [], plan = null }) {
+// incoming: 다른 장에서 이 장을 가리킨 줄(pointer-check.js incomingPointers). 가리킴 받는 쪽도 맞추게 요청에 넣는다(11-07).
+export function userContent({ rfpText, facts, project, section, constraints, preferences = [], plan = null, incoming = [] }) {
   const partners = (project?.partners || []).map(partner => partner.name || `${partner.kind || '구성사'}(이름 ${PENDING}])`);
   const shared = [
     '<공고 원문>', rfpText, '</공고 원문>',
@@ -131,7 +132,8 @@ export function userContent({ rfpText, facts, project, section, constraints, pre
     '',
     '금지:',
     ...(prohibitionLines(constraints, project).length ? prohibitionLines(constraints, project) : ['- 없음']),
-    ...(preferences.length ? ['', '공고가 평가 우대로 적은 것:', ...preferences.map(line => `- ${line}`)] : [])
+    ...(preferences.length ? ['', '공고가 평가 우대로 적은 것:', ...preferences.map(line => `- ${line}`)] : []),
+    ...(incoming.length ? ['', '다른 장에서 이 장을 가리킨 줄(앞뒤가 맞아야 한다 — 가리킨 절에서 그 일을 하는 줄을 실제로 쓴다):', ...incoming.map(pointer => `- ${pointer.from} → ${pointer.to.join('·')}: 「${pointer.line}」`)] : [])
   ].join('\n');
   return [
     { type: 'text', text: shared, cache_control: { type: 'ephemeral' } },
@@ -358,7 +360,7 @@ export function textOf(message) {
 export const DEFAULT_EFFORT = 'medium';
 
 // judge: 채점 기준마다 답한 자리가 있는지 판정자를 불러 본다(criteria-check.js). 끄려면 false.
-export async function draftSection({ client, model, effort = DEFAULT_EFFORT, rfpText, facts, project, section, constraints, plan = null, onUsage, krwPerUsd, judge = true, now = () => new Date().toISOString() }) {
+export async function draftSection({ client, model, effort = DEFAULT_EFFORT, rfpText, facts, project, section, constraints, plan = null, incoming = [], onUsage, krwPerUsd, judge = true, now = () => new Date().toISOString() }) {
   const stream = client.beta.messages.stream({
     model,
     max_tokens: 32000,
@@ -366,7 +368,7 @@ export async function draftSection({ client, model, effort = DEFAULT_EFFORT, rfp
     fallbacks: 'default',
     output_config: { effort },
     system: [{ type: 'text', text: systemPrompt(), cache_control: { type: 'ephemeral' } }],
-    messages: [{ role: 'user', content: userContent({ rfpText, facts, project, section, constraints, plan, preferences: preferenceLines(rfpText) }) }]
+    messages: [{ role: 'user', content: userContent({ rfpText, facts, project, section, constraints, plan, incoming, preferences: preferenceLines(rfpText) }) }]
   });
   const message = await stream.finalMessage();
   const record = usageRecord({ at: now(), section: section.title, model, message, krwPerUsd });

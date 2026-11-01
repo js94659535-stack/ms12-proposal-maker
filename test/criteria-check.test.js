@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { readPlan, writingUnits } from '../public/rfp/rfp-plan.js';
-import { criteriaOf, partBodies, verdicts, echoShare, restatesNotice, judgeCriteria } from '../src/criteria-check.js';
+import { criteriaOf, partBodies, verdicts, echoShare, restatesNotice, judgeCriteria, majority, JUDGE_RUNS } from '../src/criteria-check.js';
 import { draftSection } from '../src/proposal-draft.js';
 
 // 통일부 Ⅰ장 모양을 줄인 단위. Ⅰ.3에 「부합성과 종합 추진일정」 기준이 붙어 있다.
@@ -116,7 +116,7 @@ test('한 장 쓰기가 판정자를 부르고, 판정자 비용도 따로 기�
   const result = await draftSection({ client, model: 'claude-opus-5-5', rfpText, facts: [], project, section: unit, constraints, plan, krwPerUsd: 1400, onUsage: record => records.push(record) });
   assert.equal(judged.model, 'claude-haiku-5-5');
   assert.equal(judged.output_config.format.type, 'json_schema');
-  assert.deepEqual(records.map(record => record.kind ?? 'draft'), ['draft', 'criteria']);
+  assert.deepEqual(records.map(record => record.kind ?? 'draft'), ['draft', ...Array(JUDGE_RUNS).fill('criteria')]); // 판정 세 번, 기록도 세 줄
   assert.equal(records[1].krw, Math.round(((3000 * 0.1 + 2000 * 0.5) / 1e6) * 1400));
   const failed = result.checks.filter(check => check.what.startsWith('채점 기준') && check.level === 'fail');
   assert.ok(failed.some(check => check.what.includes('제안요청서와 부합성') && check.detail.includes('대응 줄 없음')));
@@ -218,4 +218,47 @@ test('두 절이 서로 다른 낱낱을 비워도 warn은 기준 하나에 한 
   ] });
   assert.deepEqual(result.map(check => check.level), ['pass', 'warn']);
   assert.equal(result[1].detail, 'Ⅱ.2에 「설문을 반영한 콘텐츠 개발」의 답이 없다 (Ⅱ.3에 있음) · Ⅱ.3에 「프로그램운영 수요조사」의 답이 없다 (Ⅱ.2에 있음)');
+});
+
+// 판정 다수결(11-07). 11-03에서 같은 초안의 판정이 한 번씩 흔들렸다.
+const row = (level, id, extra = {}) => ({ level, what: `채점 기준 「${id}」`, detail: level, criterion: id, ...extra });
+test('판정 세 번은 기준마다 다수로 — 갈렸으면 몇 번이었는지 적는다', () => {
+  const result = majority([
+    [row('fail', 'Ⅰ.3-1'), row('pass', 'Ⅱ.2-1')],
+    [row('pass', 'Ⅰ.3-1'), row('pass', 'Ⅱ.2-1')],
+    [row('fail', 'Ⅰ.3-1'), row('pass', 'Ⅱ.2-1')]
+  ]);
+  assert.deepEqual(result.map(check => [check.criterion, check.level, check.votes]), [['Ⅰ.3-1', 'fail', '2/3'], ['Ⅱ.2-1', 'pass', '3/3']]);
+  assert.match(result[0].detail, /판정 3번 중 2번 fail/);
+  assert.equal(result[1].detail, 'pass');
+});
+
+test('묶음의 warn은 절반 넘게 나왔을 때만 — 네 번 중 한 번 빈 Ⅱ.3 수요조사 같은 것은 남지 않는다', () => {
+  const gap = row('warn', 'Ⅱ.2-1,Ⅱ.3-1', { detail: 'Ⅱ.3에 「프로그램운영 수요조사」의 답이 없다 (Ⅱ.2에 있음)' });
+  const once = majority([[row('pass', 'Ⅱ.2-1,Ⅱ.3-1'), gap], [row('pass', 'Ⅱ.2-1,Ⅱ.3-1')], [row('pass', 'Ⅱ.2-1,Ⅱ.3-1')]]);
+  assert.deepEqual(once.map(check => check.level), ['pass']);
+  const twice = majority([[row('pass', 'Ⅱ.2-1,Ⅱ.3-1'), gap], [row('pass', 'Ⅱ.2-1,Ⅱ.3-1'), gap], [row('pass', 'Ⅱ.2-1,Ⅱ.3-1')]]);
+  assert.deepEqual(twice.map(check => [check.level, check.votes]), [['pass', '3/3'], ['warn', '2/3']]);
+});
+
+test('판정이 반반이면 fail — 「점수를 받는다」고 말할 수 없다', () => {
+  assert.equal(majority([[row('pass', 'a')], [row('fail', 'a')]])[0].level, 'fail');
+});
+
+test('판정 셋 중 하나가 실패하면 남은 둘로 정하고 warn을 남긴다', async () => {
+  let calls = 0;
+  const answerFor = { results: [{ id: fit.id, elements: [
+    { asks: '제안요청서와 부합성', quotes: ['심리 지원 → 상담센터에서 상담·검사·치유·코칭'], missing: '' },
+    { asks: '종합 추진일정의 합리성', quotes: ['[제안] 연초 수요조사·사전검사 → 연중 과정 운영 → 연말 성과평가'], missing: '' }
+  ] }] };
+  const client = { messages: { create: async () => {
+    calls += 1;
+    if (calls === 2) throw new Error('연결 끊김');
+    return { model: 'claude-haiku-5-5', stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(answerFor) }], usage: { input_tokens: 1, output_tokens: 1 } };
+  } } };
+  const checks = await judgeCriteria({ client, text: draft, section, krwPerUsd: 1400 });
+  assert.equal(calls, 3);
+  const fitRow = checks.find(check => check.criterion === fit.id);
+  assert.deepEqual([fitRow.level, fitRow.votes], ['pass', '2/2']);
+  assert.ok(checks.some(check => check.what === '채점 기준 판정 일부 실패' && check.detail.includes('3번 중 1번 실패')));
 });

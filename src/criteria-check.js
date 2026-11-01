@@ -231,12 +231,43 @@ export function verdicts(criteria, bodies, answer) {
   return out;
 }
 
-// 판정자를 부르고 검사 결과와 비용 기록을 돌려준다.
-export async function judgeCriteria({ client, text, section, model = JUDGE_MODEL, krwPerUsd, onUsage, now = () => new Date().toISOString() }) {
-  const criteria = criteriaOf(section);
-  if (!criteria.length) return [];
-  const bodies = partBodies(text, section);
-  const { system, user } = judgePrompt(section, criteria, bodies);
+// 판정을 몇 번 돌려 다수로 정하는가(11-07, 사용자 결정 — 11-04 지시). 새 초안에서 한 번 판정이 흔들렸다(11-03:
+// 같은 초안 세 번에 fail 8.33 → 3.33 → 3.33점, Ⅱ.3 수요조사는 네 번 중 한 번만 빔). 장당 약 3.6원 → 약 11원.
+export const JUDGE_RUNS = 3;
+
+// 판정 여러 번의 결과를 기준(criterion id 묶음)마다 다수로 정한다.
+// pass/fail 줄은 많은 쪽을 따른다(같으면 fail — 반반이면 「점수를 받는다」고 말할 수 없다).
+// warn 줄(묶음의 빈 낱낱)은 절반 넘게 나왔을 때만 남긴다. 줄마다 votes(「2/3」)를 달고, 갈렸으면 detail 끝에 적는다.
+export function majority(runs) {
+  const n = runs.length;
+  const keyOf = row => row.criterion;
+  const order = [];
+  const byKey = new Map();
+  for (const rows of runs) for (const row of rows) {
+    const kind = row.level === 'warn' ? 'warn' : 'verdict';
+    const key = `${kind}|${keyOf(row)}`;
+    if (!byKey.has(key)) { byKey.set(key, []); order.push(key); }
+    byKey.get(key).push(row);
+  }
+  const out = [];
+  for (const key of order) {
+    const rows = byKey.get(key);
+    if (key.startsWith('warn|')) {
+      if (rows.length * 2 <= n) continue;
+      out.push({ ...rows[0], votes: `${rows.length}/${n}`, detail: rows.length < n ? `${rows[0].detail} (판정 ${n}번 중 ${rows.length}번)` : rows[0].detail });
+      continue;
+    }
+    const passes = rows.filter(row => row.level === 'pass');
+    const level = passes.length * 2 > n ? 'pass' : 'fail';
+    const same = rows.filter(row => row.level === level);
+    const pick = same[0] || rows[0];
+    out.push({ ...pick, level, votes: `${same.length}/${n}`, detail: same.length < n ? `${pick.detail} (판정 ${n}번 중 ${same.length}번 ${level})` : pick.detail });
+  }
+  return out;
+}
+
+// 판정자를 한 번 부른다. 실패·거절이면 { error }.
+async function judgeOnce({ client, model, system, user, section, krwPerUsd, onUsage, now, criteria, bodies }) {
   try {
     const message = await client.messages.create({
       model,
@@ -248,10 +279,26 @@ export async function judgeCriteria({ client, text, section, model = JUDGE_MODEL
     const record = usageRecord({ at: now(), section: `${section.title} · 채점 기준 검사`, model, message, krwPerUsd });
     record.kind = 'criteria';
     await onUsage?.(record);
-    if (message.stop_reason === 'refusal') return [{ level: 'warn', what: '채점 기준 검사 못 함', detail: '판정자가 거절함' }];
+    if (message.stop_reason === 'refusal') return { error: '판정자가 거절함' };
     const json = (message.content || []).filter(block => block.type === 'text').map(block => block.text).join('');
-    return verdicts(criteria, bodies, JSON.parse(json));
+    return { rows: verdicts(criteria, bodies, JSON.parse(json)) };
   } catch (error) {
-    return [{ level: 'warn', what: '채점 기준 검사 못 함', detail: String(error?.message || error).slice(0, 120) }];
+    return { error: String(error?.message || error).slice(0, 120) };
   }
+}
+
+// 판정자를 runs번 (함께) 부르고, 다수로 정한 검사 결과를 돌려준다. 비용 기록은 부를 때마다 하나씩.
+// 실패한 판정은 빼고 남은 것으로 정한다. 모두 실패하면 warn 하나(대원칙 ② — 막지 않는다).
+export async function judgeCriteria({ client, text, section, model = JUDGE_MODEL, runs = JUDGE_RUNS, krwPerUsd, onUsage, now = () => new Date().toISOString() }) {
+  const criteria = criteriaOf(section);
+  if (!criteria.length) return [];
+  const bodies = partBodies(text, section);
+  const { system, user } = judgePrompt(section, criteria, bodies);
+  const results = await Promise.all(Array.from({ length: runs }, () => judgeOnce({ client, model, system, user, section, krwPerUsd, onUsage, now, criteria, bodies })));
+  const ok = results.filter(result => result.rows);
+  const failed = results.filter(result => result.error);
+  if (!ok.length) return [{ level: 'warn', what: '채점 기준 검사 못 함', detail: failed[0].error }];
+  const out = majority(ok.map(result => result.rows));
+  if (failed.length) out.push({ level: 'warn', what: '채점 기준 판정 일부 실패', detail: `판정 ${runs}번 중 ${failed.length}번 실패 — 남은 ${ok.length}번으로 정함: ${failed[0].error}` });
+  return out;
 }

@@ -38,7 +38,7 @@ export function headingStyleChecks(chapters) {
 }
 
 // 줄을 비교할 모양으로 — 출처 표시·글머리·굵게를 떼고 빈칸을 하나로.
-const plain = line => stripMarks(line).replace(/^\s*(?:o|-|․|※|\*|·|\d+\.)\s+/, '').replace(/\*\*/g, '').replace(/\s+/g, ' ').trim();
+export const plain = line => stripMarks(line).replace(/^\s*(?:o|-|․|※|\*|·|\d+\.)\s+/, '').replace(/\*\*/g, '').replace(/\s+/g, ' ').trim();
 const letters = value => [...String(value).replace(/[^\p{L}\p{N}]/gu, '')];
 const pairsOf = value => { const chars = letters(value); return new Set(chars.slice(1).map((char, index) => chars[index] + char)); };
 

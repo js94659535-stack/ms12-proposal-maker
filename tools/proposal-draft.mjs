@@ -6,6 +6,7 @@
 // --max-krw N 은 쓴 돈이 N원을 넘으면 다음 장을 시작하지 않는다.
 // --recheck <폴더> 는 그 폴더의 draft_ 파일을 다시 쓰지 않고 검사만 다시 돌린다(채점 기준 판정자 호출 — 장당 몇 원).
 // 끝에 장을 건너 보는 검사(글머리 모양·되풀이 문장)를 그 폴더의 draft_ 전부에 돌려 checks_전체.json에 남긴다(11-05, 돈 안 듦).
+// 가리킴 검사(11-07)도 같은 draft_ 전부에 돈다(판정자 세 번, 몇 원). 장을 쓸 때는 --out 폴더의 다른 장이 이 장을 가리킨 줄을 요청에 넣는다.
 // 기록: <폴더>/usage.jsonl 에 호출마다 한 줄(prompt_tokens·completion_tokens·원화). 호출이 끝나는 즉시 쓴다.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -15,6 +16,7 @@ import { draftFileLabel } from '../public/plan/workspace.js';
 import { draftSection, DEFAULT_EFFORT, systemPrompt, userContent, preferenceLines, choiceSheet, stripMarks, checkDraft } from '../src/proposal-draft.js';
 import { judgeCriteria } from '../src/criteria-check.js';
 import { checkChapters } from '../src/plan-checks.js';
+import { judgePointers, incomingPointers } from '../src/pointer-check.js';
 
 const args = process.argv.slice(2);
 const all = name => args.flatMap((arg, index) => arg === `--${name}` ? [args[index + 1]] : []);
@@ -55,10 +57,16 @@ const model = opt('model', 'claude-opus-5-5');
 const effort = opt('effort', DEFAULT_EFFORT);
 const krwPerUsd = Number(opt('krw', 1400));
 const fileName = draftFileLabel; // 작업대(/plan/)가 같은 이름으로 장을 찾는다
+// 목차의 절 이름들 — 아직 안 쓴 장을 가리킨 줄도 찾는다(가리킴 검사).
+const partKeys = units.flatMap(unit => unit.parts.map(part => part.key));
+// 폴더에 있는 draft_ 전부(목차 순서).
+const draftsIn = dir => units.map(unit => ({ title: unit.key, file: path.join(dir, `draft_${fileName(unit.title)}.md`) }))
+  .filter(chapter => fs.existsSync(chapter.file))
+  .map(chapter => ({ title: chapter.title, text: fs.readFileSync(chapter.file, 'utf8') }));
 
 if (flag('dry-run')) {
   for (const section of sections) {
-    const content = userContent({ rfpText, facts, project, section, constraints, plan, preferences: preferenceLines(rfpText) });
+    const content = userContent({ rfpText, facts, project, section, constraints, plan, incoming: incomingPointers(draftsIn(out), section.key, { parts: partKeys }), preferences: preferenceLines(rfpText) });
     const text = [`# system\n${systemPrompt()}`, ...content.map((block, index) => `# user ${index + 1}${block.cache_control ? ' (캐시)' : ''}\n${block.text}`)].join('\n\n');
     fs.writeFileSync(path.join(out, `prompt_${fileName(section.title)}.txt`), text);
     console.log(`${section.title}: 프롬프트 ${text.length.toLocaleString('ko-KR')}자 → prompt_${fileName(section.title)}.txt`);
@@ -94,7 +102,8 @@ for (const section of opt('recheck') ? [] : sections) {
   if (spentKrw > maxKrw) { console.log(`멈춤: 지금까지 ${spentKrw}원 — 한도 ${maxKrw}원을 넘어 「${section.title}」부터 쓰지 않았다.`); break; }
   console.log(`${section.title} 쓰는 중… (지금까지 ${spentKrw}원)`);
   const result = await draftSection({
-    client, model, effort, rfpText, facts, project, section, constraints, plan, krwPerUsd, onUsage
+    client, model, effort, rfpText, facts, project, section, constraints, plan, krwPerUsd, onUsage,
+    incoming: incomingPointers(draftsIn(out), section.key, { parts: partKeys })
   });
   const name = fileName(section.title);
   // draft_ = 사장이 보는 본(줄마다 [제안]/[사실: 출처]), submit_ = 표시를 지운 제출본(쪽수 검사가 세는 글), choices_ = 고를 [제안] 목록
@@ -110,12 +119,9 @@ for (const section of opt('recheck') ? [] : sections) {
   for (const check of fails) console.log(`  ✖ ${check.what} ${check.detail}`);
 }
 // 장을 건너 보는 검사 — 고른 장만이 아니라 폴더에 있는 draft_ 전부(목차 순서)를 본다.
-const draftDir = opt('recheck') || out;
-const chapters = units.map(unit => ({ title: unit.key, file: path.join(draftDir, `draft_${fileName(unit.title)}.md`) }))
-  .filter(chapter => fs.existsSync(chapter.file))
-  .map(chapter => ({ title: chapter.title, text: fs.readFileSync(chapter.file, 'utf8') }));
-const across = checkChapters(chapters);
+const chapters = draftsIn(opt('recheck') || out);
+const across = [...checkChapters(chapters), ...await judgePointers({ client, chapters, parts: partKeys, krwPerUsd, onUsage })];
 fs.writeFileSync(path.join(out, 'checks_전체.json'), JSON.stringify(across, null, 2));
-console.log(`\n장을 건너 본 검사 (${chapters.map(chapter => chapter.title).join('·') || '장 없음'}): warn ${across.length}`);
-for (const check of across) console.log(`  ! ${check.what} ${check.detail}`);
+console.log(`\n장을 건너 본 검사 (${chapters.map(chapter => chapter.title).join('·') || '장 없음'}): warn ${across.filter(check => check.level === 'warn').length}`);
+for (const check of across) console.log(`  ${check.level === 'pass' ? '✔' : '!'} ${check.what} ${check.detail}`);
 console.log(`\n합계 ${spentKrw}원 · 기록: ${usageFile} (환율 ${krwPerUsd}원/$)`);
