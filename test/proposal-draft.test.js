@@ -213,3 +213,34 @@ test('소제목의 절 번호는 출처 없는 숫자로 세지 않는다 — �
   const fails = checkDraft(text, { constraints, section: { title: 'Ⅱ', writeWhat: [] }, sources: [rfpText], project }).filter(check => check.what === '출처 없는 숫자');
   assert.deepEqual(fails.map(check => check.detail.split('」')[0].slice(1)), ['37일'], '본문의 37일은 잡고 소제목의 「1 일」은 넘긴다');
 });
+
+test('역할분장을 정했으면(11-13) 기관 자료에 싣고, 정한 일과 다른 역할 문장만 warn', async () => {
+  const { roleLines } = await import('../src/proposal-draft.js');
+  const decided = JSON.parse(fs.readFileSync(new URL('../reports/10-05-unification/project.json', import.meta.url), 'utf8'));
+  assert.deepEqual(roleLines(decided).slice(0, 2), ['역할분장(기관 결정):', '- (주)마인드스토리: 프로그램 기획, 심리상담·검사·치유, 마음숲 운영, 강사 교육. 서울사무소 상주']);
+  assert.match(roleLines({ partners: [] })[0], /\[확인 필요: 사람이 정함\]/);
+  const shared = userContent({ rfpText, facts, project: decided, section: program, constraints })[0].text;
+  assert.match(shared, /- 아시아밝음공동체: 프로그램 운영 지원, 호남·충청권 강사 네트워크/);
+  const lines = ['- [제안] (주)가르침에듀: 강사 수급·관리와 참여자 모집을 맡는다', '- [제안] 아시아밝음공동체가 홍보 영상 제작을 맡는다'];
+  const warns = checkDraft(`${good}\n${lines.join('\n')}`, { ...ctx, project: decided }).filter(result => result.what === '구성사 역할을 적은 문장');
+  assert.equal(warns.length, 1, JSON.stringify(warns));
+  assert.match(warns[0].detail, /아시아밝음공동체가 홍보 영상 제작/);
+});
+
+test('꼭 들어갈 것(project.json must, 11-13): Ⅱ.1에 서울사무소 상주·아시아밝음 수행 경험이 없으면 fail, 「영업」은 쓰지 말 것', async () => {
+  const { readPlan: read, writingUnits: units } = await import('../public/rfp/rfp-plan.js');
+  const decided = JSON.parse(fs.readFileSync(new URL('../reports/10-05-unification/project.json', import.meta.url), 'utf8'));
+  const { plan, constraints: rules } = read(rfpText, { project: decided });
+  const unit = units(plan).find(entry => entry.key === 'Ⅱ');
+  const draft = body => ['## Ⅱ. 사업운영계획', '### Ⅱ.1 일반 현황', ...body, '### Ⅱ.2 프로그램 운영 계획', '- [제안] 서울사무소 상주 인력이 운영', '### Ⅱ.3 운영성과 및 피드백 방안', '- [제안] 분기 설문'].join('\n');
+  const must = body => checkDraft(draft(body), { constraints: rules, section: unit, sources: [rfpText], project: decided }).filter(result => result.what.startsWith('꼭 들어갈 것'));
+  // Ⅱ.2에 있어도 Ⅱ.1에 없으면 fail — 절을 본다.
+  assert.deepEqual(must(['- [제안] 조직: 총괄책임자 아래 세 팀']).map(result => result.level), ['fail', 'fail']);
+  assert.deepEqual(must(['- [사실: 기관 자료] (주)마인드스토리·(주)가르침에듀 서울사무소 상주', '- [사실: 기관 자료] 아시아밝음공동체: 북한이탈주민·사회통합 사업 수행 경험']).map(result => result.level), ['pass', 'pass']);
+  // 주관기관 나열 줄은 역할 문장이 아니다.
+  assert.ok(!checkDraft(draft(['o [사실: 기관 자료] 공동수급: (주)마인드스토리(주관), (주)가르침에듀, 아시아밝음공동체']), { constraints: rules, section: unit, sources: [rfpText], project: decided }).some(result => result.what === '구성사 역할을 적은 문장'));
+  // 「영업정지」는 공고 참가자격의 말 — 걸지 않는다.
+  assert.equal(checkDraft(draft(['- [사실: 공고] 최근 3년 영업정지 처분 없음']), { constraints: rules, section: unit, sources: [rfpText], project: decided }).find(result => result.what === '쓰지 말 것: 「영업」·「영업망」').level, 'pass');
+  const omit = checkDraft(draft(['- [제안] 가르침에듀 영업망으로 모집']), { constraints: rules, section: unit, sources: [rfpText], project: decided }).find(result => result.what === '쓰지 말 것: 「영업」·「영업망」');
+  assert.equal(omit.level, 'fail');
+});

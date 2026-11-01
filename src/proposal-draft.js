@@ -6,7 +6,7 @@
 import { checkPlan } from '../public/rfp/rfp-read.js';
 import { LAYOUT, estimatePages } from './page-estimate.js';
 import { PENDING } from '../public/plan/workspace.js';
-import { judgeCriteria, restatesNotice } from './criteria-check.js';
+import { judgeCriteria, restatesNotice, partBodies } from './criteria-check.js';
 import { choicesSheet } from '../public/plan/choices.js';
 
 export const MAX_PARAGRAPH = 300;
@@ -37,7 +37,7 @@ export function systemPrompt() {
     `2. 자료에 없는 사실·숫자(인원, 횟수, 목표치, 날짜, 기관 이름)는 지어내지 말고 「${PENDING}: 무엇이 필요한지]」로 비워 둔다. 목표 인원이나 횟수도 자료에 없으면 비워 둔다.`,
     '3. 숫자는 「규칙이 정한 숫자」 목록과 공고 원문·기관 자료에 나온 것만 쓴다.',
     '4. 「금지」 목록에 있는 것은 쓰지 않는다.',
-    '5. 공동수급체 구성사의 역할분장은 사람이 정한다. 구성사 이름은 적어도 되지만 누가 무엇을 맡는지는 쓰지 말고 비워 둔다.',
+    '5. 공동수급체 구성사의 역할분장은 사람이 정한다. 「기관 자료」의 역할분장에 적힌 것만 쓰고, 거기 없는 역할은 지어내지 말고 비워 둔다.',
     '6. 소제목은 요청에 적힌 대로 둔다(절마다 「### 절 번호와 이름」, 또는 평가내용 큰 줄마다 「### 큰 줄 글자 그대로」). 그 아래에서 작성내용을 모두 다루고 채점 기준에 답한다. 작은 줄(-)도 빠뜨리지 않는다.',
     '7. 활동·프로그램은 한 줄에 「활동 → 하는 일 → 결과물」 형식으로 쓴다. 결과물은 눈으로 확인할 수 있는 것(기록지, 보고서, 설문 결과 등)이다.',
     '8. 꾸밈말과 일반론(「~가 중요하다」「~에 기여할 것이다」)보다 이 공고·이 기관에만 맞는 내용을 쓴다.',
@@ -110,6 +110,15 @@ function unitRequest(unit, plan) {
   return lines.join('\n');
 }
 
+// 사람이 정한 역할분장. 기관마다 맡는 일(roles.by)이면 그 표, 글 한 줄이면 그 줄, 없으면 빈칸.
+export const rolesBy = project => (project?.roles && typeof project.roles === 'object' && project.roles.by) || null;
+export function roleLines(project) {
+  const by = rolesBy(project);
+  if (by) return ['역할분장(기관 결정):', ...Object.entries(by).map(([name, duty]) => `- ${name}: ${duty}`)];
+  if (typeof project?.roles === 'string' && project.roles.trim()) return [`역할분장(기관 결정): ${project.roles.trim()}`];
+  return [`역할분장: ${PENDING}: 사람이 정함]`];
+}
+
 // 공고 원문과 기관 자료는 절이 바뀌어도 같으므로 앞에 두고 캐시한다. 절마다 바뀌는 요청은 맨 뒤에 둔다.
 export function userContent({ rfpText, facts, project, section, constraints, preferences = [], plan = null }) {
   const partners = (project?.partners || []).map(partner => partner.name || `${partner.kind || '구성사'}(이름 ${PENDING}])`);
@@ -119,7 +128,8 @@ export function userContent({ rfpText, facts, project, section, constraints, pre
     '<기관 자료>',
     `주관기관: ${project?.lead || PENDING + ']'}`,
     `공동수급 구성사: ${partners.length ? partners.join(', ') : '없음'}`,
-    `역할분장: ${PENDING}: 사람이 정함]`,
+    // 역할분장(11-13): project.json roles — { by: { 기관 이름: 맡는 일 } } 또는 화면에서 답한 글 한 줄. 없으면 빈칸.
+    ...roleLines(project),
     // fill(11-12): 기관이 한 번 정하면 여러 장에 같이 들어가는 값. 정한 것만 싣는다 — 안 정한 것은 지금처럼 빈칸으로 남는다.
     ...Object.entries(project?.fill || {}).filter(([, value]) => value != null && value !== '').map(([name, value]) => `${name}: ${value}`),
     ...facts.map(fact => `\n[자료: ${fact.source}]\n${fact.text}`),
@@ -223,10 +233,34 @@ export function checkDraft(text, { constraints, section, sources, project }) {
   }
 
   // 공동수급 구성사의 역할을 지어냈는가: 구성사 이름이 나온 문장에 「담당·맡·운영·수행」이 있으면 사람이 본다.
-  for (const partner of (project?.partners || []).map(item => item.name).filter(Boolean)) {
+  // 역할분장이 정해졌으면(11-13) 그 기관이 맡는 일 가운데 하나라도 그 문장에 있으면 넘긴다 — 없으면 「정한 역할과 다를 수 있다」.
+  const by = rolesBy(project);
+  const decidedText = typeof project?.roles === 'string' && project.roles.trim();
+  const dutiesOf = name => String(by?.[name] || '').split(/[,.]/).map(duty => duty.replace(/\s+/g, '')).filter(duty => duty.length >= 2);
+  for (const partner of [project?.lead, ...(project?.partners || []).map(item => item.name)].filter(Boolean)) {
+    if (!by && partner === project?.lead) continue; // 정해진 역할이 없을 때는 예전처럼 구성사만 본다
     for (const sentence of text.split(/(?<=[.다])\s+|\n/)) {
-      if (sentence.includes(partner) && /담당|맡|운영|수행|전담|주관/.test(sentence) && !sentence.includes(PENDING)) {
-        results.push({ level: 'warn', what: '구성사 역할을 적은 문장', detail: `「${sentence.trim().slice(0, 60)}」 — 역할분장은 사람이 정한다` });
+      // 「(주관)」은 주관기관 표시이지 맡는 일이 아니다 — 「공동수급체: A(주관), B, C」 나열 줄이 걸렸다(11-13).
+      if (!(sentence.includes(partner) && /담당|맡|운영|수행|전담|주관/.test(sentence.replace(/(주관(?:기관)?)/g, '')) && !sentence.includes(PENDING))) continue;
+      if (decidedText) continue; // 글 한 줄로 정했으면 기관별로 견줄 수 없다 — 사람이 정한 대로라 본다
+      if (by) {
+        const squashed = sentence.replace(/\s+/g, '');
+        if (dutiesOf(partner).some(duty => squashed.includes(duty))) continue;
+        results.push({ level: 'warn', what: '구성사 역할을 적은 문장', detail: `「${sentence.trim().slice(0, 60)}」 — 정한 역할분장(${partner}: ${String(by[partner] || '없음').slice(0, 40)})과 다를 수 있다` });
+        continue;
+      }
+      results.push({ level: 'warn', what: '구성사 역할을 적은 문장', detail: `「${sentence.trim().slice(0, 60)}」 — 역할분장은 사람이 정한다` });
+    }
+  }
+
+  // 꼭 들어갈 것(project.json must, 11-13): 사람이 「이 절에 넣어라」고 정한 것. 빠지면 그 줄 하나 더하면 되니 생성 지시가 아니라 검사로(고치는 값 0원).
+  if (project?.must) {
+    const bodies = partBodies(text, section);
+    for (const [key, rules] of Object.entries(project.must)) {
+      if (!(key in bodies)) continue; // 이 장의 절이 아니다
+      for (const rule of rules) {
+        const found = bodies[key].some(line => new RegExp(rule.pattern).test(stripMarks(line)));
+        results.push({ level: found ? 'pass' : 'fail', what: `꼭 들어갈 것: ${key} ${rule.what}`, detail: found ? '' : `${key}에 없다${rule.why ? ` (${rule.why})` : ''}` });
       }
     }
   }

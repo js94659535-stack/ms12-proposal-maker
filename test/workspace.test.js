@@ -48,9 +48,9 @@ test('비워 둔 곳은 자리마다 하나 — 같은 이름표라도 다른 �
   assert.match(pend[1].line, /지역주민 함께 참여 비율/);
 });
 
-test('질문은 project.json에서 빈 칸으로 정한다 — 통일부 건은 역할분장 하나', () => {
-  assert.deepEqual(questionsOf(project).map(q => q.key), ['roles', 'fill:협력 하나센터 이름']);
-  assert.deepEqual(questionsOf({ ...project, fill: { '협력 하나센터 이름': '서울 강서하나센터' } }).map(q => q.key), ['roles']);
+test('질문은 project.json에서 빈 칸으로 정한다 — 통일부 건은 역할분장을 정했고(11-13) 하나센터 이름 하나', () => {
+  assert.deepEqual(questionsOf(project).map(q => q.key), ['fill:협력 하나센터 이름']);
+  assert.deepEqual(questionsOf({ ...project, roles: null, fill: { '협력 하나센터 이름': '서울 강서하나센터' } }).map(q => q.key), ['roles']);
   assert.deepEqual(questionsOf({ lead: 'A', partners: [{ name: null }], roles: null }).map(q => q.key), ['partner-0', 'roles', 'deadline']);
   assert.deepEqual(questionsOf(null).map(q => q.key), ['project']);
 });
@@ -69,7 +69,7 @@ test('다음 할 일은 하나이고 차례대로 넘어간다 — 질문이 남
   const withQuestion = nextStep({ ...base, facts, questions: questionsOf(project), drafts: {} });
   assert.equal(withQuestion.step, 'questions');
   assert.equal(withQuestion.chapter, 'Ⅰ');
-  assert.match(withQuestion.text, /Ⅰ\. 개요 초안을 만드세요 — 먼저 질문 2개/); // 역할분장 + 협력 하나센터 이름(11-12)
+  assert.match(withQuestion.text, /Ⅰ\. 개요 초안을 만드세요 — 먼저 질문 1개/); // 협력 하나센터 이름(역할분장은 11-13에 정함)
   const drafts = Object.fromEntries(chapters.map(chapter => [chapter.key, { submit: 'x' }]));
   assert.equal(nextStep({ ...base, facts, drafts, pendings: [{ chapter: 'Ⅰ', what: 'x' }] }).text, '초안이 비워 둔 곳 1곳을 채우세요');
   assert.match(nextStep({ ...base, facts, drafts }).text, /모든 장의 초안이 있습니다/);
