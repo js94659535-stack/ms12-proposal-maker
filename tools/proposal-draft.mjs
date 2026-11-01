@@ -6,7 +6,7 @@
 // --max-krw N 은 쓴 돈이 N원을 넘으면 다음 장을 시작하지 않는다.
 // --recheck <폴더> 는 그 폴더의 draft_ 파일을 다시 쓰지 않고 검사만 다시 돌린다(채점 기준 판정자 호출 — 장당 몇 원).
 // 끝에 장을 건너 보는 검사(글머리 모양·되풀이 문장)를 그 폴더의 draft_ 전부에 돌려 checks_전체.json에 남긴다(11-05, 돈 안 듦).
-// 가리킴 검사(11-07)도 같은 draft_ 전부에 돈다(판정자 세 번, 몇 원). 장을 쓸 때는 --out 폴더의 다른 장이 이 장을 가리킨 줄을 요청에 넣는다.
+// 가리킴 검사(11-07)도 같은 draft_ 전부에 돈다(판정자 세 번, 몇 원). 가리킨 줄을 생성 요청에 넣지는 않는다 — 검사가 잡는다(11-08).
 // 기록: <폴더>/usage.jsonl 에 호출마다 한 줄(prompt_tokens·completion_tokens·원화). 호출이 끝나는 즉시 쓴다.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -16,7 +16,7 @@ import { draftFileLabel } from '../public/plan/workspace.js';
 import { draftSection, DEFAULT_EFFORT, systemPrompt, userContent, preferenceLines, choiceSheet, stripMarks, checkDraft } from '../src/proposal-draft.js';
 import { judgeCriteria } from '../src/criteria-check.js';
 import { checkChapters } from '../src/plan-checks.js';
-import { judgePointers, incomingPointers } from '../src/pointer-check.js';
+import { judgePointers } from '../src/pointer-check.js';
 
 const args = process.argv.slice(2);
 const all = name => args.flatMap((arg, index) => arg === `--${name}` ? [args[index + 1]] : []);
@@ -66,7 +66,7 @@ const draftsIn = dir => units.map(unit => ({ title: unit.key, file: path.join(di
 
 if (flag('dry-run')) {
   for (const section of sections) {
-    const content = userContent({ rfpText, facts, project, section, constraints, plan, incoming: incomingPointers(draftsIn(out), section.key, { parts: partKeys }), preferences: preferenceLines(rfpText) });
+    const content = userContent({ rfpText, facts, project, section, constraints, plan, preferences: preferenceLines(rfpText) });
     const text = [`# system\n${systemPrompt()}`, ...content.map((block, index) => `# user ${index + 1}${block.cache_control ? ' (캐시)' : ''}\n${block.text}`)].join('\n\n');
     fs.writeFileSync(path.join(out, `prompt_${fileName(section.title)}.txt`), text);
     console.log(`${section.title}: 프롬프트 ${text.length.toLocaleString('ko-KR')}자 → prompt_${fileName(section.title)}.txt`);
@@ -102,8 +102,7 @@ for (const section of opt('recheck') ? [] : sections) {
   if (spentKrw > maxKrw) { console.log(`멈춤: 지금까지 ${spentKrw}원 — 한도 ${maxKrw}원을 넘어 「${section.title}」부터 쓰지 않았다.`); break; }
   console.log(`${section.title} 쓰는 중… (지금까지 ${spentKrw}원)`);
   const result = await draftSection({
-    client, model, effort, rfpText, facts, project, section, constraints, plan, krwPerUsd, onUsage,
-    incoming: incomingPointers(draftsIn(out), section.key, { parts: partKeys })
+    client, model, effort, rfpText, facts, project, section, constraints, plan, krwPerUsd, onUsage
   });
   const name = fileName(section.title);
   // draft_ = 사장이 보는 본(줄마다 [제안]/[사실: 출처]), submit_ = 표시를 지운 제출본(쪽수 검사가 세는 글), choices_ = 고를 [제안] 목록

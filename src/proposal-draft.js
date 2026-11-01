@@ -26,7 +26,8 @@ export const PRICES = {
   'claude-haiku-5-5': { input: 0.1, output: 0.5, cacheWrite: 0.125, cacheRead: 0.01 }
 };
 
-export function systemPrompt({ maxParagraph = MAX_PARAGRAPH } = {}) {
+// 11-08: 지시마다 「검사로 잡나 · 어기면 고치는 값」을 따져, 검사가 잡고 고치기 싼 것은 뺐다(reports/11-08-prompt/instructions.md).
+export function systemPrompt() {
   return [
     '너는 공공 입찰 제안서의 한 절을 쓰는 사람이다. 평가위원이 평가표를 옆에 두고 읽는다.',
     '',
@@ -38,7 +39,7 @@ export function systemPrompt({ maxParagraph = MAX_PARAGRAPH } = {}) {
     '5. 공동수급체 구성사의 역할분장은 사람이 정한다. 구성사 이름은 적어도 되지만 누가 무엇을 맡는지는 쓰지 말고 비워 둔다.',
     '6. 소제목은 요청에 적힌 대로 둔다(절마다 「### 절 번호와 이름」, 또는 평가내용 큰 줄마다 「### 큰 줄 글자 그대로」). 그 아래에서 작성내용을 모두 다루고 채점 기준에 답한다. 작은 줄(-)도 빠뜨리지 않는다.',
     '7. 활동·프로그램은 한 줄에 「활동 → 하는 일 → 결과물」 형식으로 쓴다. 결과물은 눈으로 확인할 수 있는 것(기록지, 보고서, 설문 결과 등)이다.',
-    `8. 한 문단은 ${maxParagraph}자를 넘기지 않는다. 꾸밈말과 일반론(「~가 중요하다」「~에 기여할 것이다」)보다 이 공고·이 기관에만 맞는 내용을 쓴다.`,
+    '8. 꾸밈말과 일반론(「~가 중요하다」「~에 기여할 것이다」)보다 이 공고·이 기관에만 맞는 내용을 쓴다.',
     '9. 공고가 평가 우대·필수로 적은 것이 이 절과 관련 있으면 반드시 다룬다.',
     '10. 출력은 마크다운 본문만 쓴다. 절 제목(##)으로 시작하고, 앞뒤에 설명이나 인사말을 붙이지 않는다.',
     `11. 분량: 절마다 적힌 권장 쪽수를 넘기지 않는다. 제출 서식(본문 ${LAYOUT.bodyPt}pt, 줄 간격 160%, A4)에서 한 쪽은 ${LAYOUT.linesPerPage}줄, 한 줄은 한글 ${LAYOUT.perLine}자다. 문단은 끝 줄이 덜 차도 한 줄을 다 먹고, 빈 줄·소제목도 한 줄씩 먹는다. 표는 칸이 좁아 같은 글자가 더 많은 줄을 먹는다. 쪽수 안에 못 담으면 평가에 덜 중요한 것부터 뺀다.`,
@@ -80,9 +81,9 @@ const budget = pages => `권장 ${pages}쪽 = 약 ${Math.round(pages * LAYOUT.li
 function unitRequest(unit, plan) {
   const points = list => list.map(point => [`- ${point.point}`, ...point.details.map(detail => `  - ${detail}`)].join('\n'));
   const lines = [
-    `이번에 쓸 장: 「${unit.title}」 (붙은 배점 ${unit.score}점${unit.pages ? `, ${budget(unit.pages)}` : ''})`,
-    '절마다 소제목(### 절 번호와 이름 그대로)을 하나씩 두고, 그 아래에서 작성내용을 모두 다루고 채점 기준에 답한다.',
-    ...(unit.pages ? [`분량은 검사가 쪽수로 다시 센다. 절마다 적힌 줄 수를 넘기면 그 절은 탈락으로 본다. 장 제목 줄도 장 분량에 든다.`] : [])
+    // 11-08: 「절마다 소제목…」(지킬 것 6과 같은 말)과 「분량은 검사가 다시 센다 … 탈락으로 본다」(검사가 잡는다는 예고)는 뺐다.
+    // 소제목·분량 규칙 자체는 지킬 것 6·11에 남는다. reports/11-08-prompt/instructions.md
+    `이번에 쓸 장: 「${unit.title}」 (붙은 배점 ${unit.score}점${unit.pages ? `, ${budget(unit.pages)}` : ''})`
   ];
   for (const part of unit.parts) {
     lines.push('', `### ${part.key} ${part.title}${part.pages ? ` (${budget(part.pages.value)})` : ''}`);
@@ -92,8 +93,9 @@ function unitRequest(unit, plan) {
       : ['- (이 절에 직접 붙은 평가 항목 없음 — 작성내용을 따른다)']));
     // 공고와 맞대기(project.json pair, 사람이 정함 — 11-05): 공고 대목의 항목마다 우리 제안을 한 줄씩 맞댄다.
     if (part.pair?.found) {
-      lines.push(`공고 「${part.pair.notice}」와 맞대기(기관 결정): 이 절에 아래 항목마다 줄 하나씩 — 「${MARK_PROPOSAL} 공고 항목 → 우리가 하는 일(어느 절의 무엇)」. 하나도 빠뜨리지 않는다.`);
+      lines.push(`공고 「${part.pair.notice}」와 맞대기(기관 결정): 이 절에 아래 항목마다 줄 하나씩 — 「${MARK_PROPOSAL} 공고 항목 → 우리가 하는 일(다른 절에서 하면 그 절)」. 하나도 빠뜨리지 않는다.`);
       lines.push(...(part.pair.items.length ? part.pair.items.map((item, index) => `  ${index + 1}) ${item}`) : part.pair.excerpt.map(line => `  | ${line}`)));
+      if (part.pair.write) lines.push(`  기관이 정한 내용: 「${part.pair.write}」 — 이 뜻으로 쓴다.`);
     }
     // 동점 우선순위는 공고에서 온 순서다. 분량을 늘리지 않고, 말로 힘을 더 주게 한다.
     for (const entry of part.priority || []) lines.push(`※ 이 절에는 동점 시 ${entry.rank}순위로 보는 항목(${entry.item})이 붙어 있다. 권장 쪽수 안에서 이 항목을 가장 구체적으로 쓴다.`);
@@ -106,8 +108,7 @@ function unitRequest(unit, plan) {
 }
 
 // 공고 원문과 기관 자료는 절이 바뀌어도 같으므로 앞에 두고 캐시한다. 절마다 바뀌는 요청은 맨 뒤에 둔다.
-// incoming: 다른 장에서 이 장을 가리킨 줄(pointer-check.js incomingPointers). 가리킴 받는 쪽도 맞추게 요청에 넣는다(11-07).
-export function userContent({ rfpText, facts, project, section, constraints, preferences = [], plan = null, incoming = [] }) {
+export function userContent({ rfpText, facts, project, section, constraints, preferences = [], plan = null }) {
   const partners = (project?.partners || []).map(partner => partner.name || `${partner.kind || '구성사'}(이름 ${PENDING}])`);
   const shared = [
     '<공고 원문>', rfpText, '</공고 원문>',
@@ -132,8 +133,7 @@ export function userContent({ rfpText, facts, project, section, constraints, pre
     '',
     '금지:',
     ...(prohibitionLines(constraints, project).length ? prohibitionLines(constraints, project) : ['- 없음']),
-    ...(preferences.length ? ['', '공고가 평가 우대로 적은 것:', ...preferences.map(line => `- ${line}`)] : []),
-    ...(incoming.length ? ['', '다른 장에서 이 장을 가리킨 줄(앞뒤가 맞아야 한다 — 가리킨 절에서 그 일을 하는 줄을 실제로 쓴다):', ...incoming.map(pointer => `- ${pointer.from} → ${pointer.to.join('·')}: 「${pointer.line}」`)] : [])
+    ...(preferences.length ? ['', '공고가 평가 우대로 적은 것:', ...preferences.map(line => `- ${line}`)] : [])
   ].join('\n');
   return [
     { type: 'text', text: shared, cache_control: { type: 'ephemeral' } },
@@ -360,15 +360,16 @@ export function textOf(message) {
 export const DEFAULT_EFFORT = 'medium';
 
 // judge: 채점 기준마다 답한 자리가 있는지 판정자를 불러 본다(criteria-check.js). 끄려면 false.
-export async function draftSection({ client, model, effort = DEFAULT_EFFORT, rfpText, facts, project, section, constraints, plan = null, incoming = [], onUsage, krwPerUsd, judge = true, now = () => new Date().toISOString() }) {
+export async function draftSection({ client, model, effort = DEFAULT_EFFORT, rfpText, facts, project, section, constraints, plan = null, onUsage, krwPerUsd, judge = true, now = () => new Date().toISOString() }) {
   const stream = client.beta.messages.stream({
     model,
-    max_tokens: 32000,
+    // 상한일 뿐 — 덜 쓰면 그만큼만 나간다. 32,000에서 Ⅱ장이 생각 29,269토큰으로 잘렸다(11-07) → 48,000(11-08).
+    max_tokens: 48000,
     betas: ['server-side-fallback-2026-07-01'],
     fallbacks: 'default',
     output_config: { effort },
     system: [{ type: 'text', text: systemPrompt(), cache_control: { type: 'ephemeral' } }],
-    messages: [{ role: 'user', content: userContent({ rfpText, facts, project, section, constraints, plan, incoming, preferences: preferenceLines(rfpText) }) }]
+    messages: [{ role: 'user', content: userContent({ rfpText, facts, project, section, constraints, plan, preferences: preferenceLines(rfpText) }) }]
   });
   const message = await stream.finalMessage();
   const record = usageRecord({ at: now(), section: section.title, model, message, krwPerUsd });

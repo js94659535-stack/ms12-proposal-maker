@@ -232,3 +232,22 @@ test('pair: Ⅰ.3에 공고 「8. 위탁운영 범위」의 다섯 항목이 붙
   const plainUnit = writingUnits(bare.plan).find(entry => entry.key === 'Ⅰ');
   assert.doesNotMatch(userContent({ rfpText, facts: [], project, section: plainUnit, constraints, plan: bare.plan })[1].text, /맞대기/);
 });
+
+test('pair only: Ⅴ는 공고 위탁운영 범위 가운데 「관련 홈페이지 운영」 하나만 받는다(11-08)', async () => {
+  const { userContent } = await import('../src/proposal-draft.js');
+  const rfpText = fs.readFileSync(new URL('./fixtures/rfp-unification-2027.txt', import.meta.url), 'utf8');
+  const project = JSON.parse(fs.readFileSync(new URL('../reports/10-05-unification/project.json', import.meta.url), 'utf8'));
+  const { plan, constraints } = readPlan(rfpText, { project });
+  const unit = writingUnits(plan).find(entry => entry.key === 'Ⅴ');
+  const pair = unit.parts.find(part => part.key === 'Ⅴ').pair;
+  assert.deepEqual(pair.items, ['공통 — 관련 홈페이지 운영']);
+  assert.deepEqual(pair.unmatched, []);
+  const request = userContent({ rfpText, facts: [], project, section: unit, constraints, plan })[1].text;
+  assert.match(request, /  1\) 공통 — 관련 홈페이지 운영/);
+  assert.doesNotMatch(request, /시설물 유지 관리/);
+  assert.match(request, /기관이 정한 내용: 「관련 홈페이지 운영 → 일정·신청·결과 게시」/);
+  // 공고에 없는 항목을 적으면 맞대기 지시를 내지 않고 unmatched로 남긴다.
+  const wrong = readPlan(rfpText, { project: { ...project, pair: { 'Ⅴ': { notice: '위탁운영 범위', only: ['없는 항목'] } } } });
+  const wrongPair = writingUnits(wrong.plan).find(entry => entry.key === 'Ⅴ').parts[0].pair;
+  assert.deepEqual([wrongPair.found, wrongPair.unmatched], [false, ['없는 항목']]);
+});

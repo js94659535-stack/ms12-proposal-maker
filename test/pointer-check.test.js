@@ -1,7 +1,7 @@
 // 가리킴 검사(11-07): 「(Ⅱ.3)」처럼 다른 절을 가리킨 줄이 있으면, 가리킨 절에 그 일을 하는 줄이 있는가.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { pointersOf, incomingPointers, pointerVerdicts, judgePointers } from '../src/pointer-check.js';
+import { pointersOf, pointerVerdicts, judgePointers } from '../src/pointer-check.js';
 import { userContent } from '../src/proposal-draft.js';
 
 // 11-05 모양을 줄인 것: Ⅰ.3이 Ⅱ.2·Ⅱ.3·Ⅴ를 가리키고, Ⅱ.3에는 수시보고 줄이 없다.
@@ -15,12 +15,10 @@ const pointers = pointersOf(chapters);
 test('괄호로 다른 절을 가리킨 줄을 찾는다 — 장만 적으면 그 장의 절 전부, 자기 절 가리킴은 뺀다', () => {
   assert.deepEqual(pointers.map(pointer => [pointer.from, pointer.to]), [['Ⅰ.3', ['Ⅱ.2']], ['Ⅰ.3', ['Ⅱ.3']], ['Ⅰ.3', ['Ⅴ']]]);
   assert.equal(pointers[1].claim, '통일부 요청 사항 → 접수·처리 기록, 수시보고');
-  assert.deepEqual(incomingPointers(chapters, 'Ⅱ').map(pointer => pointer.to[0]), ['Ⅱ.2', 'Ⅱ.3']);
-  assert.deepEqual(incomingPointers(chapters, 'Ⅰ'), []);
-  // 아직 안 쓴 장(Ⅱ가 폴더에 없음)을 가리킨 줄도 목차의 절 이름으로 찾는다 — 그 장을 쓸 때 요청에 넣으려면.
+  // 아직 안 쓴 장(Ⅱ가 폴더에 없음)을 가리킨 줄도 목차의 절 이름으로 찾는다 — 없으면 「가리킨 절에 없다」로 잡혀야 한다.
   const withoutII = chapters.filter(chapter => chapter.title !== 'Ⅱ');
-  assert.deepEqual(incomingPointers(withoutII, 'Ⅱ'), []);
-  assert.deepEqual(incomingPointers(withoutII, 'Ⅱ', { parts: ['Ⅰ.3', 'Ⅱ.2', 'Ⅱ.3', 'Ⅴ'] }).map(pointer => pointer.to[0]), ['Ⅱ.2', 'Ⅱ.3']);
+  assert.deepEqual(pointersOf(withoutII).map(pointer => pointer.to[0]), ['Ⅴ']);
+  assert.deepEqual(pointersOf(withoutII, { parts: ['Ⅰ.3', 'Ⅱ.2', 'Ⅱ.3', 'Ⅴ'] }).map(pointer => pointer.to[0]), ['Ⅱ.2', 'Ⅱ.3', 'Ⅴ']);
 });
 
 test('인용이 가리킨 절에 그대로 있어야 통과 — 지어낸 줄·다른 절의 줄(가리킨 줄 자신 포함)은 떨어진다', () => {
@@ -51,11 +49,9 @@ test('세 번 판정해 가리킴마다 다수로 — 비용 기록도 세 줄',
   assert.deepEqual(rows.map(row => [row.level, row.votes]), [['pass', '3/3'], ['warn', '2/3'], ['pass', '2/3']]);
 });
 
-test('장을 다시 쓸 때 그 장을 가리킨 줄이 요청에 들어간다', () => {
+test('가리킨 줄은 가리킴 받는 장의 생성 요청에 넣지 않는다 — 검사가 잡는다(11-08)', () => {
   const section = { key: 'Ⅱ', title: 'Ⅱ. 사업운영계획', score: 10, writeWhat: [] };
   const constraints = { amounts: [], derived: [], periods: [], longTerm: null, ratioCaps: [], pageCaps: [], prohibitions: [] };
-  const request = userContent({ rfpText: '', facts: [], project: {}, section, constraints, incoming: incomingPointers(chapters, 'Ⅱ') })[1].text;
-  assert.match(request, /다른 장에서 이 장을 가리킨 줄/);
-  assert.match(request, /- Ⅰ\.3 → Ⅱ\.3: 「통일부 요청 사항 → 접수·처리 기록, 수시보고\(Ⅱ\.3\)」/);
-  assert.doesNotMatch(userContent({ rfpText: '', facts: [], project: {}, section, constraints })[1].text, /가리킨 줄/);
+  const request = userContent({ rfpText: '', facts: [], project: {}, section, constraints, incoming: pointersOf(chapters) })[1].text;
+  assert.doesNotMatch(request, /가리킨 줄|수시보고/);
 });

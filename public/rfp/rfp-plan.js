@@ -301,7 +301,14 @@ export function readPlan(text, options = {}) {
     const rule = options.project?.pair?.[key];
     if (!rule) return null;
     const excerpt = noticeExcerpt(text, rule.notice);
-    return { notice: rule.notice, found: Boolean(excerpt), items: noticeItems(excerpt), excerpt: excerpt || [], why: rule.why || null };
+    // only: 대목의 항목 가운데 이 절이 맡을 것만(11-08 — Ⅴ는 「관련 홈페이지 운영」 하나). 못 찾은 것은 unmatched로 보인다.
+    const all = noticeItems(excerpt);
+    const squashed = value => String(value).replace(/s+/g, '');
+    const has = (item, want) => squashed(item).includes(squashed(want));
+    const items = rule.only ? all.filter(item => rule.only.some(want => has(item, want))) : all;
+    const unmatched = (rule.only || []).filter(want => !all.some(item => has(item, want)));
+    // write: 사람이 정한 그 줄의 내용(11-08 — Ⅴ 「관련 홈페이지 운영 → 일정·신청·결과 게시」).
+    return { notice: rule.notice, found: Boolean(excerpt) && (!rule.only || items.length > 0), items, unmatched, write: rule.write || null, excerpt: excerpt || [], why: rule.why || null };
   };
   const base = readRfp(text);
   const { evaluation, outline, constraints } = base;

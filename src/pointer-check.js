@@ -7,6 +7,7 @@
 // 그래서 채점 기준 검사와 같은 방식(사용자 결정 11-02 「AI가 인용, 검사가 확인」): 판정자가 가리킨 절에서 그 일을 하는 줄을 인용하고,
 // 검사는 그 인용이 가리킨 절에 글자 그대로 있는지 본다. 세 번 돌려 다수로 정한다(11-07).
 // 없으면 warn이다 — 점수를 잃는 것이 아니라 앞뒤가 안 맞는 것이다. 판정자 호출이 실패해도 막지 않는다(대원칙 ②).
+// 가리킨 줄을 가리킴 받는 장의 생성 요청에 넣던 것(11-07)은 뺐다(11-08) — 검사가 이미 잡고, 넣자 Ⅱ장 생각이 39% 늘어 잘렸다.
 import { usageRecord } from './proposal-draft.js';
 import { sectionLines, plain } from './plan-checks.js';
 import { JUDGE_MODEL, JUDGE_RUNS } from './criteria-check.js';
@@ -30,11 +31,6 @@ export function pointersOf(chapters, { parts: known } = {}) {
     }
   }
   return out;
-}
-
-// 이 장(키)을 가리킨 다른 장의 줄 — 그 장을 다시 쓸 때 요청에 넣는다(가리킴 받는 쪽도 맞춘다).
-export function incomingPointers(chapters, chapterKey, options = {}) {
-  return pointersOf(chapters, options).filter(pointer => !pointer.from.startsWith(chapterKey) && pointer.to.some(part => part === chapterKey || part.startsWith(`${chapterKey}.`)));
 }
 
 export function pointerPrompt(pointers, chapters) {
