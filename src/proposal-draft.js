@@ -154,7 +154,9 @@ export function checkDraft(text, { constraints, section, sources, project }) {
   for (const source of sources) for (const quantity of quantitiesOf(source)) known.add(`${quantity.number}${quantity.unit}`);
   for (const line of ruleLines(constraints)) for (const quantity of quantitiesOf(line)) known.add(`${quantity.number}${quantity.unit}`);
   const sourceNumbers = new Set(sources.flatMap(source => [...String(source).matchAll(/\d[\d,]*/g)].map(m => normalize(m[0]))));
-  for (const quantity of quantitiesOf(text.replace(/\[확인 필요[^\]]*\]/g, ''))) {
+  // 소제목 줄(#)은 보지 않는다 — 「### Ⅱ.1 일반 현황」의 「1 일」을 숫자+단위로 읽었다(11-02).
+  const body = text.split('\n').filter(line => !/^\s*#/.test(line)).join('\n');
+  for (const quantity of quantitiesOf(body.replace(/\[확인 필요[^\]]*\]/g, ''))) {
     if (known.has(`${quantity.number}${quantity.unit}`)) continue;
     // 연도(2027년)·조항 번호처럼 공고에 숫자 자체가 있으면 단위가 달라도 넘긴다.
     if (quantity.unit === '년' && sourceNumbers.has(quantity.number)) continue;
@@ -343,7 +345,11 @@ export function textOf(message) {
 }
 
 // 한 절을 쓴다. client는 Anthropic SDK 클라이언트(시험에서는 가짜)다. 호출이 끝나면 곧바로 onUsage로 기록을 넘긴다.
-export async function draftSection({ client, model, effort = 'high', rfpText, facts, project, section, constraints, plan = null, onUsage, krwPerUsd, now = () => new Date().toISOString() }) {
+// 생성 effort 기본값. Opus 5.5는 생각 예산을 토큰 수로 받지 않는다 — budget_tokens는 400,
+// task_budget은 최소 20,000(medium 출력 전체 16,383보다 큼)이라 400(11-02 확인). low는 내용이 빠졌다(11-01) → medium.
+export const DEFAULT_EFFORT = 'medium';
+
+export async function draftSection({ client, model, effort = DEFAULT_EFFORT, rfpText, facts, project, section, constraints, plan = null, onUsage, krwPerUsd, now = () => new Date().toISOString() }) {
   const stream = client.beta.messages.stream({
     model,
     max_tokens: 32000,

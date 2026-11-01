@@ -1,7 +1,7 @@
 // 공고(RFP)의 평가표에서 고른 절을 Claude로 쓰고, 검사하고, 토큰을 기록한다(10-05).
 // 사용: node tools/proposal-draft.mjs --rfp <공고.hwpx> [--rfp <더>] --facts <기관자료.hwp> [--facts <더>]
 //        --project <project.json> --sections "사업 이해도,신규 프로그램" --out <폴더>
-//        [--model claude-opus-5-5] [--effort high] [--krw 1400] [--dry-run]
+//        [--model claude-opus-5-5] [--effort medium] [--krw 1400] [--dry-run]
 // --dry-run 은 API를 부르지 않고 보낼 프롬프트만 파일로 남긴다.
 // 기록: <폴더>/usage.jsonl 에 호출마다 한 줄(prompt_tokens·completion_tokens·원화). 호출이 끝나는 즉시 쓴다.
 import fs from 'node:fs';
@@ -9,7 +9,7 @@ import path from 'node:path';
 import { extractFile } from '../src/files.js';
 import { readPlan, writingUnits } from '../public/rfp/rfp-plan.js';
 import { draftFileLabel } from '../public/plan/workspace.js';
-import { draftSection, systemPrompt, userContent, preferenceLines, choiceSheet, stripMarks } from '../src/proposal-draft.js';
+import { draftSection, DEFAULT_EFFORT, systemPrompt, userContent, preferenceLines, choiceSheet, stripMarks } from '../src/proposal-draft.js';
 
 const args = process.argv.slice(2);
 const all = name => args.flatMap((arg, index) => arg === `--${name}` ? [args[index + 1]] : []);
@@ -47,7 +47,7 @@ const sections = wanted.length ? [...new Set(wanted.flatMap(pick))] : units;
 console.log(`목차: ${plan.from} · 쓸 장 ${sections.map(unit => unit.title).join(', ')}`);
 
 const model = opt('model', 'claude-opus-5-5');
-const effort = opt('effort', 'high');
+const effort = opt('effort', DEFAULT_EFFORT);
 const krwPerUsd = Number(opt('krw', 1400));
 const fileName = draftFileLabel; // 작업대(/plan/)가 같은 이름으로 장을 찾는다
 

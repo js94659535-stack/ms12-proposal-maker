@@ -169,7 +169,7 @@ test('한 절 쓰기: 요청 모양, 토큰 기록, 검사가 함께 돈다(가�
   assert.equal(sent.model, 'claude-opus-5-5');
   assert.equal(sent.fallbacks, 'default');
   assert.deepEqual(sent.betas, ['server-side-fallback-2026-07-01']);
-  assert.equal(sent.output_config.effort, 'high');
+  assert.equal(sent.output_config.effort, 'medium');
   assert.ok(!('thinking' in sent));
   assert.equal(records.length, 1);
   assert.equal(records[0].prompt_tokens, 15500);
@@ -204,4 +204,10 @@ test('생각 토큰: API 칸이 있으면 그대로, 없으면 null, 블록 글 
   const client = { beta: { messages: { countTokens: async ({ messages }) => ({ input_tokens: messages[0].content === '.' ? 8 : 108 }) } } };
   assert.equal(await countTextTokens(client, 'claude-opus-5-5', '본문'), 100);
   assert.equal(await countTextTokens({ beta: { messages: {} } }, 'claude-opus-5-5', '본문'), null);
+});
+
+test('소제목의 절 번호는 출처 없는 숫자로 세지 않는다 — 「Ⅱ.1 일반 현황」(11-02)', () => {
+  const text = '### Ⅱ.1 일반 현황\no [제안] 운영 계획을 세운다\n- [제안] 상담을 37일 운영한다';
+  const fails = checkDraft(text, { constraints, section: { title: 'Ⅱ', writeWhat: [] }, sources: [rfpText], project }).filter(check => check.what === '출처 없는 숫자');
+  assert.deepEqual(fails.map(check => check.detail.split('」')[0].slice(1)), ['37일'], '본문의 37일은 잡고 소제목의 「1 일」은 넘긴다');
 });
