@@ -37,7 +37,8 @@ export function criteriaOf(section) {
       const text = [entry.point, ...(entry.details || [])].join(' — ');
       if (seen.has(text)) continue;
       seen.add(text);
-      list.push({ id: `${part.key}-${seen.size}`, part: part.key, title: part.title, item: entry.item || null, text });
+      // points: 평가표 배점 중 이 절에 붙은 몫(readPlan의 share). fail이면 이만큼이 답 없이 남는다.
+      list.push({ id: `${part.key}-${seen.size}`, part: part.key, title: part.title, item: entry.item || null, text, points: entry.share ?? null });
     }
   }
   return list;
@@ -145,7 +146,7 @@ export function verdicts(criteria, bodies, answer) {
   return criteria.map(criterion => {
     const label = `채점 기준 「${criterion.part} ${criterion.text.length > 40 ? criterion.text.slice(0, 40) + '…' : criterion.text}」`;
     const result = byId.get(criterion.id);
-    if (!result || !result.elements?.length) return { level: 'fail', what: label, detail: '판정자가 이 기준을 답하지 않음', criterion: criterion.id };
+    if (!result || !result.elements?.length) return { level: 'fail', what: label, detail: '판정자가 이 기준을 답하지 않음', criterion: criterion.id, points: criterion.points };
     // 「답했다」는 판정자가 말하지 않는다 — 묻는 것마다 확인을 통과한 인용이 있을 때만 검사가 정한다.
     // 묻는 것(asks)은 기준 글자의 한 토막이어야 한다. 판정자가 기준에 없는 요구를 지어내면 그 토막은 버린다.
     // 하나도 남지 않으면 기준 전체를 묻는 것 하나로 보고 모든 인용을 모은다.
@@ -157,13 +158,13 @@ export function verdicts(criteria, bodies, answer) {
     });
     const empty = elements.filter(element => !element.kept.length);
     if (!empty.length) {
-      return { level: 'pass', what: label, detail: elements.map(element => `${element.asks}: 「${plain(element.kept[0].quote).slice(0, 50)}」`).join(' · '), criterion: criterion.id };
+      return { level: 'pass', what: label, detail: elements.map(element => `${element.asks}: 「${plain(element.kept[0].quote).slice(0, 50)}」`).join(' · '), criterion: criterion.id, points: criterion.points };
     }
     const detail = empty.map(element => {
       const dropped = element.dropped.map(entry => `「${plain(entry.quote).slice(0, 30)}」 ${entry.problem}`);
       return [`「${element.asks}」에 답한 자리 없음${element.missing ? ` — ${element.missing}` : ''}`, ...dropped].join(' · ');
     });
-    return { level: 'fail', what: label, detail: detail.join(' / '), criterion: criterion.id, empty: empty.map(element => element.asks) };
+    return { level: 'fail', what: label, detail: detail.join(' / '), criterion: criterion.id, points: criterion.points, empty: empty.map(element => element.asks) };
   });
 }
 

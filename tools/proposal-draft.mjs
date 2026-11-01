@@ -3,6 +3,7 @@
 //        --project <project.json> --sections "사업 이해도,신규 프로그램" --out <폴더>
 //        [--model claude-opus-5-5] [--effort medium] [--krw 1400] [--dry-run]
 // --dry-run 은 API를 부르지 않고 보낼 프롬프트만 파일로 남긴다.
+// --max-krw N 은 쓴 돈이 N원을 넘으면 다음 장을 시작하지 않는다.
 // --recheck <폴더> 는 그 폴더의 draft_ 파일을 다시 쓰지 않고 검사만 다시 돌린다(채점 기준 판정자 호출 — 장당 몇 원).
 // 기록: <폴더>/usage.jsonl 에 호출마다 한 줄(prompt_tokens·completion_tokens·원화). 호출이 끝나는 즉시 쓴다.
 import fs from 'node:fs';
@@ -66,7 +67,10 @@ if (flag('dry-run')) {
 const { default: Anthropic } = await import('@anthropic-ai/sdk');
 const client = new Anthropic();
 const usageFile = path.join(out, 'usage.jsonl');
-const onUsage = record => fs.appendFileSync(usageFile, `${JSON.stringify(record)}\n`);
+// --max-krw N: 이번 실행에서 쓴 돈(생성 + 판정자)이 N원을 넘으면 다음 장을 시작하지 않고 멈춘다(11-03).
+const maxKrw = Number(opt('max-krw', Infinity));
+let spentKrw = 0;
+const onUsage = record => { spentKrw += record.krw || 0; fs.appendFileSync(usageFile, `${JSON.stringify(record)}\n`); };
 
 // --recheck <폴더>: 이미 쓴 draft_ 파일을 다시 쓰지 않고 검사만 다시 돌린다(규칙 검사 + 채점 기준 판정자). 결과는 --out에 checks_로.
 if (opt('recheck')) {
@@ -85,7 +89,8 @@ if (opt('recheck')) {
 
 const summary = [];
 for (const section of opt('recheck') ? [] : sections) {
-  console.log(`${section.title} 쓰는 중…`);
+  if (spentKrw > maxKrw) { console.log(`멈춤: 지금까지 ${spentKrw}원 — 한도 ${maxKrw}원을 넘어 「${section.title}」부터 쓰지 않았다.`); break; }
+  console.log(`${section.title} 쓰는 중… (지금까지 ${spentKrw}원)`);
   const result = await draftSection({
     client, model, effort, rfpText, facts, project, section, constraints, plan, krwPerUsd, onUsage
   });
@@ -102,4 +107,4 @@ for (const section of opt('recheck') ? [] : sections) {
   console.log(summary.at(-1));
   for (const check of fails) console.log(`  ✖ ${check.what} ${check.detail}`);
 }
-console.log(`\n기록: ${usageFile} (환율 ${krwPerUsd}원/$)`);
+console.log(`\n합계 ${spentKrw}원 · 기록: ${usageFile} (환율 ${krwPerUsd}원/$)`);
