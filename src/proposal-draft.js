@@ -6,7 +6,7 @@
 import { checkPlan } from '../public/rfp/rfp-read.js';
 import { LAYOUT, estimatePages } from './page-estimate.js';
 import { PENDING } from '../public/plan/workspace.js';
-import { judgeCriteria } from './criteria-check.js';
+import { judgeCriteria, restatesNotice } from './criteria-check.js';
 
 export const MAX_PARAGRAPH = 300;
 export { PENDING };
@@ -144,8 +144,36 @@ export function userContent({ rfpText, facts, project, section, constraints, pre
 }
 
 // 공고 글자에서 「평가 우대」 문장을 그대로 뽑는다.
+// 「평가 우대」·「가점」 문장 — 공고에서 읽을 때와 초안에서 지울 때 같은 것을 본다(③).
+export const PREFERENCE = /평가\s*우대|(?<!평)가점/;
 export function preferenceLines(rfpText) {
-  return [...new Set(String(rfpText).split(/\r?\n/).map(line => line.replace(/^[\s※*\-o]+/, '').trim()).filter(line => /평가\s*우대|(?<!평)가점/.test(line)))];
+  return [...new Set(String(rfpText).split(/\r?\n/).map(line => line.replace(/^[\s※*\-o]+/, '').trim()).filter(line => PREFERENCE.test(line)))];
+}
+
+// 후처리(11-10) — 생성 지시로 넣으면 생각이 늘고, 어겨도 줄 하나 고치면 되는 것(고치는 값 0원)을 여기서 고친다.
+//   ① 「**1. 제목**」 굵은 번호 줄 → 「#### 1. 제목」. Ⅴ장(절이 하나뿐)만 이렇게 써 장마다 글머리가 달랐다(11-09).
+//      「###」로 올리지 않는다 — 절 본문을 「### 절 이름」 아래에서 찾는 검사(채점 기준·분량)가 잘린다.
+//   ② 공고의 평가 우대 문장을 옮긴 [사실: 공고] 줄은 지운다 — 심사위원이 아는 사실이고 점수 노리는 티가 난다(사용자 결정 11-10).
+//      [제안] 줄이 우대를 말하면 지우지 않고 warn — 내용이 함께 사라진다.
+// 고친 것은 notes로 돌려 검사 결과에 남긴다(대원칙 ② — 조용히 바꾸지 않는다).
+export function tidyDraft(text) {
+  const notes = [];
+  const out = [];
+  for (const line of String(text).split('\n')) {
+    const bold = line.match(/^\s*\*\*\s*(\d+[.)]\s*[^*]+?)\s*\*\*\s*$/);
+    if (bold) {
+      out.push(`#### ${bold[1]}`);
+      notes.push({ level: 'pass', what: '후처리: 굵은 번호 줄을 소제목으로', detail: `「${line.trim()}」 → 「#### ${bold[1]}」` });
+      continue;
+    }
+    if (PREFERENCE.test(line) && restatesNotice(line)) {
+      notes.push({ level: 'pass', what: '후처리: 평가 우대 문장 지움', detail: `「${line.trim().slice(0, 60)}」` });
+      continue;
+    }
+    if (PREFERENCE.test(line) && line.includes(MARK_PROPOSAL)) notes.push({ level: 'warn', what: '평가 우대를 말하는 제안 줄', detail: `「${line.trim().slice(0, 60)}」 — 점수 노리는 티. 고칠지 정한다` });
+    out.push(line);
+  }
+  return { text: out.join('\n'), notes };
 }
 
 // ---------- 검사 ----------
@@ -381,9 +409,11 @@ export async function draftSection({ client, model, effort = DEFAULT_EFFORT, rfp
   record.thinking_estimate = record.text_tokens == null ? null : record.output_tokens - record.text_tokens;
   await onUsage?.(record);
   if (message.stop_reason === 'refusal') return { text: '', record, refused: true, checks: [{ level: 'fail', what: '모델이 쓰기를 거절함', detail: JSON.stringify(message.stop_details || null) }] };
-  const text = textOf(message);
+  const tidied = tidyDraft(textOf(message));
+  const text = tidied.text;
   const checks = checkDraft(text, { constraints, section, sources: [rfpText, ...facts.map(fact => fact.text)], project });
   if (message.stop_reason === 'max_tokens') checks.unshift({ level: 'fail', what: '출력이 잘림(max_tokens)', detail: '' });
+  checks.push(...tidied.notes);
   if (judge) checks.push(...await judgeCriteria({ client, text, section, krwPerUsd, onUsage, now }));
   return { text, record, checks };
 }

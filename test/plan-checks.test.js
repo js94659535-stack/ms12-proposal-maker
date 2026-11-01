@@ -62,3 +62,24 @@ test('「### 1. 일반 현황」처럼 장 번호 없는 소제목은 그 장의
   const lines = sectionLines([{ title: 'Ⅱ', text: ['## Ⅱ. 사업운영계획', '### 1. 일반 현황', '- [제안] 사업총괄책임자 아래 상담·교육·운영 부문을 둔다', '### 2. 프로그램 운영 계획', '- [제안] 마음건강 검사 → 성격검사 후 해석 상담 → 해석지'].join('\n') }]);
   assert.deepEqual(lines.map(line => line.part), ['Ⅱ.1', 'Ⅱ.2']);
 });
+
+test('후처리(11-10): Ⅴ의 「**1. 제목**」은 「#### 1. 제목」이 되고, 절 하나뿐인 장의 ####는 다른 장의 ###와 같은 층으로 본다', async () => {
+  const { tidyDraft } = await import('../src/proposal-draft.js');
+  const v = tidyDraft(['## Ⅴ. 홍보방안', '### Ⅴ 홍보방안', '**1. 홍보 기본방향**', 'o [제안] 핵심 메시지'].join('\n'));
+  assert.match(v.text, /^#### 1\. 홍보 기본방향$/m);
+  assert.equal(v.notes[0].what, '후처리: 굵은 번호 줄을 소제목으로');
+  const chapters = [plainChapter('Ⅰ', ['o [제안] 비전']), plainChapter('Ⅱ', ['o [제안] 조직']), { title: 'Ⅴ', text: v.text }];
+  assert.deepEqual(headingStyleChecks(chapters), []);
+  // 절이 여럿인 장이 ####를 쓰면 여전히 다르다.
+  const many = { title: 'Ⅲ', text: ['## Ⅲ. 장', '### Ⅲ.1 절', '#### 1. 소', '### Ⅲ.2 절'].join('\n') };
+  assert.equal(headingStyleChecks([...chapters, many]).length, 1);
+});
+
+test('후처리(11-10): 평가 우대를 옮긴 공고 사실 줄은 지우고, 제안 줄은 남기고 warn', async () => {
+  const { tidyDraft } = await import('../src/proposal-draft.js');
+  const { text, notes } = tidyDraft(['※ [사실: 공고 Ⅱ.5] 신규 상담지원·교육 프로그램 포함 시 평가 우대', 'o [제안] 신규 상담지원·교육 (평가 우대 대응)', '- [사실: 기관 자료] 2025 장성교육지원청 상담'].join('\n'));
+  assert.doesNotMatch(text, /\[사실: 공고 Ⅱ\.5\]/);
+  assert.match(text, /\(평가 우대 대응\)/);
+  assert.match(text, /장성교육지원청/);
+  assert.deepEqual(notes.map(note => note.level), ['pass', 'warn']);
+});

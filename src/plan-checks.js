@@ -13,8 +13,11 @@ const HEADING_KINDS = [
 
 export function headingKinds(text) {
   const kinds = new Set();
-  for (const line of String(text).split('\n').map(value => value.trim())) {
-    for (const entry of HEADING_KINDS) if (entry.test(line)) kinds.add(entry.kind);
+  const lines = String(text).split('\n').map(value => value.trim());
+  // 절이 하나뿐인 장(「### Ⅴ 홍보방안」 하나)의 「####」는 다른 장의 「### 절」과 같은 층 — 공고 서식의 「1.」이다(11-10).
+  const single = lines.filter(line => /^###\s/.test(line)).length <= 1;
+  for (const line of lines) {
+    for (const entry of HEADING_KINDS) if (entry.test(line) && !(single && entry.kind === '#### 소제목')) kinds.add(entry.kind);
   }
   return kinds;
 }
