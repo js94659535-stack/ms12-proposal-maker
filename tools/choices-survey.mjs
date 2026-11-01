@@ -2,9 +2,10 @@
 // choices_ 197개를 가를 재료: 줄마다 절·배점·묶음·[확인 필요]·판정 인용·숫자·프로그램 꼴.
 import fs from 'node:fs';
 import path from 'node:path';
-const root = new URL('../', import.meta.url).pathname.replace(/^/([A-Za-z]:)/, '$1');
-const { readPlan, writingUnits } = await import(`file:///${root}public/rfp/rfp-plan.js`);
-const { stripMarks } = await import(`file:///${root}src/proposal-draft.js`);
+import { fileURLToPath } from 'node:url';
+import { readPlan, writingUnits } from '../public/rfp/rfp-plan.js';
+import { stripMarks } from '../src/proposal-draft.js';
+const root = `${fileURLToPath(new URL('../', import.meta.url)).replace(/\\/g, '/')}`;
 const rfp = fs.readFileSync(root + 'test/fixtures/rfp-unification-2027.txt', 'utf8');
 const project = JSON.parse(fs.readFileSync(root + 'reports/10-05-unification/project.json', 'utf8'));
 const units = writingUnits(readPlan(rfp, { project }).plan);
