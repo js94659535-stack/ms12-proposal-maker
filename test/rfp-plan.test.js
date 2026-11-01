@@ -210,3 +210,25 @@ test('장 단위 작성지시가 프롬프트와 검사에 쓰인다', () => {
 test('readRfp(10-05)의 결과는 그대로 남는다', () => {
   assert.equal(readRfp(unification).outline.total, 70);
 });
+
+// 공고와 맞대기(11-05): project.json pair가 정한 절에, 공고 대목의 항목을 공고 글자 그대로 붙인다.
+test('pair: Ⅰ.3에 공고 「8. 위탁운영 범위」의 다섯 항목이 붙고, 생성 요청에 항목마다 맞대라고 나온다', async () => {
+  const { userContent } = await import('../src/proposal-draft.js');
+  const rfpText = fs.readFileSync(new URL('./fixtures/rfp-unification-2027.txt', import.meta.url), 'utf8');
+  const project = JSON.parse(fs.readFileSync(new URL('../reports/10-05-unification/project.json', import.meta.url), 'utf8'));
+  const { plan, constraints } = readPlan(rfpText, { project });
+  const unit = writingUnits(plan).find(entry => entry.key === 'Ⅰ');
+  const pair = unit.parts.find(part => part.key === 'Ⅰ.3').pair;
+  assert.equal(pair.found, true);
+  assert.equal(pair.items.length, 5, pair.items.join(' / '));
+  assert.ok(pair.items[0].includes('심리 상담, 검사 및 치유, 코칭'));
+  assert.ok(pair.items.at(-1).startsWith('기타 통일부에서 요청하는 사항'));
+  assert.ok(unit.parts.filter(part => part.key !== 'Ⅰ.3').every(part => part.pair === null));
+  const request = userContent({ rfpText, facts: [], project, section: unit, constraints, plan })[1].text;
+  assert.match(request, /공고 「위탁운영 범위」와 맞대기/);
+  assert.match(request, /  5\) 기타 통일부에서 요청하는 사항/);
+  // pair가 없으면 요청에 맞대기 줄이 없다.
+  const bare = readPlan(rfpText, { project: { ...project, pair: undefined } });
+  const plainUnit = writingUnits(bare.plan).find(entry => entry.key === 'Ⅰ');
+  assert.doesNotMatch(userContent({ rfpText, facts: [], project, section: plainUnit, constraints, plan: bare.plan })[1].text, /맞대기/);
+});

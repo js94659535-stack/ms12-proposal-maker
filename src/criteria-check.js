@@ -186,7 +186,6 @@ export function verdicts(criteria, bodies, answer) {
     const ids = group.map(criterion => criterion.id).join(',');
     const points = group.every(criterion => criterion.points == null) ? null : group.reduce((sum, criterion) => sum + (criterion.points ?? 0), 0);
     const judged = group.map(criterion => ({ criterion, elements: checkedElements(criterion, bodies, byId.get(criterion.id)) }));
-    const missed = judged.filter(entry => !entry.elements);
     if (group.length === 1) {
       const { elements } = judged[0];
       if (!elements) { out.push({ level: 'fail', what: label, detail: '판정자가 이 기준을 답하지 않음', criterion: ids, points }); continue; }
@@ -205,7 +204,6 @@ export function verdicts(criteria, bodies, answer) {
       return { asks: text, by, tried: all.filter(element => squash(element.asks) === squash(text) && !element.kept.length) };
     });
     const empty = rows.filter(row => !row.by.length);
-    const answeredParts = parts.filter(part => answered.some(element => element.part === part));
     if (!all.length) {
       out.push({ level: 'fail', what: label, detail: '판정자가 이 기준을 답하지 않음', criterion: ids, points, parts });
     } else if (!empty.length) {
@@ -215,13 +213,20 @@ export function verdicts(criteria, bodies, answer) {
       const detail = empty.map(row => [`「${row.asks}」에 답한 자리 없음(${parts.join('·')} 모두)`, ...row.tried.map(element => `${element.part}: ${emptyDetail(element)}`)].join(' · '));
       out.push({ level: 'fail', what: label, detail: detail.join(' / '), criterion: ids, points, parts, empty: empty.map(row => row.asks) });
     }
-    if (missed.length && all.length) out.push({ level: 'warn', what: label, detail: `판정자가 ${missed.map(entry => entry.criterion.part).join('·')}에서 이 기준을 답하지 않음`, criterion: ids });
-    // 답이 하나도 없는 절 — 다른 절이 답해 점수는 받지만, 이 절은 쪽수만 쓰고 있다.
-    if (answeredParts.length) {
-      for (const { criterion } of judged.filter(entry => entry.elements && !answeredParts.includes(entry.criterion.part))) {
-        out.push({ level: 'warn', what: `채점 기준 「${criterion.part} ${shortText(criterion.text)}」`, detail: `${criterion.part}에는 이 기준의 답이 없고 ${answeredParts.join('·')}에 있다. 이 절은 쪽수만 쓰고 있다`, criterion: criterion.id, part: criterion.part, share: criterion.points, idle: true });
-      }
+    // 절마다, 다른 절에서는 답했는데 이 절에는 답이 없는 낱낱(11-05) — 점수는 받지만 사람이 「이 절에도 쓸지」 정한다.
+    // 낱낱마다 따로 내면 쏟아지므로 기준(묶음) 하나에 한 줄로 모은다. warn 개수는 기준 수를 넘지 않는다.
+    const gaps = [];
+    for (const { criterion, elements } of judged) {
+      if (!all.length) break;
+      if (!elements) { gaps.push({ part: criterion.part, text: `${criterion.part}은 판정자가 답하지 않음` }); continue; }
+      const own = elements.filter(element => element.kept.length);
+      const lacking = rows.filter(row => row.by.length && !own.some(element => squash(element.asks).includes(squash(row.asks))));
+      if (!lacking.length) continue;
+      const elsewhere = [...new Set(lacking.flatMap(row => row.by.map(element => element.part)))].filter(part => part !== criterion.part);
+      gaps.push({ part: criterion.part, share: criterion.points, asks: lacking.map(row => row.asks), idle: !own.length,
+        text: `${criterion.part}에 ${lacking.map(row => `「${row.asks}」`).join(', ')}의 답이 없다 (${elsewhere.join('·')}에 있음)${own.length ? '' : ' — 이 절은 쪽수만 쓰고 있다'}` });
     }
+    if (gaps.length) out.push({ level: 'warn', what: label, detail: gaps.map(gap => gap.text).join(' · '), criterion: ids, gaps });
   }
   return out;
 }

@@ -90,6 +90,11 @@ function unitRequest(unit, plan) {
     lines.push('채점 기준(평가표):', ...(part.scoring.length
       ? part.scoring.map(entry => `- [${entry.item}${entry.role === '부차' ? ' · 부차(본진은 다른 절 — 여기서는 이 절의 맥락에 걸치는 만큼만)' : ''}] ${entry.point}${entry.details.length ? ` — ${entry.details.join(' / ')}` : ''}`)
       : ['- (이 절에 직접 붙은 평가 항목 없음 — 작성내용을 따른다)']));
+    // 공고와 맞대기(project.json pair, 사람이 정함 — 11-05): 공고 대목의 항목마다 우리 제안을 한 줄씩 맞댄다.
+    if (part.pair?.found) {
+      lines.push(`공고 「${part.pair.notice}」와 맞대기(기관 결정): 이 절에 아래 항목마다 줄 하나씩 — 「${MARK_PROPOSAL} 공고 항목 → 우리가 하는 일(어느 절의 무엇)」. 하나도 빠뜨리지 않는다.`);
+      lines.push(...(part.pair.items.length ? part.pair.items.map((item, index) => `  ${index + 1}) ${item}`) : part.pair.excerpt.map(line => `  | ${line}`)));
+    }
     // 동점 우선순위는 공고에서 온 순서다. 분량을 늘리지 않고, 말로 힘을 더 주게 한다.
     for (const entry of part.priority || []) lines.push(`※ 이 절에는 동점 시 ${entry.rank}순위로 보는 항목(${entry.item})이 붙어 있다. 권장 쪽수 안에서 이 항목을 가장 구체적으로 쓴다.`);
   }

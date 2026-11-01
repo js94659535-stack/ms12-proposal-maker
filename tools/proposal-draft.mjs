@@ -5,6 +5,7 @@
 // --dry-run 은 API를 부르지 않고 보낼 프롬프트만 파일로 남긴다.
 // --max-krw N 은 쓴 돈이 N원을 넘으면 다음 장을 시작하지 않는다.
 // --recheck <폴더> 는 그 폴더의 draft_ 파일을 다시 쓰지 않고 검사만 다시 돌린다(채점 기준 판정자 호출 — 장당 몇 원).
+// 끝에 장을 건너 보는 검사(글머리 모양·되풀이 문장)를 그 폴더의 draft_ 전부에 돌려 checks_전체.json에 남긴다(11-05, 돈 안 듦).
 // 기록: <폴더>/usage.jsonl 에 호출마다 한 줄(prompt_tokens·completion_tokens·원화). 호출이 끝나는 즉시 쓴다.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -13,6 +14,7 @@ import { readPlan, writingUnits } from '../public/rfp/rfp-plan.js';
 import { draftFileLabel } from '../public/plan/workspace.js';
 import { draftSection, DEFAULT_EFFORT, systemPrompt, userContent, preferenceLines, choiceSheet, stripMarks, checkDraft } from '../src/proposal-draft.js';
 import { judgeCriteria } from '../src/criteria-check.js';
+import { checkChapters } from '../src/plan-checks.js';
 
 const args = process.argv.slice(2);
 const all = name => args.flatMap((arg, index) => arg === `--${name}` ? [args[index + 1]] : []);
@@ -107,4 +109,13 @@ for (const section of opt('recheck') ? [] : sections) {
   console.log(summary.at(-1));
   for (const check of fails) console.log(`  ✖ ${check.what} ${check.detail}`);
 }
+// 장을 건너 보는 검사 — 고른 장만이 아니라 폴더에 있는 draft_ 전부(목차 순서)를 본다.
+const draftDir = opt('recheck') || out;
+const chapters = units.map(unit => ({ title: unit.key, file: path.join(draftDir, `draft_${fileName(unit.title)}.md`) }))
+  .filter(chapter => fs.existsSync(chapter.file))
+  .map(chapter => ({ title: chapter.title, text: fs.readFileSync(chapter.file, 'utf8') }));
+const across = checkChapters(chapters);
+fs.writeFileSync(path.join(out, 'checks_전체.json'), JSON.stringify(across, null, 2));
+console.log(`\n장을 건너 본 검사 (${chapters.map(chapter => chapter.title).join('·') || '장 없음'}): warn ${across.length}`);
+for (const check of across) console.log(`  ! ${check.what} ${check.detail}`);
 console.log(`\n합계 ${spentKrw}원 · 기록: ${usageFile} (환율 ${krwPerUsd}원/$)`);

@@ -153,8 +153,10 @@ test('같은 장의 다른 절에서 답했으면 통과이고, 어느 절에서
     { asks: '프로그램운영 수요조사', quotes: [], missing: '수요조사 방법 없음' },
     { asks: '설문을 반영한 콘텐츠 개발', quotes: [survey], missing: '' }
   ] }] });
-  assert.equal(result.length, 1, JSON.stringify(result));
+  assert.deepEqual(result.map(check => check.level), ['pass', 'warn'], JSON.stringify(result));
   assert.equal(result[0].level, 'pass', result[0].detail);
+  // 11-03의 Ⅱ.3 그대로 — 「설문 반영」에는 답했고 「수요조사」만 없다. 사람이 알아야 하므로 warn(11-05).
+  assert.equal(result[1].detail, 'Ⅱ.3에 「프로그램운영 수요조사」의 답이 없다 (Ⅱ.2에 있음)');
   assert.match(result[0].what, /Ⅱ\.2·Ⅱ\.3/);
   assert.deepEqual(result[0].answeredIn['프로그램운영 수요조사'], ['Ⅱ.2']);
   assert.deepEqual(result[0].answeredIn['설문을 반영한 콘텐츠 개발'], ['Ⅱ.2', 'Ⅱ.3']);
@@ -162,15 +164,15 @@ test('같은 장의 다른 절에서 답했으면 통과이고, 어느 절에서
   assert.ok(Math.abs(result[0].points - 10 / 3) < 1e-9);
 });
 
-test('묶음 안에서 답이 하나도 없는 절은 warn — 쪽수만 쓰고 있다', () => {
+test('묶음 안에서 답이 하나도 없는 절은 낱낱을 쉼표로 이어 한 줄 — 쪽수만 쓰고 있다', () => {
   const result = verdicts(criteria2, bodies2, { results: [both22, { id: in23.id, elements: [
     { asks: '프로그램운영 수요조사', quotes: [], missing: '' },
     { asks: '설문을 반영한 콘텐츠 개발', quotes: ['만족도 조사를 반영한 콘텐츠 개발'], missing: '' }
   ] }] });
   assert.deepEqual(result.map(check => check.level), ['pass', 'warn']);
-  assert.equal(result[1].detail, 'Ⅱ.3에는 이 기준의 답이 없고 Ⅱ.2에 있다. 이 절은 쪽수만 쓰고 있다');
+  assert.equal(result[1].detail, 'Ⅱ.3에 「프로그램운영 수요조사」, 「설문을 반영한 콘텐츠 개발」의 답이 없다 (Ⅱ.2에 있음) — 이 절은 쪽수만 쓰고 있다');
   assert.equal(result[1].points, undefined); // 배점 합에 다시 들어가지 않는다
-  assert.ok(Math.abs(result[1].share - 5 / 3) < 1e-9);
+  assert.ok(Math.abs(result[1].gaps[0].share - 5 / 3) < 1e-9);
 });
 
 test('묶음 어디에도 답이 없는 낱낱은 fail이고, 절마다 무엇이 떨어졌는지 적는다', () => {
@@ -178,7 +180,7 @@ test('묶음 어디에도 답이 없는 낱낱은 fail이고, 절마다 무엇�
     { id: in22.id, elements: [{ asks: '프로그램운영 수요조사', quotes: ['수요조사 결과를 들은 바 없다'], missing: '' }, both22.elements[1]] },
     { id: in23.id, elements: [{ asks: '프로그램운영 수요조사', quotes: [], missing: '방법 없음' }, { asks: '설문을 반영한 콘텐츠 개발', quotes: [survey], missing: '' }] }
   ] });
-  assert.deepEqual(result.map(check => check.level), ['fail']);
+  assert.deepEqual(result.map(check => check.level), ['fail']); // 어디에도 없는 낱낱은 fail에만 — warn으로 겹쳐 내지 않는다
   assert.deepEqual(result[0].empty, ['프로그램운영 수요조사']);
   assert.match(result[0].detail, /Ⅱ\.2: .*본문에 없는 줄/);
   assert.match(result[0].detail, /Ⅱ\.3: .*방법 없음/);
@@ -207,4 +209,13 @@ test('묶음은 한 장 안에서만 — 「신규 프로그램 편성」은 Ⅱ
   const unit2 = units.find(entry => entry.key === 'Ⅱ');
   const texts = criteriaOf(unit2).map(criterion => criterion.text);
   assert.deepEqual([...new Set(texts.filter((text, index) => texts.indexOf(text) !== index))], ['프로그램운영 수요조사 및 설문을 반영한 콘텐츠 개발']);
+});
+
+test('두 절이 서로 다른 낱낱을 비워도 warn은 기준 하나에 한 줄', () => {
+  const result = verdicts(criteria2, bodies2, { results: [
+    { id: in22.id, elements: [both22.elements[0], { asks: '설문을 반영한 콘텐츠 개발', quotes: [], missing: '' }] },
+    { id: in23.id, elements: [{ asks: '프로그램운영 수요조사', quotes: [], missing: '' }, { asks: '설문을 반영한 콘텐츠 개발', quotes: [survey], missing: '' }] }
+  ] });
+  assert.deepEqual(result.map(check => check.level), ['pass', 'warn']);
+  assert.equal(result[1].detail, 'Ⅱ.2에 「설문을 반영한 콘텐츠 개발」의 답이 없다 (Ⅱ.3에 있음) · Ⅱ.3에 「프로그램운영 수요조사」의 답이 없다 (Ⅱ.2에 있음)');
 });

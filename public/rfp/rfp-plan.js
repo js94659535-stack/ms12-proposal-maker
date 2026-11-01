@@ -269,11 +269,40 @@ export function writingUnits(plan) {
   }));
 }
 
+// ---------- 공고와 맞대기(11-05) ----------
+// project.json의 pair = 「이 절에서 공고의 어느 대목과 항목마다 맞대라」(사람이 정함). 예: Ⅰ.3 ↔ 「8. 위탁운영 범위」.
+// 대목은 공고 글자에서 그대로 잘라 온다: 「N. 제목」 줄부터 다음 「N. 」 줄 앞까지.
+export function noticeExcerpt(text, heading) {
+  const squashed = value => String(value).replace(/\s+/g, '');
+  const lines = String(text).split(/\r?\n/);
+  const start = lines.findIndex(line => /^\s*\d+\.\s*\S/.test(line) && squashed(line.replace(/^\s*\d+\.\s*/, '')).startsWith(squashed(heading)));
+  if (start < 0) return null;
+  const end = lines.findIndex((line, index) => index > start && /^\s*\d+\.\s+\S/.test(line));
+  return lines.slice(start, end < 0 ? undefined : end).map(line => line.trim()).filter(Boolean);
+}
+
+// 대목의 낱낱 항목: 큰 표(❍ ○ □) 아래 작은 줄(-)이 있으면 작은 줄마다, 없으면 큰 표 줄 하나. 큰 표가 없으면 빈 목록(대목만 준다).
+export function noticeItems(excerpt) {
+  const flat = (excerpt || []).join(' ');
+  const from = flat.search(/[❍○□]/);
+  if (from < 0) return [];
+  return flat.slice(from).split(/\s*[❍○□]\s*/).filter(Boolean).flatMap(group => {
+    const [head, ...children] = group.split(/\s+-\s+/).map(value => value.trim()).filter(Boolean);
+    return children.length ? children.map(child => `${head} — ${child}`) : [head];
+  });
+}
+
 // ---------- 묶기 ----------
 // options.project = 기관이 정한 것(project.json). 화면과 생성 도구가 같은 project를 넘겨 같은 표를 본다(10-08).
 // 판정에 쓰는 것은 그 안의 attach(평가 항목을 어느 절에 붙일지 사람이 정한 것)뿐이다.
 export function readPlan(text, options = {}) {
   const decided = options.project?.attach || {};
+  const pairOf = key => {
+    const rule = options.project?.pair?.[key];
+    if (!rule) return null;
+    const excerpt = noticeExcerpt(text, rule.notice);
+    return { notice: rule.notice, found: Boolean(excerpt), items: noticeItems(excerpt), excerpt: excerpt || [], why: rule.why || null };
+  };
   const base = readRfp(text);
   const { evaluation, outline, constraints } = base;
   const toc = readToc(text);
@@ -316,6 +345,7 @@ export function readPlan(text, options = {}) {
       priority: ranksOf([...new Set(scoring.filter(entry => entry.share > 0).map(entry => entry.item))]),
       pages: leaf.pages && !leaf.pages.free ? { value: leaf.pages.pages, max: leaf.pages.max, basis: '목차표' } : null,
       quote: leaf.quote,
+      pair: pairOf(leaf.key),
       _chapter: leaf.chapter
     };
   });
