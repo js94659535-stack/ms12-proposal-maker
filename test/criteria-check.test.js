@@ -121,3 +121,90 @@ test('한 장 쓰기가 판정자를 부르고, 판정자 비용도 따로 기�
   const failed = result.checks.filter(check => check.what.startsWith('채점 기준') && check.level === 'fail');
   assert.ok(failed.some(check => check.what.includes('제안요청서와 부합성') && check.detail.includes('대응 줄 없음')));
 });
+
+// 같은 기준이 한 장의 여러 절에 붙으면 한 묶음으로 본다(11-04). 통일부 Ⅱ장: 「수요조사 및 설문을 반영한 콘텐츠 개발」이 Ⅱ.2·Ⅱ.3에 1.67점씩.
+const demand = { item: '기획구성', point: '프로그램운영 수요조사 및 설문을 반영한 콘텐츠 개발', details: [], share: 5 / 3 };
+const chapter2 = {
+  key: 'Ⅱ', title: 'Ⅱ. 사업운영계획',
+  parts: [
+    { key: 'Ⅱ.2', title: '프로그램 운영', scoring: [demand] },
+    { key: 'Ⅱ.3', title: '만족도 조사', scoring: [demand] }
+  ]
+};
+const draft2 = [
+  '### Ⅱ.2 프로그램 운영',
+  '- [제안] 사전 수요조사 → 하나센터·지역단체로 희망 주제·시간대 조사 → 수요조사 결과표',
+  '- [제안] 분기 개편 → Ⅱ.3 설문 결과로 과정 내용 조정 → 개편 내역표',
+  '### Ⅱ.3 만족도 조사',
+  '- [제안] 분기 분석 → 문항별 응답 분포·서술 의견 분류 → 분기 설문 분석표',
+  '- [제안] 만족도 5점 척도 문항 10개'
+].join('\n');
+const bodies2 = partBodies(draft2, chapter2);
+const criteria2 = criteriaOf(chapter2);
+const [in22, in23] = criteria2;
+const survey = '분기 분석 → 문항별 응답 분포·서술 의견 분류 → 분기 설문 분석표';
+const both22 = { id: in22.id, elements: [
+  { asks: '프로그램운영 수요조사', quotes: ['사전 수요조사 → 하나센터·지역단체로 희망 주제·시간대 조사 → 수요조사 결과표'], missing: '' },
+  { asks: '설문을 반영한 콘텐츠 개발', quotes: ['분기 개편 → Ⅱ.3 설문 결과로 과정 내용 조정 → 개편 내역표'], missing: '' }
+] };
+
+test('같은 장의 다른 절에서 답했으면 통과이고, 어느 절에서 답했는지 적는다', () => {
+  const result = verdicts(criteria2, bodies2, { results: [both22, { id: in23.id, elements: [
+    { asks: '프로그램운영 수요조사', quotes: [], missing: '수요조사 방법 없음' },
+    { asks: '설문을 반영한 콘텐츠 개발', quotes: [survey], missing: '' }
+  ] }] });
+  assert.equal(result.length, 1, JSON.stringify(result));
+  assert.equal(result[0].level, 'pass', result[0].detail);
+  assert.match(result[0].what, /Ⅱ\.2·Ⅱ\.3/);
+  assert.deepEqual(result[0].answeredIn['프로그램운영 수요조사'], ['Ⅱ.2']);
+  assert.deepEqual(result[0].answeredIn['설문을 반영한 콘텐츠 개발'], ['Ⅱ.2', 'Ⅱ.3']);
+  // 배점은 묶음에 한 번 — 1.67 + 1.67, 두 번 세지 않는다.
+  assert.ok(Math.abs(result[0].points - 10 / 3) < 1e-9);
+});
+
+test('묶음 안에서 답이 하나도 없는 절은 warn — 쪽수만 쓰고 있다', () => {
+  const result = verdicts(criteria2, bodies2, { results: [both22, { id: in23.id, elements: [
+    { asks: '프로그램운영 수요조사', quotes: [], missing: '' },
+    { asks: '설문을 반영한 콘텐츠 개발', quotes: ['만족도 조사를 반영한 콘텐츠 개발'], missing: '' }
+  ] }] });
+  assert.deepEqual(result.map(check => check.level), ['pass', 'warn']);
+  assert.equal(result[1].detail, 'Ⅱ.3에는 이 기준의 답이 없고 Ⅱ.2에 있다. 이 절은 쪽수만 쓰고 있다');
+  assert.equal(result[1].points, undefined); // 배점 합에 다시 들어가지 않는다
+  assert.ok(Math.abs(result[1].share - 5 / 3) < 1e-9);
+});
+
+test('묶음 어디에도 답이 없는 낱낱은 fail이고, 절마다 무엇이 떨어졌는지 적는다', () => {
+  const result = verdicts(criteria2, bodies2, { results: [
+    { id: in22.id, elements: [{ asks: '프로그램운영 수요조사', quotes: ['수요조사 결과를 들은 바 없다'], missing: '' }, both22.elements[1]] },
+    { id: in23.id, elements: [{ asks: '프로그램운영 수요조사', quotes: [], missing: '방법 없음' }, { asks: '설문을 반영한 콘텐츠 개발', quotes: [survey], missing: '' }] }
+  ] });
+  assert.deepEqual(result.map(check => check.level), ['fail']);
+  assert.deepEqual(result[0].empty, ['프로그램운영 수요조사']);
+  assert.match(result[0].detail, /Ⅱ\.2: .*본문에 없는 줄/);
+  assert.match(result[0].detail, /Ⅱ\.3: .*방법 없음/);
+});
+
+test('넓은 낱낱은 좁은 낱낱의 답으로 채우지 않는다 — 「A」의 답은 「A와 B」의 답이 아니다', () => {
+  const result = verdicts(criteria2, bodies2, { results: [
+    { id: in22.id, elements: [{ asks: '프로그램운영 수요조사', quotes: [both22.elements[0].quotes[0]], missing: '' }] },
+    { id: in23.id, elements: [{ asks: '프로그램운영 수요조사 및 설문을 반영한 콘텐츠 개발', quotes: [], missing: '' }] }
+  ] });
+  assert.equal(result[0].level, 'fail');
+  assert.deepEqual(result[0].empty, ['프로그램운영 수요조사 및 설문을 반영한 콘텐츠 개발']);
+});
+
+test('묶음은 한 장 안에서만 — 「신규 프로그램 편성」은 Ⅱ.2와 Ⅲ.1이 각자 답해야 한다', () => {
+  const rfpText = fs.readFileSync(new URL('./fixtures/rfp-unification-2027.txt', import.meta.url), 'utf8');
+  const project = JSON.parse(fs.readFileSync(new URL('../reports/10-05-unification/project.json', import.meta.url), 'utf8'));
+  const units = writingUnits(readPlan(rfpText, { project }).plan);
+  const fresh = unit => criteriaOf(unit).filter(criterion => criterion.text.startsWith('신규'));
+  const [two, three] = ['Ⅱ', 'Ⅲ'].map(key => fresh(units.find(entry => entry.key === key)));
+  assert.deepEqual([two.map(c => c.part), three.map(c => c.part)], [['Ⅱ.2'], ['Ⅲ.1']]);
+  // Ⅲ장 판정에는 Ⅲ장 기준만 들어간다 — Ⅲ.1이 비면 Ⅱ.2가 답했어도 fail.
+  const result = verdicts(three, { 'Ⅲ.1': [] }, { results: [{ id: three[0].id, elements: [{ asks: three[0].text, quotes: [], missing: '' }] }] });
+  assert.deepEqual(result.map(check => check.level), ['fail']);
+  // 통일부 Ⅱ장에서 묶이는 것은 수요조사 기준 하나뿐이다.
+  const unit2 = units.find(entry => entry.key === 'Ⅱ');
+  const texts = criteriaOf(unit2).map(criterion => criterion.text);
+  assert.deepEqual([...new Set(texts.filter((text, index) => texts.indexOf(text) !== index))], ['프로그램운영 수요조사 및 설문을 반영한 콘텐츠 개발']);
+});

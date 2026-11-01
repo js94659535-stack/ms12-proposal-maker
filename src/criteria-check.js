@@ -140,32 +140,90 @@ const SCHEMA = {
   additionalProperties: false
 };
 
+// 기준 하나에 대한 판정자의 답에서, 묻는 것(낱낱)마다 확인을 통과한 인용(kept)과 떨어진 인용(dropped)을 가른다.
+// 판정자가 이 기준을 빠뜨렸으면 null.
+function checkedElements(criterion, bodies, result) {
+  if (!result || !result.elements?.length) return null;
+  // 「답했다」는 판정자가 말하지 않는다 — 묻는 것마다 확인을 통과한 인용이 있을 때만 검사가 정한다.
+  // 묻는 것(asks)은 기준 글자의 한 토막이어야 한다. 판정자가 기준에 없는 요구를 지어내면 그 토막은 버린다.
+  // 하나도 남지 않으면 기준 전체를 묻는 것 하나로 보고 모든 인용을 모은다.
+  const pieces = result.elements.filter(element => squash(criterion.text).includes(squash(element.asks)));
+  const asked = pieces.length ? pieces : [{ asks: criterion.text, quotes: result.elements.flatMap(element => element.quotes), missing: result.elements.map(element => element.missing).filter(Boolean).join(' · ') }];
+  return asked.map(element => {
+    const checked = element.quotes.map(quote => ({ quote, problem: quoteProblem(quote, bodies[criterion.part] || [], criterion.text) }));
+    return { ...element, part: criterion.part, kept: checked.filter(entry => !entry.problem), dropped: checked.filter(entry => entry.problem) };
+  });
+}
+
+const shortText = text => (text.length > 40 ? text.slice(0, 40) + '…' : text);
+const emptyDetail = element => {
+  const dropped = element.dropped.map(entry => `「${plain(entry.quote).slice(0, 30)}」 ${entry.problem}`);
+  return [`「${element.asks}」에 답한 자리 없음${element.missing ? ` — ${element.missing}` : ''}`, ...dropped].join(' · ');
+};
+
 // 판정자의 답을 검사 결과로 바꾼다(돈 안 드는 부분 — 시험이 이것을 못 박는다).
+//
+// 같은 기준이 한 장의 여러 절에 붙어 있으면 그 절들을 한 묶음으로 본다(11-04, 사용자 결정).
+//   근거: 절별 배점은 RFP가 아니라 우리가 나눈 것이다(평가표는 「기획구성 10점」까지만 말한다).
+//   심사위원은 장을 읽고 항목으로 채점하므로, 같은 장의 다른 절에서 답했으면 점수는 받는다.
+//   fail은 「점수를 못 받는다」는 뜻이어야 한다.
+//   → 묻는 것마다 묶음의 어느 절에서든 답한 줄이 있으면 통과이고, 어느 절에서 답했는지 적는다.
+//   → 다만 묶음 안에서 답이 하나도 없는 절은 warn — 쪽수만 쓰고 점수는 다른 절이 받는 꼴이라 사람이 「그 절에도 쓸지」 정한다.
+// 묶음은 한 장 안에서만이다(criteria는 한 장의 것). 장이 다르면(Ⅱ.2와 Ⅲ.1) 심사위원이 되돌아가 읽지 않으니 각자 답해야 한다.
 export function verdicts(criteria, bodies, answer) {
   const byId = new Map((answer?.results || []).map(result => [result.id, result]));
-  return criteria.map(criterion => {
-    const label = `채점 기준 「${criterion.part} ${criterion.text.length > 40 ? criterion.text.slice(0, 40) + '…' : criterion.text}」`;
-    const result = byId.get(criterion.id);
-    if (!result || !result.elements?.length) return { level: 'fail', what: label, detail: '판정자가 이 기준을 답하지 않음', criterion: criterion.id, points: criterion.points };
-    // 「답했다」는 판정자가 말하지 않는다 — 묻는 것마다 확인을 통과한 인용이 있을 때만 검사가 정한다.
-    // 묻는 것(asks)은 기준 글자의 한 토막이어야 한다. 판정자가 기준에 없는 요구를 지어내면 그 토막은 버린다.
-    // 하나도 남지 않으면 기준 전체를 묻는 것 하나로 보고 모든 인용을 모은다.
-    const pieces = result.elements.filter(element => squash(criterion.text).includes(squash(element.asks)));
-    const asked = pieces.length ? pieces : [{ asks: criterion.text, quotes: result.elements.flatMap(element => element.quotes), missing: result.elements.map(element => element.missing).filter(Boolean).join(' · ') }];
-    const elements = asked.map(element => {
-      const checked = element.quotes.map(quote => ({ quote, problem: quoteProblem(quote, bodies[criterion.part] || [], criterion.text) }));
-      return { ...element, kept: checked.filter(entry => !entry.problem), dropped: checked.filter(entry => entry.problem) };
-    });
-    const empty = elements.filter(element => !element.kept.length);
-    if (!empty.length) {
-      return { level: 'pass', what: label, detail: elements.map(element => `${element.asks}: 「${plain(element.kept[0].quote).slice(0, 50)}」`).join(' · '), criterion: criterion.id, points: criterion.points };
+  const groups = new Map();
+  for (const criterion of criteria) {
+    const key = `${criterion.item ?? ''}|${squash(criterion.text)}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(criterion);
+  }
+  const out = [];
+  for (const group of groups.values()) {
+    const first = group[0];
+    const parts = group.map(criterion => criterion.part);
+    const label = `채점 기준 「${parts.join('·')} ${shortText(first.text)}」`;
+    const ids = group.map(criterion => criterion.id).join(',');
+    const points = group.every(criterion => criterion.points == null) ? null : group.reduce((sum, criterion) => sum + (criterion.points ?? 0), 0);
+    const judged = group.map(criterion => ({ criterion, elements: checkedElements(criterion, bodies, byId.get(criterion.id)) }));
+    const missed = judged.filter(entry => !entry.elements);
+    if (group.length === 1) {
+      const { elements } = judged[0];
+      if (!elements) { out.push({ level: 'fail', what: label, detail: '판정자가 이 기준을 답하지 않음', criterion: ids, points }); continue; }
+      const empty = elements.filter(element => !element.kept.length);
+      if (!empty.length) out.push({ level: 'pass', what: label, detail: elements.map(element => `${element.asks}: 「${plain(element.kept[0].quote).slice(0, 50)}」`).join(' · '), criterion: ids, points });
+      else out.push({ level: 'fail', what: label, detail: empty.map(emptyDetail).join(' / '), criterion: ids, points, empty: empty.map(element => element.asks) });
+      continue;
     }
-    const detail = empty.map(element => {
-      const dropped = element.dropped.map(entry => `「${plain(entry.quote).slice(0, 30)}」 ${entry.problem}`);
-      return [`「${element.asks}」에 답한 자리 없음${element.missing ? ` — ${element.missing}` : ''}`, ...dropped].join(' · ');
+    // 묶음: 절마다 판정자가 나눈 낱낱을 모은다. 낱낱 E는 어느 절에서든 E를 감싸는 낱낱(asks가 E를 품음)에 남은 인용이 있으면 답한 것이다.
+    // 감싸는 쪽만 본다 — 「A와 B」에 답한 줄은 「A」에도 답했지만, 「A」에 답한 줄은 「A와 B」에 답하지 않았다.
+    const all = judged.flatMap(entry => entry.elements || []);
+    const answered = all.filter(element => element.kept.length);
+    const asks = [...new Map(all.map(element => [squash(element.asks), element.asks])).values()];
+    const rows = asks.map(text => {
+      const by = answered.filter(element => squash(element.asks).includes(squash(text)));
+      return { asks: text, by, tried: all.filter(element => squash(element.asks) === squash(text) && !element.kept.length) };
     });
-    return { level: 'fail', what: label, detail: detail.join(' / '), criterion: criterion.id, points: criterion.points, empty: empty.map(element => element.asks) };
-  });
+    const empty = rows.filter(row => !row.by.length);
+    const answeredParts = parts.filter(part => answered.some(element => element.part === part));
+    if (!all.length) {
+      out.push({ level: 'fail', what: label, detail: '판정자가 이 기준을 답하지 않음', criterion: ids, points, parts });
+    } else if (!empty.length) {
+      const detail = rows.map(row => `${row.asks}: ${row.by[0].part} 「${plain(row.by[0].kept[0].quote).slice(0, 50)}」`).join(' · ');
+      out.push({ level: 'pass', what: label, detail, criterion: ids, points, parts, answeredIn: Object.fromEntries(rows.map(row => [row.asks, [...new Set(row.by.map(element => element.part))]])) });
+    } else {
+      const detail = empty.map(row => [`「${row.asks}」에 답한 자리 없음(${parts.join('·')} 모두)`, ...row.tried.map(element => `${element.part}: ${emptyDetail(element)}`)].join(' · '));
+      out.push({ level: 'fail', what: label, detail: detail.join(' / '), criterion: ids, points, parts, empty: empty.map(row => row.asks) });
+    }
+    if (missed.length && all.length) out.push({ level: 'warn', what: label, detail: `판정자가 ${missed.map(entry => entry.criterion.part).join('·')}에서 이 기준을 답하지 않음`, criterion: ids });
+    // 답이 하나도 없는 절 — 다른 절이 답해 점수는 받지만, 이 절은 쪽수만 쓰고 있다.
+    if (answeredParts.length) {
+      for (const { criterion } of judged.filter(entry => entry.elements && !answeredParts.includes(entry.criterion.part))) {
+        out.push({ level: 'warn', what: `채점 기준 「${criterion.part} ${shortText(criterion.text)}」`, detail: `${criterion.part}에는 이 기준의 답이 없고 ${answeredParts.join('·')}에 있다. 이 절은 쪽수만 쓰고 있다`, criterion: criterion.id, part: criterion.part, share: criterion.points, idle: true });
+      }
+    }
+  }
+  return out;
 }
 
 // 판정자를 부르고 검사 결과와 비용 기록을 돌려준다.
