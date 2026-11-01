@@ -37,11 +37,19 @@ export function choicesOf(text, { parts = [], checks = [], chapter = '', moved =
   let pendingNo = 0;
   // 묶음 이름은 줄 앞 40자 — 「[확인 필요: …]」는 이름에서 뺀다(중간에 잘려 보였다).
   const open = (raw, kind) => { const title = String(raw).replace(/\s*\[확인 필요[^\]]*\]?.*$/, '').slice(0, 40) || '(이름 없음)'; const base = `${chapter}|${part?.key || '?'}|${title}`; const same = groups.filter(entry => entry.id === base || entry.id.startsWith(`${base}#`)).length; group = { id: same ? `${base}#${same + 1}` : base, part: part?.key || null, score: part?.score ?? 0, title, kind, lines: [] }; groups.push(group); };
+  // 묶음을 닫는다: 머리만 있고 아래 줄이 없으면 머리가 곧 그 묶음의 한 줄(standalone — 이름을 따로 보이지 않는다).
+  // 아래 줄이 있으면 머리는 이름으로만 남고, 머리가 점수 줄이었으면 그 표시를 묶음에 남긴다.
+  const close = () => {
+    if (!group?.head) return;
+    if (!group.lines.length) { group.lines.push(group.head); group.standalone = true; }
+    else group.headScore = group.head.score;
+  };
   for (const line of String(text).split('\n')) {
     // 빈칸 차례는 모든 줄에서 센다 — 제출본에서 세는 pendingsOf와 같은 id가 나와야 한다.
     const pendingIds = [...line.matchAll(/\[확인 필요:?\s*([^\]]*)\]/g)].map(match => ({ id: `${chapter}:${++pendingNo}`, what: match[1].trim() || '내용' }));
     const heading = line.match(/^(#{2,4})\s+(.*)$/);
     if (heading) {
+      close();
       if (heading[1] === '###') {
         const title = squash(heading[2]);
         part = parts.find(entry => title.includes(squash(entry.title))) || (parts.length === 1 ? parts[0] : part);
@@ -49,14 +57,22 @@ export function choicesOf(text, { parts = [], checks = [], chapter = '', moved =
       } else if (heading[1] === '####') open(heading[2].trim(), 'heading');
       continue;
     }
-    if (/^\s*o\s/.test(line)) open(bodyOf(line), 'o');
+    const isHead = /^\s*o\s/.test(line);
+    if (isHead) { close(); open(bodyOf(line), 'o'); }
     if (!line.includes(MARK)) continue;
+    // 머리의 아랫줄은 글머리 줄(-, ․, ※, *, ·)뿐이다. 표 줄이나 맨 줄이 오면 앞 묶음을 닫는다 — 머리가 표 줄을 아랫줄로 삼아 빠졌다(11-14).
+    if (!isHead && group && !/^\s*[-․※*·]\s/.test(line)) { close(); group = null; }
     if (!group) open(bodyOf(line), 'line');
     const body = bodyOf(line);
     const tier = PENDING.test(line) ? '값' : (body.match(/→/g) || []).length >= 2 ? '약속' : '문구';
     const key = lineKeyOf(chapter, body);
-    group.lines.push({ id: key, text: body, tier, score: isScore(body), pendings: pendingIds, moved: tier === '문구' && Boolean(moved[key]), part: group.part, groupTitle: group.title });
+    const entry = { id: key, text: body, tier, score: isScore(body), pendings: pendingIds, moved: tier === '문구' && Boolean(moved[key]), part: group.part, groupTitle: group.title };
+    // 묶음 머리(「o [제안] …」)는 아래 줄이 붙으면 묶음 이름으로만 쓰고 고를 줄로 세지 않는다(11-14 — 제목이 줄로 한 번 더 들어갔다).
+    // 아래 줄이 없으면 그 줄이 곧 내용이다 — 그때 줄로 넣는다(close). 빈칸이 든 머리는 채울 칸이 있어야 하니 바로 줄로.
+    if (isHead && tier !== '값') { group.head = entry; group.title = body; continue; }
+    group.lines.push(entry);
   }
+  close();
   const kept = groups.filter(entry => entry.lines.length);
   const byScore = (a, b) => b.score - a.score;
   const pick = test => kept.map(entry => ({ ...entry, lines: entry.lines.filter(test) })).filter(entry => entry.lines.length).sort(byScore);
@@ -72,7 +88,8 @@ const count = list => list.reduce((sum, entry) => sum + entry.lines.length, 0);
 // choices_ 파일(마크다운). 화면이 없을 때도 같은 갈래로 본다.
 export function choicesSheet(text, { title = '', parts = [], checks = [] } = {}) {
   const { promises, wording, values, total } = choicesOf(text, { parts, checks });
-  const label = entry => [entry.part ? `${entry.part}${entry.score ? ` (${entry.score}점)` : ''}` : '', entry.title].filter(Boolean).join(' · ');
+  // 머리 하나뿐인 묶음은 이름을 따로 보이지 않는다(그 줄이 곧 이름). 머리가 점수 줄이었으면 이름에 ★.
+  const label = entry => [entry.part ? `${entry.part}${entry.score ? ` (${entry.score}점)` : ''}` : '', entry.standalone ? '' : `${entry.title}${entry.headScore ? ' ★점수 줄' : ''}`].filter(Boolean).join(' · ');
   const line = item => `  - ${item.text}${item.score ? ' ★점수 줄' : ''}`;
   const out = [`# 고를 것 — ${title}`, '', `제안 ${total}줄. 누를 것은 약속 ${promises.length}묶음이다. 문구는 그대로 쓰고, 값은 빈 데 채우기로 간다. ★점수 줄은 판정이 채점 기준의 답으로 고른 줄이라 지우면 그 답이 사라질 수 있다.`, ''];
   out.push(`## 할 수 있나 — 약속 ${promises.length}묶음 · ${count(promises)}줄 (배점 큰 절부터)`, '');

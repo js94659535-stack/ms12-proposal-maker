@@ -285,7 +285,8 @@ function drawChoose(d) {
   const decided = c.promises.filter(entry => picks[entry.id]?.status).length;
   const filled = c.values.flatMap(entry => entry.lines.flatMap(line => line.pendings)).filter(item => String(values[item.id] ?? '').trim()).length;
   const valueCount = c.values.flatMap(entry => entry.lines.flatMap(line => line.pendings)).length;
-  const label = entry => `${entry.part ? `${esc(entry.part)}${entry.score ? ` · ${entry.score}점` : ''} · ` : ''}${esc(entry.title)}`;
+  // 머리 하나뿐인 묶음은 이름을 따로 보이지 않는다(11-14). 머리가 점수 줄이었으면 이름에 ★.
+  const label = entry => [entry.part ? `${esc(entry.part)}${entry.score ? ` · ${entry.score}점` : ''}` : '', entry.standalone ? '' : `${esc(entry.title)}${entry.headScore ? ' <span class="star">★점수 줄</span>' : ''}`].filter(Boolean).join(' · ');
   const star = line => line.score ? ' <span class="star">★점수 줄</span>' : '';
   const marked = text => esc(text).replace(/\[확인 필요[^\]]*\]/g, match => `<mark>${match}</mark>`);
   const promise = entry => {
