@@ -120,6 +120,8 @@ export function userContent({ rfpText, facts, project, section, constraints, pre
     `주관기관: ${project?.lead || PENDING + ']'}`,
     `공동수급 구성사: ${partners.length ? partners.join(', ') : '없음'}`,
     `역할분장: ${PENDING}: 사람이 정함]`,
+    // fill(11-12): 기관이 한 번 정하면 여러 장에 같이 들어가는 값. 정한 것만 싣는다 — 안 정한 것은 지금처럼 빈칸으로 남는다.
+    ...Object.entries(project?.fill || {}).filter(([, value]) => value != null && value !== '').map(([name, value]) => `${name}: ${value}`),
     ...facts.map(fact => `\n[자료: ${fact.source}]\n${fact.text}`),
     '</기관 자료>'
   ].join('\n');

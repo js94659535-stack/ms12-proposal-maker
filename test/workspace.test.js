@@ -37,12 +37,20 @@ test('배점 채움은 제출본이 있는 장의 배점이고, 분모는 평가
   assert.equal(one.done, 1);
 });
 
-test('비워 둔 곳은 장마다 같은 말을 한 번만 모은다', () => {
-  assert.deepEqual(pendingsOf(chapters, { Ⅰ: { submit } }), [{ chapter: 'Ⅰ', what: '연도별 목표 인원' }, { chapter: 'Ⅰ', what: '목표 점수' }]);
+test('비워 둔 곳은 자리마다 하나 — 같은 이름표라도 다른 값이다(11-12)', () => {
+  const found = pendingsOf(chapters, { Ⅰ: { submit } });
+  assert.deepEqual([...new Set(found.map(item => item.what))], ['연도별 목표 인원', '목표 점수']);
+  assert.ok(found.every((item, index) => item.id === `Ⅰ:${index + 1}`));
+  // 11-09 Ⅰ장: 「목표 %」가 두 자리(정서 개선 비율 · 지역주민 참여 비율) — 둘 다 센다.
+  const two = ['o 정서 개선: 사전·사후 검사 개선 비율 [확인 필요: 목표 %]', 'o 지역주민 함께 참여 비율: [확인 필요: 목표 %]'].join('\n');
+  const pend = pendingsOf(chapters, { Ⅰ: { submit: two } });
+  assert.deepEqual(pend.map(item => [item.id, item.what]), [['Ⅰ:1', '목표 %'], ['Ⅰ:2', '목표 %']]);
+  assert.match(pend[1].line, /지역주민 함께 참여 비율/);
 });
 
 test('질문은 project.json에서 빈 칸으로 정한다 — 통일부 건은 역할분장 하나', () => {
-  assert.deepEqual(questionsOf(project).map(q => q.key), ['roles']);
+  assert.deepEqual(questionsOf(project).map(q => q.key), ['roles', 'fill:협력 하나센터 이름']);
+  assert.deepEqual(questionsOf({ ...project, fill: { '협력 하나센터 이름': '서울 강서하나센터' } }).map(q => q.key), ['roles']);
   assert.deepEqual(questionsOf({ lead: 'A', partners: [{ name: null }], roles: null }).map(q => q.key), ['partner-0', 'roles', 'deadline']);
   assert.deepEqual(questionsOf(null).map(q => q.key), ['project']);
 });
@@ -61,7 +69,7 @@ test('다음 할 일은 하나이고 차례대로 넘어간다 — 질문이 남
   const withQuestion = nextStep({ ...base, facts, questions: questionsOf(project), drafts: {} });
   assert.equal(withQuestion.step, 'questions');
   assert.equal(withQuestion.chapter, 'Ⅰ');
-  assert.match(withQuestion.text, /Ⅰ\. 개요 초안을 만드세요 — 먼저 질문 1개/);
+  assert.match(withQuestion.text, /Ⅰ\. 개요 초안을 만드세요 — 먼저 질문 2개/); // 역할분장 + 협력 하나센터 이름(11-12)
   const drafts = Object.fromEntries(chapters.map(chapter => [chapter.key, { submit: 'x' }]));
   assert.equal(nextStep({ ...base, facts, drafts, pendings: [{ chapter: 'Ⅰ', what: 'x' }] }).text, '초안이 비워 둔 곳 1곳을 채우세요');
   assert.match(nextStep({ ...base, facts, drafts }).text, /모든 장의 초안이 있습니다/);

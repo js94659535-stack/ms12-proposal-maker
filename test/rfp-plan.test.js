@@ -267,3 +267,13 @@ test('금액 금지는 생성 요청에 없고 검사가 잡는다 — 「원」
   for (const text of ['회당 50,000원', '강사비 30만원', '총 1억 2천만 원', '인건비 2,000만 원', '₩500,000', '500,000 KRW', 'USD 300']) assert.equal(caught(`- ${text}`), 1, text);
   assert.equal(caught('- 2027년 4분기 성과평가'), 0);
 });
+
+test('fill: 기관이 정한 값은 기관 자료에 실리고, 안 정한 것은 싣지 않는다(11-12)', () => {
+  const rfpText = fs.readFileSync(new URL('./fixtures/rfp-unification-2027.txt', import.meta.url), 'utf8');
+  const project = JSON.parse(fs.readFileSync(new URL('../reports/10-05-unification/project.json', import.meta.url), 'utf8'));
+  const { plan, constraints } = readPlan(rfpText, { project });
+  const unit = writingUnits(plan).find(entry => entry.key === 'Ⅱ');
+  const shared = answered => userContent({ rfpText, facts: [], project: answered, section: unit, constraints, plan })[0].text;
+  assert.doesNotMatch(shared(project), /협력 하나센터 이름:/);
+  assert.match(shared({ ...project, fill: { '협력 하나센터 이름': '서울 강서하나센터' } }), /협력 하나센터 이름: 서울 강서하나센터/);
+});

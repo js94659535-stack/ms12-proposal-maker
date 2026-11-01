@@ -60,3 +60,24 @@ test('11-10 한 편: 197줄 → 약속 31묶음 · 값 32 · 문구 93', async (
   }
   assert.deepEqual([total, promises, values, wording], [197, 31, 32, 93]);
 });
+
+test('약속으로 옮긴 문구 줄은 따로 한 묶음 — 기준(→ 꼴)은 그대로(11-12)', async () => {
+  const { lineKeyOf } = await import('../public/plan/choices.js');
+  const key = lineKeyOf('Ⅱ', '인력 변경: 사전승인 후 교체');
+  const c = choicesOf(text, { parts, checks, chapter: 'Ⅱ', moved: { [key]: { text: '인력 변경: 사전승인 후 교체' } } });
+  assert.equal(c.promises.at(-1).title, '사람이 약속으로 옮긴 줄');
+  assert.deepEqual(c.promises.at(-1).lines.map(line => line.id), [key]);
+  assert.ok(!c.wording.some(entry => entry.lines.some(line => line.id === key)));
+  // 옮기지 않으면 문구 그대로.
+  assert.ok(choicesOf(text, { parts, chapter: 'Ⅱ' }).wording.some(entry => entry.lines.some(line => line.id === key)));
+});
+
+test('값 줄의 빈칸 id는 제출본에서 세는 pendingsOf와 같다(「장:몇째」)', async () => {
+  const { pendingsOf } = await import('../public/plan/workspace.js');
+  const { stripMarks } = await import('../src/proposal-draft.js');
+  const draft = ['### Ⅱ.1 일반 현황', '- [사실: 공고] 보고 [확인 필요: 기한]', 'o [제안] 정서 개선 [확인 필요: 목표 %]', 'o [제안] 참여 비율 [확인 필요: 목표 %]'].join('\n');
+  const fromChoices = choicesOf(draft, { parts, chapter: 'Ⅱ' }).values.flatMap(entry => entry.lines.flatMap(line => line.pendings.map(item => item.id)));
+  const fromScreen = pendingsOf([{ key: 'Ⅱ' }], { Ⅱ: { submit: stripMarks(draft) } }).map(item => item.id);
+  assert.deepEqual(fromChoices, ['Ⅱ:2', 'Ⅱ:3']);
+  assert.deepEqual(fromScreen, ['Ⅱ:1', 'Ⅱ:2', 'Ⅱ:3']);
+});

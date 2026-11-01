@@ -39,17 +39,19 @@ export function coverage(plan, chapters, drafts) {
   return { filled, total, done: chapters.filter(chapter => drafts[chapter.key]?.submit).length, of: chapters.length };
 }
 
-// 초안이 비워 둔 곳: 「[확인 필요: 무엇]」의 무엇을 장마다 모은다. 같은 말은 한 번만.
+// 초안이 비워 둔 곳: 「[확인 필요: 무엇]」을 자리마다 하나씩 모은다.
+// 같은 이름표라도 합치지 않는다(11-12) — Ⅰ의 「목표 %」 둘은 정서 개선 비율과 지역주민 참여 비율, 다른 값이다.
+// id = 「장:몇째」(장 안에서 나온 차례). 채운 값을 이 id로 남긴다. line = 그 자리가 든 줄(무엇의 값인지 사람이 본다).
 export function pendingsOf(chapters, drafts) {
   const out = [];
   for (const chapter of chapters) {
     const text = drafts[chapter.key]?.submit || '';
-    const seen = new Set();
-    for (const match of text.matchAll(/\[확인 필요:?\s*([^\]]*)\]/g)) {
-      const what = match[1].trim() || '내용';
-      if (seen.has(what)) continue;
-      seen.add(what);
-      out.push({ chapter: chapter.key, what });
+    let n = 0;
+    for (const line of text.split('\n')) {
+      for (const match of line.matchAll(/\[확인 필요:?\s*([^\]]*)\]/g)) {
+        n += 1;
+        out.push({ chapter: chapter.key, id: `${chapter.key}:${n}`, what: match[1].trim() || '내용', line: line.trim() });
+      }
     }
   }
   return out;
@@ -63,6 +65,8 @@ export function questionsOf(project) {
   for (const [index, partner] of (project.partners || []).entries()) if (!partner.name) out.push({ key: `partner-${index}`, ask: `공동수급 구성사 ${index + 1}의 이름은?` });
   if ((project.partners || []).length && !project.roles) out.push({ key: 'roles', ask: '공동수급 구성사의 역할분장은?' });
   if (!project.deadline) out.push({ key: 'deadline', ask: '제안서 제출 마감 일시는?' });
+  // fill: 기관이 한 번 정하면 여러 장에 같이 들어가는 값(11-12 — 「협력 하나센터 이름」이 Ⅱ·Ⅲ·Ⅴ에서 따로 비었다).
+  for (const [name, value] of Object.entries(project.fill || {})) if (value == null || value === '') out.push({ key: `fill:${name}`, ask: `${name}은(는)?` });
   return out;
 }
 

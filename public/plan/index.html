@@ -61,6 +61,15 @@
   .grp .acts button.on { background:var(--go); color:var(--go-ink); border-color:var(--go); }
   .star { color:var(--hold); font-size:12px; font-weight:700; }
   .choose details { margin-top:10px; padding:10px 12px; border:1px solid var(--line); border-radius:10px; }
+  .savebar { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin:10px 0 0; font-size:13px; color:var(--sub); }
+  .savebar .bad { margin:0; }
+  .savebar .acts { display:flex; gap:6px; flex-wrap:wrap; }
+  .fill { display:flex; gap:6px; align-items:center; margin:4px 0 0 0; }
+  .fill input { flex:1; min-width:0; padding:5px 8px; font:inherit; font-size:13px; border:1px solid var(--line); border-radius:8px; }
+  .fill input.done { border-color:var(--go); }
+  .fill small { color:var(--sub); white-space:nowrap; }
+  .q input { display:block; width:100%; max-width:420px; margin:4px 0 8px; padding:5px 8px; font:inherit; font-size:13px; border:1px solid var(--line); border-radius:8px; }
+  .move { margin-left:6px; padding:1px 8px; font:inherit; font-size:11px; color:var(--sub); background:none; border:1px solid var(--line); border-radius:6px; cursor:pointer; }
   @media (max-width:900px) { .cols { grid-template-columns:minmax(0,1fr); } .steps { grid-template-columns:repeat(2, minmax(0,1fr)); } }
 </style>
 </head>
@@ -71,9 +80,11 @@
 </div></header>
 <main>
   <div class="head"><div><h1 id="title">새 계획서</h1>
-  <p class="sub" id="meta">공고 파일부터 올리세요. 파일은 이 브라우저 안에서만 읽고 어디로도 보내지 않습니다. 새로고침하면 사라집니다.</p></div></div>
+  <p class="sub" id="meta">공고 파일부터 올리세요. 파일은 이 브라우저 안에서만 읽고 어디로도 보내지 않습니다. 올린 파일은 새로고침하면 다시 올려야 하고, 고른 것·채운 값은 이 브라우저에 공고마다 따로 남습니다.</p></div></div>
 
   <div class="steps" id="steps"></div>
+  <div class="savebar" id="savebar" hidden></div>
+  <input id="importFile" type="file" accept=".json" hidden>
   <div class="next" id="next"></div>
   <div class="covrow"><span id="covText"></span><div class="bar"><i id="cov" style="width:0;transition:width .8s cubic-bezier(.2,.7,.2,1)"></i></div></div>
 
@@ -93,13 +104,43 @@ import { extractHwpDocument } from '../lib/hwp-text.js';
 import { readPlan } from '../rfp/rfp-plan.js';
 import { STEPS, chaptersOf, sortDraftFiles, coverage, pendingsOf, questionsOf, daysLeft, nextStep } from './workspace.js';
 import { choicesOf } from './choices.js';
+import { noticeKey, emptySaved, writeSaved, readSaved, exportFile, importFile, savedLabel } from './saved.js';
 
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]);
 const won = value => `${Number(value).toLocaleString('ko-KR')}원`;
 
-// 화면이 들고 있는 것은 올린 글뿐이다. 판정은 workspace.js와 readPlan이 한다.
-const state = { noticeText: '', noticeNames: [], project: null, facts: [], files: [], open: null, marks: false, choices: {} };
+// 화면이 들고 있는 것은 올린 글과 사람이 정한 것(saved)뿐이다. 판정은 workspace.js와 readPlan이 한다.
+// saved = 고른 것·채운 값·질문 답·약속으로 옮긴 줄(11-12). 공고마다 다른 칸(saved.js noticeKey)에 고를 때마다 바로 남긴다.
+const state = { noticeText: '', noticeNames: [], project: null, facts: [], files: [], open: null, marks: false, saved: emptySaved(), key: null, saveStatus: null };
+
+// 저장소를 여는 것부터 막힐 수 있다(사생활 보호 창 등) — 던지지 않고 null.
+const store = (() => { try { return window.localStorage; } catch { return null; } })();
+function persist() {
+  if (!state.key) return;
+  state.saveStatus = writeSaved(store, state.key, state.saved);
+  if (state.saveStatus.ok) state.saved.savedAt = state.saveStatus.savedAt;
+}
+function change(mutate) { mutate(state.saved); persist(); draw(); }
+
+// 질문 답을 project.json에 넣어 내려받는다 — 생성 도구가 읽으면 그 값이 모든 장에 함께 들어간다.
+function projectWithAnswers() {
+  const project = JSON.parse(JSON.stringify(state.project || {}));
+  for (const [key, value] of Object.entries(state.saved.answers || {})) {
+    if (!String(value).trim()) continue;
+    if (key === 'roles' || key === 'lead' || key === 'deadline') project[key] = value;
+    else if (key.startsWith('partner-')) { const index = Number(key.slice(8)); project.partners = project.partners || []; project.partners[index] = { ...(project.partners[index] || {}), name: value }; }
+    else if (key.startsWith('fill:')) { project.fill = { ...(project.fill || {}), [key.slice(5)]: value }; }
+  }
+  return project;
+}
+function download(name, text) {
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  link.download = name;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
 
 async function textOf(file) {
   const extension = file.name.split('.').pop().toLowerCase();
@@ -114,9 +155,13 @@ function derive() {
   const plan = result?.plan || null;
   const chapters = plan ? chaptersOf(plan) : [];
   const { byChapter, unmatched } = sortDraftFiles(chapters, state.files);
-  const questions = questionsOf(state.project);
-  const pendings = pendingsOf(chapters, byChapter);
-  return { result, plan, chapters, drafts: byChapter, unmatched, questions, pendings,
+  const allQuestions = questionsOf(state.project);
+  const allPendings = pendingsOf(chapters, byChapter);
+  // 화면에서 답했거나 채운 것은 남은 일에서 뺀다(다음 할 일·단계 칸).
+  const answered = key => String(state.saved.answers?.[key] ?? '').trim() !== '';
+  const questions = allQuestions.filter(q => !answered(q.key));
+  const pendings = allPendings.filter(item => String(state.saved.values?.[item.id] ?? '').trim() === '');
+  return { result, plan, chapters, drafts: byChapter, unmatched, allQuestions, questions, allPendings, pendings,
     cov: coverage(plan, chapters, byChapter),
     next: nextStep({ noticeText: state.noticeText, plan, facts: state.facts, questions, chapters, drafts: byChapter, pendings }) };
 }
@@ -152,6 +197,22 @@ function drawHeader(d) {
   $('meta').innerHTML = parts.map(esc).join(' · ');
 }
 
+// 「언제 저장됨」과 내보내기·불러오기(11-12). 저장이 막혔으면 그 사실을 말하고 내보내기를 권한다.
+function drawSave() {
+  $('savebar').hidden = !state.key;
+  if (!state.key) return;
+  const status = state.saveStatus || { ok: true, savedAt: state.saved.savedAt };
+  const moved = Object.keys(state.saved.moved || {}).length;
+  $('savebar').innerHTML = `<span id="saveText" class="${status.ok ? '' : 'bad'}">${esc(savedLabel(status))}</span><span class="acts">
+    <button class="btn sm" id="exportBtn" type="button">내보내기</button><button class="btn sm" id="importBtn" type="button">불러오기</button>
+    ${Object.keys(state.saved.answers || {}).length ? '<button class="btn sm" id="projectBtn" type="button">답 넣은 project.json 받기</button>' : ''}</span>
+    ${moved ? `<span class="note">약속으로 옮긴 줄 ${moved}개 — 내보내기 파일의 moved에 기록이 남습니다(→ 꼴 기준을 다듬을 재료)</span>` : ''}`;
+  $('exportBtn').onclick = () => download(`고른것_${(state.project?.notice || state.noticeNames[0] || '계획서').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 40)}.json`, exportFile(state.saved, { key: state.key, notice: state.project?.notice || state.noticeNames.join(', ') }));
+  $('importBtn').onclick = () => $('importFile').click();
+  if ($('projectBtn')) $('projectBtn').onclick = () => download('project.json', `${JSON.stringify(projectWithAnswers(), null, 2)}\n`);
+}
+const showSaved = () => { if ($('saveText')) { $('saveText').textContent = savedLabel(state.saveStatus); $('saveText').className = state.saveStatus?.ok ? '' : 'bad'; } };
+
 function drawNext(d) {
   const target = d.next.step === 'notice' ? 'noticeFile' : d.next.step === 'facts' ? 'factFile' : d.next.step === 'questions' ? 'need' : 'draftFile';
   $('next').innerHTML = `<span>다음 할 일 — ${esc(d.next.text)}</span><button type="button">${d.next.step === 'questions' ? '질문 보기' : d.next.step === 'draft' && d.next.chapter ? '초안 파일 올리기' : '올리기'}</button>`;
@@ -173,13 +234,22 @@ function drawToc(d) {
 
 function drawNeed(d) {
   const chapter = d.chapters.find(item => item.key === state.open);
-  const questions = d.questions.length ? `<div class="need"><b>초안 전에 물을 것</b><ol class="q">${d.questions.map(q => `<li>${esc(q.ask)}</li>`).join('')}</ol><p class="note">답은 project.json에 적어 다시 올립니다. 답하지 않아도 초안은 만들어지고 그 자리는 [확인 필요]로 남습니다.</p></div>` : '';
+  // 질문에 화면에서 답한다(11-12). 답은 자동 저장되고, 「답 넣은 project.json 받기」로 생성 도구에 넘긴다.
+  const questions = d.allQuestions.length ? `<div class="need"><b>초안 전에 물을 것 ${d.questions.length ? `(남음 ${d.questions.length})` : '(모두 답함)'}</b><ol class="q">${d.allQuestions.map(q => `<li>${esc(q.ask)}<input data-answer="${esc(q.key)}" value="${esc(state.saved.answers?.[q.key] ?? '')}" placeholder="답을 적으면 바로 저장됩니다"></li>`).join('')}</ol><p class="note">답은 이 브라우저에 남습니다. 초안에 넣으려면 「답 넣은 project.json 받기」로 받아 생성 도구에 줍니다 — 한 번 답하면 그 값이 모든 장에 함께 들어갑니다. 답하지 않아도 초안은 만들어지고 그 자리는 [확인 필요]로 남습니다.</p></div>` : '';
   if (!chapter) { $('need').innerHTML = questions || '<p class="note">공고를 올리면 그 장의 절·쪽수·배점·채점 기준이 나옵니다</p>'; return; }
   const points = list => list.map(point => `<li>${esc(point.point)}${point.details.length ? `<ul>${point.details.map(detail => `<li>${esc(detail)}</li>`).join('')}</ul>` : ''}</li>`).join('');
   $('need').innerHTML = chapter.parts.map(part => `<div class="need"><b>${esc(part.key)} ${esc(part.title)}</b>
     <div class="meta">${part.pages ? `${part.pages.value}쪽` : '쪽수 미정'} · ${part.score}점${part.density != null ? ` · ${part.density}점/쪽` : ''}${part.priority.length ? ` · <span class="hold">동점 시 ${part.priority.map(entry => `${entry.rank}순위 ${esc(entry.item)}`).join(', ')}</span>` : ''}</div>
     <ul>${points(part.writeWhat) || '<li class="note">작성내용 없음</li>'}</ul>
     <div class="meta">채점: ${part.scoring.length ? part.scoring.map(entry => `${esc(entry.item)} ${esc(entry.point)} ${entry.role === '부차' ? '(부차)' : `${entry.share.toFixed(1)}점`}${entry.confident ? '' : ' <span class="hold">확인</span>'}`).join(' · ') : '직접 붙은 항목 없음'}</div></div>`).join('') + questions;
+  bindAnswers($('need'));
+}
+function bindAnswers(root) {
+  root.querySelectorAll('input[data-answer]').forEach(input => {
+    // 글자를 칠 때마다 저장(다시 그리지 않아 입력이 끊기지 않는다), 칸을 떠나면 다시 그린다.
+    input.oninput = () => { state.saved.answers = { ...state.saved.answers, [input.dataset.answer]: input.value }; persist(); showSaved(); };
+    input.onchange = () => draw();
+  });
 }
 
 function drawDraft(d) {
@@ -194,12 +264,13 @@ function drawDraft(d) {
     try { const list = JSON.parse(draft.checks).filter(check => check.level === 'fail'); fails = list.length ? `<p class="bad">검사 실패 ${list.length}건: ${list.map(check => esc(check.what)).join(', ')}</p>` : '<p><span class="chip ok">검사 실패 없음</span></p>'; }
     catch { fails = '<p class="bad">checks 파일을 읽지 못했습니다</p>'; }
   }
-  const pend = d.pendings.filter(item => item.chapter === state.open);
-  $('draft').innerHTML = `${fails}${pend.length ? `<p class="hold">비워 둔 곳 ${pend.length}: ${pend.map(item => esc(item.what)).join(' · ')}</p>` : ''}<div class="draft">${esc(text).replace(/^### (.*)$/gm, '<span class="h3">$1</span>').replace(/^## (.*)$/gm, '<span class="h2">$1</span>').replace(/\[확인 필요[^\]]*\]/g, match => `<mark>${match}</mark>`)}</div>${unmatched}`;
+  const all = d.allPendings.filter(item => item.chapter === state.open);
+  const left = d.pendings.filter(item => item.chapter === state.open);
+  $('draft').innerHTML = `${fails}${all.length ? `<p class="hold">비워 둔 곳 ${all.length}${all.length > left.length ? ` (채움 ${all.length - left.length})` : ''}: ${all.map(item => esc(item.what)).join(' · ')}</p>` : ''}<div class="draft">${esc(text).replace(/^### (.*)$/gm, '<span class="h3">$1</span>').replace(/^## (.*)$/gm, '<span class="h2">$1</span>').replace(/\[확인 필요[^\]]*\]/g, match => `<mark>${match}</mark>`)}</div>${unmatched}`;
 }
 
-// 고를 것(11-10): 약속은 묶음마다 「다 할 수 있다 / 뺄 줄 있음」, 값은 빈 데 채우기로, 문구는 기본 채택(펼쳐 보기).
-// 정한 것은 이 화면에만 있다(새로고침하면 사라진다 — 작업대 전체와 같다).
+// 고를 것(11-10): 약속은 묶음마다 「다 할 수 있다 / 뺄 줄 있음」, 값은 칸에 채우고, 문구는 기본 채택(펼쳐 보기).
+// 11-12: 고르거나 채울 때마다 바로 저장(state.saved). 문구 줄은 「약속으로 옮기기」 — 기준(→ 꼴)은 그대로 두고 기록을 모은다.
 function drawChoose(d) {
   const draft = d.drafts[state.open] || {};
   const chapter = d.chapters.find(item => item.key === state.open);
@@ -207,33 +278,50 @@ function drawChoose(d) {
   if (!draft.draft || !chapter) return;
   let checks = [];
   try { checks = draft.checks ? JSON.parse(draft.checks) : []; } catch { checks = []; }
-  const c = choicesOf(draft.draft, { parts: chapter.parts.map(part => ({ key: part.key, title: part.title, score: part.score })), checks });
+  const c = choicesOf(draft.draft, { parts: chapter.parts.map(part => ({ key: part.key, title: part.title, score: part.score })), checks, chapter: chapter.key, moved: state.saved.moved || {} });
+  const picks = state.saved.choices || {};
+  const values = state.saved.values || {};
   const lines = list => list.reduce((sum, entry) => sum + entry.lines.length, 0);
-  const decided = c.promises.filter(entry => state.choices[entry.id]?.status).length;
+  const decided = c.promises.filter(entry => picks[entry.id]?.status).length;
+  const filled = c.values.flatMap(entry => entry.lines.flatMap(line => line.pendings)).filter(item => String(values[item.id] ?? '').trim()).length;
+  const valueCount = c.values.flatMap(entry => entry.lines.flatMap(line => line.pendings)).length;
   const label = entry => `${entry.part ? `${esc(entry.part)}${entry.score ? ` · ${entry.score}점` : ''} · ` : ''}${esc(entry.title)}`;
   const star = line => line.score ? ' <span class="star">★점수 줄</span>' : '';
+  const marked = text => esc(text).replace(/\[확인 필요[^\]]*\]/g, match => `<mark>${match}</mark>`);
   const promise = entry => {
-    const pick = state.choices[entry.id] || {};
+    const pick = picks[entry.id] || {};
     const dropped = new Set(pick.dropped || []);
+    const back = line => line.moved ? ` <button class="move" data-unmove="${esc(line.id)}" type="button">문구로 되돌리기</button>` : '';
     const items = entry.lines.map(line => pick.status === 'edit'
-      ? `<li><label><input type="checkbox" data-group="${esc(entry.id)}" data-line="${esc(line.id)}" ${dropped.has(line.id) ? '' : 'checked'}> <span>${esc(line.text)}${star(line)}</span></label>${line.score && dropped.has(line.id) ? '<div class="warn">이 줄은 채점 기준의 답으로 고른 줄입니다 — 빼면 그 답이 사라질 수 있습니다</div>' : ''}</li>`
-      : `<li>${esc(line.text)}${star(line)}</li>`).join('');
+      ? `<li><label><input type="checkbox" data-group="${esc(entry.id)}" data-line="${esc(line.id)}" ${dropped.has(line.id) ? '' : 'checked'}> <span>${esc(line.text)}${star(line)}</span></label>${back(line)}${line.score && dropped.has(line.id) ? '<div class="warn">이 줄은 채점 기준의 답으로 고른 줄입니다 — 빼면 그 답이 사라질 수 있습니다</div>' : ''}</li>`
+      : `<li>${esc(line.text)}${star(line)}${back(line)}</li>`).join('');
     return `<div class="grp ${pick.status ? 'done' : ''}"><div class="top"><span>${label(entry)} <small>${entry.lines.length}줄</small></span><span class="acts"><button class="btn sm ${pick.status === 'ok' ? 'on' : ''}" data-ok="${esc(entry.id)}" type="button">다 할 수 있다</button><button class="btn sm ${pick.status === 'edit' ? 'on' : ''}" data-edit="${esc(entry.id)}" type="button">뺄 줄 있음</button></span></div><ul>${items}</ul></div>`;
   };
-  const plainGroup = entry => `<div class="grp"><div class="top"><span>${label(entry)}</span></div><ul>${entry.lines.map(line => `<li>${esc(line.text).replace(/[확인 필요[^]]*]/g, match => `<mark>${match}</mark>`)}${star(line)}</li>`).join('')}</ul></div>`;
+  // 값: 빈칸마다 칸 하나. id는 「장:몇째」 — 같은 이름표라도 자리가 다르면 다른 값이다.
+  const valueGroup = entry => `<div class="grp"><div class="top"><span>${label(entry)}</span></div><ul>${entry.lines.map(line => `<li>${marked(line.text)}${star(line)}${line.pendings.map(item => `<div class="fill"><small>${esc(item.what)}</small><input data-value="${esc(item.id)}" class="${String(values[item.id] ?? '').trim() ? 'done' : ''}" value="${esc(values[item.id] ?? '')}" placeholder="채우면 바로 저장됩니다"></div>`).join('')}</li>`).join('')}</ul></div>`;
+  const wordingGroup = entry => `<div class="grp"><div class="top"><span>${label(entry)}</span></div><ul>${entry.lines.map(line => `<li>${marked(line.text)}${star(line)} <button class="move" data-move="${esc(line.id)}" data-text="${esc(line.text)}" data-part="${esc(line.part || '')}" data-group="${esc(line.groupTitle || '')}" type="button">약속으로 옮기기</button></li>`).join('')}</ul></div>`;
   $('choose').innerHTML = `<h2>고를 것 — ${esc(chapter.title)}</h2>
-    <p class="note">제안 ${c.total}줄. 누를 것은 약속 ${c.promises.length}묶음입니다(정함 ${decided} / ${c.promises.length}). 문구는 그대로 쓰고, 값은 빈 데 채우기로 갑니다. 약속은 「활동 → 하는 일 → 결과물」 꼴이라 선정되면 협약 의무가 됩니다.</p>
+    <p class="note">제안 ${c.total}줄. 누를 것은 약속 ${c.promises.length}묶음입니다(정함 ${decided} / ${c.promises.length}). 값은 칸에 채웁니다(채움 ${filled} / ${valueCount}). 문구는 그대로 씁니다 — 약속인데 문구에 들어간 줄은 「약속으로 옮기기」. 약속은 「활동 → 하는 일 → 결과물」 꼴이라 선정되면 협약 의무가 됩니다.</p>
     <h3>할 수 있나 — 약속 ${c.promises.length}묶음 · ${lines(c.promises)}줄 (배점 큰 절부터)</h3>${c.promises.map(promise).join('') || '<p class="note">없음</p>'}
-    <h3>채울 값 — ${lines(c.values)}줄</h3>${c.values.map(plainGroup).join('') || '<p class="note">없음</p>'}
-    <details><summary>문구 ${lines(c.wording)}줄 — 기본 채택 · 펼쳐 보기</summary>${c.wording.map(plainGroup).join('')}</details>`;
-  const set = (id, patch) => { state.choices[id] = { ...(state.choices[id] || {}), ...patch }; draw(); };
-  $('choose').querySelectorAll('[data-ok]').forEach(button => button.onclick = () => set(button.dataset.ok, { status: 'ok', dropped: [] }));
-  $('choose').querySelectorAll('[data-edit]').forEach(button => button.onclick = () => set(button.dataset.edit, { status: 'edit' }));
-  $('choose').querySelectorAll('input[data-line]').forEach(box => box.onchange = () => {
-    const dropped = new Set(state.choices[box.dataset.group]?.dropped || []);
+    <h3>채울 값 — ${valueCount}칸 (채움 ${filled})</h3>${c.values.map(valueGroup).join('') || '<p class="note">없음</p>'}
+    <details ${state.wordingOpen ? 'open' : ''}><summary>문구 ${lines(c.wording)}줄 — 기본 채택 · 펼쳐 보기</summary>${c.wording.map(wordingGroup).join('')}</details>`;
+  const root = $('choose');
+  const setPick = (id, patch) => change(saved => { saved.choices = { ...saved.choices, [id]: { ...(saved.choices?.[id] || {}), ...patch, at: new Date().toISOString() } }; });
+  root.querySelector('details').ontoggle = event => { state.wordingOpen = event.target.open; };
+  root.querySelectorAll('[data-ok]').forEach(button => button.onclick = () => setPick(button.dataset.ok, { status: 'ok', dropped: [] }));
+  root.querySelectorAll('[data-edit]').forEach(button => button.onclick = () => setPick(button.dataset.edit, { status: 'edit' }));
+  root.querySelectorAll('input[data-line]').forEach(box => box.onchange = () => {
+    const dropped = new Set(picks[box.dataset.group]?.dropped || []);
     if (box.checked) dropped.delete(box.dataset.line); else dropped.add(box.dataset.line);
-    set(box.dataset.group, { dropped: [...dropped] });
+    setPick(box.dataset.group, { dropped: [...dropped] });
   });
+  root.querySelectorAll('input[data-value]').forEach(input => {
+    input.oninput = () => { state.saved.values = { ...state.saved.values, [input.dataset.value]: input.value }; persist(); showSaved(); input.classList.toggle('done', input.value.trim() !== ''); };
+    input.onchange = () => draw();
+  });
+  // 약속으로 옮긴 기록 — 장·절·묶음·글·언제. 쌓이면 「→ 꼴」 기준을 다듬는 재료가 된다(사용자 결정 11-12).
+  root.querySelectorAll('[data-move]').forEach(button => button.onclick = () => change(saved => { saved.moved = { ...saved.moved, [button.dataset.move]: { chapter: chapter.key, part: button.dataset.part || null, group: button.dataset.group || null, text: button.dataset.text, at: new Date().toISOString() } }; }));
+  root.querySelectorAll('[data-unmove]').forEach(button => button.onclick = () => change(saved => { const next = { ...saved.moved }; delete next[button.dataset.unmove]; saved.moved = next; }));
 }
 
 function drawRules(d) {
@@ -253,7 +341,17 @@ function drawRules(d) {
 
 function draw() {
   const d = derive();
-  drawSteps(d); drawHeader(d); drawNext(d); drawToc(d); drawNeed(d); drawDraft(d); drawChoose(d); drawRules(d);
+  drawSteps(d); drawHeader(d); drawSave(); drawNext(d); drawToc(d); drawNeed(d); drawDraft(d); drawChoose(d); drawRules(d);
+}
+
+// 공고가 정해지면 그 공고의 칸을 연다. 다른 공고를 올리면 다른 칸 — 섞이지 않는다.
+function openSaved() {
+  const key = noticeKey(state.noticeText);
+  if (key === state.key) return;
+  state.key = key;
+  const read = readSaved(store, key);
+  state.saved = read.saved;
+  state.saveStatus = read.ok ? (store ? { ok: true, savedAt: read.saved.savedAt } : { ok: false, reason: '이 브라우저는 저장소를 주지 않습니다' }) : { ok: false, reason: read.reason };
 }
 
 async function loadNotice(files) {
@@ -265,7 +363,7 @@ async function loadNotice(files) {
       texts.push(await textOf(file)); names.push(file.name);
     } catch (error) { alert(`${file.name} — ${error.message}`); }
   }
-  if (texts.length) { state.noticeText = texts.join('\n\n'); state.noticeNames = names; }
+  if (texts.length) { state.noticeText = texts.join('\n\n'); state.noticeNames = names; openSaved(); }
   draw();
 }
 async function loadFacts(files) {
@@ -279,6 +377,20 @@ async function loadDrafts(files) {
   draw();
 }
 $('marks').onclick = () => { state.marks = !state.marks; draw(); };
+// 불러오기: 내보낸 파일을 지금 공고의 칸에 넣는다. 다른 공고의 것이면 묻는다(섞이지 않게).
+$('importFile').addEventListener('change', async event => {
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (!file || !state.key) return;
+  const read = importFile(await file.text(), { key: state.key });
+  if (!read.ok) { alert(`${file.name} — ${read.reason}`); return; }
+  if (read.otherNotice && !confirm(`이 파일은 다른 공고(${read.notice || '이름 없음'})에서 내보낸 것입니다. 지금 공고에 넣을까요?`)) return;
+  const hasNow = ['choices', 'values', 'answers', 'moved'].some(field => Object.keys(state.saved[field] || {}).length);
+  if (hasNow && !confirm('지금 이 공고에 고른 것·채운 값이 있습니다. 불러온 파일로 바꿀까요?')) return;
+  state.saved = read.saved;
+  persist();
+  draw();
+});
 draw();
 </script>
 </body>

@@ -24,15 +24,22 @@ export function scoreQuotesOf(checks = []) {
 }
 
 // parts: [{ key, title, score }] — 그 장의 절. 배점 큰 절부터 보인다.
-export function choicesOf(text, { parts = [], checks = [] } = {}) {
+// chapter: 장 키 — 줄·묶음 열쇠와 빈칸 id(「장:몇째」, workspace.js pendingsOf와 같은 셈)에 쓴다.
+// moved: { 줄 열쇠: 기록 } — 사람이 「약속으로 옮기기」를 누른 문구 줄(11-12). 기준(→ 꼴)은 고치지 않고 그 기록을 모은다.
+// 열쇠는 자리 차례가 아니라 글자로 만든다 — 같은 초안을 다시 올려도 고른 것이 그 줄에 붙어 있다.
+export const lineKeyOf = (chapter, text) => `${chapter}|${squash(text)}`;
+export function choicesOf(text, { parts = [], checks = [], chapter = '', moved = {} } = {}) {
   const quotes = scoreQuotesOf(checks);
   const isScore = body => quotes.some(quote => squash(body).includes(quote.slice(0, 40)) || quote.includes(squash(body).slice(0, 40)));
   const groups = [];
   let part = parts.length === 1 ? parts[0] : null;
   let group = null;
+  let pendingNo = 0;
   // 묶음 이름은 줄 앞 40자 — 「[확인 필요: …]」는 이름에서 뺀다(중간에 잘려 보였다).
-  const open = (raw, kind) => { const title = String(raw).replace(/\s*\[확인 필요[^\]]*\]?.*$/, '').slice(0, 40) || '(이름 없음)'; group ={ id: `${part?.key || '?'}#${groups.length + 1}`, part: part?.key || null, score: part?.score ?? 0, title, kind, lines: [] }; groups.push(group); };
+  const open = (raw, kind) => { const title = String(raw).replace(/\s*\[확인 필요[^\]]*\]?.*$/, '').slice(0, 40) || '(이름 없음)'; const base = `${chapter}|${part?.key || '?'}|${title}`; const same = groups.filter(entry => entry.id === base || entry.id.startsWith(`${base}#`)).length; group = { id: same ? `${base}#${same + 1}` : base, part: part?.key || null, score: part?.score ?? 0, title, kind, lines: [] }; groups.push(group); };
   for (const line of String(text).split('\n')) {
+    // 빈칸 차례는 모든 줄에서 센다 — 제출본에서 세는 pendingsOf와 같은 id가 나와야 한다.
+    const pendingIds = [...line.matchAll(/\[확인 필요:?\s*([^\]]*)\]/g)].map(match => ({ id: `${chapter}:${++pendingNo}`, what: match[1].trim() || '내용' }));
     const heading = line.match(/^(#{2,4})\s+(.*)$/);
     if (heading) {
       if (heading[1] === '###') {
@@ -47,12 +54,17 @@ export function choicesOf(text, { parts = [], checks = [] } = {}) {
     if (!group) open(bodyOf(line), 'line');
     const body = bodyOf(line);
     const tier = PENDING.test(line) ? '값' : (body.match(/→/g) || []).length >= 2 ? '약속' : '문구';
-    group.lines.push({ id: `${group.id}.${group.lines.length + 1}`, text: body, tier, score: isScore(body) });
+    const key = lineKeyOf(chapter, body);
+    group.lines.push({ id: key, text: body, tier, score: isScore(body), pendings: pendingIds, moved: tier === '문구' && Boolean(moved[key]), part: group.part, groupTitle: group.title });
   }
   const kept = groups.filter(entry => entry.lines.length);
   const byScore = (a, b) => b.score - a.score;
-  const pick = tier => kept.map(entry => ({ ...entry, lines: entry.lines.filter(line => line.tier === tier) })).filter(entry => entry.lines.length).sort(byScore);
-  return { promises: pick('약속'), wording: pick('문구'), values: pick('값'), total: kept.reduce((sum, entry) => sum + entry.lines.length, 0) };
+  const pick = test => kept.map(entry => ({ ...entry, lines: entry.lines.filter(test) })).filter(entry => entry.lines.length).sort(byScore);
+  const promises = pick(line => line.tier === '약속');
+  // 사람이 옮긴 문구 줄은 한 묶음으로 따로 — 「할 수 있나」에서 같이 정한다.
+  const movedLines = kept.flatMap(entry => entry.lines.filter(line => line.moved));
+  if (movedLines.length) promises.push({ id: `${chapter}|옮김`, part: null, score: 0, title: '사람이 약속으로 옮긴 줄', kind: 'moved', lines: movedLines });
+  return { promises, wording: pick(line => line.tier === '문구' && !line.moved), values: pick(line => line.tier === '값'), total: kept.reduce((sum, entry) => sum + entry.lines.length, 0) };
 }
 
 const count = list => list.reduce((sum, entry) => sum + entry.lines.length, 0);
