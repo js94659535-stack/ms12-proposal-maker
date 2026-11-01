@@ -1,4 +1,4 @@
-// 사용: node tools/plan-persist-check.mjs — /plan/ 저장 시나리오를 헤드리스 Chrome으로 돈다(11-12, 돈 안 듦). 결과는 화면에, 사진은 이 파일 옆 폴더에.
+// 사용: node tools/plan-persist-check.mjs — /plan/ 저장 시나리오를 헤드리스 Chrome으로 돈다(11-12, 돈 안 듦). 결과는 화면에, 사진은 임시 폴더에(마지막 줄).
 // /plan/ 저장 시나리오(11-12): 고르고·채우고·답하고·옮기기 → 새로고침 후 다시 올리면 남아 있나 → 다른 공고면 빈 칸인가
 // → 저장소를 지우고 내보낸 파일로 되살리기 → 저장이 막힌 브라우저.
 import http from 'node:http';
@@ -6,8 +6,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 
-const repo = 'C:/Users/UserK/Desktop/PLATFORM/ms12-proposal-maker';
-const scratch = path.dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, '$1');
+import os from 'node:os';
+import { fileURLToPath } from 'node:url';
+const repo = fileURLToPath(new URL('../', import.meta.url)).replace(/\\/g, '/').replace(/\/$/, '');
+// 브라우저 프로필·임시 파일은 시스템 임시 폴더에 — 저장소를 어지르지 않는다.
+const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'ms12-persist-'));
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
 const server = http.createServer((req, res) => {
   let file = path.join(repo, 'public', decodeURIComponent(req.url.split('?')[0]));
@@ -101,4 +104,5 @@ await ev(`(async () => { document.querySelector('#choose [data-ok]').click(); aw
 log('막힌 브라우저', await look());
 const shot = await send('Page.captureScreenshot', { format: 'png', clip: { x: 0, y: 0, width: 1280, height: 900, scale: 1 } });
 fs.writeFileSync(path.join(scratch, 'blocked.png'), Buffer.from(shot.data, 'base64'));
+console.log('사진', path.join(scratch, 'blocked.png'));
 ws.close(); chrome.kill(); server.close();
