@@ -108,7 +108,7 @@ for (const section of opt('recheck') ? [] : sections) {
   // draft_ = 사장이 보는 본(줄마다 [제안]/[사실: 출처]), submit_ = 표시를 지운 제출본(쪽수 검사가 세는 글), choices_ = 고를 [제안] 목록
   fs.writeFileSync(path.join(out, `draft_${name}.md`), `${result.text}\n`);
   fs.writeFileSync(path.join(out, `submit_${name}.md`), `${stripMarks(result.text)}\n`);
-  fs.writeFileSync(path.join(out, `choices_${name}.md`), `${choiceSheet(result.text, section.title)}\n`);
+  fs.writeFileSync(path.join(out, `choices_${name}.md`), `${choiceSheet(result.text, section.title, { section, checks: result.checks })}\n`);
   fs.writeFileSync(path.join(out, `checks_${name}.json`), JSON.stringify(result.checks, null, 2));
   const fails = result.checks.filter(check => check.level === 'fail');
   const warns = result.checks.filter(check => check.level === 'warn');
@@ -119,7 +119,7 @@ for (const section of opt('recheck') ? [] : sections) {
 }
 // 장을 건너 보는 검사 — 고른 장만이 아니라 폴더에 있는 draft_ 전부(목차 순서)를 본다.
 const chapters = draftsIn(opt('recheck') || out);
-const across = [...checkChapters(chapters), ...await judgePointers({ client, chapters, parts: partKeys, krwPerUsd, onUsage })];
+const across = [...checkChapters(chapters, { parts: units.flatMap(unit => unit.parts.map(part => ({ key: part.key, score: part.score }))) }), ...await judgePointers({ client, chapters, parts: partKeys, krwPerUsd, onUsage })];
 fs.writeFileSync(path.join(out, 'checks_전체.json'), JSON.stringify(across, null, 2));
 console.log(`\n장을 건너 본 검사 (${chapters.map(chapter => chapter.title).join('·') || '장 없음'}): warn ${across.filter(check => check.level === 'warn').length}`);
 for (const check of across) console.log(`  ${check.level === 'pass' ? '✔' : '!'} ${check.what} ${check.detail}`);

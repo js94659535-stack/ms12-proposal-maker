@@ -60,7 +60,8 @@ export function dice(a, b) {
 }
 
 // 절마다 줄을 모은다. 절은 「### …」 소제목 단위이고, 장을 건너서도 본다.
-export function sectionLines(chapters) {
+// minLetters: 견줄 줄만 남기는 문턱(되풀이 검사는 15). 줄 수를 셀 때는 0.
+export function sectionLines(chapters, { minLetters = MIN_LETTERS } = {}) {
   const lines = [];
   for (const chapter of chapters) {
     let part = chapter.title;
@@ -70,7 +71,7 @@ export function sectionLines(chapters) {
       if (heading) { const bare = heading[1].match(/^(\d+)\.?$/); part = bare ? `${chapter.title}.${bare[1]}` : heading[1]; continue; }
       if (!raw.trim() || /^#/.test(raw)) continue;
       const text = plain(raw);
-      if (letters(text).length >= MIN_LETTERS) lines.push({ part, text });
+      if (letters(text).length >= minLetters) lines.push({ part, text });
     }
   }
   return lines;
@@ -98,4 +99,27 @@ export function repeatedLineChecks(chapters, { threshold = REPEAT_DICE } = {}) {
   return out;
 }
 
-export const checkChapters = chapters => [...headingStyleChecks(chapters), ...repeatedLineChecks(chapters)];
+// 배점에 비해 줄을 많이 쓴 절(11-10, 사용자 지시). 「쓴 줄 ÷ 배점」이 절들의 가운데값보다 DENSE_TIMES배 넘게 높으면 warn.
+// 문턱은 재서 정했다 — 통일부 공고 두 편(11-03 · 11-10)에서 Ⅱ.3이 가운데값의 4.33 · 4.86배, 그다음이 1.33 · 1.39배,
+// 나머지는 0.57~1.39배였다. 2배는 그 틈 한가운데다. 공고 하나에서 잰 값이다(대원칙 ④ — 다른 공고에서 다시 잰다).
+// 쪽수는 공고가 정해 못 줄여도, 그 쪽에 쓰는 힘(줄)은 배점 큰 절로 옮길 수 있다 — 사람이 정한다.
+export const DENSE_TIMES = 2;
+export function densityChecks(chapters, parts = []) {
+  const scored = parts.filter(part => part.score > 0);
+  if (scored.length < 3) return [];
+  const lines = sectionLines(chapters, { minLetters: 0 });
+  const rows = scored.map(part => {
+    const count = lines.filter(line => line.part === part.key).length;
+    return { ...part, count, perPoint: count / part.score };
+  }).filter(row => row.count);
+  if (rows.length < 3) return [];
+  const sorted = rows.map(row => row.perPoint).sort((a, b) => a - b);
+  const median = sorted.length % 2 ? sorted[(sorted.length - 1) / 2] : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
+  return rows.filter(row => row.perPoint > median * DENSE_TIMES).map(row => ({
+    level: 'warn', what: '배점에 비해 줄이 많은 절',
+    detail: `${row.key}: ${row.score}점에 ${row.count}줄(점당 ${row.perPoint.toFixed(1)}줄) — 절들의 가운데값 ${median.toFixed(1)}줄의 ${(row.perPoint / median).toFixed(1)}배. 그 힘을 배점 큰 절에 쓸지 정한다`,
+    part: row.key, perPoint: Number(row.perPoint.toFixed(2)), median: Number(median.toFixed(2))
+  }));
+}
+
+export const checkChapters = (chapters, { parts } = {}) => [...headingStyleChecks(chapters), ...repeatedLineChecks(chapters), ...densityChecks(chapters, parts)];

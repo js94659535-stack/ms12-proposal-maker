@@ -126,8 +126,10 @@ test('제안·사실 표시: 글머리 줄과 표 줄에 없으면 fail, 표 머
   assert.match(mark.detail, /표시가 빠진 줄/);
   assert.match(mark.detail, /일정/);
   const sheet = choiceSheet(text, 'Ⅰ. 개요');
-  assert.match(sheet, /- \[ \] 비전: 「마음을 잇다」/);
-  assert.match(sheet, /- \[ \] 목표 \| 정착 지원/);
+  // 갈래(11-10): 「→ 꼴」이 아닌 제안은 문구 — 기본 채택으로 들어간다.
+  assert.match(sheet, /## 문구 2줄 — 기본 채택/);
+  assert.match(sheet, /  - 비전: 「마음을 잇다」/);
+  assert.match(sheet, /  - 목표 \| 정착 지원/);
   assert.ok(!sheet.includes('2018년'));
   assert.equal(stripMarks('o [제안] 가 [사실: 공고 제7조] 나'), 'o 가 나');
 });

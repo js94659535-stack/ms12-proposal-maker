@@ -83,3 +83,20 @@ test('후처리(11-10): 평가 우대를 옮긴 공고 사실 줄은 지우고, 
   assert.match(text, /장성교육지원청/);
   assert.deepEqual(notes.map(note => note.level), ['pass', 'warn']);
 });
+
+test('배점에 비해 줄이 많은 절 — 11-10 한 편에서 Ⅱ.3만 걸린다(1.67점에 28줄)', async () => {
+  const { densityChecks, DENSE_TIMES } = await import('../src/plan-checks.js');
+  const { readPlan, writingUnits } = await import('../public/rfp/rfp-plan.js');
+  const dir = new URL('../reports/11-10-tidy/', import.meta.url);
+  const chapters = ['Ⅰ', 'Ⅱ', 'Ⅲ', 'Ⅳ', 'Ⅴ'].map(key => ({ title: key, text: fs.readFileSync(new URL(fs.readdirSync(dir).find(name => name.startsWith(`draft_${key}.`)), dir), 'utf8') }));
+  const rfpText = fs.readFileSync(new URL('./fixtures/rfp-unification-2027.txt', import.meta.url), 'utf8');
+  const project = JSON.parse(fs.readFileSync(new URL('../reports/10-05-unification/project.json', import.meta.url), 'utf8'));
+  const parts = writingUnits(readPlan(rfpText, { project }).plan).flatMap(unit => unit.parts.map(part => ({ key: part.key, score: part.score })));
+  const result = densityChecks(chapters, parts);
+  assert.deepEqual(result.map(check => check.part), ['Ⅱ.3']);
+  assert.match(result[0].detail, /Ⅱ\.3: 1\.67점에 28줄/);
+  assert.equal(DENSE_TIMES, 2);
+  // 고르게 쓴 장이면 조용하다.
+  const even = [{ title: 'Ⅰ', text: ['### Ⅰ.1 a', '- 줄', '- 줄', '### Ⅰ.2 b', '- 줄', '- 줄', '### Ⅰ.3 c', '- 줄', '- 줄'].join('\n') }];
+  assert.deepEqual(densityChecks(even, [{ key: 'Ⅰ.1', score: 1 }, { key: 'Ⅰ.2', score: 1 }, { key: 'Ⅰ.3', score: 1 }]), []);
+});

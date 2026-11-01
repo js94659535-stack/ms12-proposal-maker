@@ -7,6 +7,7 @@ import { checkPlan } from '../public/rfp/rfp-read.js';
 import { LAYOUT, estimatePages } from './page-estimate.js';
 import { PENDING } from '../public/plan/workspace.js';
 import { judgeCriteria, restatesNotice } from './criteria-check.js';
+import { choicesSheet } from '../public/plan/choices.js';
 
 export const MAX_PARAGRAPH = 300;
 export { PENDING };
@@ -298,19 +299,10 @@ export function checkMarks(text) {
   }];
 }
 
-// 사장이 고를 목록: [제안] 줄을 절마다 모은다. 사실 줄은 출처별로 센다.
-export function choiceSheet(text, title = '') {
-  const out = [`# 고를 것 — ${title}`, '', '「[제안]」은 우리가 새로 내놓는 것이다. 쓸 것에 표시한다. 「[사실]」 줄은 자료에서 온 것이라 목록에 넣지 않았다(초안에서 확인).', ''];
-  let heading = '';
-  for (const line of String(text).split('\n')) {
-    const h = line.match(/^#{2,4}\s+(.*)/);
-    if (h) { heading = h[1]; out.push(`## ${heading}`); continue; }
-    if (line.includes(MARK_PROPOSAL)) {
-      const body = line.trim().replace(/^\|/, '').replace(/\|$/, '').replace(MARKED_LINE, '').replace(/\*\*/g, '').replace('[제안]', '').replace(/\s*\|\s*/g, ' | ').trim();
-      out.push(`- [ ] ${body}`);
-    }
-  }
-  return out.filter((line, index, all) => !(line.startsWith('## ') && (!all[index + 1] || all[index + 1].startsWith('## ')))).join('\n');
+// 사장이 고를 목록 — 화면과 같은 갈래(약속 묶음 · 채울 값 · 문구)로. 가르는 일은 public/plan/choices.js 한 곳에서(11-10).
+// section: 그 장(절과 배점), checks: 그 장의 검사 결과(점수 줄 표시에 쓴다).
+export function choiceSheet(text, title = '', { section = null, checks = [] } = {}) {
+  return choicesSheet(text, { title, parts: (section?.parts || []).map(part => ({ key: part.key, title: part.title, score: part.score })), checks });
 }
 
 // ---------- 비용 ----------

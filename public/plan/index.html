@@ -39,7 +39,7 @@
   .need ul { margin:4px 0; padding-left:18px; }
   .need .meta { color:var(--sub); font-size:12px; }
   .draft { white-space:pre-wrap; font-size:14px; line-height:1.75; }
-  .draft mark { background:var(--hold-soft); color:var(--hold); border-radius:4px; padding:0 3px; font-weight:700; }
+  .draft mark, .choose mark { background:var(--hold-soft); color:var(--hold); border-radius:4px; padding:0 3px; font-weight:700; }
   .note { color:var(--sub); font-size:13px; }
   .q { margin:4px 0; padding-left:18px; font-size:14px; }
   details { margin-top:16px; padding:12px 16px; }
@@ -47,6 +47,20 @@
   table { width:100%; border-collapse:collapse; font-size:13px; margin-top:8px; }
   th, td { text-align:left; vertical-align:top; padding:6px 8px; border-bottom:1px solid var(--line); }
   th { color:var(--sub); font-weight:600; width:30%; }
+  .choose { margin-top:16px; padding:14px 16px; }
+  .choose h2 { font-size:15px; font-weight:800; margin:0 0 4px; }
+  .choose h3 { font-size:13px; color:var(--muted); font-weight:700; margin:14px 0 6px; }
+  .grp { border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:0 0 8px; }
+  .grp.done { border-color:var(--go); }
+  .grp .top { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; font-size:14px; font-weight:700; }
+  .grp .top small { color:var(--sub); font-weight:400; }
+  .grp ul { margin:6px 0 0; padding-left:0; list-style:none; font-size:13px; line-height:1.6; }
+  .grp li label { display:flex; gap:6px; align-items:flex-start; }
+  .grp .warn { color:var(--hold); font-size:12px; margin-left:22px; }
+  .grp .acts button { margin-left:6px; }
+  .grp .acts button.on { background:var(--go); color:var(--go-ink); border-color:var(--go); }
+  .star { color:var(--hold); font-size:12px; font-weight:700; }
+  .choose details { margin-top:10px; padding:10px 12px; border:1px solid var(--line); border-radius:10px; }
   @media (max-width:900px) { .cols { grid-template-columns:minmax(0,1fr); } .steps { grid-template-columns:repeat(2, minmax(0,1fr)); } }
 </style>
 </head>
@@ -69,6 +83,8 @@
     <div class="card"><h2>우리 초안 <button class="btn sm" id="marks" type="button" hidden>표시 보기</button></h2><div id="draft"></div></div>
   </div>
 
+  <div class="card choose" id="choose" hidden></div>
+
   <details class="card" id="rulesBox" hidden><summary>하드 제약 · 출력 규칙</summary><div id="rules"></div></details>
 </main>
 <script type="module">
@@ -76,13 +92,14 @@ import { extractHwpxText } from '../lib/hwpx-text.js';
 import { extractHwpDocument } from '../lib/hwp-text.js';
 import { readPlan } from '../rfp/rfp-plan.js';
 import { STEPS, chaptersOf, sortDraftFiles, coverage, pendingsOf, questionsOf, daysLeft, nextStep } from './workspace.js';
+import { choicesOf } from './choices.js';
 
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]);
 const won = value => `${Number(value).toLocaleString('ko-KR')}원`;
 
 // 화면이 들고 있는 것은 올린 글뿐이다. 판정은 workspace.js와 readPlan이 한다.
-const state = { noticeText: '', noticeNames: [], project: null, facts: [], files: [], open: null, marks: false };
+const state = { noticeText: '', noticeNames: [], project: null, facts: [], files: [], open: null, marks: false, choices: {} };
 
 async function textOf(file) {
   const extension = file.name.split('.').pop().toLowerCase();
@@ -181,6 +198,44 @@ function drawDraft(d) {
   $('draft').innerHTML = `${fails}${pend.length ? `<p class="hold">비워 둔 곳 ${pend.length}: ${pend.map(item => esc(item.what)).join(' · ')}</p>` : ''}<div class="draft">${esc(text).replace(/^### (.*)$/gm, '<span class="h3">$1</span>').replace(/^## (.*)$/gm, '<span class="h2">$1</span>').replace(/\[확인 필요[^\]]*\]/g, match => `<mark>${match}</mark>`)}</div>${unmatched}`;
 }
 
+// 고를 것(11-10): 약속은 묶음마다 「다 할 수 있다 / 뺄 줄 있음」, 값은 빈 데 채우기로, 문구는 기본 채택(펼쳐 보기).
+// 정한 것은 이 화면에만 있다(새로고침하면 사라진다 — 작업대 전체와 같다).
+function drawChoose(d) {
+  const draft = d.drafts[state.open] || {};
+  const chapter = d.chapters.find(item => item.key === state.open);
+  $('choose').hidden = !(draft.draft && chapter);
+  if (!draft.draft || !chapter) return;
+  let checks = [];
+  try { checks = draft.checks ? JSON.parse(draft.checks) : []; } catch { checks = []; }
+  const c = choicesOf(draft.draft, { parts: chapter.parts.map(part => ({ key: part.key, title: part.title, score: part.score })), checks });
+  const lines = list => list.reduce((sum, entry) => sum + entry.lines.length, 0);
+  const decided = c.promises.filter(entry => state.choices[entry.id]?.status).length;
+  const label = entry => `${entry.part ? `${esc(entry.part)}${entry.score ? ` · ${entry.score}점` : ''} · ` : ''}${esc(entry.title)}`;
+  const star = line => line.score ? ' <span class="star">★점수 줄</span>' : '';
+  const promise = entry => {
+    const pick = state.choices[entry.id] || {};
+    const dropped = new Set(pick.dropped || []);
+    const items = entry.lines.map(line => pick.status === 'edit'
+      ? `<li><label><input type="checkbox" data-group="${esc(entry.id)}" data-line="${esc(line.id)}" ${dropped.has(line.id) ? '' : 'checked'}> <span>${esc(line.text)}${star(line)}</span></label>${line.score && dropped.has(line.id) ? '<div class="warn">이 줄은 채점 기준의 답으로 고른 줄입니다 — 빼면 그 답이 사라질 수 있습니다</div>' : ''}</li>`
+      : `<li>${esc(line.text)}${star(line)}</li>`).join('');
+    return `<div class="grp ${pick.status ? 'done' : ''}"><div class="top"><span>${label(entry)} <small>${entry.lines.length}줄</small></span><span class="acts"><button class="btn sm ${pick.status === 'ok' ? 'on' : ''}" data-ok="${esc(entry.id)}" type="button">다 할 수 있다</button><button class="btn sm ${pick.status === 'edit' ? 'on' : ''}" data-edit="${esc(entry.id)}" type="button">뺄 줄 있음</button></span></div><ul>${items}</ul></div>`;
+  };
+  const plainGroup = entry => `<div class="grp"><div class="top"><span>${label(entry)}</span></div><ul>${entry.lines.map(line => `<li>${esc(line.text).replace(/[확인 필요[^]]*]/g, match => `<mark>${match}</mark>`)}${star(line)}</li>`).join('')}</ul></div>`;
+  $('choose').innerHTML = `<h2>고를 것 — ${esc(chapter.title)}</h2>
+    <p class="note">제안 ${c.total}줄. 누를 것은 약속 ${c.promises.length}묶음입니다(정함 ${decided} / ${c.promises.length}). 문구는 그대로 쓰고, 값은 빈 데 채우기로 갑니다. 약속은 「활동 → 하는 일 → 결과물」 꼴이라 선정되면 협약 의무가 됩니다.</p>
+    <h3>할 수 있나 — 약속 ${c.promises.length}묶음 · ${lines(c.promises)}줄 (배점 큰 절부터)</h3>${c.promises.map(promise).join('') || '<p class="note">없음</p>'}
+    <h3>채울 값 — ${lines(c.values)}줄</h3>${c.values.map(plainGroup).join('') || '<p class="note">없음</p>'}
+    <details><summary>문구 ${lines(c.wording)}줄 — 기본 채택 · 펼쳐 보기</summary>${c.wording.map(plainGroup).join('')}</details>`;
+  const set = (id, patch) => { state.choices[id] = { ...(state.choices[id] || {}), ...patch }; draw(); };
+  $('choose').querySelectorAll('[data-ok]').forEach(button => button.onclick = () => set(button.dataset.ok, { status: 'ok', dropped: [] }));
+  $('choose').querySelectorAll('[data-edit]').forEach(button => button.onclick = () => set(button.dataset.edit, { status: 'edit' }));
+  $('choose').querySelectorAll('input[data-line]').forEach(box => box.onchange = () => {
+    const dropped = new Set(state.choices[box.dataset.group]?.dropped || []);
+    if (box.checked) dropped.delete(box.dataset.line); else dropped.add(box.dataset.line);
+    set(box.dataset.group, { dropped: [...dropped] });
+  });
+}
+
 function drawRules(d) {
   const c = d.result?.constraints;
   $('rulesBox').hidden = !c;
@@ -198,7 +253,7 @@ function drawRules(d) {
 
 function draw() {
   const d = derive();
-  drawSteps(d); drawHeader(d); drawNext(d); drawToc(d); drawNeed(d); drawDraft(d); drawRules(d);
+  drawSteps(d); drawHeader(d); drawNext(d); drawToc(d); drawNeed(d); drawDraft(d); drawChoose(d); drawRules(d);
 }
 
 async function loadNotice(files) {
