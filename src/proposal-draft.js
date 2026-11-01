@@ -6,6 +6,7 @@
 import { checkPlan } from '../public/rfp/rfp-read.js';
 import { LAYOUT, estimatePages } from './page-estimate.js';
 import { PENDING } from '../public/plan/workspace.js';
+import { judgeCriteria } from './criteria-check.js';
 
 export const MAX_PARAGRAPH = 300;
 export { PENDING };
@@ -20,7 +21,9 @@ export const PRICES = {
   'claude-opus-5-5': { input: 4, output: 20, cacheWrite: 5, cacheRead: 0.2 },
   'claude-opus-5': { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 },
   'claude-opus-4-8': { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 },
-  'claude-sonnet-5-5': { input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2 }
+  'claude-sonnet-5-5': { input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2 },
+  // 채점 기준 판정자(11-02). 입력·출력은 가격표(10만 토큰 이하 프롬프트). 캐시는 쓰지 않아 캐시 칸은 셈한 값(입력의 1.25배·0.1배).
+  'claude-haiku-5-5': { input: 0.1, output: 0.5, cacheWrite: 0.125, cacheRead: 0.01 }
 };
 
 export function systemPrompt({ maxParagraph = MAX_PARAGRAPH } = {}) {
@@ -349,7 +352,8 @@ export function textOf(message) {
 // task_budget은 최소 20,000(medium 출력 전체 16,383보다 큼)이라 400(11-02 확인). low는 내용이 빠졌다(11-01) → medium.
 export const DEFAULT_EFFORT = 'medium';
 
-export async function draftSection({ client, model, effort = DEFAULT_EFFORT, rfpText, facts, project, section, constraints, plan = null, onUsage, krwPerUsd, now = () => new Date().toISOString() }) {
+// judge: 채점 기준마다 답한 자리가 있는지 판정자를 불러 본다(criteria-check.js). 끄려면 false.
+export async function draftSection({ client, model, effort = DEFAULT_EFFORT, rfpText, facts, project, section, constraints, plan = null, onUsage, krwPerUsd, judge = true, now = () => new Date().toISOString() }) {
   const stream = client.beta.messages.stream({
     model,
     max_tokens: 32000,
@@ -370,5 +374,6 @@ export async function draftSection({ client, model, effort = DEFAULT_EFFORT, rfp
   const text = textOf(message);
   const checks = checkDraft(text, { constraints, section, sources: [rfpText, ...facts.map(fact => fact.text)], project });
   if (message.stop_reason === 'max_tokens') checks.unshift({ level: 'fail', what: '출력이 잘림(max_tokens)', detail: '' });
+  if (judge) checks.push(...await judgeCriteria({ client, text, section, krwPerUsd, onUsage, now }));
   return { text, record, checks };
 }

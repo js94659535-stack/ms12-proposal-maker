@@ -3,13 +3,15 @@
 //        --project <project.json> --sections "사업 이해도,신규 프로그램" --out <폴더>
 //        [--model claude-opus-5-5] [--effort medium] [--krw 1400] [--dry-run]
 // --dry-run 은 API를 부르지 않고 보낼 프롬프트만 파일로 남긴다.
+// --recheck <폴더> 는 그 폴더의 draft_ 파일을 다시 쓰지 않고 검사만 다시 돌린다(채점 기준 판정자 호출 — 장당 몇 원).
 // 기록: <폴더>/usage.jsonl 에 호출마다 한 줄(prompt_tokens·completion_tokens·원화). 호출이 끝나는 즉시 쓴다.
 import fs from 'node:fs';
 import path from 'node:path';
 import { extractFile } from '../src/files.js';
 import { readPlan, writingUnits } from '../public/rfp/rfp-plan.js';
 import { draftFileLabel } from '../public/plan/workspace.js';
-import { draftSection, DEFAULT_EFFORT, systemPrompt, userContent, preferenceLines, choiceSheet, stripMarks } from '../src/proposal-draft.js';
+import { draftSection, DEFAULT_EFFORT, systemPrompt, userContent, preferenceLines, choiceSheet, stripMarks, checkDraft } from '../src/proposal-draft.js';
+import { judgeCriteria } from '../src/criteria-check.js';
 
 const args = process.argv.slice(2);
 const all = name => args.flatMap((arg, index) => arg === `--${name}` ? [args[index + 1]] : []);
@@ -64,12 +66,28 @@ if (flag('dry-run')) {
 const { default: Anthropic } = await import('@anthropic-ai/sdk');
 const client = new Anthropic();
 const usageFile = path.join(out, 'usage.jsonl');
+const onUsage = record => fs.appendFileSync(usageFile, `${JSON.stringify(record)}\n`);
+
+// --recheck <폴더>: 이미 쓴 draft_ 파일을 다시 쓰지 않고 검사만 다시 돌린다(규칙 검사 + 채점 기준 판정자). 결과는 --out에 checks_로.
+if (opt('recheck')) {
+  for (const section of sections) {
+    const name = fileName(section.title);
+    const text = fs.readFileSync(path.join(opt('recheck'), `draft_${name}.md`), 'utf8').trim();
+    const checks = [
+      ...checkDraft(text, { constraints, section, sources: [rfpText, ...facts.map(fact => fact.text)], project }),
+      ...await judgeCriteria({ client, text, section, krwPerUsd, onUsage })
+    ];
+    fs.writeFileSync(path.join(out, `checks_${name}.json`), JSON.stringify(checks, null, 2));
+    console.log(`${section.title} (${opt('recheck')})`);
+    for (const check of checks.filter(check => check.what.startsWith('채점 기준') || check.level === 'fail')) console.log(`  ${check.level === 'pass' ? '✔' : check.level === 'fail' ? '✖' : '!'} ${check.what} ${check.detail}`);
+  }
+}
+
 const summary = [];
-for (const section of sections) {
+for (const section of opt('recheck') ? [] : sections) {
   console.log(`${section.title} 쓰는 중…`);
   const result = await draftSection({
-    client, model, effort, rfpText, facts, project, section, constraints, plan, krwPerUsd,
-    onUsage: record => fs.appendFileSync(usageFile, `${JSON.stringify(record)}\n`)
+    client, model, effort, rfpText, facts, project, section, constraints, plan, krwPerUsd, onUsage
   });
   const name = fileName(section.title);
   // draft_ = 사장이 보는 본(줄마다 [제안]/[사실: 출처]), submit_ = 표시를 지운 제출본(쪽수 검사가 세는 글), choices_ = 고를 [제안] 목록
