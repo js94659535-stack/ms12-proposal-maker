@@ -63,7 +63,8 @@ export function sectionLines(chapters) {
     let part = chapter.title;
     for (const raw of String(chapter.text).split('\n')) {
       const heading = raw.match(/^###\s+(\S+)/);
-      if (heading) { part = heading[1]; continue; }
+      // 「### 1. 일반 현황」처럼 장 번호 없이 쓴 소제목은 그 장의 절로 읽는다(11-09 — Ⅱ장이 이렇게 써서 가리킴 검사가 「Ⅱ.2 본문 없음」으로 읽었다).
+      if (heading) { const bare = heading[1].match(/^(\d+)\.?$/); part = bare ? `${chapter.title}.${bare[1]}` : heading[1]; continue; }
       if (!raw.trim() || /^#/.test(raw)) continue;
       const text = plain(raw);
       if (letters(text).length >= MIN_LETTERS) lines.push({ part, text });

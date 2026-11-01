@@ -76,11 +76,20 @@ export function pointerVerdicts(pointers, chapters, answer) {
   return pointers.map(pointer => {
     const body = lines.filter(line => pointer.to.includes(line.part));
     const result = byId.get(pointer.id);
-    const kept = (result?.quotes || []).map(quote => plain(quote)).filter(quote => quote.length >= MIN_QUOTE)
-      .map(quote => body.find(line => squash(line.text).includes(squash(quote)))).filter(Boolean);
+    // 인용마다 남았는지·왜 떨어졌는지를 남긴다(11-09 — warn이 판정자의 「없음」인지 검사가 버린 인용인지 갈리지 않았다).
+    const checked = (result?.quotes || []).map(quote => {
+      // 요청에 본문 줄을 「Ⅱ.2 | 줄」로 보내니 판정자가 「Ⅱ.2 | 」까지 옮겨 왔다(11-09) — 우리가 붙인 머리이므로 떼고 본다.
+      const q = plain(String(quote).replace(/^\s*[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+(?:\.\d+)?\s*\|\s*/, ''));
+      if (q.length < MIN_QUOTE) return { quote, problem: '인용이 너무 짧다' };
+      const line = body.find(entry => squash(entry.text).includes(squash(q)));
+      return line ? { quote, line } : { quote, problem: '가리킨 절에 없는 줄' };
+    });
+    const kept = checked.filter(entry => entry.line).map(entry => entry.line);
+    const dropped = checked.filter(entry => entry.problem).map(entry => `「${plain(entry.quote).slice(0, 30)}」 ${entry.problem}`);
     const what = `가리킴 「${pointer.from} → ${pointer.to.length > 2 ? pointer.to[0].split('.')[0] : pointer.to.join('·')}」`;
     if (kept.length) return { level: 'pass', what, detail: `「${pointer.claim.slice(0, 40)}」 → ${kept[0].part} 「${kept[0].text.slice(0, 50)}」`, criterion: pointer.id };
-    return { level: 'warn', what, detail: `「${pointer.claim.slice(0, 40)}」 — ${pointer.to.join('·')}에 그 일을 하는 줄이 없다${result?.missing ? ` (${result.missing})` : ''}. 가리킨 쪽을 고치거나 가리킴 받는 쪽에 쓴다`, criterion: pointer.id };
+    const why = result ? (dropped.length ? `판정자 인용이 떨어짐: ${dropped.join(' · ')}` : `판정자가 줄을 고르지 않음${result.missing ? ` — ${result.missing}` : ''}`) : '판정자가 이 가리킴을 답하지 않음';
+    return { level: 'warn', what, detail: `「${pointer.claim.slice(0, 40)}」 — ${pointer.to.join('·')}에 그 일을 하는 줄이 없다 (${why}). 가리킨 쪽을 고치거나 가리킴 받는 쪽에 쓴다`, criterion: pointer.id, dropped };
   });
 }
 

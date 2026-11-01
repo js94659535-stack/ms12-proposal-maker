@@ -251,3 +251,19 @@ test('pair only: Ⅴ는 공고 위탁운영 범위 가운데 「관련 홈페이
   const wrongPair = writingUnits(wrong.plan).find(entry => entry.key === 'Ⅴ').parts[0].pair;
   assert.deepEqual([wrongPair.found, wrongPair.unmatched], [false, ['없는 항목']]);
 });
+
+test('금액 금지는 생성 요청에 없고 검사가 잡는다 — 「원」 아닌 꼴도(11-09)', async () => {
+  const { checkPlan } = await import('../public/rfp/rfp-read.js');
+  const rfpText = fs.readFileSync(new URL('./fixtures/rfp-unification-2027.txt', import.meta.url), 'utf8');
+  const project = JSON.parse(fs.readFileSync(new URL('../reports/10-05-unification/project.json', import.meta.url), 'utf8'));
+  const { plan, constraints } = readPlan(rfpText, { project });
+  assert.ok(constraints.prohibitions.length, '이 공고는 금액 표기를 금지한다');
+  const unit = writingUnits(plan).find(entry => entry.key === 'Ⅱ');
+  const request = userContent({ rfpText, facts: [], project, section: unit, constraints, plan })[1].text;
+  assert.doesNotMatch(request, /금액을 적지 않는다/);
+  // 분량 예고는 되돌렸다 — 넘으면 다시 써야 한다.
+  assert.match(request, /분량은 검사가 쪽수로 다시 센다/);
+  const caught = text => checkPlan(constraints, { text }).filter(check => check.what === '제안서에 금액을 적지 말 것').length;
+  for (const text of ['회당 50,000원', '강사비 30만원', '총 1억 2천만 원', '인건비 2,000만 원', '₩500,000', '500,000 KRW', 'USD 300']) assert.equal(caught(`- ${text}`), 1, text);
+  assert.equal(caught('- 2027년 4분기 성과평가'), 0);
+});

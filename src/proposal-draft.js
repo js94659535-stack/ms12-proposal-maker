@@ -35,7 +35,7 @@ export function systemPrompt() {
     '1. 사실은 함께 준 「기관 자료」와 「공고 원문」에 있는 것만 쓴다. 기관이 가진 인력·실적·시설·협약·인증은 기관 자료에 있을 때만 쓴다.',
     `2. 자료에 없는 사실·숫자(인원, 횟수, 목표치, 날짜, 기관 이름)는 지어내지 말고 「${PENDING}: 무엇이 필요한지]」로 비워 둔다. 목표 인원이나 횟수도 자료에 없으면 비워 둔다.`,
     '3. 숫자는 「규칙이 정한 숫자」 목록과 공고 원문·기관 자료에 나온 것만 쓴다.',
-    '4. 「금지」 목록에 있는 것은 쓰지 않는다. 금액 표기가 금지되어 있으면 금액을 한 번도 적지 않는다.',
+    '4. 「금지」 목록에 있는 것은 쓰지 않는다.',
     '5. 공동수급체 구성사의 역할분장은 사람이 정한다. 구성사 이름은 적어도 되지만 누가 무엇을 맡는지는 쓰지 말고 비워 둔다.',
     '6. 소제목은 요청에 적힌 대로 둔다(절마다 「### 절 번호와 이름」, 또는 평가내용 큰 줄마다 「### 큰 줄 글자 그대로」). 그 아래에서 작성내용을 모두 다루고 채점 기준에 답한다. 작은 줄(-)도 빠뜨리지 않는다.',
     '7. 활동·프로그램은 한 줄에 「활동 → 하는 일 → 결과물」 형식으로 쓴다. 결과물은 눈으로 확인할 수 있는 것(기록지, 보고서, 설문 결과 등)이다.',
@@ -69,7 +69,8 @@ export function ruleLines(constraints) {
 
 export function prohibitionLines(constraints, project = {}) {
   return [
-    ...constraints.prohibitions.map(rule => `- 제안서에 금액을 적지 않는다 (공고: 「${rule.quote}」)`),
+    // 금액 금지는 지시하지 않는다 — 검사(checkPlan)가 잡고, 어기면 그 줄만 지우면 된다(11-09, 고치는 값 0원).
+    // 「규칙이 정한 숫자」에서 금액을 빼는 것(ruleLines)은 그대로 — 쓸 숫자를 주지 않는 것이지 지시가 아니다.
     // 사람이 정한 「쓰지 말 것」(project.json의 omit). 공고 규칙이 아니라 기관의 결정이다.
     ...(project?.omit || []).map(rule => `- 쓰지 않는다: ${rule.what} (기관 결정${rule.why ? `: ${rule.why}` : ''})`)
   ];
@@ -81,9 +82,10 @@ const budget = pages => `권장 ${pages}쪽 = 약 ${Math.round(pages * LAYOUT.li
 function unitRequest(unit, plan) {
   const points = list => list.map(point => [`- ${point.point}`, ...point.details.map(detail => `  - ${detail}`)].join('\n'));
   const lines = [
-    // 11-08: 「절마다 소제목…」(지킬 것 6과 같은 말)과 「분량은 검사가 다시 센다 … 탈락으로 본다」(검사가 잡는다는 예고)는 뺐다.
-    // 소제목·분량 규칙 자체는 지킬 것 6·11에 남는다. reports/11-08-prompt/instructions.md
-    `이번에 쓸 장: 「${unit.title}」 (붙은 배점 ${unit.score}점${unit.pages ? `, ${budget(unit.pages)}` : ''})`
+    // 11-08: 「절마다 소제목…」(지킬 것 6과 같은 말)은 뺐다. reports/11-08-prompt/instructions.md
+    `이번에 쓸 장: 「${unit.title}」 (붙은 배점 ${unit.score}점${unit.pages ? `, ${budget(unit.pages)}` : ''})`,
+    // 분량 예고는 되돌렸다(11-09) — 뺀 판(11-08)에서 Ⅱ장이 8.07/7.5쪽으로 넘쳤다. 넘으면 다시 써야 해서 700원, 앞에서 지키면 0원.
+    ...(unit.pages ? [`분량은 검사가 쪽수로 다시 센다. 절마다 적힌 줄 수를 넘기면 그 절은 탈락으로 본다. 장 제목 줄도 장 분량에 든다.`] : [])
   ];
   for (const part of unit.parts) {
     lines.push('', `### ${part.key} ${part.title}${part.pages ? ` (${budget(part.pages.value)})` : ''}`);

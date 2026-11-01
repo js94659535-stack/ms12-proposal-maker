@@ -56,3 +56,9 @@ test('11-03 한 편: Ⅴ장 글머리 하나, 「공정한 참여 기준」은 �
   assert.deepEqual(fair.map(check => check.parts), [['Ⅱ.2', 'Ⅲ.2', 'Ⅴ']]);
   assert.equal(repeats.length, 6);
 });
+
+test('「### 1. 일반 현황」처럼 장 번호 없는 소제목은 그 장의 절로 읽는다(11-09)', async () => {
+  const { sectionLines } = await import('../src/plan-checks.js');
+  const lines = sectionLines([{ title: 'Ⅱ', text: ['## Ⅱ. 사업운영계획', '### 1. 일반 현황', '- [제안] 사업총괄책임자 아래 상담·교육·운영 부문을 둔다', '### 2. 프로그램 운영 계획', '- [제안] 마음건강 검사 → 성격검사 후 해석 상담 → 해석지'].join('\n') }]);
+  assert.deepEqual(lines.map(line => line.part), ['Ⅱ.1', 'Ⅱ.2']);
+});

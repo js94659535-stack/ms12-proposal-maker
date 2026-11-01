@@ -55,3 +55,12 @@ test('가리킨 줄은 가리킴 받는 장의 생성 요청에 넣지 않는다
   const request = userContent({ rfpText: '', facts: [], project: {}, section, constraints, incoming: pointersOf(chapters) })[1].text;
   assert.doesNotMatch(request, /가리킨 줄|수시보고/);
 });
+
+test('판정자가 요청의 「Ⅴ | 」 머리까지 옮겨 와도 그 줄로 본다 — 머리는 우리가 붙인 것이다(11-09)', () => {
+  const rows = pointerVerdicts(pointers, chapters, { results: [{ id: pointers[2].id, quotes: ['Ⅴ | 홈페이지 게시 → 과정 일정·신청 안내·결과 소식 게시 → 게시 기록'], missing: '' }] });
+  assert.equal(rows[2].level, 'pass', rows[2].detail);
+  // 머리를 뗀 뒤에도 가리킨 절에 없는 줄이면 떨어지고, 왜 떨어졌는지 남는다.
+  const wrong = pointerVerdicts(pointers, chapters, { results: [{ id: pointers[2].id, quotes: ['Ⅴ | 지어낸 홈페이지 게시 줄입니다'], missing: '' }] });
+  assert.equal(wrong[2].level, 'warn');
+  assert.match(wrong[2].detail, /가리킨 절에 없는 줄/);
+});

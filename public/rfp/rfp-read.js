@@ -395,6 +395,13 @@ export function checkPlan(constraints, plan = {}) {
       if (constraints.prohibitions.length) results.push({ level: 'fail', what: '제안서에 금액을 적지 말 것', detail: `본문에 「${match[0].trim()}」` });
       else if (!known.has(won)) results.push({ level: 'warn', what: 'RFP에 없는 금액', detail: `본문에 「${match[0].trim()}」 — 근거를 확인할 것` });
     }
+    // 금액 금지는 생성 지시에서 빼고 검사만 맡는다(11-09). 「원」으로 끝나지 않는 꼴(₩500,000 · 500,000 KRW · USD 300)도 잡는다.
+    // 한글 수사(「오백만원」)는 못 잡는다 — 수사 낱말 목록이 필요하다(대원칙 ⑤).
+    if (constraints.prohibitions.length) {
+      for (const match of String(plan.text).matchAll(/(?:₩|\$|USD|KRW)\s*\d[\d,.]*|\d[\d,.]*\s*(?:KRW|USD|달러)/g)) {
+        results.push({ level: 'fail', what: '제안서에 금액을 적지 말 것', detail: `본문에 「${match[0].trim()}」` });
+      }
+    }
   }
   return results;
 }
