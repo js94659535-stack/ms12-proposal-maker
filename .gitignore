@@ -11,3 +11,6 @@ dist/
 제안서/
 # 프로젝트 전체를 한 파일로 뜬 것. 소스가 통째로 중복되고 용량이 크다.
 snapshot.md
+
+# 빌드가 node_modules에서 복사하는 화면용 읽기 도구(11-18). 출처는 node_modules 하나.
+public/lib/vendor/

@@ -1158,3 +1158,8 @@ OCR도 같은 일을 겪었다 — 조사 때 10원으로 보았고 실제는 84
   - 도구 쪽은 같은 판의 legacy pdf.js + `pdfDocumentText`로 쟀다. **실제 도구(`tools/proposal-draft.mjs` → `extractFile`)는 Node에서 PDF를 못 연다** — `import('pdfjs-dist')`가 브라우저 빌드를 불러 `DOMMatrix is not defined`. 11-18 전부터 그랬다(11-15에서도). 고치지 않았다(⑥).
 - worker: 화면에서 CDN `pdf.worker.min.mjs` 200, 진짜 worker(blob) 안에서 돈다. worker 주소를 막으면 「PDF를 열지 못했습니다 — Setting up fake worker failed …」 경고, 공고 칸은 빈 채로(`reports/11-18-pdf/`).
 - 시험 231 → 231.
+- **이어서(같은 날)**: 위 커밋(`8b286ac`)은 `test/workspace.test.js:78`(「/plan/에 fetch(·http://·https:// 없음」, 10-12)을 깬 채로 들어갔다 — 시험과 커밋을 `&&`로 이었는데 시험 줄이 grep이라 실패해도 넘어갔다. 되돌리지 않고 위에 쌓았다.
+  - CDN을 버리고 **빌드가 node_modules의 pdf.min.mjs · pdf.worker.min.mjs · mammoth.browser.min.js를 `public/lib/vendor/`로 복사**해 같은 주소에서 낸다(`tools/build.mjs` `copyVendor`). 사본은 올리지 않는다(.gitignore) — 출처는 node_modules 하나. 약 2.3MB.
+  - 시험 78은 그대로. 231 통과.
+  - 다시 잼: 화면 쪽 43쪽 · 25,975자(도구 쪽 43쪽 · 25,975자와 같다). pdf.js·worker 모두 `/lib/vendor/`에서 200, 바깥 주소 요청 0. DOCX 21자. worker에 404를 주면 「PDF를 열지 못했습니다 — Setting up fake worker failed …」 경고, 공고 칸은 빈 채로.
+  - 화면을 로컬에서 띄우려면 먼저 `npm run build`(vendor 사본이 생긴다).

@@ -143,9 +143,11 @@ function download(name, text) {
   setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 }
 
-// PDF·DOCX 읽는 판은 고정한다(11-18) — Node 도구(node_modules)와 같은 판이라야 같은 글자가 나온다.
-const PDFJS = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.2.108/build';
-const MAMMOTH = 'https://cdn.jsdelivr.net/npm/mammoth@1.12.0/mammoth.browser.min.js';
+// PDF·DOCX 읽는 도구는 node_modules의 그 판을 빌드가 /lib/vendor/로 복사해 같은 주소에서 낸다(11-18, tools/build.mjs).
+// Node 도구와 같은 판이라야 같은 글자가 나온다. 바깥 주소는 두지 않는다.
+const VENDOR = new URL('../lib/vendor/', location.href).href;
+const PDFJS = VENDOR.replace(/\/$/, '');
+const MAMMOTH = `${VENDOR}mammoth.browser.min.js`;
 let mammothReady = null;
 const loadMammoth = () => mammothReady ||= new Promise((resolve, reject) => {
   const script = Object.assign(document.createElement('script'), { src: MAMMOTH, onload: () => resolve(window.mammoth), onerror: () => { mammothReady = null; reject(new Error('DOCX 읽기 도구를 불러오지 못했습니다 — 인터넷 연결을 확인하세요')); } });
