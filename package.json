@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "node tools/build.mjs",
-    "test": "node --test",
-    "check": "node --test",
+    "test": "node --test \"test/**/*.test.js\"",
+    "check": "node --test \"test/**/*.test.js\"",
     "cf:dev": "wrangler pages dev dist",
     "cf:deploy": "wrangler pages deploy dist"
   },
