@@ -1150,3 +1150,11 @@ OCR도 같은 일을 겪었다 — 조사 때 10원으로 보았고 실제는 84
 - 목차표 없음(맞음) · 평가표 못 찾음(틀림 — 붙임 5에 100점 표가 있다. 다만 어린이집 사실 체크라 글로 쓸 목차는 아니다) · 「양식 기반」으로 물러남(이름뿐, 하는 일 없음).
 - 하드 제약: 금액 23(다른 값 약 11, 서식 빈칸 「000백만원」을 10,000원으로 오독 1) · 한도 15(다른 값 7, 이름 모두 빈칸 → checkPlan이 한 바구니로 묶음) · 비율 3(인건비 60% 이내 + 변경승인 문턱 둘) · 기한 0 · 쪽수 0 · 금액 금지 0.
 - 깨지는 것: PDF 추출에 탭 0 → 표 읽기 전부 못 함(제일 큼) · 머리 「배점」만 봄(여긴 「점수」) · 목차표 머리·로마숫자 전제 · 양식 기반 미구현 · 한 공고에 사업 둘 · 서식 빈칸을 값으로 · 756자/줄 많은 절 문턱이 통일부 실측.
+
+## 11-18 PDF 줄·칸 맞춤을 한 곳으로 · /plan/에서 PDF·DOCX 읽기 — 수정 완료 (11-17 폐기)
+- `pageText`를 `public/lib/pdf-text.js`로 옮기고 쪽 이음까지 `pdfDocumentText`로 묶었다. `src/files.js`는 거기서 가져다 쓴다(`pageText`는 그대로 내보냄).
+- /plan/: pdf.js 6.2.108 · mammoth 1.12.0을 jsDelivr 고정 판으로 불러 읽는다(node_modules와 같은 판). accept — 공고 `.hwpx,.hwp,.pdf,.docx,.txt,.json`, 기관 자료 `.hwpx,.hwp,.pdf,.docx,.txt`. 공고 칸에 읽어낸 쪽 수(PDF)·글자 수를 보인다.
+- **같은 PDF(농촌 2027 지침)를 양쪽에서**: 도구 쪽 43쪽 · 25,975자 / 화면 쪽 43쪽 · 25,975자. DOCX(시험용 두 줄) 21자 / 21자.
+  - 도구 쪽은 같은 판의 legacy pdf.js + `pdfDocumentText`로 쟀다. **실제 도구(`tools/proposal-draft.mjs` → `extractFile`)는 Node에서 PDF를 못 연다** — `import('pdfjs-dist')`가 브라우저 빌드를 불러 `DOMMatrix is not defined`. 11-18 전부터 그랬다(11-15에서도). 고치지 않았다(⑥).
+- worker: 화면에서 CDN `pdf.worker.min.mjs` 200, 진짜 worker(blob) 안에서 돈다. worker 주소를 막으면 「PDF를 열지 못했습니다 — Setting up fake worker failed …」 경고, 공고 칸은 빈 채로(`reports/11-18-pdf/`).
+- 시험 231 → 231.

@@ -4,6 +4,10 @@ import { extractHwpDocument } from '../public/lib/hwp-text.js';
 import { HWP_CONVERT_GUIDE, decodeZipName, readZipFiles, readZipEntries, zipEntryNames, hwpxGuideBoxes, hwpxSectionText, hwpxSections, extractHwpxText } from '../public/lib/hwpx-text.js';
 export { HWP_CONVERT_GUIDE, decodeZipName, readZipFiles, zipEntryNames, hwpxGuideBoxes, hwpxSectionText, hwpxSections, extractHwpxText };
 
+// PDF 줄·칸 맞춤은 화면(/plan/)과 같이 쓰는 한 곳에 있다(11-18).
+import { pageText, pdfDocumentText } from '../public/lib/pdf-text.js';
+export { pageText };
+
 import { loadModule } from './module-loader.js';
 import { isImageType } from '../server/ocr.js';
 
@@ -29,37 +33,6 @@ export const REASON = Object.freeze({
 // 표 개수를 센다. HWPX·DOCX는 태그를, HWP는 개체 식별자를 본다.
 function countXmlTables(xml, tag) {
   return (String(xml || '').match(new RegExp(`<(?:\\w+:)?${tag}(?=[\\s>])`, 'g')) || []).length;
-}
-
-// PDF 한 쪽의 글자 조각을 줄과 칸으로 되돌린다.
-//
-// 조각을 공백 하나로 이어 붙이면 한 쪽이 한 줄이 되고, 서식의 라벨과 값이 한 덩어리로 붙는다.
-// 실제 사업자등록증명원에서 「상 호 ( 법 인 명 ) 주식회사 ○○」가 다른 칸의 글자들과 이어져
-// 기관명·대표자·소재지를 한 건도 읽지 못했다. HWP 표에서 행을 되살린 것과 같은 결이다.
-//
-// 줄은 pdf.js가 알려 주는 줄 끝(hasEOL)으로 나누고, 칸은 조각 사이가 글자 하나쯤 벌어졌는지로 본다.
-// 위치는 pdf.js가 주는 값을 그대로 쓴다 — 짐작하지 않는다.
-export function pageText(items = []) {
-  const lines = [];
-  let line = '';
-  let previousEnd = null;
-  for (const item of items) {
-    if (!item.str) {
-      if (item.hasEOL) { lines.push(line); line = ''; previousEnd = null; }
-      continue;
-    }
-    const left = item.transform?.[4] ?? 0;
-    const unit = Math.abs(item.transform?.[0] ?? 10) || 10;
-    if (previousEnd !== null) {
-      const gap = left - previousEnd;
-      line += gap > unit * 0.9 ? '\t' : gap > unit * 0.15 ? ' ' : '';
-    }
-    line += item.str;
-    previousEnd = left + (item.width ?? 0);
-    if (item.hasEOL) { lines.push(line); line = ''; previousEnd = null; }
-  }
-  if (line) lines.push(line);
-  return lines.join('\n').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 export async function extractFile(file, options = {}) {
@@ -135,13 +108,7 @@ export async function extractFile(file, options = {}) {
       if (/Password/i.test(message)) throw new Error(`${file.name}: ${REASON.encrypted}`);
       throw new Error(`${file.name}: ${REASON.damaged}`);
     }
-    const pages = [];
-    for (let pageNo = 1; pageNo <= pdf.numPages; pageNo += 1) {
-      const page = await pdf.getPage(pageNo);
-      const content = await page.getTextContent();
-      pages.push(`[${pageNo}쪽]\n${pageText(content.items)}`);
-    }
-    const text = pages.join('\n\n');
+    const text = await pdfDocumentText(pdf);
     // 쪽은 있는데 글자가 거의 없으면 스캔본이다. 전에는 여기서 돌려보냈고, 이제 이 자리가 사진 읽기로 가는 문이다.
     if (text.replace(/\[\d+쪽\]/g, '').trim().length < 20) {
       if (!options.readImages) throw new Error(`${file.name}: ${REASON.scanned}`);

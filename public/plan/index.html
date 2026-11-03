@@ -101,6 +101,7 @@
 <script type="module">
 import { extractHwpxText } from '../lib/hwpx-text.js';
 import { extractHwpDocument } from '../lib/hwp-text.js';
+import { pdfDocumentText } from '../lib/pdf-text.js';
 import { readPlan } from '../rfp/rfp-plan.js';
 import { STEPS, chaptersOf, sortDraftFiles, coverage, pendingsOf, questionsOf, daysLeft, nextStep } from './workspace.js';
 import { choicesOf } from './choices.js';
@@ -142,13 +143,41 @@ function download(name, text) {
   setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 }
 
-async function textOf(file) {
+// PDF·DOCX 읽는 판은 고정한다(11-18) — Node 도구(node_modules)와 같은 판이라야 같은 글자가 나온다.
+const PDFJS = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.2.108/build';
+const MAMMOTH = 'https://cdn.jsdelivr.net/npm/mammoth@1.12.0/mammoth.browser.min.js';
+let mammothReady = null;
+const loadMammoth = () => mammothReady ||= new Promise((resolve, reject) => {
+  const script = Object.assign(document.createElement('script'), { src: MAMMOTH, onload: () => resolve(window.mammoth), onerror: () => { mammothReady = null; reject(new Error('DOCX 읽기 도구를 불러오지 못했습니다 — 인터넷 연결을 확인하세요')); } });
+  document.head.append(script);
+});
+
+// 글자와 쪽 수(PDF만 — 다른 형식은 쪽을 모른다, null).
+async function readOne(file) {
   const extension = file.name.split('.').pop().toLowerCase();
-  if (['txt', 'md', 'json'].includes(extension)) return file.text();
-  if (extension === 'hwpx') return extractHwpxText(await file.arrayBuffer());
-  if (extension === 'hwp') return (await extractHwpDocument(await file.arrayBuffer())).text;
-  throw new Error('HWPX·HWP·TXT만 읽습니다');
+  if (['txt', 'md', 'json'].includes(extension)) return { text: await file.text(), pages: null };
+  if (extension === 'hwpx') return { text: await extractHwpxText(await file.arrayBuffer()), pages: null };
+  if (extension === 'hwp') return { text: (await extractHwpDocument(await file.arrayBuffer())).text, pages: null };
+  if (extension === 'pdf') {
+    let pdfjs;
+    try { pdfjs = await import(`${PDFJS}/pdf.min.mjs`); } catch { throw new Error('PDF 읽기 도구를 불러오지 못했습니다 — 인터넷 연결을 확인하세요'); }
+    pdfjs.GlobalWorkerOptions.workerSrc = `${PDFJS}/pdf.worker.min.mjs`;
+    let pdf;
+    try { pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise; } catch (error) {
+      throw new Error(/Password/i.test(String(error?.name || error?.message)) ? '암호가 걸린 PDF입니다' : `PDF를 열지 못했습니다 — ${error?.message || '손상되었거나 읽기 도구가 오지 않았습니다'}`);
+    }
+    const text = await pdfDocumentText(pdf);
+    if (text.replace(/\[\d+쪽\]/g, '').trim().length < 20) throw new Error('글자가 없는 스캔 PDF로 보입니다 — 글자를 인식한 PDF나 원본 문서로 올려 주세요');
+    return { text, pages: pdf.numPages };
+  }
+  if (extension === 'docx') {
+    const mammoth = await loadMammoth();
+    const result = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
+    return { text: result.value, pages: null };
+  }
+  throw new Error('HWPX·HWP·PDF·DOCX·TXT만 읽습니다');
 }
+const textOf = async file => (await readOne(file)).text;
 
 function derive() {
   const result = state.noticeText ? readPlan(state.noticeText, { project: state.project || undefined }) : null;
@@ -168,14 +197,15 @@ function derive() {
 
 function drawSteps(d) {
   const info = {
-    notice: state.noticeText ? `${state.noticeNames.join(', ')}${d.plan ? ` · ${d.chapters.length}장` : ''}` : '아직 없음',
+    // 읽어낸 글자 수(와 PDF면 쪽 수) — 도구로 읽은 것과 같은지 눈으로 견준다(11-18).
+    notice: state.noticeText ? `${state.noticeNames.join(', ')}${state.noticePages ? ` · ${state.noticePages}쪽` : ''} · ${state.noticeText.length.toLocaleString('ko-KR')}자${d.plan ? ` · ${d.chapters.length}장` : ''}` : '아직 없음',
     facts: state.facts.length ? `${state.facts.length}개 · ${state.facts.reduce((acc, fact) => acc + fact.text.length, 0).toLocaleString('ko-KR')}자` : '아직 없음',
     questions: d.questions.length ? `남은 질문 ${d.questions.length}개` : '모두 답함',
     draft: `${d.cov.done} / ${d.cov.of}장${d.pendings.length ? ` · 빈 곳 ${d.pendings.length}` : ''}`
   };
   const inputs = {
-    notice: '<input id="noticeFile" type="file" accept=".hwpx,.hwp,.txt,.json" multiple title="공고(HWPX·HWP·TXT)와 기관이 정한 것(project.json)">',
-    facts: '<input id="factFile" type="file" accept=".hwpx,.hwp,.txt" multiple title="연혁·실적 등 기관 자료">',
+    notice: '<input id="noticeFile" type="file" accept=".hwpx,.hwp,.pdf,.docx,.txt,.json" multiple title="공고(HWPX·HWP·PDF·DOCX·TXT)와 기관이 정한 것(project.json)">',
+    facts: '<input id="factFile" type="file" accept=".hwpx,.hwp,.pdf,.docx,.txt" multiple title="연혁·실적 등 기관 자료">',
     questions: '',
     draft: '<input id="draftFile" type="file" accept=".md,.json" multiple title="생성 도구가 만든 draft_·submit_·choices_·checks_ 파일">'
   };
@@ -358,13 +388,15 @@ function openSaved() {
 async function loadNotice(files) {
   const texts = [];
   const names = [];
+  let pages = 0;
   for (const file of files) {
     try {
       if (/\.json$/i.test(file.name)) { state.project = JSON.parse(await file.text()); continue; }
-      texts.push(await textOf(file)); names.push(file.name);
+      const read = await readOne(file);
+      texts.push(read.text); names.push(file.name); pages += read.pages || 0;
     } catch (error) { alert(`${file.name} — ${error.message}`); }
   }
-  if (texts.length) { state.noticeText = texts.join('\n\n'); state.noticeNames = names; openSaved(); }
+  if (texts.length) { state.noticeText = texts.join('\n\n'); state.noticeNames = names; state.noticePages = pages || null; openSaved(); }
   draw();
 }
 async function loadFacts(files) {
