@@ -65,6 +65,9 @@
   .savebar { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin:10px 0 0; font-size:13px; color:var(--sub); }
   .savebar .bad { margin:0; }
   .savebar .acts { display:flex; gap:6px; flex-wrap:wrap; }
+  .orgask { display:flex; align-items:center; gap:6px; flex-wrap:wrap; width:100%; padding:10px 12px; border:1px solid var(--brand); border-radius:10px; background:var(--card); color:var(--ink); }
+  .orgask input { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:8px; min-width:0; max-width:180px; }
+  .step select { display:block; max-width:100%; margin-top:6px; font:inherit; font-size:12px; padding:4px 6px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--ink); }
   .fill { display:flex; gap:6px; align-items:center; margin:4px 0 0 0; }
   .fill input { flex:1; min-width:0; padding:5px 8px; font:inherit; font-size:13px; border:1px solid var(--line); border-radius:8px; }
   .fill input.done { border-color:var(--go); }
@@ -81,11 +84,13 @@
 </div></header>
 <main>
   <div class="head"><div><h1 id="title">새 계획서</h1>
-  <p class="sub" id="meta">공고 파일부터 올리세요. 파일은 이 브라우저 안에서만 읽고 어디로도 보내지 않습니다. 올린 파일은 새로고침하면 다시 올려야 하고, 고른 것·채운 값은 이 브라우저에 공고마다 따로 남습니다.</p></div></div>
+  <p class="sub" id="meta">공고 파일부터 올리세요. 파일은 이 브라우저 안에서만 읽고 어디로도 보내지 않습니다. 올린 파일은 새로고침하면 다시 올려야 하고, 고른 것·채운 값은 이 브라우저에 공고마다 따로 남습니다. 기관 자료는 「내 자료」로 저장해 두면 다음 공고부터 고르기만 합니다.</p></div></div>
 
   <div class="steps" id="steps"></div>
+  <div class="savebar" id="orgbar"></div>
   <div class="savebar" id="savebar" hidden></div>
   <input id="importFile" type="file" accept=".json" hidden>
+  <input id="orgImport" type="file" accept=".json" hidden>
   <div class="next" id="next"></div>
   <div class="covrow"><span id="covText"></span><div class="bar"><i id="cov" style="width:0;transition:width .8s cubic-bezier(.2,.7,.2,1)"></i></div></div>
 
@@ -107,6 +112,7 @@ import { readPlan } from '../rfp/rfp-plan.js';
 import { STEPS, chaptersOf, sortDraftFiles, coverage, pendingsOf, questionsOf, daysLeft, nextStep } from './workspace.js';
 import { choicesOf } from './choices.js';
 import { noticeKey, emptySaved, writeSaved, readSaved, exportFile, importFile, savedLabel } from './saved.js';
+import { listOrgs, readOrg, writeOrg, orgExists, orgName, unexported, exportOrgs, readOrgsFile, restoreOrgs, orgDate } from './org.js';
 
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]);
@@ -114,7 +120,8 @@ const won = value => `${Number(value).toLocaleString('ko-KR')}원`;
 
 // 화면이 들고 있는 것은 올린 글과 사람이 정한 것(saved)뿐이다. 판정은 workspace.js와 readPlan이 한다.
 // saved = 고른 것·채운 값·질문 답·약속으로 옮긴 줄(11-12). 공고마다 다른 칸(saved.js noticeKey)에 고를 때마다 바로 남긴다.
-const state = { noticeText: '', noticeNames: [], project: null, facts: [], files: [], open: null, marks: false, saved: emptySaved(), key: null, saveStatus: null };
+// org = 지금 쓰는 기관 서랍 이름(11-26, org.js). askSave = 파일을 올린 뒤 「내 자료로 저장할까요?」를 묻는 중.
+const state = { noticeText: '', noticeNames: [], project: null, facts: [], files: [], open: null, marks: false, saved: emptySaved(), key: null, saveStatus: null, org: null, askSave: false, orgNote: '' };
 
 // 저장소를 여는 것부터 막힐 수 있다(사생활 보호 창 등) — 던지지 않고 null.
 const store = (() => { try { return window.localStorage; } catch { return null; } })();
@@ -199,22 +206,27 @@ function derive() {
 }
 
 function drawSteps(d) {
+  const orgs = listOrgs(store);
   const info = {
     // 읽어낸 글자 수(와 PDF면 쪽 수) — 도구로 읽은 것과 같은지 눈으로 견준다(11-18).
     notice: state.noticeText ? `${state.noticeNames.join(', ')}${state.noticePages ? ` · ${state.noticePages}쪽` : ''} · ${state.noticeText.length.toLocaleString('ko-KR')}자${d.plan ? ` · ${d.chapters.length}장` : ''}` : '아직 없음',
-    facts: state.facts.length ? `${state.facts.length}개 · ${state.facts.reduce((acc, fact) => acc + fact.text.length, 0).toLocaleString('ko-KR')}자` : '아직 없음',
+    facts: state.facts.length ? `${state.org ? `✓ ${state.org} (내 자료) · ` : ''}${state.facts.length}개 · ${state.facts.reduce((acc, fact) => acc + fact.text.length, 0).toLocaleString('ko-KR')}자` : '아직 없음',
     questions: d.questions.length ? `남은 질문 ${d.questions.length}개` : '모두 답함',
     draft: `${d.cov.done} / ${d.cov.of}장${d.pendings.length ? ` · 빈 곳 ${d.pendings.length}` : ''}`
   };
   const inputs = {
     notice: '<input id="noticeFile" type="file" accept=".hwpx,.hwp,.pdf,.docx,.txt,.json" multiple title="공고(HWPX·HWP·PDF·DOCX·TXT)와 기관이 정한 것(project.json)">',
-    facts: '<input id="factFile" type="file" accept=".hwpx,.hwp,.pdf,.docx,.txt" multiple title="연혁·실적 등 기관 자료">',
+    // 서랍을 쓰는 중이면 파일 칸 대신 [바꾸기] — 지금 무엇을 넣었는지 늘 보이게, 다른 기관 자료가 섞이지 않게(11-26).
+    facts: state.org ? '<button class="btn sm" id="orgChange" type="button">바꾸기</button>'
+      : `<input id="factFile" type="file" accept=".hwpx,.hwp,.pdf,.docx,.txt" multiple title="연혁·실적 등 기관 자료">${orgs.length ? `<select id="orgPick" title="저장해 둔 기관 자료"><option value="">내 자료 불러오기 ▾</option>${orgs.map(org => `<option value="${esc(org.name)}">${esc(org.name)} · ${orgDate(org.savedAt)} 저장</option>`).join('')}<option value="+">+ 새 기관 만들기(파일 올리기)</option></select>` : ''}`,
     questions: '',
     draft: '<input id="draftFile" type="file" accept=".md,.json" multiple title="생성 도구가 만든 draft_·submit_·choices_·checks_ 파일">'
   };
   $('steps').innerHTML = STEPS.map((step, index) => `<div class="step ${d.next.step === step.key ? 'now' : ''}"><b><i>${index + 1}</i>${esc(step.name)}</b><span>${esc(info[step.key])}</span>${inputs[step.key]}</div>`).join('');
   $('noticeFile').addEventListener('change', event => loadNotice([...event.target.files]));
-  $('factFile').addEventListener('change', event => loadFacts([...event.target.files]));
+  if ($('factFile')) $('factFile').addEventListener('change', event => loadFacts([...event.target.files]));
+  if ($('orgPick')) $('orgPick').onchange = event => { const name = event.target.value; event.target.value = ''; if (name === '+') $('factFile').click(); else if (name) useOrg(name); };
+  if ($('orgChange')) $('orgChange').onclick = () => { state.org = null; state.facts = []; state.askSave = false; state.orgNote = ''; draw(); };
   $('draftFile').addEventListener('change', event => loadDrafts([...event.target.files]));
 }
 
@@ -243,6 +255,43 @@ function drawSave() {
   $('exportBtn').onclick = () => download(`고른것_${(state.project?.notice || state.noticeNames[0] || '계획서').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 40)}.json`, exportFile(state.saved, { key: state.key, notice: state.project?.notice || state.noticeNames.join(', ') }));
   $('importBtn').onclick = () => $('importFile').click();
   if ($('projectBtn')) $('projectBtn').onclick = () => download('project.json', `${JSON.stringify(projectWithAnswers(), null, 2)}\n`);
+}
+// 기관 서랍 줄(11-26): 올린 뒤 「내 자료로 저장할까요?」, 내보낸 뒤 바뀐 서랍이 있으면 「내보내 두세요」, 서랍 전부 내보내기·되살리기.
+// 브라우저 데이터를 지우면 서랍이 사라진다 — 되살릴 길은 내보낸 파일뿐이라 이 줄은 늘 보인다.
+function drawOrg() {
+  const orgs = listOrgs(store);
+  const pending = unexported(orgs);
+  const ask = state.askSave ? `<span class="orgask"><b>올린 자료(${state.facts.length}개)를 내 자료로 저장할까요?</b> 기관 이름 <input id="orgName" type="text" placeholder="예: 마인드스토리" value="${esc(state.orgDraft || '')}"> <button class="btn sm" id="orgSave" type="button">저장</button><button class="btn sm" id="orgSkip" type="button">저장 안 함</button></span>` : '';
+  const status = !store ? '<span class="bad">이 브라우저는 저장소를 주지 않아 내 자료를 남길 수 없습니다</span>'
+    : orgs.length ? `<span class="${pending.length ? 'bad' : ''}">내 자료 ${orgs.length}곳${pending.length ? ` — ${pending.map(esc).join(', ')}: 내보낸 뒤 바뀜. 브라우저 데이터를 지우면 사라지니 「내 자료 내보내기」로 파일에 남겨 두세요` : ' · 모두 내보내 둠'}</span>`
+    : '<span class="note">내 자료 없음 — 기관 자료를 올리면 저장할지 묻습니다</span>';
+  $('orgbar').innerHTML = `${ask}${state.orgNote ? `<span class="note">${esc(state.orgNote)}</span>` : ''}${status}<span class="acts">${orgs.length ? '<button class="btn sm" id="orgExport" type="button">내 자료 내보내기</button>' : ''}<button class="btn sm" id="orgImportBtn" type="button">내 자료 파일 불러오기</button></span>`;
+  if ($('orgName')) $('orgName').oninput = event => { state.orgDraft = event.target.value; };
+  if ($('orgSave')) $('orgSave').onclick = () => saveOrg($('orgName').value);
+  if ($('orgSkip')) $('orgSkip').onclick = () => { state.askSave = false; state.orgNote = '저장하지 않았습니다 — 이 공고에서만 씁니다'; draw(); };
+  if ($('orgExport')) $('orgExport').onclick = () => { download(`내자료_${orgDate(new Date().toISOString())}.json`, exportOrgs(store)); state.orgNote = ''; draw(); };
+  $('orgImportBtn').onclick = () => $('orgImport').click();
+}
+function useOrg(name) {
+  const read = readOrg(store, name);
+  if (!read.ok || !read.org) { state.orgNote = `「${name}」 — 읽지 못했습니다${read.reason ? ` — ${read.reason}` : ''}`; draw(); return; }
+  state.facts = read.org.facts.map(fact => ({ ...fact }));
+  state.org = read.org.name;
+  state.askSave = false;
+  state.orgNote = '';
+  draw();
+}
+function saveOrg(raw) {
+  const name = orgName(raw);
+  if (!name) { state.orgNote = '기관 이름을 적어 주세요'; draw(); return; }
+  if (orgExists(store, name) && !confirm(`「${name}」 — 내 자료에 이미 있습니다. 지금 올린 자료로 바꿀까요?`)) return;
+  const result = writeOrg(store, name, state.facts);
+  if (!result.ok) { state.orgNote = `저장 안 됨 — ${result.reason}. 이 공고에서는 그대로 씁니다`; draw(); return; }
+  state.org = result.name;
+  state.askSave = false;
+  state.orgDraft = '';
+  state.orgNote = `「${result.name}」 — 내 자료로 저장했습니다. 다음 공고부터 목록에서 고르면 됩니다`;
+  draw();
 }
 const showSaved = () => { if ($('saveText')) { $('saveText').textContent = savedLabel(state.saveStatus); $('saveText').className = state.saveStatus?.ok ? '' : 'bad'; } };
 
@@ -380,7 +429,7 @@ function drawRules(d) {
 
 function draw() {
   const d = derive();
-  drawSteps(d); drawHeader(d); drawSave(); drawNext(d); drawToc(d); drawNeed(d); drawDraft(d); drawChoose(d); drawRules(d);
+  drawSteps(d); drawHeader(d); drawOrg(); drawSave(); drawNext(d); drawToc(d); drawNeed(d); drawDraft(d); drawChoose(d); drawRules(d);
 }
 
 // 공고가 정해지면 그 공고의 칸을 연다. 다른 공고를 올리면 다른 칸 — 섞이지 않는다.
@@ -407,12 +456,27 @@ async function loadNotice(files) {
   if (texts.length) { state.noticeText = texts.join('\n\n'); state.noticeNames = names; state.noticePages = pages || null; openSaved(); }
   draw();
 }
+// 올린 뒤 저장할지 묻는다 — 올리자마자 몰래 저장하지 않는다(11-26).
 async function loadFacts(files) {
+  let added = 0;
   for (const file of files) {
-    try { state.facts.push({ source: file.name, text: await textOf(file) }); } catch (error) { alert(`${file.name} — ${error.message}`); }
+    try { state.facts.push({ source: file.name, text: await textOf(file) }); added += 1; } catch (error) { alert(`${file.name} — ${error.message}`); }
   }
+  if (added) { state.askSave = true; state.orgNote = ''; }
   draw();
 }
+// 내 자료 파일 불러오기: 서랍을 되살린다. 이미 있는 이름은 덮을지 하나씩 묻는다.
+$('orgImport').addEventListener('change', async event => {
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (!file) return;
+  const read = readOrgsFile(await file.text(), store);
+  if (!read.ok) { alert(`${file.name} — ${read.reason}`); return; }
+  const skip = read.clash.filter(name => !confirm(`「${name}」 — 내 자료에 이미 있습니다. 파일의 것으로 바꿀까요?`));
+  const result = restoreOrgs(store, read.orgs, { skip, exportedAt: read.exportedAt });
+  state.orgNote = `되살림 ${result.written.length}곳${result.written.length ? `(${result.written.join(', ')})` : ''}${skip.length ? ` · 그대로 둠 ${skip.join(', ')}` : ''}${result.failed.length ? ` · 못 넣음 ${result.failed.join(', ')}` : ''}`;
+  if (state.org && result.written.includes(state.org)) useOrg(state.org); else draw();
+});
 async function loadDrafts(files) {
   for (const file of files) state.files = [...state.files.filter(item => item.name !== file.name), { name: file.name, text: await file.text() }];
   draw();
