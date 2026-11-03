@@ -8,6 +8,7 @@ import { LAYOUT, estimatePages } from './page-estimate.js';
 import { PENDING } from '../public/plan/workspace.js';
 import { judgeCriteria, restatesNotice, partBodies } from './criteria-check.js';
 import { choicesSheet } from '../public/plan/choices.js';
+import { openingDateOf, beforeOpening } from '../public/lib/opening.js';
 
 export const MAX_PARAGRAPH = 300;
 export { PENDING };
@@ -198,9 +199,10 @@ export function quantitiesOf(text) {
 }
 
 // 쓴 글을 규칙과 자료에 견준다. level: fail(어김) · warn(사람이 볼 것) · pass
-export function checkDraft(text, { constraints, section, sources, project }) {
+export function checkDraft(text, { constraints, section, sources, project, facts }) {
   const results = [];
   for (const result of checkPlan(constraints, { text })) results.push(result);
+  if (facts) results.push(...checkOpening(text, facts));
 
   // 출처 없는 숫자: 공고 원문·기관 자료·규칙 어디에도 없는 「숫자+단위」
   const known = new Set();
@@ -277,6 +279,23 @@ export function checkDraft(text, { constraints, section, sources, project }) {
   const pending = (text.match(/\[확인 필요[^\]]*\]/g) || []);
   results.push({ level: pending.length ? 'warn' : 'pass', what: `비워 둔 곳 ${pending.length}곳`, detail: pending.slice(0, 20).join(' · ') });
   return results;
+}
+
+// 개업일 전 실적(11-25): 「[사실: 기관 자료]」 줄에 개업일 전 날짜가 나오면 잡는다. 개업일은 기관 자료(facts)에서 읽는다.
+// [제안] 줄과 공고 줄은 보지 않는다 — 공고의 「2019년 이후」나 제안의 연도는 법인 실적이 아니다.
+// 틀림없이 전(「2020~」)은 fail, 개업일을 걸치는 해(「2021」만)는 warn. 개업일을 못 읽으면 짐작하지 않고 warn으로 남긴다.
+export function checkOpening(text, facts) {
+  const opening = openingDateOf(facts);
+  const what = '개업일 전 실적';
+  if (!opening.date) return [{ level: 'warn', what, detail: `보지 않았다 — ${opening.reason}` }];
+  const results = [];
+  for (const line of String(text).split('\n').filter(line => /\[사실:\s*기관 자료/.test(line))) {
+    const { before, unsure } = beforeOpening(stripMarks(line), opening.date);
+    const quote = `「${stripMarks(line).trim().slice(0, 60)}」`;
+    if (before.length) results.push({ level: 'fail', what, detail: `${quote} — ${before.join('·')}: 개업일 ${opening.date} 전` });
+    else if (unsure.length) results.push({ level: 'warn', what, detail: `${quote} — ${unsure.join('·')}: 달이 없어 개업일 ${opening.date} 전인지 모른다` });
+  }
+  return results.length ? results : [{ level: 'pass', what, detail: `개업일 ${opening.date}` }];
 }
 
 // 분량: 출처 표시를 지운 제출본을 한글 실측 셈법(page-estimate.js)으로 쪽수로 바꿔 절·장의 권장 쪽수와 견준다. 넘으면 fail.
@@ -439,7 +458,7 @@ export async function draftSection({ client, model, effort = DEFAULT_EFFORT, rfp
   if (message.stop_reason === 'refusal') return { text: '', record, refused: true, checks: [{ level: 'fail', what: '모델이 쓰기를 거절함', detail: JSON.stringify(message.stop_details || null) }] };
   const tidied = tidyDraft(textOf(message));
   const text = tidied.text;
-  const checks = checkDraft(text, { constraints, section, sources: [rfpText, ...facts.map(fact => fact.text)], project });
+  const checks = checkDraft(text, { constraints, section, sources: [rfpText, ...facts.map(fact => fact.text)], project, facts: facts.map(fact => fact.text) });
   if (message.stop_reason === 'max_tokens') checks.unshift({ level: 'fail', what: '출력이 잘림(max_tokens)', detail: '' });
   checks.push(...tidied.notes);
   if (judge) checks.push(...await judgeCriteria({ client, text, section, krwPerUsd, onUsage, now }));

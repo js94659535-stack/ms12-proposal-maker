@@ -102,7 +102,7 @@ if (opt('recheck')) {
     const name = fileName(section.title);
     const text = fs.readFileSync(path.join(opt('recheck'), `draft_${name}.md`), 'utf8').trim();
     const checks = [
-      ...checkDraft(text, { constraints, section, sources: [rfpText, ...facts.map(fact => fact.text)], project }),
+      ...checkDraft(text, { constraints, section, sources: [rfpText, ...facts.map(fact => fact.text)], project, facts: facts.map(fact => fact.text) }),
       ...await judgeCriteria({ client, text, section, krwPerUsd, onUsage })
     ];
     fs.writeFileSync(path.join(out, `checks_${name}.json`), JSON.stringify(checks, null, 2));
