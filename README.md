@@ -9,5 +9,6 @@
 - `tools/career-final.mjs` 한글(HWPX)·PDF·안내서·제출 준비 점검 파일을 만든다. `--mode "최종 제출본"` 은 게이트를 통과해야 한다
 - `tools/build.mjs` 배포용 빌드(`npm run build`) — public 을 dist 로 복사한다
 - `docs/work-log.md` 작업 기록, `reports/` 산출물
+- `.githooks/pre-commit` 커밋 전에 `npm test` — 실패하면 커밋이 안 된다. 새로 받은 곳에서는 한 번 `git config core.hooksPath .githooks`
 
 배포: `main` 에 push 하면 Cloudflare Pages 가 `dist` 를 올린다. 도메인과 Secret 설정은 Cloudflare 대시보드에 그대로 있다.

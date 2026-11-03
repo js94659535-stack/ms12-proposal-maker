@@ -1181,3 +1181,10 @@ OCR도 같은 일을 겪었다 — 조사 때 10원으로 보았고 실제는 84
 - 확인: 농촌 2027 지침 — 도구 「읽음: notice.pdf · 43쪽 · 25,975자」 / 화면 「notice.pdf · 43쪽 · 25,975자」. 목차가 없어 API 부르기 전에 exit 2(돈 안 듦).
 - `tools/career-final.mjs`도 `extractFile`을 쓴다 — PDF를 넣으면 같은 데서 멈출 것이다. 손대지 않았다.
 - 시험 232 그대로.
+
+## 11-20 가. pre-commit에 npm test — 수정 완료
+- `.githooks/pre-commit`(저장소에 올림) + 이 저장소 `core.hooksPath=.githooks`. 시험이 하나라도 실패하면 커밋이 안 된다. 결과를 grep으로 거르지 않고 `npm test`의 종료 코드를 본다(11-18 실수).
+- 확인: 일부러 실패하는 시험 하나를 넣고 커밋 → 「pre-commit: npm test 실패 — 커밋하지 않았다」, exit 1, 커밋 안 생김. 시험 파일을 지운 뒤 이 커밋은 훅을 지나 들어갔다.
+- 새로 받은 곳에서는 `git config core.hooksPath .githooks` 한 번(README). `npm install` 때 저절로 걸게(prepare) 하지 않았다 — Cloudflare 빌드의 install에서도 돌아 거기서 깨질 수 있다.
+- 적어 둠(사용자, 11-19): 도구가 PDF를 legacy로 여는 고침은 지금 `tools/proposal-draft.mjs` 한 곳. 도구가 셋째로 늘면 `src/files.js`에서 Node인지 가려 legacy를 부르게 옮긴다.
+- 배포: 11-16·11-18·11-19를 `main` 푸시로 올렸다(`a2162bc..d6007c2`).

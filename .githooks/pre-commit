@@ -1,0 +1,12 @@
+#!/bin/sh
+# 커밋 전에 시험을 돌린다(11-20). 하나라도 실패하면 커밋이 안 된다.
+# 결과를 grep 등으로 거르지 않는다 — 11-18에 그렇게 해서 실패한 커밋이 들어갔다.
+# 건너뛰려면 git commit --no-verify (쓰지 않는 것이 원칙).
+out=$(npm test 2>&1)
+status=$?
+if [ $status -ne 0 ]; then
+  printf '%s\n' "$out" | grep -E '^(✖|ℹ (tests|pass|fail))' | head -20
+  echo "pre-commit: npm test 실패 — 커밋하지 않았다."
+  exit 1
+fi
+printf '%s\n' "$out" | grep -E '^ℹ (tests|pass|fail)' | tr '\n' ' '; echo
