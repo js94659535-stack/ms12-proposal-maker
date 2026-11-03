@@ -1174,3 +1174,10 @@ OCR도 같은 일을 겪었다 — 조사 때 10원으로 보았고 실제는 84
 - 화면 확인(헤드리스 Chrome): 설문 문항 시안 빼기 → 줄 긋기·「뺌 1」 → 새로고침 후 그대로 → 받기로 되돌림 → 저장 `Ⅱ|Ⅱ.3|설문 문항 시안(…)|문구 = take`. `reports/11-16-wording/drop.png`.
 - `tools/plan-persist-check.mjs`는 11-13부터 깨져 있다 — 「roles」 질문 칸이 없어졌는데(역할분장 정함) 그 칸에 값을 넣으려 한다. 고치지 않았다.
 - 시험 231 → 232.
+
+## 11-19 도구가 PDF를 연다 — 수정 완료
+- `tools/proposal-draft.mjs`: `.pdf`는 pdf.js의 Node용(legacy) 빌드로 열고 줄·칸은 `public/lib/pdf-text.js`(`pdfDocumentText`)로 맞춘다. 그 밖의 형식은 전처럼 `extractFile`. `public/lib/pdf-text.js`·`src/files.js`는 그대로.
+- 읽은 파일마다 「읽음: 이름 · N쪽 · N자」를 찍는다(화면 공고 칸과 견주려고).
+- 확인: 농촌 2027 지침 — 도구 「읽음: notice.pdf · 43쪽 · 25,975자」 / 화면 「notice.pdf · 43쪽 · 25,975자」. 목차가 없어 API 부르기 전에 exit 2(돈 안 듦).
+- `tools/career-final.mjs`도 `extractFile`을 쓴다 — PDF를 넣으면 같은 데서 멈출 것이다. 손대지 않았다.
+- 시험 232 그대로.

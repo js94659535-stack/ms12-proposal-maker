@@ -11,6 +11,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { extractFile } from '../src/files.js';
+import { pdfDocumentText } from '../public/lib/pdf-text.js';
 import { readPlan, writingUnits } from '../public/rfp/rfp-plan.js';
 import { draftFileLabel } from '../public/plan/workspace.js';
 import { draftSection, DEFAULT_EFFORT, systemPrompt, userContent, preferenceLines, choiceSheet, stripMarks, checkDraft } from '../src/proposal-draft.js';
@@ -23,9 +24,22 @@ const all = name => args.flatMap((arg, index) => arg === `--${name}` ? [args[ind
 const opt = (name, fallback) => all(name)[0] ?? fallback;
 const flag = name => args.includes(`--${name}`);
 
+// PDF는 pdf.js의 Node용(legacy) 빌드로 연다 — 브라우저 빌드(src/files.js가 부르는 것)는 Node에서 DOMMatrix가 없어 멈춘다(11-18).
+// 줄·칸 맞춤은 화면과 같은 한 곳(public/lib/pdf-text.js)을 쓴다. 판은 node_modules 하나 — 화면도 빌드가 같은 판을 복사해 쓴다.
+async function readPdf(file, bytes) {
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const pdf = await pdfjs.getDocument({ data: new Uint8Array(bytes), verbosity: 0 }).promise;
+  const text = await pdfDocumentText(pdf);
+  // 글자가 거의 없으면 스캔본 — 읽은 척하지 않는다(src/files.js와 같은 문턱).
+  if (text.replace(/\[\d+쪽\]/g, '').trim().length < 20) throw new Error(`${path.basename(file)}: 글자가 없는 스캔 PDF로 보입니다.`);
+  return { text, pages: pdf.numPages };
+}
+
 async function readText(file) {
   const bytes = fs.readFileSync(file);
-  const result = await extractFile(new File([bytes], path.basename(file)));
+  const result = /\.pdf$/i.test(file) ? await readPdf(file, bytes) : await extractFile(new File([bytes], path.basename(file)));
+  // 읽어낸 쪽·글자 — 화면(/plan/ 공고 칸)과 같은 숫자인지 견준다.
+  console.log(`읽음: ${path.basename(file)}${result.pages ? ` · ${result.pages}쪽` : ''} · ${result.text.length.toLocaleString('ko-KR')}자`);
   return result.text;
 }
 
