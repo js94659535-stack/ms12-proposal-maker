@@ -10,23 +10,37 @@
 //
 // 줄은 pdf.js가 알려 주는 줄 끝(hasEOL)으로 나누고, 칸은 조각 사이가 글자 하나쯤 벌어졌는지로 본다.
 // 위치는 pdf.js가 주는 값을 그대로 쓴다 — 짐작하지 않는다.
+//
+// 공백(" ") 조각의 폭은 쓰지 않는다(11-21). 농촌 2027 지침에서 그 폭이 실제 빈자리의 8.34배(43쪽 915개)라
+// 앞 조각 끝이 다음 글자보다 오른쪽에 잡혀 벌어짐이 음수가 되고 탭이 하나도 안 나왔다(11-20). 배수로 나누지 않는다 —
+// 그건 그 글꼴의 사정이다. 벌어짐은 앞뒤 글자 조각의 x와 폭으로만 잰다. 공백 조각의 글자는 그대로 둔다.
+// 공백 조각이 사이에 있으면 그 공백이 이미 띄어 쓰므로 탭(문턱을 넘을 때)만 더한다 — 공백을 하나 더 넣지 않는다.
+const blank = item => item.str.trim() === '';
 export function pageText(items = []) {
   const lines = [];
   let line = '';
   let previousEnd = null;
+  let spaced = false;
   for (const item of items) {
     if (!item.str) {
-      if (item.hasEOL) { lines.push(line); line = ''; previousEnd = null; }
+      if (item.hasEOL) { lines.push(line); line = ''; previousEnd = null; spaced = false; }
+      continue;
+    }
+    if (blank(item)) {
+      line += item.str;
+      spaced = true;
+      if (item.hasEOL) { lines.push(line); line = ''; previousEnd = null; spaced = false; }
       continue;
     }
     const left = item.transform?.[4] ?? 0;
     const unit = Math.abs(item.transform?.[0] ?? 10) || 10;
     if (previousEnd !== null) {
       const gap = left - previousEnd;
-      line += gap > unit * 0.9 ? '\t' : gap > unit * 0.15 ? ' ' : '';
+      line += gap > unit * 0.9 ? '\t' : !spaced && gap > unit * 0.15 ? ' ' : '';
     }
     line += item.str;
     previousEnd = left + (item.width ?? 0);
+    spaced = false;
     if (item.hasEOL) { lines.push(line); line = ''; previousEnd = null; }
   }
   if (line) lines.push(line);
