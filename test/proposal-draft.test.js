@@ -127,7 +127,7 @@ test('제안·사실 표시: 글머리 줄과 표 줄에 없으면 fail, 표 머
   assert.match(mark.detail, /일정/);
   const sheet = choiceSheet(text, 'Ⅰ. 개요');
   // 갈래(11-10): 「→ 꼴」이 아닌 제안은 문구 — 기본 채택으로 들어간다.
-  assert.match(sheet, /## 문구 2줄 — 기본 채택/);
+  assert.match(sheet, /## 문구 2묶음 · 2줄 — 묶음째 받기\/빼기, 기본은 받기/);
   assert.match(sheet, /  - 비전: 「마음을 잇다」/);
   assert.match(sheet, /  - 목표 \| 정착 지원/);
   assert.ok(!sheet.includes('2018년'));

@@ -3,7 +3,7 @@
 // 197줄을 하나씩 보게 하지 않는다. 묶음(「o」 줄과 그 아래 「-」 줄, 또는 「####」 소제목 아래)으로 모으고 셋으로 가른다.
 //   값   — 「[확인 필요]」가 든 줄. 고르는 일이 아니라 채우는 일이다(빈 데 채우기로).
 //   약속 — 「활동 → 하는 일 → 결과물」 꼴(지킬 것 7). 선정되면 협약 의무가 되고 결과물이 증빙이 된다. 「할 수 있나」를 사람이 묶음마다 정한다.
-//   문구 — 그 밖(비전·전략·설명). 기본 채택. 접어 두되 한 번은 훑을 수 있게 펼치기를 둔다.
+//   문구 — 그 밖(비전·전략·설명·설문 문항·일정). 묶음째 받기/빼기, 기본은 받기(11-16 C). 접어 두되 펼쳐 볼 수 있다.
 // 「→ 꼴」은 완벽한 기준이 아니다(약속인데 문구에 들어가는 줄이 있다). 써 보고 나오면 그때 고친다 — 낱말 목록으로 메우지 않는다(⑤).
 // 점수 줄 = 채점 기준·가리킴 판정이 「답」으로 고른 줄. 지우려 하면 알리기만 한다(관문을 두지 않는다).
 
@@ -80,8 +80,12 @@ export function choicesOf(text, { parts = [], checks = [], chapter = '', moved =
   // 사람이 옮긴 문구 줄은 한 묶음으로 따로 — 「할 수 있나」에서 같이 정한다.
   const movedLines = kept.flatMap(entry => entry.lines.filter(line => line.moved));
   if (movedLines.length) promises.push({ id: `${chapter}|옮김`, part: null, score: 0, title: '사람이 약속으로 옮긴 줄', kind: 'moved', lines: movedLines });
-  return { promises, wording: pick(line => line.tier === '문구' && !line.moved), values: pick(line => line.tier === '값'), total: kept.reduce((sum, entry) => sum + entry.lines.length, 0) };
+  // 문구는 묶음째 받기/빼기(11-16 C) — 설문 문항·연도별 일정·조직 설명은 말씨가 아니라 내용이라 한 번에 정한다. 기본은 받기.
+  // 열쇠는 「묶음 id|문구」 — 같은 묶음에 약속 줄과 문구 줄이 섞이면 묶음 id가 같아 고른 것이 섞인다.
+  const wording = pick(line => line.tier === '문구' && !line.moved).map(entry => ({ ...entry, pickId: wordingPickId(entry.id), hasScore: Boolean(entry.headScore) || entry.lines.some(line => line.score) }));
+  return { promises, wording, values: pick(line => line.tier === '값'), total: kept.reduce((sum, entry) => sum + entry.lines.length, 0) };
 }
+export const wordingPickId = groupId => `${groupId}|문구`;
 
 const count = list => list.reduce((sum, entry) => sum + entry.lines.length, 0);
 
@@ -91,12 +95,12 @@ export function choicesSheet(text, { title = '', parts = [], checks = [] } = {})
   // 머리 하나뿐인 묶음은 이름을 따로 보이지 않는다(그 줄이 곧 이름). 머리가 점수 줄이었으면 이름에 ★.
   const label = entry => [entry.part ? `${entry.part}${entry.score ? ` (${entry.score}점)` : ''}` : '', entry.standalone ? '' : `${entry.title}${entry.headScore ? ' ★점수 줄' : ''}`].filter(Boolean).join(' · ');
   const line = item => `  - ${item.text}${item.score ? ' ★점수 줄' : ''}`;
-  const out = [`# 고를 것 — ${title}`, '', `제안 ${total}줄. 누를 것은 약속 ${promises.length}묶음이다. 문구는 그대로 쓰고, 값은 빈 데 채우기로 간다. ★점수 줄은 판정이 채점 기준의 답으로 고른 줄이라 지우면 그 답이 사라질 수 있다.`, ''];
+  const out = [`# 고를 것 — ${title}`, '', `제안 ${total}줄. 누를 것은 약속 ${promises.length}묶음이다. 문구는 묶음째 받기/빼기(기본은 받기), 값은 빈 데 채우기로 간다. ★점수 줄은 판정이 채점 기준의 답으로 고른 줄이라 지우면 그 답이 사라질 수 있다.`, ''];
   out.push(`## 할 수 있나 — 약속 ${promises.length}묶음 · ${count(promises)}줄 (배점 큰 절부터)`, '');
   for (const entry of promises) out.push(`- [ ] 다 할 수 있다 / [ ] 뺄 줄 있음 — ${label(entry)}`, ...entry.lines.map(line), '');
   out.push(`## 채울 값 — ${count(values)}줄 (빈 데 채우기)`, '');
   for (const entry of values) out.push(`- ${label(entry)}`, ...entry.lines.map(line));
-  out.push('', `## 문구 ${count(wording)}줄 — 기본 채택 (고칠 것만 고친다)`, '');
-  for (const entry of wording) out.push(`- ${label(entry)}`, ...entry.lines.map(line));
+  out.push('', `## 문구 ${wording.length}묶음 · ${count(wording)}줄 — 묶음째 받기/빼기, 기본은 받기`, '');
+  for (const entry of wording) out.push(`- [x] 받기 / [ ] 빼기 — ${label(entry)}`, ...entry.lines.map(line));
   return out.join('\n');
 }

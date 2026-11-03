@@ -42,7 +42,20 @@ test('배점 큰 절부터 — 파일도 같은 갈래로', () => {
   assert.match(sheet, /누를 것은 약속 1묶음이다/);
   assert.match(sheet, /- \[ \] 다 할 수 있다 \/ \[ \] 뺄 줄 있음 — Ⅱ\.2 \(15점\) · 마음숲 심리 상담 과정/);
   assert.match(sheet, /정착 마음검사 .* ★점수 줄/);
-  assert.match(sheet, /## 문구 1줄 — 기본 채택/);
+  // 11-16 C: 문구는 묶음째 받기/빼기, 기본은 받기.
+  assert.match(sheet, /## 문구 1묶음 · 1줄 — 묶음째 받기\/빼기, 기본은 받기/);
+  assert.match(sheet, /- \[x\] 받기 \/ \[ \] 빼기 — Ⅱ\.1/);
+});
+
+test('문구 묶음의 열쇠는 약속 묶음과 섞이지 않는다 — 같은 묶음에 둘이 있어도(11-16 C)', async () => {
+  const { wordingPickId } = await import('../public/plan/choices.js');
+  const mixed = ['### 2. 운영', 'o [제안] 운영 축', '  - [제안] 상담 → 주 1회 → 상담일지', '  - [제안] 남북 언어 차이를 다루는 교육 자산'].join('\n');
+  const c = choicesOf(mixed, { parts: [{ key: 'Ⅱ.2', title: '운영', score: 15 }], chapter: 'Ⅱ' });
+  assert.equal(c.promises.length, 1);
+  assert.equal(c.wording.length, 1);
+  assert.equal(c.promises[0].id, c.wording[0].id);
+  assert.equal(c.wording[0].pickId, wordingPickId(c.promises[0].id));
+  assert.notEqual(c.wording[0].pickId, c.promises[0].id);
 });
 
 test('11-10 한 편: 168줄(머리 29줄은 이름만) → 약속 31묶음 · 값 32 · 문구 64, 이름이 줄로 또 나오지 않는다', async () => {

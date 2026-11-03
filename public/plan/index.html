@@ -52,6 +52,7 @@
   .choose h3 { font-size:13px; color:var(--muted); font-weight:700; margin:14px 0 6px; }
   .grp { border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:0 0 8px; }
   .grp.done { border-color:var(--go); }
+  .grp.off ul { color:var(--sub); text-decoration:line-through; }
   .grp .top { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; font-size:14px; font-weight:700; }
   .grp .top small { color:var(--sub); font-weight:400; }
   .grp ul { margin:6px 0 0; padding-left:0; list-style:none; font-size:13px; line-height:1.6; }
@@ -332,17 +333,22 @@ function drawChoose(d) {
   };
   // 값: 빈칸마다 칸 하나. id는 「장:몇째」 — 같은 이름표라도 자리가 다르면 다른 값이다.
   const valueGroup = entry => `<div class="grp"><div class="top"><span>${label(entry)}</span></div><ul>${entry.lines.map(line => `<li>${marked(line.text)}${star(line)}${line.pendings.map(item => `<div class="fill"><small>${esc(item.what)}</small><input data-value="${esc(item.id)}" class="${String(values[item.id] ?? '').trim() ? 'done' : ''}" value="${esc(values[item.id] ?? '')}" placeholder="채우면 바로 저장됩니다"></div>`).join('')}</li>`).join('')}</ul></div>`;
-  const wordingGroup = entry => `<div class="grp"><div class="top"><span>${label(entry)}</span></div><ul>${entry.lines.map(line => `<li>${marked(line.text)}${star(line)} <button class="move" data-move="${esc(line.id)}" data-text="${esc(line.text)}" data-part="${esc(line.part || '')}" data-group="${esc(line.groupTitle || '')}" type="button">약속으로 옮기기</button></li>`).join('')}</ul></div>`;
+  // 문구: 묶음째 받기/빼기(11-16 C). 기본은 받기 — 누르지 않아도 받은 것이다. 뺀 묶음에 점수 줄이 있으면 알리기만 한다.
+  const dropped = entry => picks[entry.pickId]?.status === 'drop';
+  const wordingGroup = entry => `<div class="grp ${dropped(entry) ? 'off' : ''}"><div class="top"><span>${label(entry)} <small>${entry.lines.length}줄</small></span><span class="acts"><button class="btn sm ${dropped(entry) ? '' : 'on'}" data-take="${esc(entry.pickId)}" type="button">받기</button><button class="btn sm ${dropped(entry) ? 'on' : ''}" data-drop="${esc(entry.pickId)}" type="button">빼기</button></span></div><ul>${entry.lines.map(line => `<li>${marked(line.text)}${star(line)} <button class="move" data-move="${esc(line.id)}" data-text="${esc(line.text)}" data-part="${esc(line.part || '')}" data-group="${esc(line.groupTitle || '')}" type="button">약속으로 옮기기</button></li>`).join('')}</ul>${dropped(entry) && entry.hasScore ? '<div class="warn">이 묶음에 채점 기준의 답으로 고른 줄이 있습니다 — 빼면 그 답이 사라질 수 있습니다</div>' : ''}</div>`;
+  const droppedCount = c.wording.filter(dropped).length;
   $('choose').innerHTML = `<h2>고를 것 — ${esc(chapter.title)}</h2>
-    <p class="note">제안 ${c.total}줄. 누를 것은 약속 ${c.promises.length}묶음입니다(정함 ${decided} / ${c.promises.length}). 값은 칸에 채웁니다(채움 ${filled} / ${valueCount}). 문구는 그대로 씁니다 — 약속인데 문구에 들어간 줄은 「약속으로 옮기기」. 약속은 「활동 → 하는 일 → 결과물」 꼴이라 선정되면 협약 의무가 됩니다.</p>
+    <p class="note">제안 ${c.total}줄. 누를 것은 약속 ${c.promises.length}묶음입니다(정함 ${decided} / ${c.promises.length}). 값은 칸에 채웁니다(채움 ${filled} / ${valueCount}). 문구는 묶음째 받기/빼기입니다(누르지 않으면 받기) — 약속인데 문구에 들어간 줄은 「약속으로 옮기기」. 약속은 「활동 → 하는 일 → 결과물」 꼴이라 선정되면 협약 의무가 됩니다.</p>
     <h3>할 수 있나 — 약속 ${c.promises.length}묶음 · ${lines(c.promises)}줄 (배점 큰 절부터)</h3>${c.promises.map(promise).join('') || '<p class="note">없음</p>'}
     <h3>채울 값 — ${valueCount}칸 (채움 ${filled})</h3>${c.values.map(valueGroup).join('') || '<p class="note">없음</p>'}
-    <details ${state.wordingOpen ? 'open' : ''}><summary>문구 ${lines(c.wording)}줄 — 기본 채택 · 펼쳐 보기</summary>${c.wording.map(wordingGroup).join('')}</details>`;
+    <details ${state.wordingOpen ? 'open' : ''}><summary>문구 ${c.wording.length}묶음 · ${lines(c.wording)}줄 — 묶음째 받기/빼기, 기본은 받기${droppedCount ? ` · 뺌 ${droppedCount}` : ''} · 펼쳐 보기</summary>${c.wording.map(wordingGroup).join('')}</details>`;
   const root = $('choose');
   const setPick = (id, patch) => change(saved => { saved.choices = { ...saved.choices, [id]: { ...(saved.choices?.[id] || {}), ...patch, at: new Date().toISOString() } }; });
   root.querySelector('details').ontoggle = event => { state.wordingOpen = event.target.open; };
   root.querySelectorAll('[data-ok]').forEach(button => button.onclick = () => setPick(button.dataset.ok, { status: 'ok', dropped: [] }));
   root.querySelectorAll('[data-edit]').forEach(button => button.onclick = () => setPick(button.dataset.edit, { status: 'edit' }));
+  root.querySelectorAll('[data-take]').forEach(button => button.onclick = () => setPick(button.dataset.take, { status: 'take' }));
+  root.querySelectorAll('[data-drop]').forEach(button => button.onclick = () => setPick(button.dataset.drop, { status: 'drop' }));
   root.querySelectorAll('input[data-line]').forEach(box => box.onchange = () => {
     const dropped = new Set(picks[box.dataset.group]?.dropped || []);
     if (box.checked) dropped.delete(box.dataset.line); else dropped.add(box.dataset.line);
